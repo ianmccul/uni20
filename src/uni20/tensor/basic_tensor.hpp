@@ -10,6 +10,7 @@
 #include "layout.hpp"
 
 #include <uni20/common/trace.hpp>
+#include <uni20/mdspan/device_mdspan.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/copy_into.hpp>
@@ -68,6 +69,21 @@ struct TensorAccessorFactory<StoragePolicy, std::void_t<typename StoragePolicy::
 
 template <class StoragePolicy> using tensor_accessor_factory_t = typename TensorAccessorFactory<StoragePolicy>::type;
 
+template <class AccessorFactory, class ElementType, class = void> struct TensorDeviceAccessor
+{
+    using type = typename AccessorFactory::template accessor_t<ElementType>;
+};
+
+template <class AccessorFactory, class ElementType>
+struct TensorDeviceAccessor<AccessorFactory, ElementType,
+                            std::void_t<typename AccessorFactory::template device_accessor_t<ElementType>>>
+{
+    using type = typename AccessorFactory::template device_accessor_t<ElementType>;
+};
+
+template <class AccessorFactory, class ElementType>
+using tensor_device_accessor_t = typename TensorDeviceAccessor<AccessorFactory, ElementType>::type;
+
 } // namespace detail
 
 /// \brief General-purpose owning tensor that exposes mdspan-based access.
@@ -94,6 +110,8 @@ class Tensor {
     using accessor_factory_type = AccessorFactory;
     using accessor_type = typename accessor_factory_type::template accessor_t<element_type>;
     using const_accessor_type = typename accessor_factory_type::template accessor_t<element_type const>;
+    using device_accessor_type = detail::tensor_device_accessor_t<accessor_factory_type, element_type>;
+    using const_device_accessor_type = detail::tensor_device_accessor_t<accessor_factory_type, element_type const>;
     using extents_type = Extents;
     using handle_type = typename const_accessor_type::data_handle_type;
     using mutable_handle_type = typename accessor_type::data_handle_type;
@@ -342,6 +360,41 @@ class Tensor {
       return const_mdspan_type(this->handle(), mapping_, this->accessor());
     }
 
+    /// \brief Return mutable mdspan metadata for explicit data-handle acquisition.
+    /// \details Immediate storage returns the ordinary mdspan. Descriptor-backed
+    ///          storage returns `device_mdspan` without acquiring its handle.
+    [[nodiscard]] auto device_mdspan() noexcept
+    {
+      if constexpr (requires { storage_policy::make_data_descriptor(data_); })
+      {
+        using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
+        using span_type =
+            uni20::device_mdspan<element_type, extents_type, layout_policy, device_accessor_type, descriptor_type>;
+        return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
+      }
+      else
+      {
+        return this->mdspan();
+      }
+    }
+
+    /// \brief Return read-only mdspan metadata for explicit data-handle acquisition.
+    /// \details Immediate storage returns the ordinary const mdspan.
+    [[nodiscard]] auto device_mdspan() const noexcept
+    {
+      if constexpr (requires { storage_policy::make_data_descriptor(data_); })
+      {
+        using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
+        using span_type = uni20::device_mdspan<element_type const, extents_type, layout_policy,
+                                               const_device_accessor_type, descriptor_type>;
+        return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
+      }
+      else
+      {
+        return this->mdspan();
+      }
+    }
+
     /// \brief Return the tensor's const storage handle.
     /// \return Handle addressing the beginning of the owned storage.
     [[nodiscard]] auto handle() const noexcept -> handle_type { return storage_policy::make_handle(data_); }
@@ -375,6 +428,24 @@ class Tensor {
     [[nodiscard]] auto accessor() const noexcept -> const_accessor_type
     {
       return accessor_factory_.template make_accessor<element_type const>(data_);
+    }
+
+    /// \brief Construct the accessor stored in a mutable device mdspan.
+    [[nodiscard]] auto device_accessor() noexcept -> device_accessor_type
+    {
+      if constexpr (requires { accessor_factory_.template make_device_accessor<element_type>(data_); })
+        return accessor_factory_.template make_device_accessor<element_type>(data_);
+      else
+        return this->accessor();
+    }
+
+    /// \brief Construct the accessor stored in a read-only device mdspan.
+    [[nodiscard]] auto device_accessor() const noexcept -> const_device_accessor_type
+    {
+      if constexpr (requires { accessor_factory_.template make_device_accessor<element_type const>(data_); })
+        return accessor_factory_.template make_device_accessor<element_type const>(data_);
+      else
+        return this->accessor();
     }
 
     /// \brief Return the number of elements in the mapped storage span.

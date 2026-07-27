@@ -571,6 +571,13 @@ template <typename T> class ReadAccess {
     /// \brief Return the typed device pointer for read-only CUDA work.
     [[nodiscard]] T const* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
 
+    /// \brief Return the CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T> const& storage() const
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released CUDA read access");
+      return *storage_;
+    }
+
     /// \brief Return the number of typed elements in the view.
     [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }
 
@@ -630,6 +637,20 @@ template <typename T> class WriteAccess {
     /// \brief Return the typed device pointer for mutating CUDA work.
     [[nodiscard]] T* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
 
+    /// \brief Return the mutable CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T>& storage()
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released CUDA write access");
+      return *storage_;
+    }
+
+    /// \brief Return the read-only CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T> const& storage() const
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released CUDA write access");
+      return *storage_;
+    }
+
     /// \brief Return the number of typed elements in the view.
     [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }
 
@@ -686,6 +707,13 @@ template <typename T> class BlockingReadAccess {
     /// \brief Return the typed device pointer for a blocking runtime operation.
     [[nodiscard]] T const* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
 
+    /// \brief Return the CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T> const& storage() const
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released blocking CUDA read access");
+      return *storage_;
+    }
+
     /// \brief Return the number of typed elements in the allocation.
     [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }
 
@@ -733,6 +761,20 @@ template <typename T> class BlockingWriteAccess {
 
     /// \brief Return the typed device pointer for a blocking runtime operation.
     [[nodiscard]] T* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
+
+    /// \brief Return the mutable CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T>& storage()
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released blocking CUDA write access");
+      return *storage_;
+    }
+
+    /// \brief Return the read-only CUDA buffer retained by this access object.
+    [[nodiscard]] CudaBuffer<T> const& storage() const
+    {
+      CHECK(storage_ != nullptr, "cannot inspect storage through a released blocking CUDA write access");
+      return *storage_;
+    }
 
     /// \brief Return the number of typed elements in the allocation.
     [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }

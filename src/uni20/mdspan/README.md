@@ -42,6 +42,9 @@ small helpers used by dense kernels and layout-aware algorithms.
   independent types may satisfy the concept directly. It preserves the actual
   mapping and accessor while intentionally exposing neither `data_handle()` nor
   element indexing.
+- `MutableDeviceSpanLike` refines eventual write capability through an
+  assignable accessor reference or explicit backend-writable accessor opt-in.
+  It does not add indexing to an unresolved descriptor.
 - `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
   observers. Code constrained by these concepts should not assume additional
   structural operations without adding the corresponding refinement.

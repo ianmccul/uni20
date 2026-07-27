@@ -21,6 +21,41 @@ using tensor_type = Tensor<int, 2, VectorStorage>;
 using strided_tensor_type = StridedTensor<int, 2, VectorStorage>;
 using scalar_tensor_type = ScalarTensor<double>;
 
+struct ImmediateDeviceTensorFacade
+{
+    using storage_policy = VectorStorage;
+    using mutable_device_span_type = stdex::mdspan<int, extents_2d, stdex::layout_left>;
+    using const_device_span_type = stdex::mdspan<int const, extents_2d, stdex::layout_left>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
+
+    [[nodiscard]] auto device_mdspan() noexcept -> mutable_device_span_type
+    {
+      return mutable_device_span_type{storage_.data(), extents_};
+    }
+
+    [[nodiscard]] auto device_mdspan() const noexcept -> const_device_span_type
+    {
+      return const_device_span_type{storage_.data(), extents_};
+    }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_2d const& { return extents_; }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return extents_.extent(axis); }
+    [[nodiscard]] auto storage() noexcept -> std::array<int, 6>& { return storage_; }
+    [[nodiscard]] auto storage() const noexcept -> std::array<int, 6> const& { return storage_; }
+
+  private:
+    std::array<int, 6> storage_{};
+    extents_2d extents_{2, 3};
+};
+
+using read_lease_type = decltype(blocking_read_access(std::declval<tensor_type const&>()));
+using write_lease_type = decltype(blocking_write_access(std::declval<tensor_type&>()));
+using read_access_type = decltype(read_access(std::declval<tensor_type const&>()));
+using write_access_type = decltype(write_access(std::declval<tensor_type&>()));
+using facade_read_lease_type = decltype(blocking_read_access(std::declval<ImmediateDeviceTensorFacade const&>()));
+using facade_write_lease_type = decltype(blocking_write_access(std::declval<ImmediateDeviceTensorFacade&>()));
+
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
 static_assert(std::same_as<RowMajorTensor<int, 2>, Tensor<int, 2, VectorStorage, RowMajor>>);
@@ -29,6 +64,13 @@ static_assert(!std::constructible_from<tensor_type, extents_2d const&, std::arra
 static_assert(std::constructible_from<strided_tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
 
 static_assert(TensorView<tensor_type>);
+static_assert(DeviceTensorView<tensor_type>);
+static_assert(MutableDeviceTensorView<tensor_type>);
+static_assert(!TensorView<ImmediateDeviceTensorFacade>);
+static_assert(DeviceTensorView<ImmediateDeviceTensorFacade>);
+static_assert(MutableDeviceTensorView<ImmediateDeviceTensorFacade>);
+static_assert(ReadTensorLease<facade_read_lease_type>);
+static_assert(WriteTensorLease<facade_write_lease_type>);
 static_assert(OwningTensor<tensor_type>);
 static_assert(OwningTensor<tensor_type const>);
 static_assert(MutableTensorView<tensor_type>);
@@ -47,6 +89,16 @@ static_assert(ScalarTensorView<scalar_tensor_type>);
 static_assert(MutableScalarTensorView<scalar_tensor_type>);
 static_assert(OwningTensor<scalar_tensor_type>);
 static_assert(!ScalarTensorView<tensor_type>);
+static_assert(SpanLike<decltype(std::declval<tensor_type const&>().device_mdspan())>);
+static_assert(ReadTensorLease<read_lease_type>);
+static_assert(WriteTensorLease<write_lease_type>);
+static_assert(
+    std::same_as<decltype(std::declval<read_lease_type const&>().storage()), tensor_type::storage_type const&>);
+static_assert(std::same_as<decltype(std::declval<write_lease_type&>().storage()), tensor_type::storage_type&>);
+static_assert(
+    std::same_as<decltype(std::declval<write_lease_type const&>().storage()), tensor_type::storage_type const&>);
+static_assert(std::same_as<decltype(std::declval<read_access_type&>().await_resume()), read_lease_type>);
+static_assert(std::same_as<decltype(std::declval<write_access_type&>().await_resume()), write_lease_type>);
 
 using row_major_matrix = DenseMatrix<int, RowMajor>;
 using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
@@ -338,6 +390,43 @@ TEST(TensorTest, ResolvedMdspansShareOwnedStorage)
   EXPECT_EQ((const_span[0, 0]), 9);
   EXPECT_EQ((const_span[1, 2]), 42);
   EXPECT_EQ(tensor.backend_selector(), VectorStorage::backend_selector());
+}
+
+TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
+{
+  tensor_type tensor(extents_2d{2, 3});
+
+  {
+    auto acquisition = write_access(tensor);
+    EXPECT_TRUE(acquisition.await_ready());
+    auto lease = acquisition.await_resume();
+    static_assert(MutableTensorView<decltype(lease)>);
+    static_assert(TensorView<decltype(std::as_const(lease))>);
+    EXPECT_EQ(&lease.storage(), &tensor.storage());
+    EXPECT_EQ(lease.backend_selector(), tensor.backend_selector());
+    lease.mdspan()[1, 2] = 42;
+  }
+
+  auto lease = blocking_read_access(std::as_const(tensor));
+  static_assert(TensorView<decltype(lease)>);
+  static_assert(!MutableTensorView<decltype(lease)>);
+  EXPECT_EQ(&lease.storage(), &tensor.storage());
+  EXPECT_EQ((lease.mdspan()[1, 2]), 42);
+}
+
+TEST(TensorTest, DeviceTensorViewWithoutMdspanResolvesToTensorViewLease)
+{
+  ImmediateDeviceTensorFacade tensor;
+
+  {
+    auto lease = blocking_write_access(tensor);
+    static_assert(WriteTensorLease<decltype(lease)>);
+    lease.mdspan()[1, 2] = 42;
+  }
+
+  auto lease = blocking_read_access(std::as_const(tensor));
+  static_assert(ReadTensorLease<decltype(lease)>);
+  EXPECT_EQ((lease.mdspan()[1, 2]), 42);
 }
 
 TEST(TensorTest, TraceFormattingUsesPresentationTensorArt)

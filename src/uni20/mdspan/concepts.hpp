@@ -269,6 +269,12 @@ concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Spa
                           (std::is_convertible_v<Index, typename span_type_t<Span>::index_type> && ...) &&
                           (std::is_nothrow_constructible_v<typename span_type_t<Span>::index_type, Index> && ...);
 
+template <class Accessor>
+concept AccessorReferenceAssignable =
+    requires(Accessor const& accessor, typename Accessor::data_handle_type handle,
+             typename Accessor::offset_type offset,
+             std::remove_const_t<typename Accessor::element_type> value) { accessor.access(handle, offset) = value; };
+
 } // namespace detail
 
 /// \brief Access one mdspan element through a read-only adaptation of its stored accessor.
@@ -302,6 +308,19 @@ template <class S>
 concept MutableSpanLike =
     SpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
     (detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{}) ||
+     enable_backend_writable_accessor<typename detail::span_type_t<S>::accessor_type>);
+
+/// \concept MutableDeviceSpanLike
+/// \brief DeviceSpanLike types whose eventual storage supports writes.
+/// \details Immediate spans use `MutableSpanLike`. Deferred spans use the same
+///          accessor-reference assignment or backend opt-in that will govern
+///          the resolved span.
+/// \tparam S The device span type being evaluated.
+/// \ingroup mdspan_ext
+template <class S>
+concept MutableDeviceSpanLike =
+    DeviceSpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+    (MutableSpanLike<S> || detail::AccessorReferenceAssignable<typename detail::span_type_t<S>::accessor_type> ||
      enable_backend_writable_accessor<typename detail::span_type_t<S>::accessor_type>);
 
 /// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.

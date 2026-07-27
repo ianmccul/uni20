@@ -8,6 +8,10 @@ kernels operate on resolved mdspans.
 
 - `basic_tensor.hpp`: concrete composition-based `Tensor` owner and the
   extents-first `BasicTensor` alias.
+- `access.hpp`: storage-bearing read/write TensorView leases plus blocking and
+  awaitable acquisition for immediately accessible tensors.
+- `cuda_access.hpp`: CUDA descriptor resolution through blocking or
+  stream-ordered `CudaBuffer` access.
 - `tensor.hpp`: named
   `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor`, and `ScalarTensor`
   aliases, the host `DenseMatrix` alias, and CUDA-enabled `CudaTensor` and
@@ -31,8 +35,8 @@ kernels operate on resolved mdspans.
 - `reductions.hpp`: storage-preserving full and partial sums, host-result sums,
   inner products, and stable Euclidean norms. All-async sum overloads live in
   [`linalg/async/`](../linalg/async/).
-- `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
-  tensor-level concepts.
+- `concepts.hpp`: immediate and device tensor views plus mutable, owning,
+  strided, and rank-constrained refinements.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.
 - `reshape.hpp`: explicit no-copy, in-place, and owning reshape operations.
 - `shape.hpp`: checked runtime-extents construction shared by tensor factories.
@@ -88,17 +92,22 @@ kernels operate on resolved mdspans.
   synchronous extents metadata and `mdspan()`.
   Element and accessor semantics determine whether the returned span is mutable;
   owning tensors overload `mdspan()` on constness.
+- `DeviceTensorView` extends this vocabulary to tensors whose usable data handle
+  requires acquisition. `blocking_read_access` and `blocking_write_access`
+  return storage-bearing RAII TensorViews; `read_access` and `write_access`
+  provide the awaitable vocabulary. See
+  [Device Mdspan](../../../docs/tensor/device_mdspan.md).
 - `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit
   `cuda::DeviceResources` selects another enrolled device or an isolated test
-  resource set. Its storage is a move-only `CudaBuffer<T>`, and its resolved
-  mdspan uses an opaque `CudaBufferView<T>` handle. Indexed access computes
-  buffer offsets but neither reads nor writes device memory on the host. CUDA
-  lowering must acquire a stream and synchronized buffer access before exposing
-  a raw device pointer to a leaf backend. Direct matrix `gemm` performs this
-  lowering through blocking `CublasBackend` resource admission. The same
-  storage inside `Async<CudaTensor>` instead retains its epoch buffers while
-  `co_dispatch_kernel` awaits the backend's deferred `CudaTask` implementation.
+  resource set. Its storage is a move-only `CudaBuffer<T>`.
+  `device_mdspan()` exposes a `CudaBufferView` descriptor, the tensor mapping,
+  and the actual pointer accessor without exposing a pointer. Tensor-level
+  acquisition resolves this to a storage-bearing lease with a `T*` or
+  `T const*` mdspan. Stream-ordered access installs predecessor waits and
+  publishes completion when the lease ends. The existing opaque-handle
+  `mdspan()` and backend-local lowering remain while CUDA operations migrate to
+  `DeviceTensorView`.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
 - Generated tensors own compact generator state rather than an element buffer.

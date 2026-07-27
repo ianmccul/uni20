@@ -6,6 +6,7 @@
 #include <concepts>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -92,6 +93,7 @@ struct MissingDataDescriptorObserver : IndependentDeviceSpanFacade
 static_assert(uni20::AccessorPolicy<StatefulAccessor>);
 static_assert(uni20::DeviceSpanLike<device_span_type>);
 static_assert(uni20::DeviceSpanLike<device_span_type const&>);
+static_assert(uni20::MutableDeviceSpanLike<device_span_type>);
 static_assert(uni20::RankedDeviceSpanLike<device_span_type, 2>);
 static_assert(!uni20::RankedDeviceSpanLike<device_span_type, 1>);
 static_assert(uni20::StridedDeviceSpanLike<device_span_type>);
@@ -138,6 +140,18 @@ TEST(DeviceMdspanTest, PreservesDescriptorMappingAndAccessor)
   EXPECT_EQ(span.accessor().bias, 2);
   EXPECT_TRUE(span.is_unique());
   EXPECT_TRUE(span.is_strided());
+}
+
+TEST(DeviceMdspanTest, MutableDescriptorObserverPreservesDescriptorIdentity)
+{
+  extents_type const extents{2, 3};
+  std::array<std::size_t, 2> const strides{1, 2};
+  device_span_type span{RegionDescriptor{.storage_id = 17, .element_offset = 4},
+                        device_span_type::mapping_type{extents, strides}, StatefulAccessor{}};
+
+  span.data_descriptor().element_offset = 9;
+
+  EXPECT_EQ(std::as_const(span).data_descriptor().element_offset, 9U);
 }
 
 TEST(DeviceMdspanTest, ExposesMdspanCompatibleStaticMetadata)

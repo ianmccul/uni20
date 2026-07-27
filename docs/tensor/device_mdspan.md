@@ -1,6 +1,7 @@
 # Device Mdspan
 
-**Status:** current guide for the implemented class and structural concepts.
+**Status:** current guide for the implemented class, structural concepts, and
+initial tensor acquisition layer.
 
 `uni20::device_mdspan` describes a multidimensional array whose shape, layout,
 and element-access semantics are already known, but whose usable data pointer
@@ -44,9 +45,9 @@ device_mdspan + acquisition operation
 RAII access lease containing a usable mdspan
 ```
 
-The concrete lease and acquisition APIs are separate from `device_mdspan` and
-are not yet implemented. The descriptor/mapping/accessor split establishes the
-structural contract they will consume.
+Acquisition is a tensor-level operation. It returns a move-only RAII object that
+models `TensorView`, retains the source storage and backend selector, and exposes
+the resolved mdspan through `.mdspan()`.
 
 ## Meaning of Device
 
@@ -58,10 +59,13 @@ Examples include:
 - host memory;
 - CUDA memory;
 - another accelerator or addressable memory space;
-- mapped or staged storage.
+- mapped or staged storage;
+- data demand-loaded from host, disk, or a network service into an execution
+  domain.
 
 The name describes the domain in which the eventual mdspan handle will be
-used. It does not imply that the handle is already available.
+used. It does not imply that the handle is already available, or that the
+authoritative copy already resides in that domain.
 
 ## Current Header and Template
 
@@ -117,7 +121,7 @@ The available observers are:
 
 | Category | Observers |
 |---|---|
-| Descriptor | `data_descriptor()` |
+| Descriptor | mutable and const `data_descriptor()` |
 | Mapping and accessor | `mapping()`, `accessor()` |
 | Shape | `rank()`, `rank_dynamic()`, `static_extent(axis)`, `extents()`, `extent(axis)` |
 | Mapping properties | `is_always_unique()`, `is_always_exhaustive()`, `is_always_strided()` |
@@ -184,83 +188,117 @@ RankedStridedDeviceSpanLike<Span, Rank>
 Like `DeviceSpanLike`, these accept both immediate mdspans and independent
 descriptor-backed models.
 
-There is not currently a mutable device-span refinement.
+`MutableDeviceSpanLike<Span>` additionally requires non-const element semantics
+and either an assignable accessor reference or an explicit backend-writable
+accessor opt-in.
 
-## Example: Buffer Requiring a Lease
+### Tensor-Level Concepts
 
-Suppose a buffer cannot return a pointer directly. It must first perform an
-operation that establishes read access and returns an RAII object:
+`DeviceTensorView<T>` is the tensor-level counterpart. A model exposes:
 
-```cpp
-class leased_buffer
-{
-  public:
-    using data_handle_type = float const*;
+- a `device_mdspan()` whose result models `DeviceSpanLike`, or an ordinary
+  `mdspan()` for the immediate case;
+- `backend_selector()`;
+- tensor extents and extent observers.
 
-    class read_lease
-    {
-      public:
-        [[nodiscard]] data_handle_type data() const noexcept;
-        ~read_lease(); // Releases the buffer access.
-    };
+When a type explicitly provides `device_mdspan()`, that representation governs
+the concept. `MutableDeviceTensorView<T>` applies the corresponding mutable
+device-span requirement.
 
-    // May wait, map, transfer, or reserve resources before returning.
-    [[nodiscard]] read_lease lease_read();
-};
-
-struct buffer_region
-{
-    leased_buffer* buffer = nullptr;
-    std::size_t element_offset = 0;
-};
-
-using extents_type = stdex::dextents<std::size_t, 2>;
-using accessor_type = stdex::default_accessor<float const>;
-using span_type = uni20::device_mdspan<
-    float const,
-    extents_type,
-    stdex::layout_left,
-    accessor_type,
-    buffer_region>;
-
-leased_buffer buffer;
-extents_type extents{4, 8};
-span_type::mapping_type mapping{extents};
-
-span_type span{
-    buffer_region{.buffer = &buffer, .element_offset = 16},
-    mapping,
-    accessor_type{}};
-```
-
-At this point `span` describes the array, but it still has no usable pointer
-and cannot be indexed. The buffer-specific acquisition can resolve it:
+The acquisition result concepts are:
 
 ```cpp
-auto const& region = span.data_descriptor();
-auto buffer_lease = region.buffer->lease_read();
-
-auto handle =
-    span.accessor().offset(buffer_lease.data(), region.element_offset);
-
-using resolved_type = stdex::mdspan<
-    float const,
-    extents_type,
-    stdex::layout_left,
-    accessor_type>;
-
-resolved_type resolved{
-    handle,
-    span.mapping(),
-    span.accessor()};
-
-consume(resolved);
+uni20::ReadTensorLease<T>
+uni20::WriteTensorLease<T>
 ```
 
-`buffer_lease` remains alive while `resolved` is used. Its destructor releases
-the access state after `resolved` leaves scope. The `leased_buffer` API above is
-illustrative; Uni20's common acquisition and lease API has not yet been
-implemented.
+Both are move-only `TensorView` models with `.storage()`, `.backend_selector()`,
+`.mdspan()`, and `release()`. A write lease is a `MutableTensorView`, while its
+const interface returns a const-element mdspan and const storage.
+
+Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
+templates, but an acquisition backend may return any type satisfying the
+concepts.
+
+## Acquisition
+
+Include the tensor acquisition API through:
+
+```cpp
+#include <uni20/tensor/tensor.hpp>
+```
+
+The common free-function vocabulary is:
+
+```cpp
+auto read_lease = uni20::blocking_read_access(tensor);
+auto write_lease = uni20::blocking_write_access(tensor);
+
+auto read_awaitable = uni20::read_access(tensor, acquisition_arguments...);
+auto write_awaitable = uni20::write_access(tensor, acquisition_arguments...);
+```
+
+These are constrained overloads, not required members of the data descriptor.
+This keeps storage and resource policy in the acquisition layer. A descriptor
+may identify a buffer that can be mapped, migrated, prefetched, or admitted to
+a device without imposing those operations on every descriptor type.
+
+For an immediately accessible host tensor, blocking acquisition is a no-op
+lifetime guard:
+
+```cpp
+uni20::Tensor<float, 2> tensor(4, 8);
+
+{
+  auto lease = uni20::blocking_write_access(tensor);
+  static_assert(uni20::WriteTensorLease<decltype(lease)>);
+  lease.mdspan()[2, 3] = 1.0F;
+}
+```
+
+`read_access(tensor)` and `write_access(tensor)` provide always-ready awaitables
+for the same immediate case.
+
+### CUDA Vertical Slice
+
+`CudaTensor::device_mdspan()` stores:
+
+```text
+(CudaBufferView descriptor, tensor mapping, CudaPointerAccessor)
+```
+
+Its accessor declares the eventual `T*` or `T const*` data-handle type, but the
+unresolved object contains no pointer. CUDA acquisition resolves the descriptor
+through `CudaBuffer` access state:
+
+```cpp
+auto stream = co_await uni20::cuda::acquire_stream(
+    tensor.storage().resources().streams());
+auto lease = co_await uni20::write_access(tensor, stream);
+
+static_assert(uni20::WriteTensorLease<decltype(lease)>);
+launch_kernel(stream, lease.mdspan());
+```
+
+Acquiring the stream is separate from acquiring tensor data. Once a stream is
+available, `write_access(tensor, stream)` installs predecessor waits through
+`CudaBuffer` and returns an immediately-ready task awaitable. Destroying the
+lease records the writer completion at the stream tail. A later blocking or
+stream-ordered access observes that completion.
+
+Blocking CUDA acquisition is also available:
+
+```cpp
+auto lease = uni20::blocking_read_access(std::as_const(tensor));
+copy_to_host_synchronously(lease.mdspan().data_handle());
+```
+
+All device operations using a blocking lease must complete before the lease is
+destroyed. Stream-ordered work should use the stream overloads so lease release
+can publish the completion event.
+
+This is the first acquisition vertical slice. Existing CUDA tensor operations
+have not all been migrated to consume `DeviceTensorView` leases yet.
 
 ## Data Descriptor Boundary
 
@@ -276,6 +314,9 @@ representation.
 Owning a data descriptor does not necessarily own the underlying storage. A
 descriptor-backed view remains subject to the lifetime contract of its
 descriptor implementation.
+
+Prefetch is likewise descriptor- or storage-specific. It can improve later
+acquisition without changing the `device_mdspan` structural contract.
 
 ## Accessor Boundary
 
@@ -297,16 +338,25 @@ automatically change its type, state, or constness.
 - It cannot be indexed before acquisition.
 - Its mapping and accessor are the objects intended for the resolved mdspan.
 - `DeviceSpanLike` is structural and does not require the concrete class.
+- `DeviceTensorView` and the lease concepts are structural and do not require
+  Uni20's concrete materializations.
 - Ordinary `SpanLike` values satisfy `DeviceSpanLike`.
+- A read or write lease models `TensorView`, retains storage and backend
+  selection, and controls handle validity through RAII.
 - Construction and metadata observation perform no handle acquisition.
 
 ## Source and Tests
 
 - [`device_mdspan.hpp`](../../src/uni20/mdspan/device_mdspan.hpp)
 - [`concepts.hpp`](../../src/uni20/mdspan/concepts.hpp)
+- [`tensor/access.hpp`](../../src/uni20/tensor/access.hpp)
+- [`tensor/cuda_access.hpp`](../../src/uni20/tensor/cuda_access.hpp)
 - [`test_device_mdspan.cpp`](../../tests/mdspan/test_device_mdspan.cpp)
+- [`test_tensor.cpp`](../../tests/tensor/test_tensor.cpp)
+- [`test_cuda_tensor.cpp`](../../tests/backend/cuda/test_cuda_tensor.cpp)
 
 The tests cover concrete storage of stateful descriptor/mapping/accessor
 objects, independent structural models, ordinary-mdspan compatibility, ranked
-and strided refinements, move-only descriptors, and the absence of handle and
-indexing operations.
+and strided refinements, move-only descriptors, the absence of premature handle
+access, immediate tensor leases, and CUDA pointer resolution through blocking
+and stream-ordered leases.

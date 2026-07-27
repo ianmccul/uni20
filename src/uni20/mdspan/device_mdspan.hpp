@@ -73,7 +73,10 @@ class device_mdspan {
     /// \brief Report whether every mapping of this type is strided.
     [[nodiscard]] static constexpr bool is_always_strided() noexcept { return mapping_type::is_always_strided(); }
 
-    /// \brief Return the descriptor used to acquire a data handle.
+    /// \brief Return the descriptor used to acquire writable data access.
+    [[nodiscard]] constexpr auto data_descriptor() noexcept -> data_descriptor_type& { return descriptor_; }
+
+    /// \brief Return the descriptor used to acquire read-only data access.
     [[nodiscard]] constexpr auto data_descriptor() const noexcept -> data_descriptor_type const& { return descriptor_; }
 
     /// \brief Return the stored layout mapping.

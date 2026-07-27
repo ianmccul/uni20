@@ -6,6 +6,7 @@
  * \brief General-purpose owning tensors with runtime extents.
  */
 
+#include "access.hpp"
 #include "basic_tensor.hpp"
 #include "conjugate.hpp"
 #include "generated.hpp"
@@ -14,6 +15,7 @@
 
 #if UNI20_BACKEND_CUDA
 #include <uni20/storage/cuda_storage.hpp>
+#include <uni20/tensor/cuda_access.hpp>
 #endif
 
 #include <cstddef>

@@ -1,11 +1,16 @@
+#include <uni20/async/cuda_task.hpp>
+#include <uni20/async/debug_cuda_scheduler.hpp>
+#include <uni20/backend/cuda/task_awaiters.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -14,16 +19,46 @@ using tensor_type = uni20::CudaTensor<double, 2>;
 using direct_tensor_type = uni20::Tensor<double, 2, uni20::CudaStorage>;
 using mutable_span_type = typename tensor_type::mdspan_type;
 using const_span_type = typename tensor_type::const_mdspan_type;
+using mutable_device_span_type = decltype(std::declval<tensor_type&>().device_mdspan());
+using const_device_span_type = decltype(std::declval<tensor_type const&>().device_mdspan());
+using read_lease_type = decltype(uni20::blocking_read_access(std::declval<tensor_type const&>()));
+using write_lease_type = decltype(uni20::blocking_write_access(std::declval<tensor_type&>()));
+using read_access_type =
+    decltype(uni20::read_access(std::declval<tensor_type const&>(), std::declval<uni20::cuda::Stream const&>()));
+using write_access_type =
+    decltype(uni20::write_access(std::declval<tensor_type&>(), std::declval<uni20::cuda::Stream const&>()));
 
 static_assert(std::same_as<typename tensor_type::storage_type, uni20::cuda::CudaBuffer<double>>);
 static_assert(std::same_as<tensor_type, direct_tensor_type>);
 static_assert(std::same_as<typename mutable_span_type::data_handle_type, uni20::cuda::CudaBufferView<double>>);
 static_assert(std::same_as<typename const_span_type::data_handle_type, uni20::cuda::CudaBufferView<double const>>);
+static_assert(std::same_as<typename mutable_device_span_type::data_handle_type, double*>);
+static_assert(std::same_as<typename const_device_span_type::data_handle_type, double const*>);
+static_assert(uni20::DeviceSpanLike<mutable_device_span_type>);
+static_assert(uni20::MutableDeviceSpanLike<mutable_device_span_type>);
+static_assert(uni20::DeviceSpanLike<const_device_span_type>);
+static_assert(!uni20::SpanLike<mutable_device_span_type>);
+static_assert(!uni20::SpanLike<const_device_span_type>);
 static_assert(uni20::TensorView<tensor_type>);
 static_assert(uni20::MutableTensorView<tensor_type>);
+static_assert(uni20::DeviceTensorView<tensor_type>);
+static_assert(uni20::MutableDeviceTensorView<tensor_type>);
 static_assert(uni20::RankedStridedTensorView<tensor_type, 2>);
 static_assert(uni20::MutableRankedStridedTensorView<tensor_type, 2>);
 static_assert(uni20::OwningTensor<tensor_type>);
+static_assert(uni20::ReadTensorLease<read_lease_type>);
+static_assert(uni20::WriteTensorLease<write_lease_type>);
+static_assert(std::same_as<typename read_lease_type::storage_policy, uni20::CudaStorage>);
+static_assert(std::same_as<typename write_lease_type::storage_policy, uni20::CudaStorage>);
+static_assert(std::same_as<typename read_lease_type::mdspan_type::data_handle_type, double const*>);
+static_assert(std::same_as<typename write_lease_type::mdspan_type::data_handle_type, double*>);
+static_assert(
+    std::same_as<decltype(std::declval<read_lease_type const&>().storage()), tensor_type::storage_type const&>);
+static_assert(std::same_as<decltype(std::declval<write_lease_type&>().storage()), tensor_type::storage_type&>);
+static_assert(
+    std::same_as<decltype(std::declval<write_lease_type const&>().storage()), tensor_type::storage_type const&>);
+static_assert(uni20::async::TaskAwaitable<read_access_type>);
+static_assert(uni20::async::TaskAwaitable<write_access_type>);
 static_assert(!std::copy_constructible<tensor_type>);
 static_assert(std::move_constructible<tensor_type>);
 static_assert(!std::convertible_to<typename mutable_span_type::reference, double>);
@@ -81,6 +116,74 @@ TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceResources)
   EXPECT_EQ(tensor.rows(), 4);
   EXPECT_EQ(tensor.cols(), 5);
   EXPECT_EQ(tensor.storage().size(), 20U);
+}
+
+TEST_F(CudaTensorTest, BlockingAccessResolvesPointerMdspansAndRetainsStorage)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  tensor_type tensor(resources, 2, 3);
+  std::array<double, 6> const input{1, 2, 3, 4, 5, 6};
+  std::array<double, 6> output{};
+
+  {
+    auto lease = uni20::blocking_write_access(tensor);
+    static_assert(uni20::MutableTensorView<decltype(lease)>);
+    EXPECT_EQ(&lease.storage(), &tensor.storage());
+    EXPECT_EQ(lease.backend_selector(), tensor.backend_selector());
+    EXPECT_NE(lease.mdspan().data_handle(), nullptr);
+
+    uni20::cuda::ScopedDevice guard(resources.device().ordinal());
+    uni20::cuda::check(cudaMemcpy(lease.mdspan().data_handle(), input.data(), sizeof(input), cudaMemcpyHostToDevice),
+                       "cudaMemcpy test host-to-device", resources.device().ordinal());
+    uni20::cuda::check(cudaDeviceSynchronize(), "cudaDeviceSynchronize test upload", resources.device().ordinal());
+  }
+
+  {
+    auto lease = uni20::blocking_read_access(std::as_const(tensor));
+    static_assert(uni20::TensorView<decltype(lease)>);
+    static_assert(!uni20::MutableTensorView<decltype(lease)>);
+    EXPECT_EQ(&lease.storage(), &tensor.storage());
+
+    uni20::cuda::ScopedDevice guard(resources.device().ordinal());
+    uni20::cuda::check(cudaMemcpy(output.data(), lease.mdspan().data_handle(), sizeof(output), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy test device-to-host", resources.device().ordinal());
+  }
+
+  EXPECT_EQ(output, input);
+}
+
+TEST_F(CudaTensorTest, StreamOrderedAccessCanBeCoAwaitedAsTensorView)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::async::DebugCudaScheduler scheduler(resources.device());
+  tensor_type tensor(resources, 2, 3);
+  bool submitted = false;
+
+  auto task = [](tensor_type& value, bool& observed) static -> uni20::async::CudaTask {
+    auto stream = co_await uni20::cuda::acquire_stream(value.storage().resources().streams());
+    auto lease = co_await uni20::write_access(value, stream);
+    static_assert(uni20::MutableTensorView<decltype(lease)>);
+    uni20::cuda::check(
+        cudaMemsetAsync(lease.mdspan().data_handle(), 0, lease.storage().size_bytes(), stream.native_handle()),
+        "cudaMemsetAsync tensor lease", stream.device());
+    observed = true;
+    co_return;
+  }(tensor, submitted);
+
+  scheduler.schedule(std::move(task), resources.device().ordinal());
+  scheduler.run_all();
+  EXPECT_TRUE(submitted);
+  tensor.storage().synchronize();
+
+  std::array<double, 6> output{};
+  output.fill(1.0);
+  auto lease = uni20::blocking_read_access(std::as_const(tensor));
+  {
+    uni20::cuda::ScopedDevice guard(resources.device().ordinal());
+    uni20::cuda::check(cudaMemcpy(output.data(), lease.mdspan().data_handle(), sizeof(output), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy tensor lease verification", resources.device().ordinal());
+  }
+  EXPECT_EQ(output, (std::array<double, 6>{}));
 }
 
 TEST_F(CudaTensorTest, DefaultConstructionUsesInstalledRuntimeResources)

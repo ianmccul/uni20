@@ -96,15 +96,47 @@ template <class ElementType> struct CudaAccessor
     }
 };
 
+/// \brief Accessor for a CUDA mdspan whose device pointer has been leased.
+/// \details Indexed access advances the device pointer but does not dereference
+///          it on the host. CUDA backends lower the resulting pointer-valued
+///          reference explicitly.
+template <class ElementType> struct CudaPointerAccessor
+{
+    using element_type = ElementType;
+    using data_handle_type = element_type*;
+    using reference = data_handle_type;
+    using offset_policy = CudaPointerAccessor;
+    using offset_type = std::size_t;
+
+    [[nodiscard]] constexpr data_handle_type access(data_handle_type handle, offset_type offset) const noexcept
+    {
+      if (offset == 0) return handle;
+      return handle + offset;
+    }
+
+    [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, offset_type offset) const noexcept
+    {
+      if (offset == 0) return handle;
+      return handle + offset;
+    }
+};
+
 /// \brief Factory that resolves CUDA accessors for Tensor descriptors.
 struct CudaAccessorFactory
 {
     template <class ElementType> using accessor_t = CudaAccessor<ElementType>;
+    template <class ElementType> using device_accessor_t = CudaPointerAccessor<ElementType>;
 
     template <class ElementType, class Storage>
     [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
     {
       return accessor_t<ElementType>{};
+    }
+
+    template <class ElementType, class Storage>
+    [[nodiscard]] constexpr auto make_device_accessor(Storage const&) const noexcept -> device_accessor_t<ElementType>
+    {
+      return device_accessor_t<ElementType>{};
     }
 };
 
@@ -160,6 +192,20 @@ struct CudaStorage
       return cuda::CudaBufferView<ElementType const>{storage};
     }
 
+    template <class ElementType>
+    [[nodiscard]] static auto
+    make_data_descriptor(storage_t<ElementType>& storage) noexcept -> cuda::CudaBufferView<ElementType>
+    {
+      return cuda::CudaBufferView<ElementType>{storage};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto
+    make_data_descriptor(storage_t<ElementType> const& storage) noexcept -> cuda::CudaBufferView<ElementType const>
+    {
+      return cuda::CudaBufferView<ElementType const>{storage};
+    }
+
     /// \brief Return the ordered backend list for CUDA device storage.
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
@@ -173,5 +219,9 @@ struct CudaStorage
 
 template <class ElementType>
 inline constexpr bool enable_backend_writable_accessor<cuda::CudaAccessor<ElementType>> = !std::is_const_v<ElementType>;
+
+template <class ElementType>
+inline constexpr bool enable_backend_writable_accessor<cuda::CudaPointerAccessor<ElementType>> =
+    !std::is_const_v<ElementType>;
 
 } // namespace uni20
