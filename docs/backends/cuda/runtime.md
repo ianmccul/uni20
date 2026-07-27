@@ -202,11 +202,12 @@ storage representation, selects blocking or suspending resource admission.
 
 The storage policy exposes a `CudaBufferView<T>` descriptor carrying buffer
 identity and element offset without a raw pointer. Its actual accessor describes
-the pointer-valued data handle available after acquisition while preventing host
-dereference. Blocking versus suspending resource admission is selected by the
-operation path, not by this accessor. Per-call leases such as streams, provider
-handles, and workspaces remain operation-local; they are not part of the
-backend selector.
+the pointer-valued data handle available after acquisition and returns `T&` from
+indexed access. The accessor must be evaluated only in an execution domain where
+the acquired CUDA pointer is directly accessible. Blocking versus suspending
+resource admission is selected by the operation path, not by this accessor.
+Per-call leases such as streams, provider handles, and workspaces remain
+operation-local; they are not part of the backend selector.
 
 A small configurable pool is expected. A reasonable initial heuristic is around
 twice the maximum useful device concurrency, but measured workload behavior

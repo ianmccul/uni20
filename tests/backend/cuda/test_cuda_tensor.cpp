@@ -38,6 +38,8 @@ static_assert(std::same_as<typename tensor_type::storage_type, uni20::cuda::Cuda
 static_assert(std::same_as<tensor_type, direct_tensor_type>);
 static_assert(std::same_as<typename mutable_span_type::data_handle_type, double*>);
 static_assert(std::same_as<typename const_span_type::data_handle_type, double const*>);
+static_assert(std::same_as<typename mutable_span_type::reference, double&>);
+static_assert(std::same_as<typename const_span_type::reference, double const&>);
 static_assert(std::same_as<typename mutable_device_span_type::data_handle_type, double*>);
 static_assert(std::same_as<typename const_device_span_type::data_handle_type, double const*>);
 static_assert(!tensor_type::immediately_readable);
@@ -64,6 +66,8 @@ static_assert(std::same_as<typename read_lease_type::storage_policy, uni20::Cuda
 static_assert(std::same_as<typename write_lease_type::storage_policy, uni20::CudaStorage>);
 static_assert(std::same_as<typename read_lease_type::mdspan_type::data_handle_type, double const*>);
 static_assert(std::same_as<typename write_lease_type::mdspan_type::data_handle_type, double*>);
+static_assert(std::same_as<typename read_lease_type::mdspan_type::reference, double const&>);
+static_assert(std::same_as<typename write_lease_type::mdspan_type::reference, double&>);
 static_assert(
     std::same_as<decltype(std::declval<read_lease_type const&>().storage()), tensor_type::storage_type const&>);
 static_assert(std::same_as<decltype(std::declval<write_lease_type&>().storage()), tensor_type::storage_type&>);
@@ -73,8 +77,8 @@ static_assert(uni20::async::TaskAwaitable<read_access_type>);
 static_assert(uni20::async::TaskAwaitable<write_access_type>);
 static_assert(!std::copy_constructible<tensor_type>);
 static_assert(std::move_constructible<tensor_type>);
-static_assert(!std::convertible_to<typename mutable_span_type::reference, double>);
-static_assert(!std::assignable_from<typename mutable_span_type::reference&, double>);
+static_assert(std::convertible_to<typename mutable_span_type::reference, double>);
+static_assert(std::assignable_from<typename mutable_span_type::reference, double>);
 
 using complex_tensor_type = uni20::CudaTensor<uni20::complex<double>, 2>;
 using conjugated_tensor_type = decltype(uni20::conj(std::declval<complex_tensor_type&>()));
@@ -87,6 +91,19 @@ static_assert(uni20::mdspan_needs_conjugation_v<conjugated_device_span_type>);
 static_assert(
     std::same_as<typename conjugated_device_span_type::data_descriptor_type,
                  typename decltype(std::declval<complex_tensor_type const&>().device_mdspan())::data_descriptor_type>);
+
+TEST(CudaPointerAccessorTest, AccessReturnsMappedElementReference)
+{
+  std::array<double, 3> values{1.0, 2.0, 3.0};
+  uni20::cuda::CudaPointerAccessor<double> accessor;
+
+  auto& reference = accessor.access(values.data(), 1);
+
+  EXPECT_EQ(&reference, &values[1]);
+  reference = 4.0;
+  EXPECT_DOUBLE_EQ(values[1], 4.0);
+  EXPECT_EQ(accessor.offset(values.data(), 2), values.data() + 2);
+}
 
 class CudaTensorTest : public ::testing::Test {
   protected:

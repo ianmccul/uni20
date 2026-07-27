@@ -319,9 +319,10 @@ descriptors and acquires buffer access against its selected stream.
 (CudaBufferView descriptor, tensor mapping, CudaPointerAccessor)
 ```
 
-Its accessor declares the eventual `T*` or `T const*` data-handle type, but the
-unresolved object contains no pointer. CUDA acquisition resolves the descriptor
-through `CudaBuffer` access state:
+Its accessor declares the eventual `T*` or `T const*` data-handle type and
+returns `T&` or `T const&` from indexed access. The unresolved object contains
+no pointer and provides no indexed access. CUDA acquisition resolves the
+descriptor through `CudaBuffer` access state:
 
 ```cpp
 auto stream = co_await uni20::cuda::acquire_stream(

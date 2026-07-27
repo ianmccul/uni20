@@ -59,16 +59,16 @@ uni20::CudaTensor<float, 2> matrix(32, 48);
 ```
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
-metadata. Its mdspan data handle is a non-owning
-`cuda::CudaBufferView<float>` containing buffer identity and an element offset.
-Mdspan indexing computes another view offset; it does not dereference device
-memory, perform a transfer, acquire a stream, or wait.
+metadata. Its unresolved device mdspan contains a non-owning
+`cuda::CudaBufferView<float>` descriptor with buffer identity and an element
+offset; it provides no indexed access. A CUDA operation must lower the view
+through `read_synchronized_with(stream)` or
+`write_synchronized_with(stream)` before a leaf backend receives a raw pointer.
 
-The non-const CUDA accessor opts into backend-mediated writes so the owning
-Tensor can satisfy mutable Tensor output concepts. Its opaque reference remains
-non-assignable on the host. A CUDA operation must lower the view through
-`read_synchronized_with(stream)` or `write_synchronized_with(stream)` before a
-leaf backend receives a raw pointer.
+The resolved `CudaPointerAccessor<T>` uses `T*` as its data handle and `T&` as
+its reference type. Its indexed access follows ordinary mdspan semantics, but
+must be evaluated only in an execution domain where that CUDA pointer is
+directly accessible.
 
 For GEMM this lowering is reached through the Async Tensor API:
 

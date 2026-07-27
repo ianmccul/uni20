@@ -97,21 +97,20 @@ template <class ElementType> struct CudaAccessor
 };
 
 /// \brief Accessor for a CUDA mdspan whose device pointer has been leased.
-/// \details Indexed access advances the device pointer but does not dereference
-///          it on the host. CUDA backends lower the resulting pointer-valued
-///          reference explicitly.
+/// \details Indexed access applies the mapped offset and returns an element
+///          reference. The accessor must be evaluated only in an execution
+///          domain where the leased CUDA pointer is directly accessible.
 template <class ElementType> struct CudaPointerAccessor
 {
     using element_type = ElementType;
     using data_handle_type = element_type*;
-    using reference = data_handle_type;
+    using reference = element_type&;
     using offset_policy = CudaPointerAccessor;
     using offset_type = std::size_t;
 
-    [[nodiscard]] constexpr data_handle_type access(data_handle_type handle, offset_type offset) const noexcept
+    [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const noexcept
     {
-      if (offset == 0) return handle;
-      return handle + offset;
+      return handle[offset];
     }
 
     [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, offset_type offset) const noexcept
@@ -207,9 +206,5 @@ struct CudaStorage
 
 template <class ElementType>
 inline constexpr bool enable_backend_writable_accessor<cuda::CudaAccessor<ElementType>> = !std::is_const_v<ElementType>;
-
-template <class ElementType>
-inline constexpr bool enable_backend_writable_accessor<cuda::CudaPointerAccessor<ElementType>> =
-    !std::is_const_v<ElementType>;
 
 } // namespace uni20
