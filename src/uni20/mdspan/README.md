@@ -8,6 +8,8 @@ small helpers used by dense kernels and layout-aware algorithms.
 
 - `mdspan.hpp`: configured gateway to the Kokkos reference implementation in
   namespace `stdex::`.
+- `device_mdspan.hpp`: mdspan-shaped mapping and accessor metadata paired with
+  a data descriptor for later handle acquisition.
 - `format.hpp`: `std::format` and `{fmt}` support for mdspan extents.
 - `concepts.hpp`: concepts for mdspan-like objects and related structural
   properties.
@@ -34,6 +36,12 @@ small helpers used by dense kernels and layout-aware algorithms.
   `MutableSpanLike` additionally proves assignment through that indexed result,
   or recognizes an explicit backend-writable accessor whose opaque storage can
   be written only after backend lowering.
+- `DeviceSpanLike` is the broader structural protocol for mdspan metadata whose
+  data handle is either immediately present or available through a data
+  descriptor. `device_mdspan` is the standard unresolved materialization, but
+  independent types may satisfy the concept directly. It preserves the actual
+  mapping and accessor while intentionally exposing neither `data_handle()` nor
+  element indexing.
 - `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
   observers. Code constrained by these concepts should not assume additional
   structural operations without adding the corresponding refinement.
@@ -62,6 +70,7 @@ small helpers used by dense kernels and layout-aware algorithms.
 ## Related Documentation
 
 - [Source tree map](../)
+- [Device mdspan contract](../../../docs/tensor/device_mdspan.md)
 - [Tensor dispatch and view semantics](../../../docs/tensor/dispatch_and_view_semantics_draft.md)
 - [BLAS/LAPACK mdspan wrappers](../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../docs/linalg/mdspan_dispatch.md)

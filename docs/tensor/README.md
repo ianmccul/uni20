@@ -5,6 +5,9 @@ front-end operation semantics.
 
 ## Canonical Guides
 
+- [Device Mdspan](device_mdspan.md) defines the structural
+  `(data_descriptor, mapping, accessor)` representation used before a data
+  handle is acquired.
 - [Tensor Operations](operations.md) defines ownership, mutation, return-value,
   materialization, and async-support contracts.
 - [Scalar Tensors, Host Scalars, and Storage Transfer](scalar_tensors_and_transfer.md)

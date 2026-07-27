@@ -54,7 +54,8 @@ rather than silently choosing one source.
 
 ## Current Vertical Slices
 
-- [Tensor Operations](tensor/operations.md) and
+- [Device Mdspan](tensor/device_mdspan.md),
+  [Tensor Operations](tensor/operations.md), and
   [Generated Tensors and Reshape](tensor/creation_and_reshape.md)
 - [Kernel Dispatch](architecture/kernel_dispatch.md) and
   [Mdspan Linear Algebra Dispatch](linalg/mdspan_dispatch.md)
