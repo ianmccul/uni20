@@ -61,7 +61,7 @@ void conjugate_elements(Mdspan& span, std::array<typename Mdspan::index_type, Md
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU in-place conjugation.
-template <uni20::MutableSpanLike Mdspan>
+template <uni20::MutableMdspanLike Mdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplace_op const&, Mdspan&)
 {
   using span_type = std::remove_cvref_t<Mdspan>;
@@ -80,7 +80,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplac
 template <class Mdspan> KernelAttempt try_kernel(CpuReferenceBackend, conjugate_inplace_op const&, Mdspan&& span)
 {
   using span_type = std::remove_cvref_t<Mdspan>;
-  if constexpr (uni20::MutableStridedMdspan<span_type>)
+  if constexpr (uni20::MutableStridedMdspanLike<span_type>)
   {
     using value_type = typename span_type::value_type;
     cpu::detail::transform_strided<true>(span,

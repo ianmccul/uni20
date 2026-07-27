@@ -483,9 +483,9 @@ template <typename... Spans> struct zip_layout_selector
 };
 
 /// \brief Specialization that selects StridedZipLayout when all spans are strided.
-/// \tparam Spans  Mdspan types that satisfy StridedMdspan.
+/// \tparam Spans  Mdspan types that satisfy StridedMdspanLike.
 /// \ingroup mdspan_ext
-template <StridedMdspan... Spans> struct zip_layout_selector<Spans...>
+template <StridedMdspanLike... Spans> struct zip_layout_selector<Spans...>
 {
     using type = StridedZipLayout<sizeof...(Spans)>;
 };

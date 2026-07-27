@@ -159,47 +159,47 @@ struct ClaimedStridedSpanWithoutStride : CompleteSpanFacade
     static constexpr bool is_always_strided() noexcept { return true; }
 };
 
-static_assert(SpanLike<StaticSpan>);
-static_assert(MutableSpanLike<StaticSpan>);
-static_assert(SpanLike<ConstStaticSpan>);
-static_assert(!MutableSpanLike<ConstStaticSpan>);
+static_assert(MdspanLike<StaticSpan>);
+static_assert(MutableMdspanLike<StaticSpan>);
+static_assert(MdspanLike<ConstStaticSpan>);
+static_assert(!MutableMdspanLike<ConstStaticSpan>);
 
-static_assert(StridedMdspan<StridedSpan>);
-static_assert(MutableStridedMdspan<StridedSpan>);
-static_assert(StridedMdspan<ConstStridedSpan>);
-static_assert(!MutableStridedMdspan<ConstStridedSpan>);
-static_assert(DefaultAccessorMdspan<StridedSpan>);
-static_assert(DefaultAccessorMdspan<ConstStridedSpan>);
-static_assert(!DefaultAccessorMdspan<CustomAccessorSpan>);
+static_assert(StridedMdspanLike<StridedSpan>);
+static_assert(MutableStridedMdspanLike<StridedSpan>);
+static_assert(StridedMdspanLike<ConstStridedSpan>);
+static_assert(!MutableStridedMdspanLike<ConstStridedSpan>);
+static_assert(DefaultAccessorMdspanLike<StridedSpan>);
+static_assert(DefaultAccessorMdspanLike<ConstStridedSpan>);
+static_assert(!DefaultAccessorMdspanLike<CustomAccessorSpan>);
 
-static_assert(RankedSpanLike<StridedMatrixSpan, 2>);
-static_assert(RankedSpanLike<StridedMatrixSpan&, 2>);
-static_assert(!RankedSpanLike<StridedMatrixSpan, 1>);
-static_assert(MutableRankedSpanLike<StridedMatrixSpan, 2>);
-static_assert(RankedSpanLike<ConstStridedMatrixSpan, 2>);
-static_assert(!MutableRankedSpanLike<ConstStridedMatrixSpan, 2>);
-static_assert(RankedStridedMdspan<StridedMatrixSpan, 2>);
-static_assert(RankedStridedMdspan<StridedMatrixSpan&, 2>);
-static_assert(!RankedStridedMdspan<StridedMatrixSpan, 1>);
-static_assert(MutableRankedStridedMdspan<StridedMatrixSpan, 2>);
-static_assert(MutableRankedStridedMdspan<StridedMatrixSpan&, 2>);
-static_assert(RankedStridedMdspan<ConstStridedMatrixSpan, 2>);
-static_assert(!MutableRankedStridedMdspan<ConstStridedMatrixSpan, 2>);
+static_assert(RankedMdspanLike<StridedMatrixSpan, 2>);
+static_assert(RankedMdspanLike<StridedMatrixSpan&, 2>);
+static_assert(!RankedMdspanLike<StridedMatrixSpan, 1>);
+static_assert(MutableRankedMdspanLike<StridedMatrixSpan, 2>);
+static_assert(RankedMdspanLike<ConstStridedMatrixSpan, 2>);
+static_assert(!MutableRankedMdspanLike<ConstStridedMatrixSpan, 2>);
+static_assert(RankedStridedMdspanLike<StridedMatrixSpan, 2>);
+static_assert(RankedStridedMdspanLike<StridedMatrixSpan&, 2>);
+static_assert(!RankedStridedMdspanLike<StridedMatrixSpan, 1>);
+static_assert(MutableRankedStridedMdspanLike<StridedMatrixSpan, 2>);
+static_assert(MutableRankedStridedMdspanLike<StridedMatrixSpan&, 2>);
+static_assert(RankedStridedMdspanLike<ConstStridedMatrixSpan, 2>);
+static_assert(!MutableRankedStridedMdspanLike<ConstStridedMatrixSpan, 2>);
 
-static_assert(!SpanLike<SpanDescriptorWithoutSubscript>);
-static_assert(SpanLike<CompleteSpanFacade>);
-static_assert(MutableSpanLike<CompleteSpanFacade>);
-static_assert(!SpanLike<MissingExtentSpan>);
-static_assert(!StridedMdspan<ClaimedStridedSpanWithoutStride>);
+static_assert(!MdspanLike<SpanDescriptorWithoutSubscript>);
+static_assert(MdspanLike<CompleteSpanFacade>);
+static_assert(MutableMdspanLike<CompleteSpanFacade>);
+static_assert(!MdspanLike<MissingExtentSpan>);
+static_assert(!StridedMdspanLike<ClaimedStridedSpanWithoutStride>);
 
 struct NotSpanLike
 {};
 
-static_assert(!SpanLike<NotSpanLike>);
-static_assert(!MutableSpanLike<NotSpanLike>);
-static_assert(!StridedMdspan<NotSpanLike>);
-static_assert(!MutableStridedMdspan<NotSpanLike>);
-static_assert(!RankedSpanLike<NotSpanLike, 2>);
-static_assert(!MutableRankedSpanLike<NotSpanLike, 2>);
-static_assert(!RankedStridedMdspan<NotSpanLike, 2>);
-static_assert(!MutableRankedStridedMdspan<NotSpanLike, 2>);
+static_assert(!MdspanLike<NotSpanLike>);
+static_assert(!MutableMdspanLike<NotSpanLike>);
+static_assert(!StridedMdspanLike<NotSpanLike>);
+static_assert(!MutableStridedMdspanLike<NotSpanLike>);
+static_assert(!RankedMdspanLike<NotSpanLike, 2>);
+static_assert(!MutableRankedMdspanLike<NotSpanLike, 2>);
+static_assert(!RankedStridedMdspanLike<NotSpanLike, 2>);
+static_assert(!MutableRankedStridedMdspanLike<NotSpanLike, 2>);

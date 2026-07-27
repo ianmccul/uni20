@@ -104,7 +104,7 @@ template <class MatrixTensor> consteval bool can_transfer_self_adjoint_eigh_stor
     using work_type = self_adjoint_eigh_reuse_matrix_t<matrix_type>;
     return std::same_as<typename matrix_type::storage_policy, uni20::VectorStorage> &&
            std::same_as<typename matrix_type::accessor_factory_type, uni20::DefaultAccessorFactory> &&
-           uni20::DefaultAccessorMdspan<uni20::mutable_tensor_mdspan_t<matrix_type>> &&
+           uni20::DefaultAccessorMdspanLike<uni20::mutable_tensor_mdspan_t<matrix_type>> &&
            requires(matrix_type& matrix, typename work_type::mapping_type mapping,
                     typename work_type::storage_type storage) {
              { std::move(matrix).release_storage() } -> std::same_as<typename work_type::storage_type>;

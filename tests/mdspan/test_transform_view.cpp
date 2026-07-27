@@ -42,7 +42,7 @@ TEST(TransformView1D, SimplePlusN)
   auto Z = transform_view(plus_n{}, A, B);
 
   static_assert(std::is_const_v<typename decltype(Z)::element_type>);
-  static_assert(!MutableSpanLike<decltype(Z)>);
+  static_assert(!MutableMdspanLike<decltype(Z)>);
   ASSERT_EQ(Z.rank(), 1);
   EXPECT_EQ(Z.extent(0), 5);
 

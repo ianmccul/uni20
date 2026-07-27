@@ -23,9 +23,9 @@ template <class Tensor>
 concept CudaDeferredTensorView =
     DeviceTensorView<Tensor> && std::same_as<tensor_storage_policy_t<Tensor>, CudaStorage> &&
     requires(std::remove_reference_t<Tensor>& tensor, std::remove_reference_t<Tensor> const& const_tensor) {
-      { tensor.device_mdspan() } -> DeviceSpanLike;
-      { const_tensor.device_mdspan() } -> DeviceSpanLike;
-    } && (!SpanLike<decltype(std::declval<std::remove_reference_t<Tensor> const&>().device_mdspan())>);
+      { tensor.device_mdspan() } -> DeviceMdspanLike;
+      { const_tensor.device_mdspan() } -> DeviceMdspanLike;
+    } && (!MdspanLike<decltype(std::declval<std::remove_reference_t<Tensor> const&>().device_mdspan())>);
 
 template <class Pointer> [[nodiscard]] Pointer offset_cuda_pointer(Pointer pointer, std::size_t offset) noexcept
 {

@@ -223,7 +223,7 @@ the coroutine by value.
 
 The public wrappers intentionally do not normalize mixed synchronous and async
 Tensor operands. Every Tensor operand in one async operation is `Async<T>`.
-Resolved `SpanLike` concepts remain leaf-kernel concepts.
+Resolved `MdspanLike` concepts remain leaf-kernel concepts.
 
 ## Shape Preparation And Outputs
 

@@ -17,9 +17,8 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for CUDA mdspan GEMM lowering.
-template <class OutputMdspan, class Scalar, uni20::RankedStridedDeviceSpanLike<2> LhsMdspan,
-          uni20::RankedStridedDeviceSpanLike<2> RhsMdspan>
-  requires(uni20::MutableDeviceSpanLike<OutputMdspan> && uni20::RankedStridedDeviceSpanLike<OutputMdspan, 2>)
+template <uni20::MutableRankedStridedDeviceMdspanLike<2> OutputMdspan, class Scalar,
+          uni20::RankedStridedDeviceMdspanLike<2> LhsMdspan, uni20::RankedStridedDeviceMdspanLike<2> RhsMdspan>
 consteval auto kernel_accepts_types(CublasBackend const&, gemm_op const&, OutputMdspan&, Scalar const&, LhsMdspan&,
                                     RhsMdspan&, Scalar const&)
 {
@@ -36,9 +35,8 @@ consteval auto kernel_accepts_types(CublasBackend const&, gemm_op const&, Output
 }
 
 /// \brief Lower CUDA mdspans, block for execution resources, and enqueue cuBLAS GEMM.
-template <class OutputMdspan, class Scalar, uni20::RankedStridedDeviceSpanLike<2> LhsMdspan,
-          uni20::RankedStridedDeviceSpanLike<2> RhsMdspan>
-  requires(uni20::MutableDeviceSpanLike<OutputMdspan> && uni20::RankedStridedDeviceSpanLike<OutputMdspan, 2>)
+template <uni20::MutableRankedStridedDeviceMdspanLike<2> OutputMdspan, class Scalar,
+          uni20::RankedStridedDeviceMdspanLike<2> LhsMdspan, uni20::RankedStridedDeviceMdspanLike<2> RhsMdspan>
 KernelAttempt try_kernel(CublasBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                          RhsMdspan&& rhs, Scalar beta)
 {

@@ -27,7 +27,7 @@ namespace detail
 {
 
 template <class LhsSpan, class RhsSpan>
-concept CompatibleInnerProductSpans = SpanLike<LhsSpan> && SpanLike<RhsSpan> &&
+concept CompatibleInnerProductSpans = MdspanLike<LhsSpan> && MdspanLike<RhsSpan> &&
                                       (std::remove_cvref_t<LhsSpan>::rank() == std::remove_cvref_t<RhsSpan>::rank()) &&
                                       std::same_as<typename std::remove_cvref_t<LhsSpan>::value_type,
                                                    typename std::remove_cvref_t<RhsSpan>::value_type> &&
@@ -109,7 +109,7 @@ void require_reduction_extents(Reference const& reference, Others const&... othe
 /// \brief Sum every element of an mdspan into a rank-zero output.
 /// \details The output preserves the input element type. The CPU reference
 ///          backend uses compensated accumulation in that scalar field.
-template <linalg::KernelBackendSelector BackendSelector, MutableRankedSpanLike<0> OutputSpan, SpanLike InputSpan>
+template <linalg::KernelBackendSelector BackendSelector, MutableRankedMdspanLike<0> OutputSpan, MdspanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
            std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
                         typename std::remove_cvref_t<InputSpan>::value_type>
@@ -123,7 +123,7 @@ void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
 /// \brief Sum selected mdspan axes into an existing lower-rank output.
 /// \details Surviving axes retain their original logical order. Negative axes
 ///          count backward from the input rank.
-template <linalg::KernelBackendSelector BackendSelector, MutableSpanLike OutputSpan, SpanLike InputSpan,
+template <linalg::KernelBackendSelector BackendSelector, MutableMdspanLike OutputSpan, MdspanLike InputSpan,
           linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
            std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
@@ -140,7 +140,7 @@ void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input, Fir
 }
 
 /// \brief Return the full mdspan sum as a host C++ scalar.
-template <linalg::KernelBackendSelector BackendSelector, SpanLike InputSpan>
+template <linalg::KernelBackendSelector BackendSelector, MdspanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type>
 [[nodiscard]] auto sum_host(BackendSelector&& selector, InputSpan&& input) ->
     typename std::remove_cvref_t<InputSpan>::value_type
@@ -287,7 +287,7 @@ template <TensorView InputTensor>
 /// \brief Compute an mdspan inner product into a rank-zero output.
 /// \details The operation is conjugate-linear in `lhs` and linear in `rhs`.
 /// \pre All input extents agree and output does not overlap an input.
-template <class BackendSelector, MutableRankedSpanLike<0> OutputSpan, class LhsSpan, class RhsSpan>
+template <class BackendSelector, MutableRankedMdspanLike<0> OutputSpan, class LhsSpan, class RhsSpan>
   requires detail::CompatibleInnerProductSpans<LhsSpan, RhsSpan> &&
            std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
                         typename std::remove_cvref_t<LhsSpan>::value_type>
@@ -378,7 +378,7 @@ template <class LhsTensor, class RhsTensor>
 }
 
 /// \brief Compute an mdspan Euclidean norm into a real rank-zero output.
-template <class BackendSelector, MutableRankedSpanLike<0> OutputSpan, SpanLike InputSpan>
+template <class BackendSelector, MutableRankedMdspanLike<0> OutputSpan, MdspanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
            std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
                         make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>>
@@ -389,7 +389,7 @@ void norm(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
 }
 
 /// \brief Return an mdspan Euclidean norm as a host C++ scalar.
-template <class BackendSelector, SpanLike InputSpan>
+template <class BackendSelector, MdspanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type>
 [[nodiscard]] auto norm_host(BackendSelector&& selector,
                              InputSpan&& input) -> make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>

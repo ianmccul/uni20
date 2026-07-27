@@ -24,12 +24,12 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for LAPACK tridiagonal eigensystem dispatch.
-template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspan<2> EigenvectorMdspan>
+template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspanLike<2> EigenvectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
                                     std::span<Scalar>&, EigenvectorMdspan&)
 {
   using vector_scalar = std::remove_cv_t<typename EigenvectorMdspan::element_type>;
-  if constexpr (std::same_as<vector_scalar, Scalar> && uni20::DefaultAccessorMdspan<EigenvectorMdspan>)
+  if constexpr (std::same_as<vector_scalar, Scalar> && uni20::DefaultAccessorMdspanLike<EigenvectorMdspan>)
   {
     return kernel_types_maybe;
   }

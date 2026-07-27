@@ -25,7 +25,7 @@ namespace uni20
 ///          layout use the default column-major `Tensor` layout. An explicit
 ///          `RequestedLayout` overrides either choice. The result has the
 ///          input's compile-time rank with runtime extents on every axis.
-template <class RequestedLayout = void, class BackendSelector, SpanLike InputMdspan>
+template <class RequestedLayout = void, class BackendSelector, MdspanLike InputMdspan>
 [[nodiscard]] auto make_tensor(BackendSelector&& selector, InputMdspan&& input)
 {
   using input_type = std::remove_cvref_t<InputMdspan>;

@@ -91,26 +91,30 @@ struct MissingDataDescriptorObserver : IndependentDeviceSpanFacade
 };
 
 static_assert(uni20::AccessorPolicy<StatefulAccessor>);
-static_assert(uni20::DeviceSpanLike<device_span_type>);
-static_assert(uni20::DeviceSpanLike<device_span_type const&>);
-static_assert(uni20::MutableDeviceSpanLike<device_span_type>);
-static_assert(uni20::RankedDeviceSpanLike<device_span_type, 2>);
-static_assert(!uni20::RankedDeviceSpanLike<device_span_type, 1>);
-static_assert(uni20::StridedDeviceSpanLike<device_span_type>);
-static_assert(uni20::RankedStridedDeviceSpanLike<device_span_type, 2>);
-static_assert(uni20::DeviceSpanLike<move_only_device_span_type>);
+static_assert(uni20::DeviceMdspanLike<device_span_type>);
+static_assert(uni20::DeviceMdspanLike<device_span_type const&>);
+static_assert(uni20::MutableDeviceMdspanLike<device_span_type>);
+static_assert(uni20::MutableStridedDeviceMdspanLike<device_span_type>);
+static_assert(uni20::RankedDeviceMdspanLike<device_span_type, 2>);
+static_assert(uni20::MutableRankedDeviceMdspanLike<device_span_type, 2>);
+static_assert(!uni20::RankedDeviceMdspanLike<device_span_type, 1>);
+static_assert(uni20::StridedDeviceMdspanLike<device_span_type>);
+static_assert(uni20::RankedStridedDeviceMdspanLike<device_span_type, 2>);
+static_assert(uni20::MutableRankedStridedDeviceMdspanLike<device_span_type, 2>);
+static_assert(uni20::DeviceMdspanLike<move_only_device_span_type>);
 static_assert(std::movable<move_only_device_span_type>);
 static_assert(!std::copy_constructible<move_only_device_span_type>);
 
-static_assert(uni20::DeviceSpanLike<immediate_span_type>);
-static_assert(uni20::RankedDeviceSpanLike<immediate_span_type, 2>);
-static_assert(uni20::StridedDeviceSpanLike<immediate_span_type>);
+static_assert(uni20::DeviceMdspanLike<immediate_span_type>);
+static_assert(uni20::RankedDeviceMdspanLike<immediate_span_type, 2>);
+static_assert(uni20::StridedDeviceMdspanLike<immediate_span_type>);
+static_assert(uni20::MutableRankedStridedDeviceMdspanLike<immediate_span_type, 2>);
 
-static_assert(uni20::DeviceSpanLike<IndependentDeviceSpanFacade>);
-static_assert(uni20::RankedStridedDeviceSpanLike<IndependentDeviceSpanFacade, 2>);
-static_assert(!uni20::DeviceSpanLike<MissingDataDescriptorObserver>);
+static_assert(uni20::DeviceMdspanLike<IndependentDeviceSpanFacade>);
+static_assert(uni20::RankedStridedDeviceMdspanLike<IndependentDeviceSpanFacade, 2>);
+static_assert(!uni20::DeviceMdspanLike<MissingDataDescriptorObserver>);
 
-static_assert(!uni20::SpanLike<device_span_type>);
+static_assert(!uni20::MdspanLike<device_span_type>);
 static_assert(!HasDataHandle<device_span_type>);
 static_assert(!HasMatrixSubscript<device_span_type>);
 

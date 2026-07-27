@@ -25,11 +25,12 @@ namespace detail
 {
 
 template <class Output, class... Inputs>
-concept OverwriteTransformSpans = MutableSpanLike<Output> && (sizeof...(Inputs) >= 1) && (SpanLike<Inputs> && ...) &&
-                                  ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
+concept OverwriteTransformSpans =
+    MutableMdspanLike<Output> && (sizeof...(Inputs) >= 1) && (MdspanLike<Inputs> && ...) &&
+    ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
-concept UpdateTransformSpans = MutableSpanLike<Output> && (SpanLike<Inputs> && ...) &&
+concept UpdateTransformSpans = MutableMdspanLike<Output> && (MdspanLike<Inputs> && ...) &&
                                ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>

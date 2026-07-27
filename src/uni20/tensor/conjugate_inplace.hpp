@@ -19,7 +19,7 @@ namespace uni20
 {
 
 /// \brief Conjugate a mutable mdspan-like object through an explicit backend selector.
-template <class BackendSelector, MutableSpanLike Mdspan>
+template <class BackendSelector, MutableMdspanLike Mdspan>
 void conjugate_inplace(BackendSelector&& selector, Mdspan&& span)
 {
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::conjugate_inplace_op{},

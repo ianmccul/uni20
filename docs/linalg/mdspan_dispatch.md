@@ -62,7 +62,7 @@ concepts, not a runtime LAPACK-layout check.
 
 Uni20 already has the pieces to build on:
 
-- `uni20::StridedMdspan` and `uni20::MutableStridedMdspan` in
+- `uni20::StridedMdspanLike` and `uni20::MutableStridedMdspanLike` in
   `src/uni20/mdspan/concepts.hpp`.
 - Checked LAPACK wrappers in `src/uni20/backend/lapack/lapack.hpp`.
 - Provider-specific unchecked wrappers under `src/uni20/backend/lapack/reference`
@@ -122,13 +122,13 @@ Implemented generic mdspan refinement:
 
 ```cpp
 template <class View, std::size_t Rank>
-concept RankedStridedMdspan =
-    uni20::StridedMdspan<std::remove_cvref_t<View>> &&
+concept RankedStridedMdspanLike =
+    uni20::StridedMdspanLike<std::remove_cvref_t<View>> &&
     std::remove_cvref_t<View>::rank() == Rank;
 
 template <class View, std::size_t Rank>
-concept MutableRankedStridedMdspan =
-    uni20::MutableStridedMdspan<std::remove_cvref_t<View>> &&
+concept MutableRankedStridedMdspanLike =
+    uni20::MutableStridedMdspanLike<std::remove_cvref_t<View>> &&
     std::remove_cvref_t<View>::rank() == Rank;
 ```
 
@@ -137,53 +137,53 @@ Candidate linalg refinements:
 ```cpp
 template <class View>
 concept LinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::RealOrComplex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept MutableLinalgMatrixView =
-    MutableRankedStridedMdspan<View, 2> &&
+    MutableRankedStridedMdspanLike<View, 2> &&
     LinalgMatrixView<View>;
 
 template <class View>
 concept LinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::RealOrComplex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept MutableLinalgVectorView =
-    MutableRankedStridedMdspan<View, 1> &&
+    MutableRankedStridedMdspanLike<View, 1> &&
     LinalgVectorView<View>;
 
 template <class View>
 concept RealLinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::Real<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept ComplexLinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::Complex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept RealLinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::Real<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept ComplexLinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::Complex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View, std::size_t Rank>
 concept HostRawAddressableRankedView =
-    RankedStridedMdspan<View, Rank> &&
+    RankedStridedMdspanLike<View, Rank> &&
     raw_host_accessor_v<typename std::remove_cvref_t<View>::accessor_type> &&
     raw_data_handle_compatible_v<std::remove_cvref_t<View>>;
 
@@ -206,8 +206,8 @@ concept LapackScalarRankedView =
 
 The exact names can change, but the split matters:
 
-- `StridedMdspan`: structural mdspan-like API with runtime strides.
-- `RankedStridedMdspan<View, Rank>`: structural mdspan-like API plus a static
+- `StridedMdspanLike`: structural mdspan-like API with runtime strides.
+- `RankedStridedMdspanLike<View, Rank>`: structural mdspan-like API plus a static
   rank requirement; this belongs in the generic mdspan layer and is implemented
   in `src/uni20/mdspan/concepts.hpp`.
 - `LinalgMatrixView` and `LinalgVectorView`: rank-specific real-or-complex

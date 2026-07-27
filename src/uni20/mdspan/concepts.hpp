@@ -227,36 +227,36 @@ concept DeviceSpanDescriptor = SpanMetadata<S> && requires(span_type_t<S> const&
 
 } // namespace detail
 
-/// \concept SpanLike
+/// \concept MdspanLike
 /// \brief A readable type implementing the mdspan observers and multidimensional subscript contract.
 /// \details In addition to the standard mdspan descriptor aliases, a model
 ///          exposes its static rank, extents, mapping, accessor, data handle,
 ///          and an `operator[]` accepting one index per rank whose result is
 ///          exactly `reference`.
-/// \tparam S The type being tested for SpanLike requirements.
+/// \tparam S The type being tested for MdspanLike requirements.
 /// \ingroup mdspan_ext
 template <class S>
-concept SpanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
-                   detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
+concept MdspanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
+                     detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
 
-/// \concept DeviceSpanLike
+/// \concept DeviceMdspanLike
 /// \brief Mdspan metadata whose data handle is immediate or available through a data descriptor.
-/// \details Ordinary `SpanLike` values model this concept as the immediate case.
+/// \details Ordinary `MdspanLike` values model this concept as the immediate case.
 ///          A deferred model instead exposes `data_descriptor_type` and
 ///          `data_descriptor()` while retaining the actual mapping and accessor
 ///          that will be used after handle acquisition. The concept does not
 ///          require the concrete `device_mdspan` class.
-/// \tparam S The type being tested for device-span requirements.
+/// \tparam S The type being tested for device-mdspan requirements.
 /// \ingroup mdspan_ext
 template <class S>
-concept DeviceSpanLike =
-    SpanLike<S> || (detail::DeviceSpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
+concept DeviceMdspanLike = MdspanLike<S> || (detail::DeviceSpanDescriptor<S> &&
+                                             AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
 
 namespace detail
 {
 
 template <class Span, class... Index>
-concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Span>::rank()) &&
+concept MdspanIndexPack = MdspanLike<Span> && (sizeof...(Index) == span_type_t<Span>::rank()) &&
                           (std::is_convertible_v<Index, typename span_type_t<Span>::index_type> && ...) &&
                           (std::is_nothrow_constructible_v<typename span_type_t<Span>::index_type, Index> && ...);
 
@@ -277,7 +277,7 @@ concept AccessorReferenceAssignable =
 /// \param indices Coordinates for every mdspan axis.
 /// \return The reference or calculated value produced by the read-only accessor.
 /// \ingroup mdspan_ext
-template <SpanLike Span, class... Index>
+template <MdspanLike Span, class... Index>
   requires detail::MdspanIndexPack<Span, Index...>
 constexpr decltype(auto) const_access(Span const& span, Index... indices)
 {
@@ -286,107 +286,136 @@ constexpr decltype(auto) const_access(Span const& span, Index... indices)
   return accessor.access(span.data_handle(), span.mapping()(static_cast<index_type>(std::move(indices))...));
 }
 
-/// \concept MutableSpanLike
-/// \brief SpanLike types whose accessor supports indexed assignment.
+/// \concept MutableMdspanLike
+/// \brief MdspanLike types whose accessor supports indexed assignment.
 /// \tparam S The type being evaluated for mutable access.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableSpanLike =
-    SpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+concept MutableMdspanLike =
+    MdspanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
     detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
 
-/// \concept MutableDeviceSpanLike
-/// \brief DeviceSpanLike types whose eventual storage supports writes.
-/// \details Immediate spans use `MutableSpanLike`. Deferred spans use the same
+/// \concept MutableDeviceMdspanLike
+/// \brief DeviceMdspanLike types whose eventual storage supports writes.
+/// \details Immediate spans use `MutableMdspanLike`. Deferred spans use the same
 ///          accessor-reference assignment that will govern the resolved span.
-/// \tparam S The device span type being evaluated.
+/// \tparam S The device-mdspan-like type being evaluated.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableDeviceSpanLike =
-    DeviceSpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
-    (MutableSpanLike<S> || detail::AccessorReferenceAssignable<typename detail::span_type_t<S>::accessor_type>);
+concept MutableDeviceMdspanLike =
+    DeviceMdspanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+    (MutableMdspanLike<S> || detail::AccessorReferenceAssignable<typename detail::span_type_t<S>::accessor_type>);
 
-/// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.
+/// \brief An mdspan-like type whose mapping is always strided and exposes stride observers.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept StridedMdspan = SpanLike<MDS> && detail::span_type_t<MDS>::is_always_strided() &&
-                        requires(detail::span_type_t<MDS> const& span, std::size_t axis) {
-                          { span.stride(axis) } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
-                          {
-                            span.mapping().stride(axis)
-                          } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
-                        };
+concept StridedMdspanLike = MdspanLike<MDS> && detail::span_type_t<MDS>::is_always_strided() &&
+                            requires(detail::span_type_t<MDS> const& span, std::size_t axis) {
+                              {
+                                span.stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
+                              {
+                                span.mapping().stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
+                            };
 
-/// \concept MutableStridedMdspan
-/// \brief Mutable span-like types whose layout reports they are always strided.
+/// \concept MutableStridedMdspanLike
+/// \brief Mutable mdspan-like types whose layout reports they are always strided.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept MutableStridedMdspan = MutableSpanLike<MDS> && StridedMdspan<MDS>;
+concept MutableStridedMdspanLike = MutableMdspanLike<MDS> && StridedMdspanLike<MDS>;
 
-/// \brief A device-span-like type whose mapping exposes multidimensional strides.
-/// \tparam S The device span type under test.
+/// \brief A device-mdspan-like type whose mapping exposes multidimensional strides.
+/// \tparam S The device-mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class S>
-concept StridedDeviceSpanLike = DeviceSpanLike<S> && detail::span_type_t<S>::is_always_strided() &&
-                                requires(detail::span_type_t<S> const& span, std::size_t axis) {
-                                  {
-                                    span.stride(axis)
-                                  } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
-                                  {
-                                    span.mapping().stride(axis)
-                                  } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
-                                };
+concept StridedDeviceMdspanLike = DeviceMdspanLike<S> && detail::span_type_t<S>::is_always_strided() &&
+                                  requires(detail::span_type_t<S> const& span, std::size_t axis) {
+                                    {
+                                      span.stride(axis)
+                                    } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                                    {
+                                      span.mapping().stride(axis)
+                                    } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                                  };
+
+/// \concept MutableStridedDeviceMdspanLike
+/// \brief Mutable device-mdspan-like type whose mapping is always strided.
+/// \tparam S The device-mdspan-like type under test.
+/// \ingroup mdspan_ext
+template <class S>
+concept MutableStridedDeviceMdspanLike = MutableDeviceMdspanLike<S> && StridedDeviceMdspanLike<S>;
 
 /// \brief An mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept RankedSpanLike = SpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept RankedMdspanLike = MdspanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
 
-/// \brief A device-span-like type with a specified static rank.
-/// \tparam S The device span type under test.
+/// \brief A device-mdspan-like type with a specified static rank.
+/// \tparam S The device-mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept RankedDeviceSpanLike = DeviceSpanLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
+concept RankedDeviceMdspanLike = DeviceMdspanLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
+
+/// \concept MutableRankedDeviceMdspanLike
+/// \brief Mutable device-mdspan-like type with a specified static rank.
+/// \tparam S The device-mdspan-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept MutableRankedDeviceMdspanLike = MutableDeviceMdspanLike<S> && RankedDeviceMdspanLike<S, Rank>;
 
 /// \brief A mutable mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept MutableRankedSpanLike = MutableSpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept MutableRankedMdspanLike =
+    MutableMdspanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
 
 /// \brief An mdspan-like type whose accessor is `stdex::default_accessor`.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept DefaultAccessorMdspan =
-    SpanLike<std::remove_cvref_t<MDS>> && is_default_accessor_v<typename std::remove_cvref_t<MDS>::accessor_type>;
+concept DefaultAccessorMdspanLike =
+    MdspanLike<std::remove_cvref_t<MDS>> && is_default_accessor_v<typename std::remove_cvref_t<MDS>::accessor_type>;
 
 /// \brief A strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept RankedStridedMdspan = RankedSpanLike<MDS, Rank> && StridedMdspan<std::remove_cvref_t<MDS>>;
+concept RankedStridedMdspanLike = RankedMdspanLike<MDS, Rank> && StridedMdspanLike<std::remove_cvref_t<MDS>>;
 
-/// \brief A strided device-span-like type with a specified static rank.
-/// \tparam S The device span type under test.
+/// \brief A strided device-mdspan-like type with a specified static rank.
+/// \tparam S The device-mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept RankedStridedDeviceSpanLike = RankedDeviceSpanLike<S, Rank> && StridedDeviceSpanLike<std::remove_cvref_t<S>>;
+concept RankedStridedDeviceMdspanLike =
+    RankedDeviceMdspanLike<S, Rank> && StridedDeviceMdspanLike<std::remove_cvref_t<S>>;
+
+/// \concept MutableRankedStridedDeviceMdspanLike
+/// \brief Mutable strided device-mdspan-like type with a specified static rank.
+/// \tparam S The device-mdspan-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept MutableRankedStridedDeviceMdspanLike =
+    MutableRankedDeviceMdspanLike<S, Rank> && MutableStridedDeviceMdspanLike<std::remove_cvref_t<S>>;
 
 /// \brief A mutable strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept MutableRankedStridedMdspan = MutableRankedSpanLike<MDS, Rank> && MutableStridedMdspan<std::remove_cvref_t<MDS>>;
+concept MutableRankedStridedMdspanLike =
+    MutableRankedMdspanLike<MDS, Rank> && MutableStridedMdspanLike<std::remove_cvref_t<MDS>>;
 
 namespace detail
 {
@@ -397,7 +426,7 @@ namespace detail
 /// \param s The mdspan instance whose strides will be computed.
 /// \return An array containing strides for each dimension in \c S.
 /// \ingroup internal
-template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
+template <StridedMdspanLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
 {
   using index_type = typename S::index_type;
   // fold the pack I... into an array by calling s.mapping().stride(I) for each I
@@ -411,7 +440,7 @@ template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, 
 /// \param s The mdspan instance whose strides will be returned.
 /// \return A std::array containing the strides for each rank.
 /// \ingroup mdspan_ext
-template <StridedMdspan S> auto strides(S const& s)
+template <StridedMdspanLike S> auto strides(S const& s)
 {
   return detail::strides_impl(s, std::make_index_sequence<S::rank()>{});
 }

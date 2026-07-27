@@ -74,11 +74,11 @@ concept TensorView = requires(std::remove_reference_t<T> const& tensor) {
   {
     tensor.extent(std::size_t{})
   } -> std::convertible_to<typename std::remove_cvref_t<detail::tensor_const_mdspan_t<T>>::index_type>;
-} && SpanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan())>;
+} && MdspanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan())>;
 
 /// \brief Tensor-level object whose multidimensional data may require acquisition.
 /// \details An ordinary `TensorView` is the immediate case. A deferred model
-///          exposes `device_mdspan()` returning a `DeviceSpanLike`; explicit
+///          exposes `device_mdspan()` returning a `DeviceMdspanLike`; explicit
 ///          read or write access resolves that metadata into a `TensorView`
 ///          whose lifetime is governed by an RAII lease.
 template <class T>
@@ -92,7 +92,7 @@ concept DeviceTensorView = requires(std::remove_reference_t<T> const& tensor) {
   {
     tensor.extent(std::size_t{})
   } -> std::convertible_to<typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::index_type>;
-} && DeviceSpanLike<detail::normalized_const_device_mdspan_t<T>>;
+} && DeviceMdspanLike<detail::normalized_const_device_mdspan_t<T>>;
 
 /// \brief Opt-in marker for tensor types that own their storage and lifetime.
 /// \details Specialize this variable template for a tensor type only when
@@ -111,7 +111,7 @@ concept OwningTensor = DeviceTensorView<T> && enable_owning_tensor<std::remove_c
 /// \brief Resolved readable mdspan type exposed by a tensor-level object.
 template <TensorView T> using tensor_mdspan_t = std::remove_cvref_t<detail::tensor_const_mdspan_t<T>>;
 
-/// \brief DeviceSpanLike type exposed by a deferred tensor-level object.
+/// \brief DeviceMdspanLike type exposed by a deferred tensor-level object.
 template <DeviceTensorView T>
 using device_tensor_mdspan_t = std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>;
 
@@ -125,27 +125,27 @@ template <DeviceTensorView T> using tensor_extents_t = typename device_tensor_md
 /// \brief Tensor-level object that also exposes a writable resolved mdspan.
 template <class T>
 concept MutableTensorView =
-    TensorView<T> && MutableSpanLike<decltype(std::declval<std::remove_reference_t<T>&>().mdspan())>;
+    TensorView<T> && MutableMdspanLike<decltype(std::declval<std::remove_reference_t<T>&>().mdspan())>;
 
-/// \brief DeviceTensorView whose non-const device span supports write acquisition.
+/// \brief DeviceTensorView whose non-const device mdspan supports write acquisition.
 template <class T>
 concept MutableDeviceTensorView = DeviceTensorView<T> && requires(std::remove_reference_t<T>& tensor) {
   detail::tensor_device_mdspan(tensor);
-} && MutableDeviceSpanLike<detail::normalized_mutable_device_mdspan_t<T>>;
+} && MutableDeviceMdspanLike<detail::normalized_mutable_device_mdspan_t<T>>;
 
-/// \brief DeviceTensorView whose readable device span has a specified static rank.
+/// \brief DeviceTensorView whose readable device mdspan has a specified static rank.
 template <class T, std::size_t Rank>
-concept RankedDeviceTensorView = DeviceTensorView<T> && RankedDeviceSpanLike<device_tensor_mdspan_t<T>, Rank>;
+concept RankedDeviceTensorView = DeviceTensorView<T> && RankedDeviceMdspanLike<device_tensor_mdspan_t<T>, Rank>;
 
 /// \brief DeviceTensorView whose unresolved multidimensional metadata is strided.
 template <class T>
-concept StridedDeviceTensorView = DeviceTensorView<T> && StridedDeviceSpanLike<device_tensor_mdspan_t<T>>;
+concept StridedDeviceTensorView = DeviceTensorView<T> && StridedDeviceMdspanLike<device_tensor_mdspan_t<T>>;
 
 /// \brief Mutable device tensor view whose unresolved multidimensional metadata is strided.
 template <class T>
 concept MutableStridedDeviceTensorView =
     MutableDeviceTensorView<T> && StridedDeviceTensorView<T> &&
-    StridedDeviceSpanLike<std::remove_cvref_t<detail::normalized_mutable_device_mdspan_t<T>>>;
+    StridedDeviceMdspanLike<std::remove_cvref_t<detail::normalized_mutable_device_mdspan_t<T>>>;
 
 /// \brief Strided device tensor view with a specified static rank.
 template <class T, std::size_t Rank>
@@ -153,7 +153,16 @@ concept RankedStridedDeviceTensorView = RankedDeviceTensorView<T, Rank> && Strid
 
 /// \brief Mutable device tensor view with a specified static rank.
 template <class T, std::size_t Rank>
-concept MutableRankedDeviceTensorView = RankedDeviceTensorView<T, Rank> && MutableDeviceTensorView<T>;
+concept MutableRankedDeviceTensorView = RankedDeviceTensorView<T, Rank> && MutableDeviceTensorView<T> &&
+                                        RankedDeviceMdspanLike<detail::normalized_mutable_device_mdspan_t<T>, Rank>;
+
+/// \brief DeviceTensorView whose readable device mdspan has rank zero.
+template <class T>
+concept ScalarDeviceTensorView = RankedDeviceTensorView<T, 0>;
+
+/// \brief Mutable DeviceTensorView whose writable device mdspan has rank zero.
+template <class T>
+concept MutableScalarDeviceTensorView = MutableRankedDeviceTensorView<T, 0>;
 
 /// \brief Mutable strided device tensor view with a specified static rank.
 template <class T, std::size_t Rank>
@@ -166,25 +175,27 @@ template <MutableTensorView T> using mutable_tensor_mdspan_t = std::remove_cvref
 /// \brief Tensor-level object whose readable resolved mdspan is strided.
 template <class T>
 concept StridedTensorView =
-    TensorView<T> && StridedMdspan<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan())>;
+    TensorView<T> && StridedMdspanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan())>;
 
 /// \brief Mutable tensor-level object whose resolved mdspan is strided.
 template <class T>
-concept MutableStridedTensorView = MutableTensorView<T> && StridedTensorView<T> &&
-                                   MutableStridedMdspan<decltype(std::declval<std::remove_reference_t<T>&>().mdspan())>;
+concept MutableStridedTensorView =
+    MutableTensorView<T> && StridedTensorView<T> &&
+    MutableStridedMdspanLike<decltype(std::declval<std::remove_reference_t<T>&>().mdspan())>;
 
 /// \brief Tensor-level object whose readable resolved mdspan has a specified static rank.
 /// \tparam T Tensor-like type under test.
 /// \tparam Rank Required rank of the resolved mdspan.
 template <class T, std::size_t Rank>
 concept RankedTensorView =
-    TensorView<T> && RankedSpanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan()), Rank>;
+    TensorView<T> && RankedMdspanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan()), Rank>;
 
 /// \brief Mutable tensor-level object whose writable resolved mdspan has a specified static rank.
 /// \tparam T Tensor-like type under test.
 /// \tparam Rank Required rank of the resolved mdspan.
 template <class T, std::size_t Rank>
-concept MutableRankedTensorView = RankedTensorView<T, Rank> && MutableTensorView<T>;
+concept MutableRankedTensorView =
+    RankedTensorView<T, Rank> && MutableTensorView<T> && RankedMdspanLike<detail::tensor_mutable_mdspan_t<T>, Rank>;
 
 /// \brief Tensor-level object whose readable resolved mdspan has rank zero.
 template <class T>

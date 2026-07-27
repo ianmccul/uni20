@@ -26,8 +26,8 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for LAPACK Schur decomposition.
-template <uni20::MutableRankedStridedMdspan<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedStridedMdspan<2> SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, schur_op const&, MatrixMdspan&, std::span<EigenScalar>&,
                                     SchurVectorMdspan&)
 {
@@ -36,8 +36,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, schur_op const&, Matri
   using expected_eigen_scalar = uni20::complex<uni20::make_real_t<matrix_scalar>>;
 
   if constexpr (uni20::LapackScalar<matrix_scalar> && std::same_as<vector_scalar, matrix_scalar> &&
-                std::same_as<EigenScalar, expected_eigen_scalar> && uni20::DefaultAccessorMdspan<MatrixMdspan> &&
-                uni20::DefaultAccessorMdspan<SchurVectorMdspan>)
+                std::same_as<EigenScalar, expected_eigen_scalar> && uni20::DefaultAccessorMdspanLike<MatrixMdspan> &&
+                uni20::DefaultAccessorMdspanLike<SchurVectorMdspan>)
   {
     return kernel_types_maybe;
   }
@@ -133,8 +133,8 @@ KernelAttempt try_kernel(LapackBackend, schur_op const& op, MatrixMdspan&& matri
 }
 
 /// \brief Report compile-time eligibility for real upper-Hessenberg Schur decomposition.
-template <uni20::MutableRankedStridedMdspan<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedStridedMdspan<2> SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, hessenberg_schur_op const&, MatrixMdspan&,
                                     std::span<EigenScalar>&, SchurVectorMdspan&)
 {
@@ -142,7 +142,7 @@ consteval auto kernel_accepts_types(LapackBackend const&, hessenberg_schur_op co
   using vector_scalar = std::remove_cv_t<typename SchurVectorMdspan::element_type>;
   if constexpr (uni20::LapackReal<matrix_scalar> && std::same_as<vector_scalar, matrix_scalar> &&
                 std::same_as<EigenScalar, uni20::complex<matrix_scalar>> &&
-                uni20::DefaultAccessorMdspan<MatrixMdspan> && uni20::DefaultAccessorMdspan<SchurVectorMdspan>)
+                uni20::DefaultAccessorMdspanLike<MatrixMdspan> && uni20::DefaultAccessorMdspanLike<SchurVectorMdspan>)
   {
     return kernel_types_maybe;
   }
@@ -211,13 +211,15 @@ KernelAttempt try_kernel(LapackBackend, hessenberg_schur_op const& op, MatrixMds
 }
 
 /// \brief Report compile-time eligibility for LAPACK Schur reordering.
-template <uni20::MutableRankedStridedMdspan<2> SchurFormMdspan, uni20::MutableRankedStridedMdspan<2> SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> SchurFormMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const&, SchurFormMdspan&, SchurVectorMdspan&)
 {
   using form_scalar = std::remove_cv_t<typename SchurFormMdspan::element_type>;
   using vector_scalar = std::remove_cv_t<typename SchurVectorMdspan::element_type>;
   if constexpr (uni20::LapackScalar<form_scalar> && std::same_as<form_scalar, vector_scalar> &&
-                uni20::DefaultAccessorMdspan<SchurFormMdspan> && uni20::DefaultAccessorMdspan<SchurVectorMdspan>)
+                uni20::DefaultAccessorMdspanLike<SchurFormMdspan> &&
+                uni20::DefaultAccessorMdspanLike<SchurVectorMdspan>)
   {
     return kernel_types_maybe;
   }

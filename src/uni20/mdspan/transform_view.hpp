@@ -22,7 +22,7 @@ namespace uni20
 namespace detail
 {
 
-template <class Function, SpanLike Span> class unary_transform_accessor {
+template <class Function, MdspanLike Span> class unary_transform_accessor {
   public:
     using function_type = Function;
     using span_type = Span;
@@ -54,7 +54,7 @@ template <class Function, SpanLike Span> class unary_transform_accessor {
     [[no_unique_address]] wrapped_accessor_type accessor_;
 };
 
-template <class Function, SpanLike... Spans> class transform_accessor {
+template <class Function, MdspanLike... Spans> class transform_accessor {
   public:
     static_assert(sizeof...(Spans) >= 2);
 
@@ -105,7 +105,7 @@ template <class Function, SpanLike... Spans> class transform_accessor {
 } // namespace detail
 
 /// \brief Create a lazy read-only unary transform view while preserving the input mapping.
-template <class Function, SpanLike Span>
+template <class Function, MdspanLike Span>
 [[nodiscard]] constexpr auto transform_view(Function&& function, Span const& span)
 {
   using function_type = std::decay_t<Function>;
@@ -120,7 +120,7 @@ template <class Function, SpanLike Span>
 
 /// \brief Create a lazy read-only elementwise transform view over two or more inputs.
 /// \pre Every input has the same runtime extents.
-template <class Function, SpanLike First, SpanLike Second, SpanLike... Rest>
+template <class Function, MdspanLike First, MdspanLike Second, MdspanLike... Rest>
 [[nodiscard]] constexpr auto transform_view(Function&& function, First const& first, Second const& second,
                                             Rest const&... rest)
 {

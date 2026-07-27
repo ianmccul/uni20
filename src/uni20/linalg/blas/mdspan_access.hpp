@@ -30,14 +30,14 @@ inline constexpr bool is_blas_direct_read_accessor_v =
 
 template <class Mdspan, std::size_t Rank>
 concept blas_readable_mdspan =
-    uni20::RankedStridedMdspan<Mdspan, Rank> &&
+    uni20::RankedStridedMdspanLike<Mdspan, Rank> &&
     uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
     is_blas_direct_read_accessor_v<typename std::remove_cvref_t<Mdspan>::accessor_type>;
 
 template <class Mdspan, std::size_t Rank>
 concept blas_writable_mdspan =
-    uni20::MutableRankedStridedMdspan<Mdspan, Rank> &&
+    uni20::MutableRankedStridedMdspanLike<Mdspan, Rank> &&
     uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
-    uni20::DefaultAccessorMdspan<Mdspan>;
+    uni20::DefaultAccessorMdspanLike<Mdspan>;
 
 } // namespace uni20::linalg::blas::detail

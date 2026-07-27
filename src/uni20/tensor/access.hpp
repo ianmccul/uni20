@@ -155,7 +155,7 @@ template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
 /// \tparam AccessState RAII state retaining the acquired data handle.
 /// \tparam BackendSelector Backend list copied from the source tensor view.
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
-template <SpanLike Mdspan, detail::TensorAccessState AccessState, class BackendSelector, class StoragePolicy>
+template <MdspanLike Mdspan, detail::TensorAccessState AccessState, class BackendSelector, class StoragePolicy>
   requires std::is_const_v<typename Mdspan::element_type>
 class read_tensor_lease {
   public:
@@ -259,7 +259,7 @@ class read_tensor_lease {
 /// \tparam AccessState RAII state retaining exclusive access.
 /// \tparam BackendSelector Backend list copied from the source tensor view.
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
-template <MutableSpanLike MutableMdspan, SpanLike ConstMdspan, detail::TensorAccessState AccessState,
+template <MutableMdspanLike MutableMdspan, MdspanLike ConstMdspan, detail::TensorAccessState AccessState,
           class BackendSelector, class StoragePolicy>
   requires std::is_const_v<typename ConstMdspan::element_type>
 class write_tensor_lease {

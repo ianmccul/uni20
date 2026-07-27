@@ -34,7 +34,7 @@ concept CanonicalReshapeLayout =
 
 template <class Span>
 concept CanonicallyLaidOutMdspan =
-    StridedMdspan<Span> && CanonicalReshapeLayout<typename std::remove_cvref_t<Span>::layout_type>;
+    StridedMdspanLike<Span> && CanonicalReshapeLayout<typename std::remove_cvref_t<Span>::layout_type>;
 
 template <class T>
 concept CanonicallyLaidOutOwningTensor =
@@ -66,7 +66,7 @@ template <class Index> [[nodiscard]] constexpr bool positive_stride_equals(Index
   return std::in_range<std::size_t>(stride) && static_cast<std::size_t>(stride) == expected;
 }
 
-template <StridedMdspan Span> [[nodiscard]] bool has_row_major_contiguous_mapping(Span const& span)
+template <StridedMdspanLike Span> [[nodiscard]] bool has_row_major_contiguous_mapping(Span const& span)
 {
   std::size_t expected = 1;
   for (std::size_t axis = Span::rank(); axis > 0; --axis)
@@ -82,7 +82,7 @@ template <StridedMdspan Span> [[nodiscard]] bool has_row_major_contiguous_mappin
   return true;
 }
 
-template <StridedMdspan Span> [[nodiscard]] bool has_column_major_contiguous_mapping(Span const& span)
+template <StridedMdspanLike Span> [[nodiscard]] bool has_column_major_contiguous_mapping(Span const& span)
 {
   std::size_t expected = 1;
   for (std::size_t axis = 0; axis < Span::rank(); ++axis)
@@ -98,7 +98,7 @@ template <StridedMdspan Span> [[nodiscard]] bool has_column_major_contiguous_map
   return true;
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspan Span>
+template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span>
 [[nodiscard]] bool has_canonical_contiguous_mapping(Span const& span)
 {
   auto const logical_size = checked_element_count(span.extents());
@@ -122,7 +122,7 @@ template <CanonicalReshapeLayout LayoutPolicy, StridedMdspan Span>
     return has_row_major_contiguous_mapping(span);
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspan Span>
+template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span>
 void require_canonical_contiguous_mapping(Span const& span)
 {
   if constexpr (std::same_as<LayoutPolicy, stdex::layout_left>)
@@ -137,7 +137,7 @@ void require_canonical_contiguous_mapping(Span const& span)
   }
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspan Span, std::integral... Extents>
+template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span, std::integral... Extents>
 [[nodiscard]] auto make_reshape_view(Span&& source, Extents... requested_extents)
 {
   using source_type = std::remove_cvref_t<Span>;
@@ -171,7 +171,7 @@ template <detail::CanonicallyLaidOutMdspan Span, std::integral... Extents>
 /// \brief Return a no-copy column-major reshape of a compatible strided mdspan.
 /// \details Singleton-axis strides do not select an order. All other strides
 ///          must describe a unique, exhaustive canonical column-major mapping.
-template <StridedMdspan Span, std::integral... Extents>
+template <StridedMdspanLike Span, std::integral... Extents>
 [[nodiscard]] auto reshape_view_left(Span&& source, Extents... requested_extents)
 {
   return detail::make_reshape_view<stdex::layout_left>(std::forward<Span>(source), requested_extents...);
@@ -180,7 +180,7 @@ template <StridedMdspan Span, std::integral... Extents>
 /// \brief Return a no-copy row-major reshape of a compatible strided mdspan.
 /// \details Singleton-axis strides do not select an order. All other strides
 ///          must describe a unique, exhaustive canonical row-major mapping.
-template <StridedMdspan Span, std::integral... Extents>
+template <StridedMdspanLike Span, std::integral... Extents>
 [[nodiscard]] auto reshape_view_right(Span&& source, Extents... requested_extents)
 {
   return detail::make_reshape_view<stdex::layout_right>(std::forward<Span>(source), requested_extents...);
@@ -189,7 +189,7 @@ template <StridedMdspan Span, std::integral... Extents>
 /// \brief Tensor-level descriptor owning a reshaped mdspan and backend selector.
 /// \details The descriptor aliases the same element storage as its source.
 ///          Mutability follows the preserved source accessor.
-template <SpanLike Mdspan, class StoragePolicy, class BackendSelector> class ReshapedTensor {
+template <MdspanLike Mdspan, class StoragePolicy, class BackendSelector> class ReshapedTensor {
   public:
     using mdspan_type = Mdspan;
     using storage_policy = StoragePolicy;

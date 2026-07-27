@@ -136,18 +136,18 @@ An unresolved `device_mdspan` intentionally does not expose:
 - implicit conversion to `stdex::mdspan`;
 - allocation, migration, synchronization, or access acquisition.
 
-It therefore does not model `SpanLike`.
+It therefore does not model `MdspanLike`.
 
 ## Structural Concepts
 
 The concepts are the primary generic interface. Code should not require the
 concrete `device_mdspan` class when a structural constraint is sufficient.
 
-### `DeviceSpanLike`
+### `DeviceMdspanLike`
 
-`DeviceSpanLike<S>` accepts either:
+`DeviceMdspanLike<S>` accepts either:
 
-1. an ordinary `SpanLike<S>`, as the immediate-handle case; or
+1. an ordinary `MdspanLike<S>`, as the immediate-handle case; or
 2. an unresolved structural model exposing mdspan metadata plus
    `data_descriptor_type` and `data_descriptor()`.
 
@@ -163,20 +163,20 @@ The unresolved model must expose compatible element, extent, layout, mapping,
 accessor, handle, and reference aliases. Its accessor must satisfy
 `AccessorPolicy`.
 
-An independent type can therefore model `DeviceSpanLike` without inheriting
+An independent type can therefore model `DeviceMdspanLike` without inheriting
 from or converting to `device_mdspan`.
 
 The concept provides a common metadata vocabulary, but not one common handle
 operation. Generic code can distinguish the two cases explicitly:
 
 ```cpp
-template<uni20::DeviceSpanLike Span>
+template<uni20::DeviceMdspanLike Span>
 void inspect(Span const& span)
 {
   inspect_mapping(span.mapping());
   inspect_accessor(span.accessor());
 
-  if constexpr (uni20::SpanLike<Span>)
+  if constexpr (uni20::MdspanLike<Span>)
     inspect_immediate_handle(span.data_handle());
   else
     inspect_descriptor(span.data_descriptor());
@@ -188,34 +188,44 @@ void inspect(Span const& span)
 The implemented refinements are:
 
 ```cpp
-RankedDeviceSpanLike<Span, Rank>
-StridedDeviceSpanLike<Span>
-RankedStridedDeviceSpanLike<Span, Rank>
+MutableDeviceMdspanLike<Span>
+RankedDeviceMdspanLike<Span, Rank>
+StridedDeviceMdspanLike<Span>
+MutableRankedDeviceMdspanLike<Span, Rank>
+MutableStridedDeviceMdspanLike<Span>
+RankedStridedDeviceMdspanLike<Span, Rank>
+MutableRankedStridedDeviceMdspanLike<Span, Rank>
 ```
 
-Like `DeviceSpanLike`, these accept both immediate mdspans and independent
+Like `DeviceMdspanLike`, these accept both immediate mdspans and independent
 descriptor-backed models.
 
-`MutableDeviceSpanLike<Span>` additionally requires non-const element semantics
-and an assignable accessor reference.
+The mutable forms additionally require non-const element semantics and an
+assignable accessor reference. They describe eventual mutation after
+acquisition and do not add indexing to an unresolved descriptor.
 
 ### Tensor-Level Concepts
 
 `DeviceTensorView<T>` is the tensor-level counterpart. A model exposes:
 
-- a normalized device span that uses `device_mdspan()` when supplied and
+- a normalized device mdspan that uses `device_mdspan()` when supplied and
   otherwise uses `mdspan()`;
 - `backend_selector()`;
 - tensor extents and extent observers.
 
-The normalized result must model `DeviceSpanLike`.
-`MutableDeviceTensorView<T>` applies the corresponding mutable device-span
+The normalized result must model `DeviceMdspanLike`.
+`MutableDeviceTensorView<T>` applies the corresponding mutable device-mdspan
 requirement. This gives the direct refinement relationships:
 
 ```text
-TensorView       is an immediate DeviceTensorView
-SpanLike         is an immediate DeviceSpanLike
+TensorView   is an immediate DeviceTensorView
+MdspanLike   is an immediate DeviceMdspanLike
 ```
+
+Rank, stride, and mutability use the same Cartesian naming for immediate and
+device tensor views. Rank-zero convenience concepts are
+`ScalarTensorView`, `MutableScalarTensorView`, `ScalarDeviceTensorView`, and
+`MutableScalarDeviceTensorView`.
 
 The acquisition result concepts are:
 
@@ -282,7 +292,7 @@ The borrowed overloads accept lvalues only because their leases retain a
 reference to the source tensor or view. Descriptor-backed acquisition instead
 retains whatever backend-specific state makes the resolved handle usable. CUDA
 also accepts an owning tensor rvalue for read acquisition: it captures the
-device-span metadata, moves the `CudaBuffer` into a distinct owning access
+device-mdspan metadata, moves the `CudaBuffer` into a distinct owning access
 state, and resolves the mdspan against that owned buffer. Non-owning deferred
 views remain lvalue-only.
 
@@ -410,10 +420,10 @@ automatically change its type, state, or constness.
 - It contains no data-handle value.
 - It cannot be indexed before acquisition.
 - Its mapping and accessor are the objects intended for the resolved mdspan.
-- `DeviceSpanLike` is structural and does not require the concrete class.
+- `DeviceMdspanLike` is structural and does not require the concrete class.
 - `DeviceTensorView` and the lease concepts are structural and do not require
   Uni20's concrete materializations.
-- Ordinary `SpanLike` values satisfy `DeviceSpanLike`.
+- Ordinary `MdspanLike` values satisfy `DeviceMdspanLike`.
 - A read or write lease models `TensorView`, retains backend selection and the
   state controlling handle validity through RAII. Read-only storage inspection
   is optional for read leases; write leases expose no storage observer.

@@ -78,13 +78,13 @@ inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride
 
 template <class Mdspan>
 concept lapack_writable_mdspan =
-    uni20::MutableRankedStridedMdspan<Mdspan, 2> &&
+    uni20::MutableRankedStridedMdspanLike<Mdspan, 2> &&
     uni20::LapackScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
-    uni20::DefaultAccessorMdspan<Mdspan>;
+    uni20::DefaultAccessorMdspanLike<Mdspan>;
 } // namespace detail
 
 /// \brief Build a matrix staging descriptor when direct provider lowering is possible.
-template <uni20::RankedStridedDeviceSpanLike<2> Mdspan>
+template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
 auto try_mdspan_matrix_stage(Mdspan const& span)
     -> std::optional<MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>>
 {

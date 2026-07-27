@@ -20,7 +20,7 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for reference CPU matrix initialization.
-template <uni20::MutableRankedSpanLike<2> MatrixMdspan, uni20::Scalar Scalar>
+template <uni20::MutableRankedMdspanLike<2> MatrixMdspan, uni20::Scalar Scalar>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op const&, MatrixMdspan&, Scalar const&,
                                     Scalar const&)
 {

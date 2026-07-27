@@ -28,7 +28,7 @@ namespace uni20
 namespace detail
 {
 template <class Output, class Input>
-concept CopySpans = MutableDeviceSpanLike<Output> && DeviceSpanLike<Input> &&
+concept CopySpans = MutableDeviceMdspanLike<Output> && DeviceMdspanLike<Input> &&
                     (std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Input>::rank());
 
 template <class Output, class Input>
@@ -43,7 +43,7 @@ inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_p
                                                    std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
 #endif
 
-template <DeviceSpanLike Output, DeviceSpanLike Input>
+template <DeviceMdspanLike Output, DeviceMdspanLike Input>
 [[nodiscard]] constexpr bool copy_extents_match(Output const& output, Input const& input) noexcept
 {
   if constexpr (std::remove_cvref_t<Output>::rank() != std::remove_cvref_t<Input>::rank())

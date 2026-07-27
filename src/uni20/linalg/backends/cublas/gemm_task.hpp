@@ -34,12 +34,11 @@ async::CudaTask cublas_gemm_task(cublas_backend::GemmPlan<Scalar> plan, Scalar a
 ///          A decline is side-effect free. Once the returned task is awaited,
 ///          resource or provider failures are terminal and cannot fall through
 ///          to another backend.
-template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, uni20::RankedStridedDeviceSpanLike<2> LhsMdspan,
-          uni20::RankedStridedDeviceSpanLike<2> RhsMdspan>
-  requires uni20::MutableDeviceSpanLike<OutputMdspan> && uni20::RankedStridedDeviceSpanLike<OutputMdspan, 2> &&
-               requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs) {
-                 detail::cublas_backend::prepare_gemm<Scalar>(output, lhs, rhs);
-               }
+template <uni20::cublas::CublasScalar Scalar, uni20::MutableRankedStridedDeviceMdspanLike<2> OutputMdspan,
+          uni20::RankedStridedDeviceMdspanLike<2> LhsMdspan, uni20::RankedStridedDeviceMdspanLike<2> RhsMdspan>
+  requires requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs) {
+    detail::cublas_backend::prepare_gemm<Scalar>(output, lhs, rhs);
+  }
 auto try_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs,
                      RhsMdspan& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
 {

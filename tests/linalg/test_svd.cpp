@@ -19,8 +19,8 @@ struct NormalOnlySvdBackend
     static constexpr std::string_view name = "normal_only_svd";
 };
 
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_left_op const&,
                                     SingularValueMdspan&, LeftMdspan&, MatrixMdspan&)
 {
@@ -36,8 +36,9 @@ uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd
                                    matrix_work);
 }
 
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_op const&, SingularValueMdspan&,
                                     LeftMdspan&, RightAdjointMdspan&, MatrixMdspan&)
 {

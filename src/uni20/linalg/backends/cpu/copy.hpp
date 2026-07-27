@@ -62,7 +62,7 @@ void copy_elements(OutputMdspan& output, InputMdspan& input,
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU element-copy dispatch.
-template <uni20::MutableSpanLike OutputMdspan, uni20::SpanLike InputMdspan>
+template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
   if constexpr (OutputMdspan::rank() == InputMdspan::rank() &&
@@ -91,7 +91,8 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
       CHECK_EQUAL(output.extent(axis), input.extent(axis));
   }
 
-  if constexpr (uni20::MutableStridedMdspan<output_type> && uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>>)
+  if constexpr (uni20::MutableStridedMdspanLike<output_type> &&
+                uni20::StridedMdspanLike<std::remove_cvref_t<InputMdspan>>)
   {
     cpu::detail::transform_strided<false>(
         output, [](auto&& value) -> decltype(auto) { return std::forward<decltype(value)>(value); }, input);

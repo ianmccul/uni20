@@ -37,7 +37,7 @@ template <class Span> consteval bool reduction_value_is_readable()
 template <class Output, class Scalar, std::size_t Rank> consteval bool reduction_output_is_supported()
 {
   using output_type = std::remove_cvref_t<Output>;
-  if constexpr (uni20::MutableRankedSpanLike<output_type, Rank>)
+  if constexpr (uni20::MutableRankedMdspanLike<output_type, Rank>)
   {
     return std::same_as<typename output_type::value_type, Scalar>;
   }
@@ -54,7 +54,7 @@ template <class Output, class Scalar, std::size_t Rank> consteval bool reduction
 template <class Output> consteval bool reduction_output_is_column_major()
 {
   using output_type = std::remove_cvref_t<Output>;
-  if constexpr (uni20::SpanLike<output_type>)
+  if constexpr (uni20::MdspanLike<output_type>)
     return std::same_as<typename output_type::layout_type, stdex::layout_left>;
   else
     return false;
@@ -63,7 +63,7 @@ template <class Output> consteval bool reduction_output_is_column_major()
 template <class Output, class Index, class Scalar, std::size_t... Axis>
 void write_reduction_output(Output& output, Index const& index, Scalar value, std::index_sequence<Axis...>)
 {
-  if constexpr (uni20::MutableRankedSpanLike<std::remove_cvref_t<Output>, sizeof...(Axis)>)
+  if constexpr (uni20::MutableRankedMdspanLike<std::remove_cvref_t<Output>, sizeof...(Axis)>)
   {
     using output_type = std::remove_cvref_t<Output>;
     using index_type = typename output_type::index_type;
@@ -161,13 +161,13 @@ void reference_reduce_axes(Output& output, ReductionAxes<InputRank, ReducedRank>
   using first_type = std::remove_cvref_t<FirstSpan>;
   static_assert(first_type::rank() == InputRank);
   static_assert(((std::remove_cvref_t<RestSpans>::rank() == InputRank) && ...));
-  if constexpr (uni20::SpanLike<std::remove_cvref_t<Output>>)
+  if constexpr (uni20::MdspanLike<std::remove_cvref_t<Output>>)
     static_assert(std::remove_cvref_t<Output>::rank() == InputRank - ReducedRank);
 
   CHECK(reduction_axes_are_valid(axes));
   check_reduction_extents(first, rest...);
 
-  if constexpr (uni20::SpanLike<std::remove_cvref_t<Output>>)
+  if constexpr (uni20::MdspanLike<std::remove_cvref_t<Output>>)
   {
     for (std::size_t output_axis = 0; output_axis < InputRank - ReducedRank; ++output_axis)
       CHECK_EQUAL(output.extent(output_axis), first.extent(axes.surviving[output_axis]));
@@ -328,7 +328,7 @@ void reference_sum(Output& output, sum_reduction_op<InputRank, ReducedRank> cons
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU inner products.
-template <class Output, uni20::SpanLike LhsSpan, uni20::SpanLike RhsSpan>
+template <class Output, uni20::MdspanLike LhsSpan, uni20::MdspanLike RhsSpan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op const&, Output&, LhsSpan&, RhsSpan&)
 {
   using scalar_type = typename LhsSpan::value_type;
@@ -348,7 +348,7 @@ KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output&& 
 }
 
 /// \brief Report compile-time eligibility for reference CPU Euclidean norms.
-template <class Output, uni20::SpanLike InputSpan>
+template <class Output, uni20::MdspanLike InputSpan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, Output&, InputSpan&)
 {
   using scalar_type = typename InputSpan::value_type;
@@ -369,7 +369,7 @@ KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output&& output, I
 }
 
 /// \brief Report compile-time eligibility for reference CPU sum reductions.
-template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::SpanLike InputSpan>
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::MdspanLike InputSpan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op<InputRank, ReducedRank> const&,
                                     Output&, InputSpan&)
 {

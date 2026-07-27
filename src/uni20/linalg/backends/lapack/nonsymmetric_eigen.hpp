@@ -26,8 +26,8 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for LAPACK nonsymmetric eigenanalysis.
-template <uni20::MutableRankedStridedMdspan<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedSpanLike<2> RightEigenvectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedMdspanLike<2> RightEigenvectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixMdspan&,
                                     std::span<EigenScalar>&, RightEigenvectorMdspan&)
 {
@@ -37,7 +37,7 @@ consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op 
   using vector_scalar = std::remove_cv_t<typename RightEigenvectorMdspan::element_type>;
 
   if constexpr (uni20::LapackScalar<matrix_scalar> && std::same_as<EigenScalar, expected_eigen_scalar> &&
-                std::same_as<vector_scalar, expected_eigen_scalar> && uni20::DefaultAccessorMdspan<MatrixMdspan>)
+                std::same_as<vector_scalar, expected_eigen_scalar> && uni20::DefaultAccessorMdspanLike<MatrixMdspan>)
   {
     return kernel_types_maybe;
   }

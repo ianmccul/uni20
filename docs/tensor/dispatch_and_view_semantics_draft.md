@@ -34,7 +34,7 @@ The implemented dense GEMM and GEMV paths use a strict layer split:
    backend has already been selected, and the only remaining job is to run the
    kernel on handles, extents, strides, and accessors.
 
-A plain `stdex::mdspan` or structural `SpanLike` is sufficient for a leaf kernel
+A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a leaf kernel
 but is not sufficient for top-level Uni20 dispatch. It does not carry the
 storage policy needed to derive the default backend stack.
 
@@ -46,7 +46,7 @@ TensorView        = backend selector + readable mdspan() result
 MutableTensorView = TensorView + writable mdspan() result
 ```
 
-The tensor object itself does not model `SpanLike`. This keeps policy selection
+The tensor object itself does not model `MdspanLike`. This keeps policy selection
 at the tensor layer and makes the lowering boundary explicit. A bare mdspan is
 accepted by raw kernels only when the caller supplies a backend selector.
 
@@ -365,8 +365,8 @@ Needed behavior:
 
 Concept pressure:
 
-- `SpanLike` / `StridedMdspan` remains the leaf-kernel concept
-- top-level dispatch may accept `SpanLike` operands only when a backend selector
+- `MdspanLike` / `StridedMdspanLike` remains the leaf-kernel concept
+- top-level dispatch may accept `MdspanLike` operands only when a backend selector
   is explicit
 
 ### Vector Adaptor
@@ -469,20 +469,20 @@ concept TensorView = requires(T const& tensor) {
   tensor.backend_selector();
   tensor.extents();
   tensor.extent(size_t{});
-  { tensor.mdspan() } -> SpanLike;
+  { tensor.mdspan() } -> MdspanLike;
 };
 
 template <class T>
 concept MutableTensorView = TensorView<T> &&
-  MutableSpanLike<decltype(std::declval<T&>().mdspan())>;
+  MutableMdspanLike<decltype(std::declval<T&>().mdspan())>;
 
 template <class T>
 concept StridedTensorView = TensorView<T> &&
-  StridedMdspan<decltype(std::declval<T const&>().mdspan())>;
+  StridedMdspanLike<decltype(std::declval<T const&>().mdspan())>;
 
 template <class T, size_t Rank>
 concept RankedTensorView = TensorView<T> &&
-  RankedSpanLike<decltype(std::declval<T const&>().mdspan()), Rank>;
+  RankedMdspanLike<decltype(std::declval<T const&>().mdspan()), Rank>;
 
 template <class T, size_t Rank>
 concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
@@ -571,12 +571,12 @@ auto cv = tensor_write_view(c);
 try_kernel(Backend{}, matmul_op{}, cv, av, bv);
 ```
 
-This keeps `SpanLike` at the leaf-kernel level and keeps backend selection at
+This keeps `MdspanLike` at the leaf-kernel level and keeps backend selection at
 the tensor/storage level.
 
 For local dense tensors, `TensorView` remains backend selector plus synchronous
 metadata plus a readable `mdspan()` result. `Tensor` itself deliberately does
-not satisfy `SpanLike`; the resolved result of `mdspan()` does.
+not satisfy `MdspanLike`; the resolved result of `mdspan()` does.
 
 ## Temporaries
 
@@ -678,7 +678,7 @@ Backend selection belongs to tensor/storage operands:
 
 For dense local tensors, `TensorView` requires a backend selector and a readable
 mdspan result; `MutableTensorView` additionally requires a writable mdspan
-result. The tensor object is not `SpanLike`. Memory kind and runtime device
+result. The tensor object is not `MdspanLike`. Memory kind and runtime device
 placement are properties of the returned mdspan's accessor-defined data handle,
 not of the default selector.
 
@@ -856,7 +856,7 @@ public:
 ```
 
 This keeps owner copy/move semantics independent of mdspan descriptor rebinding.
-`Tensor` satisfies the tensor-level concepts but not `SpanLike`; its
+`Tensor` satisfies the tensor-level concepts but not `MdspanLike`; its
 returned mdspans satisfy the leaf concepts. A future slice or external-storage
 adaptor must carry storage/execution policy and explicit lifetime semantics.
 
@@ -993,7 +993,7 @@ being raw mdspan descriptors.
 - Default-selector dispatch requires tensor-level operands; bare mdspans use an
   explicit selector.
 - `TensorView` and `MutableTensorView` are tensor-level concepts. Their objects
-  deliberately do not model `SpanLike`; they produce resolved mdspans.
+  deliberately do not model `MdspanLike`; they produce resolved mdspans.
 - Leaf kernels should operate on resolved mdspan-like views.
 - Storage policy and backend selector should be split: storage provides a
   default backend selector, but non-owning views can carry a selector/domain

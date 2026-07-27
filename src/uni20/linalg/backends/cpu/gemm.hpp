@@ -30,8 +30,8 @@ concept BlockingGemmTensorAccess = requires(OutputTensor& output, LhsTensor cons
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
-template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
-          uni20::RankedSpanLike<2> RhsMdspan>
+template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspanLike<2> LhsMdspan,
+          uni20::RankedMdspanLike<2> RhsMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputMdspan&, Scalar const&,
                                     LhsMdspan&, RhsMdspan&, Scalar const&)
 {
@@ -61,8 +61,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, 
 }
 
 /// \brief Reference accessor-respecting GEMM fallback.
-template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
-          uni20::RankedSpanLike<2> RhsMdspan>
+template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspanLike<2> LhsMdspan,
+          uni20::RankedMdspanLike<2> RhsMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                          RhsMdspan&& rhs, Scalar beta)
 {

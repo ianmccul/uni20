@@ -100,6 +100,36 @@ class StorageFreeTensorView {
     extents_type extents_;
 };
 
+struct MismatchedMutableRankTensorView
+{
+    using const_mdspan_type = stdex::mdspan<int const, extents_2d>;
+    using mutable_extents_type = stdex::dextents<index_t, 1>;
+    using mutable_mdspan_type = stdex::mdspan<int, mutable_extents_type>;
+    using backend_selector_type = linalg::backend_list<linalg::CpuReferenceBackend>;
+
+    [[nodiscard]] static auto backend_selector() noexcept -> backend_selector_type
+    {
+      return backend_selector_type{linalg::CpuReferenceBackend{}};
+    }
+
+    [[nodiscard]] auto mdspan() noexcept -> mutable_mdspan_type
+    {
+      return mutable_mdspan_type{data_.data(), mutable_extents_type{4}};
+    }
+
+    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+    {
+      return const_mdspan_type{data_.data(), extents_};
+    }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_2d const& { return extents_; }
+
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept -> index_t { return extents_.extent(axis); }
+
+    std::array<int, 4> data_{};
+    extents_2d extents_{2, 2};
+};
+
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
 
@@ -138,13 +168,15 @@ static_assert(MutableRankedStridedTensorView<tensor_type, 2>);
 static_assert(!RankedTensorView<tensor_type, 1>);
 static_assert(!MutableRankedTensorView<tensor_type, 1>);
 static_assert(!MutableTensorView<tensor_type const>);
-static_assert(!SpanLike<tensor_type>);
-static_assert(!StridedMdspan<tensor_type>);
+static_assert(!MdspanLike<tensor_type>);
+static_assert(!StridedMdspanLike<tensor_type>);
 static_assert(ScalarTensorView<scalar_tensor_type>);
 static_assert(MutableScalarTensorView<scalar_tensor_type>);
+static_assert(ScalarDeviceTensorView<scalar_tensor_type>);
+static_assert(MutableScalarDeviceTensorView<scalar_tensor_type>);
 static_assert(OwningTensor<scalar_tensor_type>);
 static_assert(!ScalarTensorView<tensor_type>);
-static_assert(SpanLike<decltype(std::declval<tensor_type const&>().device_mdspan())>);
+static_assert(MdspanLike<decltype(std::declval<tensor_type const&>().device_mdspan())>);
 static_assert(ReadTensorLease<read_lease_type>);
 static_assert(WriteTensorLease<write_lease_type>);
 static_assert(sizeof(read_lease_type) == sizeof(void*));
@@ -160,6 +192,14 @@ static_assert(TensorView<StorageFreeTensorView>);
 static_assert(DeviceTensorView<StorageFreeTensorView>);
 static_assert(MutableTensorView<StorageFreeTensorView>);
 static_assert(MutableDeviceTensorView<StorageFreeTensorView>);
+static_assert(TensorView<MismatchedMutableRankTensorView>);
+static_assert(DeviceTensorView<MismatchedMutableRankTensorView>);
+static_assert(MutableTensorView<MismatchedMutableRankTensorView>);
+static_assert(MutableDeviceTensorView<MismatchedMutableRankTensorView>);
+static_assert(RankedTensorView<MismatchedMutableRankTensorView, 2>);
+static_assert(RankedDeviceTensorView<MismatchedMutableRankTensorView, 2>);
+static_assert(!MutableRankedTensorView<MismatchedMutableRankTensorView, 2>);
+static_assert(!MutableRankedDeviceTensorView<MismatchedMutableRankTensorView, 2>);
 static_assert(std::same_as<device_tensor_mdspan_t<StorageFreeTensorView>, StorageFreeTensorView::const_mdspan_type>);
 static_assert(immediate_and_descriptor_tensor::immediately_readable);
 static_assert(immediate_and_descriptor_tensor::immediately_writable);
@@ -236,8 +276,8 @@ TEST(TensorTest, ImmediateHandlePrecedesAvailableDescriptor)
   auto mutable_span = tensor.device_mdspan();
   auto const_span = std::as_const(tensor).device_mdspan();
 
-  static_assert(SpanLike<decltype(mutable_span)>);
-  static_assert(SpanLike<decltype(const_span)>);
+  static_assert(MdspanLike<decltype(mutable_span)>);
+  static_assert(MdspanLike<decltype(const_span)>);
   EXPECT_EQ(mutable_span.data_handle(), tensor.storage().data());
   EXPECT_EQ(const_span.data_handle(), tensor.storage().data());
   EXPECT_EQ((const_span[1, 2]), 42);

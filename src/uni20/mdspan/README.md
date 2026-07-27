@@ -30,27 +30,32 @@ small helpers used by dense kernels and layout-aware algorithms.
 - This module should describe structure and layout, not ownership or backend
   dispatch policy. CPU execution of iteration plans belongs to the linalg CPU
   backend.
-- `SpanLike` is the complete readable mdspan protocol used by leaf kernels: its
+- `MdspanLike` is the complete readable mdspan protocol used by leaf kernels: its
   descriptor aliases must agree, it exposes rank and extent observers, and its
   rank-dimensional `operator[]` returns the declared `reference` type.
-  `MutableSpanLike` additionally proves assignment through that indexed result.
-- `DeviceSpanLike` is the broader structural protocol for mdspan metadata whose
+  `MutableMdspanLike` additionally proves assignment through that indexed result.
+- `DeviceMdspanLike` is the broader structural protocol for mdspan metadata whose
   data handle is either immediately present or available through a data
   descriptor. `device_mdspan` is the standard unresolved materialization, but
   independent types may satisfy the concept directly. It preserves the actual
   mapping and accessor while intentionally exposing neither `data_handle()` nor
   element indexing.
-- `MutableDeviceSpanLike` refines eventual write capability through an
+- `MutableDeviceMdspanLike` refines eventual write capability through an
   assignable accessor reference. It does not add indexing to an unresolved
   descriptor.
-- `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
-  observers. Code constrained by these concepts should not assume additional
-  structural operations without adding the corresponding refinement.
+- Immediate and descriptor-backed refinements use the same adjective order:
+  mutable, ranked, strided, then the representation. For example,
+  `MutableRankedStridedMdspanLike` requires an immediately usable mdspan, while
+  `MutableRankedStridedDeviceMdspanLike` also accepts descriptor-backed
+  metadata.
+- `StridedMdspanLike` refines `MdspanLike` by requiring an always-strided
+  mapping and both mdspan and mapping stride observers. It includes
+  `layout_left`, `layout_right`, and `layout_stride` mappings.
 - A pointer `data_handle_type` is not enough to prove direct memory semantics.
   Backends that bypass `access(...)` must check for `stdex::default_accessor`
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.
 - Read-only accessor policies declare const `element_type`, including calculated
-  accessors that return values. Ordinary `MutableSpanLike` accessors also prove
+  accessors that return values. Ordinary `MutableMdspanLike` accessors also prove
   indexed assignment. An opaque accessor without assignable element semantics
   is not mutable merely because its handle is pointer-shaped.
 - `uni20::const_access(span, indices...)` performs read-only scalar access

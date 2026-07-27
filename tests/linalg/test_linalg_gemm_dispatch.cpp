@@ -375,9 +375,9 @@ static_assert(!HasTryDispatchKernel<unavailable_backends, test_dispatch_op, int&
 static_assert(!HasDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
 static_assert(HasDynamicDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
 
-static_assert(uni20::RankedSpanLike<NonStridedMatrixView<double>, 2>);
-static_assert(uni20::MutableRankedSpanLike<NonStridedMatrixView<double>, 2>);
-static_assert(!uni20::StridedMdspan<NonStridedMatrixView<double>>);
+static_assert(uni20::RankedMdspanLike<NonStridedMatrixView<double>, 2>);
+static_assert(uni20::MutableRankedMdspanLike<NonStridedMatrixView<double>, 2>);
+static_assert(!uni20::StridedMdspanLike<NonStridedMatrixView<double>>);
 
 static_assert(requires(BlasBackend backend, gemm_op op, left_mdspan<double>& output, double scalar,
                        value_transform_mdspan<double>& lhs, left_mdspan<double>& rhs) {

@@ -33,8 +33,8 @@ template <class Mdspan> consteval bool transform_value_is_readable()
 template <class OutputMdspan, class Function, class... InputMdspans> consteval bool overwrite_transform_is_supported()
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (!uni20::MutableSpanLike<output_type> || sizeof...(InputMdspans) == 0 ||
-                (!(uni20::SpanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
+  if constexpr (!uni20::MutableMdspanLike<output_type> || sizeof...(InputMdspans) == 0 ||
+                (!(uni20::MdspanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<InputMdspans>::rank()) && ...))
   {
     return false;
@@ -52,8 +52,8 @@ template <class OutputMdspan, class Function, class... InputMdspans> consteval b
 template <class OutputMdspan, class Function, class... InputMdspans> consteval bool update_transform_is_supported()
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (!uni20::MutableSpanLike<output_type> ||
-                (!(uni20::SpanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
+  if constexpr (!uni20::MutableMdspanLike<output_type> ||
+                (!(uni20::MdspanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<InputMdspans>::rank()) && ...))
   {
     return false;
@@ -138,8 +138,8 @@ template <bool ReadsOutput, class Operation, class OutputMdspan, class... InputM
 void reference_transform(Operation const& operation, OutputMdspan& output, InputMdspans&... inputs)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (uni20::MutableStridedMdspan<output_type> &&
-                (uni20::StridedMdspan<std::remove_cvref_t<InputMdspans>> && ...))
+  if constexpr (uni20::MutableStridedMdspanLike<output_type> &&
+                (uni20::StridedMdspanLike<std::remove_cvref_t<InputMdspans>> && ...))
   {
     if constexpr (ReadsOutput)
     {
@@ -168,7 +168,7 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU overwrite transforms.
-template <class Function, uni20::MutableSpanLike OutputMdspan, uni20::SpanLike... InputMdspans>
+template <class Function, uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike... InputMdspans>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
@@ -190,7 +190,7 @@ KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& oper
 }
 
 /// \brief Report compile-time eligibility for reference CPU update transforms.
-template <class Function, uni20::MutableSpanLike OutputMdspan, uni20::SpanLike... InputMdspans>
+template <class Function, uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike... InputMdspans>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {

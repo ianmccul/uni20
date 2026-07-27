@@ -80,7 +80,7 @@ struct HasCudaBufferDescriptor<Mdspan, std::void_t<typename std::remove_cvref_t<
 
 template <class Mdspan>
 inline constexpr bool is_cuda_mdspan =
-    (uni20::SpanLike<Mdspan> && IsCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value) ||
+    (uni20::MdspanLike<Mdspan> && IsCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value) ||
     HasCudaBufferDescriptor<Mdspan>::value;
 
 template <class Mdspan>
@@ -95,20 +95,20 @@ template <class Mdspan>
 inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspan<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
 
 template <class Mdspan>
-inline constexpr bool is_raw_host_mdspan = uni20::DefaultAccessorMdspan<std::remove_cvref_t<Mdspan>>;
+inline constexpr bool is_raw_host_mdspan = uni20::DefaultAccessorMdspanLike<std::remove_cvref_t<Mdspan>>;
 
 template <class Mdspan>
 inline constexpr bool is_conjugated_host_mdspan =
-    uni20::SpanLike<Mdspan> && IsConjugatedHostAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
+    uni20::MdspanLike<Mdspan> && IsConjugatedHostAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
 
 template <class Mdspan>
 inline constexpr bool is_supported_host_mdspan = is_raw_host_mdspan<Mdspan> || is_conjugated_host_mdspan<Mdspan>;
 
 template <class OutputMdspan, class InputMdspan>
 concept SupportedCopyMdspans =
-    uni20::MutableDeviceSpanLike<std::remove_cvref_t<OutputMdspan>> &&
-    uni20::StridedDeviceSpanLike<std::remove_cvref_t<OutputMdspan>> &&
-    uni20::StridedDeviceSpanLike<std::remove_cvref_t<InputMdspan>> &&
+    uni20::MutableDeviceMdspanLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedDeviceMdspanLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedDeviceMdspanLike<std::remove_cvref_t<InputMdspan>> &&
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&

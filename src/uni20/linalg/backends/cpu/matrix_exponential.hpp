@@ -54,7 +54,7 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for the CPU matrix exponential.
-template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::RankedSpanLike<2> InputMdspan, class TimeScalar>
+template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::RankedMdspanLike<2> InputMdspan, class TimeScalar>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
                                     InputMdspan&, TimeScalar const&)
 {

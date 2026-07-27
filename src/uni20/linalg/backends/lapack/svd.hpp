@@ -58,14 +58,14 @@ template <class SingularValueMdspan, class MatrixMdspan> consteval bool svd_base
   using singular_value_scalar = std::remove_cv_t<typename SingularValueMdspan::element_type>;
   return uni20::LapackScalar<matrix_scalar> && uni20::LapackReal<singular_value_scalar> &&
          std::same_as<singular_value_scalar, uni20::make_real_t<matrix_scalar>> &&
-         uni20::DefaultAccessorMdspan<SingularValueMdspan> && uni20::DefaultAccessorMdspan<MatrixMdspan>;
+         uni20::DefaultAccessorMdspanLike<SingularValueMdspan> && uni20::DefaultAccessorMdspanLike<MatrixMdspan>;
 }
 
 template <class FactorMdspan, class MatrixMdspan> consteval bool svd_factor_types_supported()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using factor_scalar = std::remove_cv_t<typename FactorMdspan::element_type>;
-  return std::same_as<factor_scalar, matrix_scalar> && uni20::DefaultAccessorMdspan<FactorMdspan>;
+  return std::same_as<factor_scalar, matrix_scalar> && uni20::DefaultAccessorMdspanLike<FactorMdspan>;
 }
 
 template <uni20::LapackScalar Scalar, class MatrixHandle, class ValueHandle>
@@ -137,7 +137,8 @@ KernelAttempt try_singular_values_kernel(char jobu, char jobvt, SingularValueMds
 } // namespace lapack_detail
 
 /// \brief Report compile-time eligibility for LAPACK singular values.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, singular_values_op const&, SingularValueMdspan&,
                                     MatrixMdspan&)
 {
@@ -160,8 +161,8 @@ KernelAttempt try_kernel(LapackBackend, singular_values_op const&, SingularValue
 }
 
 /// \brief Report compile-time eligibility for LAPACK left singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, SingularValueMdspan&, LeftMdspan&,
                                     MatrixMdspan&)
 {
@@ -177,7 +178,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, Si
 }
 
 /// \brief Report compile-time eligibility for input-overwriting LAPACK left singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, SingularValueMdspan&, MatrixMdspan&)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>())
@@ -242,8 +244,9 @@ KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdsp
 }
 
 /// \brief Report compile-time eligibility for LAPACK right singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, SingularValueMdspan&,
                                     RightAdjointMdspan&, MatrixMdspan&)
 {
@@ -259,7 +262,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, S
 }
 
 /// \brief Report compile-time eligibility for input-overwriting LAPACK right singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, SingularValueMdspan&, MatrixMdspan&)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>())
@@ -324,8 +328,9 @@ KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMds
 }
 
 /// \brief Report compile-time eligibility for LAPACK exact SVD.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, SingularValueMdspan&, LeftMdspan&,
                                     RightAdjointMdspan&, MatrixMdspan&)
 {
@@ -342,8 +347,9 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, Singula
 }
 
 /// \brief Report compile-time eligibility for an input-overwriting LAPACK exact SVD.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan,
-          uni20::MutableRankedStridedMdspan<2> OtherFactorMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> OtherFactorMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, SingularValueMdspan&, OtherFactorMdspan&,
                                     MatrixMdspan&)
 {

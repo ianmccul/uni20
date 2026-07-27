@@ -19,8 +19,8 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for reference CPU GEMV dispatch.
-template <uni20::MutableRankedSpanLike<1> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> MatrixMdspan,
-          uni20::RankedSpanLike<1> InputMdspan>
+template <uni20::MutableRankedMdspanLike<1> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspanLike<2> MatrixMdspan,
+          uni20::RankedMdspanLike<1> InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputMdspan&, Scalar const&,
                                     MatrixMdspan&, InputMdspan&, Scalar const&)
 {

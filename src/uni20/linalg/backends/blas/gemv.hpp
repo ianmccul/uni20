@@ -17,8 +17,8 @@ namespace uni20::linalg
 {
 
 /// \brief Report compile-time eligibility for direct BLAS GEMV dispatch.
-template <uni20::MutableRankedStridedMdspan<1> OutputMdspan, class Scalar, uni20::RankedStridedMdspan<2> MatrixMdspan,
-          uni20::RankedStridedMdspan<1> InputMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> OutputMdspan, class Scalar,
+          uni20::RankedStridedMdspanLike<2> MatrixMdspan, uni20::RankedStridedMdspanLike<1> InputMdspan>
 consteval auto kernel_accepts_types(BlasBackend const&, gemv_op const&, OutputMdspan&, Scalar const&, MatrixMdspan&,
                                     InputMdspan&, Scalar const&)
 {

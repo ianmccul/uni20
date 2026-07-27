@@ -194,7 +194,7 @@ template <class MatrixTensor> consteval bool can_transfer_svd_storage()
     return matrix_type::extents_type::rank_dynamic() == 2 &&
            std::same_as<typename matrix_type::storage_policy, uni20::VectorStorage> &&
            std::same_as<typename matrix_type::accessor_factory_type, uni20::DefaultAccessorFactory> &&
-           uni20::DefaultAccessorMdspan<uni20::mutable_tensor_mdspan_t<matrix_type>> &&
+           uni20::DefaultAccessorMdspanLike<uni20::mutable_tensor_mdspan_t<matrix_type>> &&
            requires(matrix_type& matrix, typename factor_type::mapping_type mapping,
                     typename factor_type::storage_type storage,
                     typename factor_type::accessor_factory_type accessor_factory) {

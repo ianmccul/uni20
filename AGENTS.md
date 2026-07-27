@@ -219,10 +219,10 @@ DMRG calculations.
 * A Uni20 accessor that presents a read-only semantic view must declare a const
   `element_type`, even when `access(...)` returns a calculated value rather than
   a reference. Do not encode read-only behavior only in the handle type or
-  `reference` alias. `MutableSpanLike` uses const `element_type` together with
+  `reference` alias. `MutableMdspanLike` uses const `element_type` together with
   indexed assignment validity to reject ordinary mutation. An opaque
   device-memory accessor without assignable element semantics does not model
-  `MutableSpanLike` or `MutableDeviceSpanLike`; resolve it to an accessor with
+  `MutableMdspanLike` or `MutableDeviceMdspanLike`; resolve it to an accessor with
   the required reference semantics before mutation.
 * A tensor view's const interface must resolve an mdspan with const
   `element_type`. Mutable access belongs on the non-const `mdspan()` overload;

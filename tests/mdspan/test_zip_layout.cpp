@@ -104,7 +104,7 @@ TEST(ZipLayoutSelector, StridedMdspanPacksToStridedZipLayout)
   auto A = make_mdspan_1d(v);
   auto B = make_mdspan_1d(v);
 
-  // both A,B are StridedMdspan → zip_layout_t should be StridedZipLayout<2>
+  // both A,B are StridedMdspanLike → zip_layout_t should be StridedZipLayout<2>
   using Z = zip_layout_t<decltype(A), decltype(B)>;
   static_assert(std::is_same_v<Z, StridedZipLayout<2>>);
 }

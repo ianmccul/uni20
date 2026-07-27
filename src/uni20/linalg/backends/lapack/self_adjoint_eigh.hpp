@@ -42,14 +42,15 @@ inline char lapack_triangle(MatrixTriangle triangle)
 } // namespace lapack_detail
 
 /// \brief Report compile-time eligibility for LAPACK self-adjoint eigenanalysis.
-template <uni20::MutableRankedStridedMdspan<1> EigenvalueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueMdspan&, MatrixMdspan&)
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using eigenvalue_scalar = std::remove_cv_t<typename EigenvalueMdspan::element_type>;
   if constexpr (uni20::LapackScalar<matrix_scalar> && uni20::LapackReal<eigenvalue_scalar> &&
                 std::same_as<eigenvalue_scalar, uni20::make_real_t<matrix_scalar>> &&
-                uni20::DefaultAccessorMdspan<EigenvalueMdspan> && uni20::DefaultAccessorMdspan<MatrixMdspan>)
+                uni20::DefaultAccessorMdspanLike<EigenvalueMdspan> && uni20::DefaultAccessorMdspanLike<MatrixMdspan>)
   {
     return kernel_types_maybe;
   }
