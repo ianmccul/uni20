@@ -124,12 +124,23 @@ class Tensor {
 
     using storage_type = typename storage_policy::template storage_t<element_type>;
 
-    /// \brief Whether this tensor's storage provides a data handle without acquisition.
-    static constexpr bool has_immediate_data_handle =
-        requires(storage_type& storage, storage_type const& const_storage) {
-          storage_policy::make_handle(storage);
-          storage_policy::make_handle(const_storage);
-        };
+    /// \brief Whether const storage provides a readable data handle without acquisition.
+    static constexpr bool immediately_readable = requires(storage_type const& storage) {
+      { storage_policy::make_handle(storage) } -> std::convertible_to<handle_type>;
+    };
+
+    /// \brief Whether mutable storage provides a writable data handle without acquisition.
+    static constexpr bool immediately_writable = requires(storage_type& storage) {
+      { storage_policy::make_handle(storage) } -> std::convertible_to<mutable_handle_type>;
+    };
+
+    /// \brief Whether const storage provides deferred read metadata.
+    static constexpr bool deferred_readable =
+        requires(storage_type const& storage) { storage_policy::make_data_descriptor(storage); };
+
+    /// \brief Whether mutable storage provides deferred write metadata.
+    static constexpr bool deferred_writable =
+        requires(storage_type& storage) { storage_policy::make_data_descriptor(storage); };
 
     /// \brief Rebind this owning tensor configuration to another layout policy.
     template <typename NewLayoutPolicy>
@@ -356,7 +367,7 @@ class Tensor {
     /// \brief Resolve a writable mdspan over the owned storage.
     /// \return Mutable mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() noexcept -> mdspan_type
-      requires has_immediate_data_handle
+      requires immediately_writable
     {
       return mdspan_type(this->mutable_handle(), mapping_, this->accessor());
     }
@@ -364,7 +375,7 @@ class Tensor {
     /// \brief Resolve a read-only mdspan over the owned storage.
     /// \return Const mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
-      requires has_immediate_data_handle
+      requires immediately_readable
     {
       return const_mdspan_type(this->handle(), mapping_, this->accessor());
     }
@@ -373,41 +384,44 @@ class Tensor {
     /// \details Immediate storage returns the ordinary mdspan. Descriptor-backed
     ///          storage returns `device_mdspan` without acquiring its handle.
     [[nodiscard]] auto device_mdspan() noexcept
+      requires(immediately_writable || deferred_writable)
     {
-      if constexpr (requires { storage_policy::make_data_descriptor(data_); })
+      if constexpr (immediately_writable)
+      {
+        return this->mdspan();
+      }
+      else
       {
         using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
         using span_type =
             uni20::device_mdspan<element_type, extents_type, layout_policy, device_accessor_type, descriptor_type>;
         return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
       }
-      else
-      {
-        return this->mdspan();
-      }
     }
 
     /// \brief Return read-only mdspan metadata for explicit data-handle acquisition.
-    /// \details Immediate storage returns the ordinary const mdspan.
+    /// \details Immediate storage returns the ordinary const mdspan. Descriptor-backed
+    ///          storage returns `device_mdspan` without acquiring its handle.
     [[nodiscard]] auto device_mdspan() const noexcept
+      requires(immediately_readable || deferred_readable)
     {
-      if constexpr (requires { storage_policy::make_data_descriptor(data_); })
+      if constexpr (immediately_readable)
+      {
+        return this->mdspan();
+      }
+      else
       {
         using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
         using span_type = uni20::device_mdspan<element_type const, extents_type, layout_policy,
                                                const_device_accessor_type, descriptor_type>;
         return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
       }
-      else
-      {
-        return this->mdspan();
-      }
     }
 
     /// \brief Return the tensor's const storage handle.
     /// \return Handle addressing the beginning of the owned storage.
     [[nodiscard]] auto handle() const noexcept -> handle_type
-      requires has_immediate_data_handle
+      requires immediately_readable
     {
       return storage_policy::make_handle(data_);
     }
@@ -415,7 +429,7 @@ class Tensor {
     /// \brief Return the tensor's mutable storage handle.
     /// \return Mutable handle addressing the beginning of the owned storage.
     [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type
-      requires has_immediate_data_handle
+      requires immediately_writable
     {
       return storage_policy::make_handle(data_);
     }
@@ -495,7 +509,7 @@ class Tensor {
 
     /// \brief Access a mutable tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank() && has_immediate_data_handle)
+      requires(sizeof...(Index) == extents_type::rank() && immediately_writable)
     decltype(auto) operator[](Index... indices) noexcept
     {
       return this->mdspan()[indices...];
@@ -503,7 +517,7 @@ class Tensor {
 
     /// \brief Access a const tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank() && has_immediate_data_handle)
+      requires(sizeof...(Index) == extents_type::rank() && immediately_readable)
     decltype(auto) operator[](Index... indices) const noexcept
     {
       return this->mdspan()[indices...];
@@ -513,7 +527,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Mutable element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) noexcept
-      requires has_immediate_data_handle
+      requires immediately_writable
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
@@ -525,7 +539,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Const element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) const noexcept
-      requires has_immediate_data_handle
+      requires immediately_readable
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {

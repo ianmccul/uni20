@@ -8,8 +8,8 @@ kernels operate on resolved mdspans.
 
 - `basic_tensor.hpp`: concrete composition-based `Tensor` owner and the
   extents-first `BasicTensor` alias.
-- `access.hpp`: storage-bearing read/write TensorView leases plus blocking and
-  awaitable acquisition for immediately accessible tensors.
+- `access.hpp`: read/write TensorView leases plus blocking and awaitable
+  acquisition for immediately accessible tensors.
 - `cuda_access.hpp`: CUDA descriptor resolution through blocking or
   stream-ordered `CudaBuffer` access.
 - `tensor.hpp`: named
@@ -94,10 +94,16 @@ kernels operate on resolved mdspans.
   `device_mdspan()` until an acquisition operation resolves its data handle.
   Element and accessor semantics determine whether either representation is
   writable; owning tensors overload the available observer on constness.
+- `Tensor::device_mdspan()` prefers the corresponding immediate read or write
+  handle and returns an ordinary mdspan in that case. Descriptor metadata is
+  selected only when no immediate handle is available. Readable and writable
+  capabilities are independent.
 - `DeviceTensorView` extends this vocabulary to tensors whose usable data handle
   requires acquisition. `blocking_read_access` and `blocking_write_access`
-  return storage-bearing RAII TensorViews; `read_access` and `write_access`
-  provide the awaitable vocabulary. See
+  return RAII TensorViews; immediate lvalue views use borrowed no-op leases and
+  do not need a public `storage()` observer. These immediate leases store only
+  a pointer to the source view and forward its mdspan and metadata. `read_access`
+  and `write_access` provide the awaitable vocabulary. See
   [Device Mdspan](../../../docs/tensor/device_mdspan.md).
 - `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit
@@ -112,9 +118,11 @@ kernels operate on resolved mdspans.
   CUDA GEMM dispatch receives the tensor-level objects; the cuBLAS backend
   lowers their `device_mdspan()` metadata and acquires the referenced buffers.
 - Tensor objects deliberately do not model Uni20's mdspan concepts.
-  Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Each
-  backend adapter lowers those operands to immediate or deferred mdspan
-  metadata before entering its provider-specific implementation.
+  Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Blocking
+  backends may acquire TensorView leases before entering an existing mdspan
+  implementation; CPU reference GEMM is the initial exemplar. Backends with a
+  descriptor-native execution model may instead lower unresolved metadata
+  directly.
 - Generated tensors own compact generator state rather than an element buffer.
   They model readable `TensorView` but not `StridedTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is

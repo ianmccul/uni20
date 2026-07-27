@@ -25,41 +25,137 @@ concept TensorAccessState = std::move_constructible<State> && requires(State& st
   { state.release() } noexcept;
 };
 
-template <class Tensor> class borrowed_tensor_access_state {
+/// \brief Pointer-only read lease for an immediately accessible tensor view.
+template <TensorView Tensor> class borrowed_read_tensor_lease {
   public:
-    explicit borrowed_tensor_access_state(Tensor& tensor) noexcept : tensor_(&tensor) {}
+    using tensor_type = std::remove_cvref_t<Tensor>;
+    using mdspan_type = std::remove_cvref_t<decltype(std::declval<tensor_type const&>().mdspan())>;
+    using storage_policy = tensor_storage_policy_t<tensor_type>;
+    using extents_type = typename mdspan_type::extents_type;
+    using index_type = typename mdspan_type::index_type;
 
-    borrowed_tensor_access_state(borrowed_tensor_access_state const&) = delete;
-    borrowed_tensor_access_state& operator=(borrowed_tensor_access_state const&) = delete;
+    explicit borrowed_read_tensor_lease(tensor_type const& tensor) noexcept : tensor_(&tensor) {}
 
-    borrowed_tensor_access_state(borrowed_tensor_access_state&& other) noexcept
+    borrowed_read_tensor_lease(borrowed_read_tensor_lease const&) = delete;
+    borrowed_read_tensor_lease& operator=(borrowed_read_tensor_lease const&) = delete;
+
+    borrowed_read_tensor_lease(borrowed_read_tensor_lease&& other) noexcept
         : tensor_(std::exchange(other.tensor_, nullptr))
     {}
 
-    borrowed_tensor_access_state& operator=(borrowed_tensor_access_state&& other) noexcept
+    borrowed_read_tensor_lease& operator=(borrowed_read_tensor_lease&& other) noexcept
     {
       if (this != &other) tensor_ = std::exchange(other.tensor_, nullptr);
       return *this;
     }
 
+    /// \brief Return the source tensor's read-only mdspan.
+    [[nodiscard]] decltype(auto) mdspan() const& { return this->source().mdspan(); }
+
+    void mdspan() && = delete;
+
+    /// \brief Return the source tensor's backend selector.
+    [[nodiscard]] decltype(auto) backend_selector() const { return this->source().backend_selector(); }
+
+    /// \brief Return storage when the source tensor exposes it.
+    [[nodiscard]] decltype(auto) storage() const
+      requires requires(tensor_type const& tensor) { tensor.storage(); }
+    {
+      return this->source().storage();
+    }
+
+    /// \brief Return the source tensor extents.
+    [[nodiscard]] decltype(auto) extents() const { return this->source().extents(); }
+
+    /// \brief Return one source tensor extent.
+    [[nodiscard]] index_type extent(std::size_t axis) const { return this->source().extent(axis); }
+
+    /// \brief Return the static tensor rank.
+    [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
+
+    /// \brief End this no-op borrowed access scope.
     void release() noexcept { tensor_ = nullptr; }
 
-    [[nodiscard]] decltype(auto) storage()
-      requires requires(Tensor& tensor) { tensor.storage(); }
+  private:
+    [[nodiscard]] tensor_type const& source() const
     {
-      CHECK(tensor_ != nullptr, "cannot inspect storage through a released tensor lease");
-      return tensor_->storage();
+      CHECK(tensor_ != nullptr, "cannot use a released borrowed tensor lease");
+      return *tensor_;
     }
 
-    [[nodiscard]] decltype(auto) storage() const
-      requires requires(Tensor const& tensor) { tensor.storage(); }
+    tensor_type const* tensor_ = nullptr;
+};
+
+/// \brief Pointer-only write lease for an immediately accessible tensor view.
+template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
+  public:
+    using tensor_type = std::remove_cvref_t<Tensor>;
+    using mdspan_type = std::remove_cvref_t<decltype(std::declval<tensor_type&>().mdspan())>;
+    using const_mdspan_type = std::remove_cvref_t<decltype(std::declval<tensor_type const&>().mdspan())>;
+    using storage_policy = tensor_storage_policy_t<tensor_type>;
+    using extents_type = typename mdspan_type::extents_type;
+    using index_type = typename mdspan_type::index_type;
+
+    explicit borrowed_write_tensor_lease(tensor_type& tensor) noexcept : tensor_(&tensor) {}
+
+    borrowed_write_tensor_lease(borrowed_write_tensor_lease const&) = delete;
+    borrowed_write_tensor_lease& operator=(borrowed_write_tensor_lease const&) = delete;
+
+    borrowed_write_tensor_lease(borrowed_write_tensor_lease&& other) noexcept
+        : tensor_(std::exchange(other.tensor_, nullptr))
+    {}
+
+    borrowed_write_tensor_lease& operator=(borrowed_write_tensor_lease&& other) noexcept
     {
-      CHECK(tensor_ != nullptr, "cannot inspect storage through a released tensor lease");
-      return std::as_const(*tensor_).storage();
+      if (this != &other) tensor_ = std::exchange(other.tensor_, nullptr);
+      return *this;
     }
+
+    /// \brief Return the source tensor's writable mdspan.
+    [[nodiscard]] decltype(auto) mdspan() & { return this->source().mdspan(); }
+
+    /// \brief Return the source tensor's read-only mdspan.
+    [[nodiscard]] decltype(auto) mdspan() const& { return std::as_const(this->source()).mdspan(); }
+
+    void mdspan() && = delete;
+
+    /// \brief Return the source tensor's backend selector.
+    [[nodiscard]] decltype(auto) backend_selector() const { return this->source().backend_selector(); }
+
+    /// \brief Return mutable storage when the source tensor exposes it.
+    [[nodiscard]] decltype(auto) storage()
+      requires requires(tensor_type& tensor) { tensor.storage(); }
+    {
+      return this->source().storage();
+    }
+
+    /// \brief Return read-only storage when the source tensor exposes it.
+    [[nodiscard]] decltype(auto) storage() const
+      requires requires(tensor_type const& tensor) { tensor.storage(); }
+    {
+      return std::as_const(this->source()).storage();
+    }
+
+    /// \brief Return the source tensor extents.
+    [[nodiscard]] decltype(auto) extents() const { return this->source().extents(); }
+
+    /// \brief Return one source tensor extent.
+    [[nodiscard]] index_type extent(std::size_t axis) const { return this->source().extent(axis); }
+
+    /// \brief Return the static tensor rank.
+    [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
+
+    /// \brief End this no-op borrowed access scope.
+    void release() noexcept { tensor_ = nullptr; }
 
   private:
-    Tensor* tensor_ = nullptr;
+    [[nodiscard]] tensor_type& source() const
+    {
+      CHECK(tensor_ != nullptr, "cannot use a released borrowed tensor lease");
+      return *tensor_;
+    }
+
+    tensor_type* tensor_ = nullptr;
 };
 
 } // namespace detail
@@ -293,16 +389,14 @@ class write_tensor_lease {
 
 /// \brief TensorView that owns a move-only read access lifetime.
 template <class Lease>
-concept ReadTensorLease = TensorView<Lease> && std::move_constructible<Lease> && (!std::copy_constructible<Lease>) &&
-                          requires(Lease& lease, Lease const& const_lease) {
-                            { lease.release() } noexcept;
-                            const_lease.storage();
-                          };
+concept ReadTensorLease =
+    TensorView<Lease> && std::move_constructible<Lease> && (!std::copy_constructible<Lease>) && requires(Lease& lease) {
+      { lease.release() } noexcept;
+    };
 
 /// \brief MutableTensorView that owns a move-only write access lifetime.
 template <class Lease>
-concept WriteTensorLease =
-    ReadTensorLease<Lease> && MutableTensorView<Lease> && requires(Lease& lease) { lease.storage(); };
+concept WriteTensorLease = ReadTensorLease<Lease> && MutableTensorView<Lease>;
 
 /// \brief Always-ready awaitable that transfers one tensor access lease.
 template <class Lease> class ready_tensor_access {
@@ -327,46 +421,27 @@ template <class Lease> class ready_tensor_access {
 };
 
 /// \brief Acquire an immediate tensor view for read-only use.
-template <TensorView Tensor>
-  requires requires(std::remove_reference_t<Tensor> const& tensor) { tensor.storage(); }
-[[nodiscard]] auto blocking_read_access(Tensor const& tensor)
+template <TensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor& tensor)
 {
-  using tensor_type = std::remove_reference_t<Tensor>;
-  using state_type = detail::borrowed_tensor_access_state<tensor_type const>;
-  using mdspan_type = std::remove_cvref_t<decltype(tensor.mdspan())>;
-  using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
-  using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
-  return read_tensor_lease<mdspan_type, state_type, selector_type, storage_policy>{state_type{tensor}, tensor.mdspan(),
-                                                                                   tensor.backend_selector()};
+  using tensor_type = std::remove_cvref_t<Tensor>;
+  return detail::borrowed_read_tensor_lease<tensor_type>{tensor};
 }
 
 /// \brief Acquire an immediate mutable tensor view.
-template <class Tensor>
-  requires(MutableTensorView<Tensor> && requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
-[[nodiscard]] auto blocking_write_access(Tensor& tensor)
+template <MutableTensorView Tensor> [[nodiscard]] auto blocking_write_access(Tensor& tensor)
 {
-  using tensor_type = std::remove_reference_t<Tensor>;
-  using state_type = detail::borrowed_tensor_access_state<tensor_type>;
-  using mdspan_type = std::remove_cvref_t<decltype(tensor.mdspan())>;
-  using const_mdspan_type = std::remove_cvref_t<decltype(std::as_const(tensor).mdspan())>;
-  using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
-  using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
-  return write_tensor_lease<mdspan_type, const_mdspan_type, state_type, selector_type, storage_policy>{
-      state_type{tensor}, tensor.mdspan(), std::as_const(tensor).mdspan(), tensor.backend_selector()};
+  using tensor_type = std::remove_cvref_t<Tensor>;
+  return detail::borrowed_write_tensor_lease<tensor_type>{tensor};
 }
 
 /// \brief Return an immediately-ready read acquisition for an immediate TensorView.
-template <TensorView Tensor>
-  requires requires(std::remove_reference_t<Tensor> const& tensor) { tensor.storage(); }
-[[nodiscard]] auto read_access(Tensor const& tensor)
+template <TensorView Tensor> [[nodiscard]] auto read_access(Tensor& tensor)
 {
   return ready_tensor_access{blocking_read_access(tensor)};
 }
 
 /// \brief Return an immediately-ready write acquisition for an immediate mutable TensorView.
-template <class Tensor>
-  requires(MutableTensorView<Tensor> && requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
-[[nodiscard]] auto write_access(Tensor& tensor)
+template <MutableTensorView Tensor> [[nodiscard]] auto write_access(Tensor& tensor)
 {
   return ready_tensor_access{blocking_write_access(tensor)};
 }

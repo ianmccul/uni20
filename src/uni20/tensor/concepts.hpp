@@ -36,48 +36,26 @@ template <class T> using tensor_const_mdspan_t = decltype(std::declval<tensor_ty
 
 template <class T> using tensor_mutable_mdspan_t = decltype(std::declval<tensor_type_t<T>&>().mdspan());
 
-template <class T>
-using tensor_const_device_mdspan_t = decltype(std::declval<tensor_type_t<T> const&>().device_mdspan());
-
-template <class T> using tensor_mutable_device_mdspan_t = decltype(std::declval<tensor_type_t<T>&>().device_mdspan());
-
-template <class T>
-concept HasConstDeviceMdspan = requires(tensor_type_t<T> const& tensor) { tensor.device_mdspan(); };
-
-template <class T>
-concept HasMutableDeviceMdspan = requires(tensor_type_t<T>& tensor) { tensor.device_mdspan(); };
-
-template <class T, class = void> struct TensorConstDeviceMdspan
+template <class Tensor>
+  requires requires(Tensor& tensor) { tensor.device_mdspan(); }
+[[nodiscard]] decltype(auto) tensor_device_mdspan(Tensor& tensor)
 {
-    using type = tensor_const_mdspan_t<T>;
-};
-
-template <class T> struct TensorConstDeviceMdspan<T, std::void_t<tensor_const_device_mdspan_t<T>>>
-{
-    using type = tensor_const_device_mdspan_t<T>;
-};
-
-template <class T, class = void> struct TensorMutableDeviceMdspan
-{
-    using type = tensor_mutable_mdspan_t<T>;
-};
-
-template <class T> struct TensorMutableDeviceMdspan<T, std::void_t<tensor_mutable_device_mdspan_t<T>>>
-{
-    using type = tensor_mutable_device_mdspan_t<T>;
-};
-
-template <class T> using normalized_const_device_mdspan_t = typename TensorConstDeviceMdspan<T>::type;
-
-template <class T> using normalized_mutable_device_mdspan_t = typename TensorMutableDeviceMdspan<T>::type;
-
-template <class Tensor> [[nodiscard]] decltype(auto) tensor_device_mdspan(Tensor& tensor)
-{
-  if constexpr (requires { tensor.device_mdspan(); })
-    return tensor.device_mdspan();
-  else
-    return tensor.mdspan();
+  return tensor.device_mdspan();
 }
+
+template <class Tensor>
+  requires(
+      !requires(Tensor& tensor) { tensor.device_mdspan(); } && requires(Tensor& tensor) { tensor.mdspan(); })
+[[nodiscard]] decltype(auto) tensor_device_mdspan(Tensor& tensor)
+{
+  return tensor.mdspan();
+}
+
+template <class T>
+using normalized_const_device_mdspan_t = decltype(tensor_device_mdspan(std::declval<tensor_type_t<T> const&>()));
+
+template <class T>
+using normalized_mutable_device_mdspan_t = decltype(tensor_device_mdspan(std::declval<tensor_type_t<T>&>()));
 } // namespace detail
 
 /// \brief Tensor-level object that exposes a readable mdspan and backend selector.
@@ -104,20 +82,17 @@ concept TensorView = requires(std::remove_reference_t<T> const& tensor) {
 ///          read or write access resolves that metadata into a `TensorView`
 ///          whose lifetime is governed by an RAII lease.
 template <class T>
-concept DeviceTensorView =
-    (detail::HasConstDeviceMdspan<T> &&
-     requires(std::remove_reference_t<T> const& tensor) {
-       typename std::remove_cvref_t<detail::tensor_const_device_mdspan_t<T>>::extents_type;
-       tensor.backend_selector();
-       tensor.device_mdspan();
-       {
-         tensor.extents()
-       } -> std::convertible_to<typename std::remove_cvref_t<detail::tensor_const_device_mdspan_t<T>>::extents_type>;
-       {
-         tensor.extent(std::size_t{})
-       } -> std::convertible_to<typename std::remove_cvref_t<detail::tensor_const_device_mdspan_t<T>>::index_type>;
-     } && DeviceSpanLike<detail::tensor_const_device_mdspan_t<T>>) ||
-    (!detail::HasConstDeviceMdspan<T> && TensorView<T>);
+concept DeviceTensorView = requires(std::remove_reference_t<T> const& tensor) {
+  typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::extents_type;
+  tensor.backend_selector();
+  detail::tensor_device_mdspan(tensor);
+  {
+    tensor.extents()
+  } -> std::convertible_to<typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::extents_type>;
+  {
+    tensor.extent(std::size_t{})
+  } -> std::convertible_to<typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::index_type>;
+} && DeviceSpanLike<detail::normalized_const_device_mdspan_t<T>>;
 
 /// \brief Opt-in marker for tensor types that own their storage and lifetime.
 /// \details Specialize this variable template for a tensor type only when
@@ -154,10 +129,9 @@ concept MutableTensorView =
 
 /// \brief DeviceTensorView whose non-const device span supports write acquisition.
 template <class T>
-concept MutableDeviceTensorView =
-    DeviceTensorView<T> &&
-    ((detail::HasMutableDeviceMdspan<T> && MutableDeviceSpanLike<detail::tensor_mutable_device_mdspan_t<T>>) ||
-     (!detail::HasMutableDeviceMdspan<T> && MutableTensorView<T>));
+concept MutableDeviceTensorView = DeviceTensorView<T> && requires(std::remove_reference_t<T>& tensor) {
+  detail::tensor_device_mdspan(tensor);
+} && MutableDeviceSpanLike<detail::normalized_mutable_device_mdspan_t<T>>;
 
 /// \brief DeviceTensorView whose readable device span has a specified static rank.
 template <class T, std::size_t Rank>

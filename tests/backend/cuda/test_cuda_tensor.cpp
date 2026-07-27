@@ -40,6 +40,10 @@ static_assert(std::same_as<typename mutable_span_type::data_handle_type, double*
 static_assert(std::same_as<typename const_span_type::data_handle_type, double const*>);
 static_assert(std::same_as<typename mutable_device_span_type::data_handle_type, double*>);
 static_assert(std::same_as<typename const_device_span_type::data_handle_type, double const*>);
+static_assert(!tensor_type::immediately_readable);
+static_assert(!tensor_type::immediately_writable);
+static_assert(tensor_type::deferred_readable);
+static_assert(tensor_type::deferred_writable);
 static_assert(uni20::DeviceSpanLike<mutable_device_span_type>);
 static_assert(uni20::MutableDeviceSpanLike<mutable_device_span_type>);
 static_assert(uni20::DeviceSpanLike<const_device_span_type>);

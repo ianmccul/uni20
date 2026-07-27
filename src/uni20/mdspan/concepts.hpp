@@ -271,8 +271,7 @@ concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Spa
 
 template <class Accessor>
 concept AccessorReferenceAssignable =
-    requires(Accessor const& accessor, typename Accessor::data_handle_type handle,
-             typename Accessor::offset_type offset,
+    requires(Accessor const& accessor, typename Accessor::data_handle_type handle, span_offset_t<Accessor> offset,
              std::remove_const_t<typename Accessor::element_type> value) { accessor.access(handle, offset) = value; };
 
 } // namespace detail

@@ -151,6 +151,14 @@ concrete `device_mdspan` class when a structural constraint is sufficient.
 2. an unresolved structural model exposing mdspan metadata plus
    `data_descriptor_type` and `data_descriptor()`.
 
+For Uni20's concrete `Tensor`, immediate accessibility takes precedence over
+descriptor availability. Its mutable and const `device_mdspan()` overloads
+therefore return ordinary mdspans whenever the corresponding writable or
+readable handle is immediately available, even if the storage policy also
+provides a descriptor. Only a missing immediate handle selects the
+metadata-only `uni20::device_mdspan` representation. Read, write, immediate,
+and deferred capabilities are detected independently.
+
 The unresolved model must expose compatible element, extent, layout, mapping,
 accessor, handle, and reference aliases. Its accessor must satisfy
 `AccessorPolicy`.
@@ -196,14 +204,19 @@ accessor opt-in.
 
 `DeviceTensorView<T>` is the tensor-level counterpart. A model exposes:
 
-- a `device_mdspan()` whose result models `DeviceSpanLike`, or an ordinary
-  `mdspan()` for the immediate case;
+- a normalized device span that uses `device_mdspan()` when supplied and
+  otherwise uses `mdspan()`;
 - `backend_selector()`;
 - tensor extents and extent observers.
 
-When a type explicitly provides `device_mdspan()`, that representation governs
-the concept. `MutableDeviceTensorView<T>` applies the corresponding mutable
-device-span requirement.
+The normalized result must model `DeviceSpanLike`.
+`MutableDeviceTensorView<T>` applies the corresponding mutable device-span
+requirement. This gives the direct refinement relationships:
+
+```text
+TensorView       is an immediate DeviceTensorView
+SpanLike         is an immediate DeviceSpanLike
+```
 
 The acquisition result concepts are:
 
@@ -212,9 +225,11 @@ uni20::ReadTensorLease<T>
 uni20::WriteTensorLease<T>
 ```
 
-Both are move-only `TensorView` models with `.storage()`, `.backend_selector()`,
-`.mdspan()`, and `release()`. A write lease is a `MutableTensorView`, while its
-const interface returns a const-element mdspan and const storage.
+Both are move-only `TensorView` models with `.backend_selector()`, `.mdspan()`,
+and `release()`. A write lease is a `MutableTensorView`, while its const
+interface returns a const-element mdspan. A concrete lease may additionally
+expose `.storage()` when its access state has a useful storage object, but
+storage inspection is not part of either lease concept.
 
 Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
 templates, but an acquisition backend may return any type satisfying the
@@ -243,8 +258,11 @@ This keeps storage and resource policy in the acquisition layer. A descriptor
 may identify a buffer that can be mapped, migrated, prefetched, or admitted to
 a device without imposing those operations on every descriptor type.
 
-For an immediately accessible host tensor, blocking acquisition is a no-op
-lifetime guard:
+For an immediately accessible tensor view, blocking acquisition is a borrowed
+no-op lifetime guard. It depends only on the source `TensorView`, not on a
+public storage observer. The concrete immediate leases store only a pointer to
+the source view and forward `.mdspan()`, extents, backend selection, and any
+available storage observer. They do not copy the mdspan or backend selector:
 
 ```cpp
 uni20::Tensor<float, 2> tensor(4, 8);
@@ -258,6 +276,40 @@ uni20::Tensor<float, 2> tensor(4, 8);
 
 `read_access(tensor)` and `write_access(tensor)` provide always-ready awaitables
 for the same immediate case.
+
+The borrowed overloads accept lvalues only because their leases retain a
+reference to the source tensor or view. Descriptor-backed acquisition instead
+retains whatever backend-specific state makes the resolved handle usable.
+
+### Blocking Backend Lowering
+
+A blocking backend can accept `DeviceTensorView` operands without distinguishing
+immediate from deferred storage. It acquires the required read and write leases,
+then invokes its existing mdspan implementation:
+
+```cpp
+auto output_access = blocking_write_access(output);
+auto lhs_access = blocking_read_access(lhs);
+auto rhs_access = blocking_read_access(rhs);
+
+return try_kernel(
+    backend,
+    operation,
+    output_access.mdspan(),
+    alpha,
+    lhs_access.mdspan(),
+    rhs_access.mdspan(),
+    beta);
+```
+
+The CPU reference GEMM backend is the initial exemplar. For an ordinary host
+`TensorView`, acquisition creates only pointer-sized borrowed leases and the
+forwarding optimizes to the direct mdspan path. A deferred implementation may
+block while producing the same `TensorView` lease interface.
+
+Descriptor-native backends do not use this blocking lowering when their
+execution model requires more context. For example, cuBLAS inspects CUDA
+descriptors and acquires buffer access against its selected stream.
 
 ### CUDA Vertical Slice
 
@@ -299,10 +351,11 @@ can publish the completion event.
 
 CUDA copy and GEMM accept deferred metadata without making `CudaTensor` an
 immediate `TensorView`. GEMM passes `DeviceTensorView` operands through
-`dispatch_kernel`; the selected backend lowers `device_mdspan()` and acquires
-the referenced buffers according to its execution model. The synchronous
-cuBLAS path blocks for stream and provider resources, while the async path
-awaits them.
+`dispatch_kernel`; the selected backend acquires the operands according to its
+execution model. CPU reference GEMM uses the blocking lease interface. The
+cuBLAS backend lowers `device_mdspan()` descriptors directly: its synchronous
+path blocks for stream and provider resources, while its async path awaits
+them.
 
 ## Data Descriptor Boundary
 
@@ -345,8 +398,9 @@ automatically change its type, state, or constness.
 - `DeviceTensorView` and the lease concepts are structural and do not require
   Uni20's concrete materializations.
 - Ordinary `SpanLike` values satisfy `DeviceSpanLike`.
-- A read or write lease models `TensorView`, retains storage and backend
-  selection, and controls handle validity through RAII.
+- A read or write lease models `TensorView`, retains backend selection and the
+  state controlling handle validity through RAII; storage inspection is
+  optional.
 - Construction and metadata observation perform no handle acquisition.
 
 ## Source and Tests

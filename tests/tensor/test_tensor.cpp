@@ -21,10 +21,100 @@ using tensor_type = Tensor<int, 2, VectorStorage>;
 using strided_tensor_type = StridedTensor<int, 2, VectorStorage>;
 using scalar_tensor_type = ScalarTensor<double>;
 
+struct ImmediateAndDescriptorStorage
+{
+    template <class ElementType> using storage_t = std::vector<ElementType>;
+    using backend_selector_type = VectorStorage::backend_selector_type;
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
+    {
+      return storage.data();
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_handle(storage_t<ElementType> const& storage) noexcept -> ElementType const*
+    {
+      return storage.data();
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType>& storage) noexcept -> ElementType*
+    {
+      return storage.data();
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType> const& storage) noexcept -> ElementType const*
+    {
+      return storage.data();
+    }
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return VectorStorage::backend_selector();
+    }
+};
+
+struct ReadOnlyImmediateStorage
+{
+    template <class ElementType> using storage_t = std::vector<ElementType>;
+    using backend_selector_type = VectorStorage::backend_selector_type;
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_handle(storage_t<ElementType> const& storage) noexcept -> ElementType const*
+    {
+      return storage.data();
+    }
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return VectorStorage::backend_selector();
+    }
+};
+
+class StorageFreeTensorView {
+  public:
+    using extents_type = extents_2d;
+    using mutable_mdspan_type = stdex::mdspan<int, extents_type>;
+    using const_mdspan_type = stdex::mdspan<int const, extents_type>;
+    using backend_selector_type = linalg::backend_list<linalg::CpuReferenceBackend>;
+
+    StorageFreeTensorView(int* data, extents_type extents) : data_(data), extents_(extents) {}
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return backend_selector_type{linalg::CpuReferenceBackend{}};
+    }
+
+    [[nodiscard]] auto mdspan() noexcept -> mutable_mdspan_type { return mutable_mdspan_type{data_, extents_}; }
+
+    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type { return const_mdspan_type{data_, extents_}; }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return extents_; }
+
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return extents_.extent(axis); }
+
+  private:
+    int* data_;
+    extents_type extents_;
+};
+
+using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
+using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
+
 using read_lease_type = decltype(blocking_read_access(std::declval<tensor_type const&>()));
 using write_lease_type = decltype(blocking_write_access(std::declval<tensor_type&>()));
 using read_access_type = decltype(read_access(std::declval<tensor_type const&>()));
 using write_access_type = decltype(write_access(std::declval<tensor_type&>()));
+using storage_free_read_lease = decltype(blocking_read_access(std::declval<StorageFreeTensorView const&>()));
+using storage_free_write_lease = decltype(blocking_write_access(std::declval<StorageFreeTensorView&>()));
+
+template <class T>
+concept HasStorageObserver = requires(T& value) { value.storage(); };
+
+template <class T>
+concept CanBorrowReadFromRvalue = requires(T&& value) { blocking_read_access(std::move(value)); };
 
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
@@ -57,6 +147,10 @@ static_assert(!ScalarTensorView<tensor_type>);
 static_assert(SpanLike<decltype(std::declval<tensor_type const&>().device_mdspan())>);
 static_assert(ReadTensorLease<read_lease_type>);
 static_assert(WriteTensorLease<write_lease_type>);
+static_assert(sizeof(read_lease_type) == sizeof(void*));
+static_assert(sizeof(write_lease_type) == sizeof(void*));
+static_assert(std::is_trivially_destructible_v<read_lease_type>);
+static_assert(std::is_trivially_destructible_v<write_lease_type>);
 static_assert(
     std::same_as<decltype(std::declval<read_lease_type const&>().storage()), tensor_type::storage_type const&>);
 static_assert(std::same_as<decltype(std::declval<write_lease_type&>().storage()), tensor_type::storage_type&>);
@@ -64,6 +158,36 @@ static_assert(
     std::same_as<decltype(std::declval<write_lease_type const&>().storage()), tensor_type::storage_type const&>);
 static_assert(std::same_as<decltype(std::declval<read_access_type&>().await_resume()), read_lease_type>);
 static_assert(std::same_as<decltype(std::declval<write_access_type&>().await_resume()), write_lease_type>);
+static_assert(TensorView<StorageFreeTensorView>);
+static_assert(DeviceTensorView<StorageFreeTensorView>);
+static_assert(MutableTensorView<StorageFreeTensorView>);
+static_assert(MutableDeviceTensorView<StorageFreeTensorView>);
+static_assert(std::same_as<device_tensor_mdspan_t<StorageFreeTensorView>, StorageFreeTensorView::const_mdspan_type>);
+static_assert(immediate_and_descriptor_tensor::immediately_readable);
+static_assert(immediate_and_descriptor_tensor::immediately_writable);
+static_assert(immediate_and_descriptor_tensor::deferred_readable);
+static_assert(immediate_and_descriptor_tensor::deferred_writable);
+static_assert(std::same_as<decltype(std::declval<immediate_and_descriptor_tensor&>().device_mdspan()),
+                           immediate_and_descriptor_tensor::mdspan_type>);
+static_assert(std::same_as<decltype(std::declval<immediate_and_descriptor_tensor const&>().device_mdspan()),
+                           immediate_and_descriptor_tensor::const_mdspan_type>);
+static_assert(read_only_tensor::immediately_readable);
+static_assert(!read_only_tensor::immediately_writable);
+static_assert(!read_only_tensor::deferred_readable);
+static_assert(!read_only_tensor::deferred_writable);
+static_assert(TensorView<read_only_tensor>);
+static_assert(DeviceTensorView<read_only_tensor>);
+static_assert(!MutableTensorView<read_only_tensor>);
+static_assert(!MutableDeviceTensorView<read_only_tensor>);
+static_assert(
+    std::same_as<decltype(std::declval<read_only_tensor&>().device_mdspan()), read_only_tensor::const_mdspan_type>);
+static_assert(ReadTensorLease<storage_free_read_lease>);
+static_assert(WriteTensorLease<storage_free_write_lease>);
+static_assert(sizeof(storage_free_read_lease) == sizeof(void*));
+static_assert(sizeof(storage_free_write_lease) == sizeof(void*));
+static_assert(!HasStorageObserver<storage_free_read_lease>);
+static_assert(!HasStorageObserver<storage_free_write_lease>);
+static_assert(!CanBorrowReadFromRvalue<StorageFreeTensorView>);
 
 using row_major_matrix = DenseMatrix<int, RowMajor>;
 using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
@@ -104,6 +228,47 @@ TEST(TensorTest, DefaultMappingUsesColumnMajorVectorStorage)
   EXPECT_EQ((tensor[1, 2]), expected.back());
   EXPECT_EQ(tensor.mapping().stride(0), 1);
   EXPECT_EQ(tensor.mapping().stride(1), 2);
+}
+
+TEST(TensorTest, ImmediateHandlePrecedesAvailableDescriptor)
+{
+  immediate_and_descriptor_tensor tensor(2, 3);
+  tensor[1, 2] = 42;
+
+  auto mutable_span = tensor.device_mdspan();
+  auto const_span = std::as_const(tensor).device_mdspan();
+
+  static_assert(SpanLike<decltype(mutable_span)>);
+  static_assert(SpanLike<decltype(const_span)>);
+  EXPECT_EQ(mutable_span.data_handle(), tensor.storage().data());
+  EXPECT_EQ(const_span.data_handle(), tensor.storage().data());
+  EXPECT_EQ((const_span[1, 2]), 42);
+}
+
+TEST(TensorTest, ReadOnlyImmediateStorageExposesConstDeviceMdspan)
+{
+  read_only_tensor tensor(2, 3);
+  tensor.storage()[5] = 42;
+
+  auto span = tensor.device_mdspan();
+
+  static_assert(std::is_const_v<typename decltype(span)::element_type>);
+  EXPECT_EQ((span[1, 2]), 42);
+}
+
+TEST(TensorTest, ImmediateLeasesDoNotRequireStorageObserver)
+{
+  std::array<int, 6> values{};
+  StorageFreeTensorView view(values.data(), extents_2d{2, 3});
+
+  {
+    auto lease = blocking_write_access(view);
+    lease.mdspan()[1, 2] = 42;
+  }
+
+  auto const& const_view = view;
+  auto lease = blocking_read_access(const_view);
+  EXPECT_EQ((lease.mdspan()[1, 2]), 42);
 }
 
 TEST(TensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)

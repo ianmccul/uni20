@@ -11,6 +11,7 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 
 #include <concepts>
@@ -18,6 +19,15 @@
 
 namespace uni20::linalg
 {
+namespace detail
+{
+template <class OutputTensor, class LhsTensor, class RhsTensor>
+concept BlockingGemmTensorAccess = requires(OutputTensor& output, LhsTensor const& lhs, RhsTensor const& rhs) {
+  blocking_write_access(output);
+  blocking_read_access(lhs);
+  blocking_read_access(rhs);
+};
+} // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
 template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
@@ -108,34 +118,34 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& out
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility after lowering DeviceTensorView operands to immediate mdspans.
+/// \brief Report eligibility for blocking DeviceTensorView CPU GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires detail::BlockingGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputTensor&, Scalar const&,
                                     LhsTensor&, RhsTensor&, Scalar const&)
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
-  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
-  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
-                                                              lhs_span&, rhs_span&, Scalar const&>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
+  if constexpr (std::same_as<uni20::tensor_element_t<OutputTensor>, Scalar> &&
+                std::same_as<uni20::tensor_element_t<LhsTensor>, Scalar> &&
+                std::same_as<uni20::tensor_element_t<RhsTensor>, Scalar>)
     return kernel_types_yes;
-  else if constexpr (acceptance == KernelTypeAcceptance::maybe)
-    return kernel_types_maybe;
   else
     return kernel_types_no;
 }
 
-/// \brief Lower DeviceTensorView operands and run reference GEMM.
+/// \brief Resolve blocking tensor access and run reference GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires detail::BlockingGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
 KernelAttempt try_kernel(CpuReferenceBackend backend, gemm_op const& op, OutputTensor& output, Scalar alpha,
                          LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_access = blocking_write_access(output);
+  auto lhs_access = blocking_read_access(lhs);
+  auto rhs_access = blocking_read_access(rhs);
+  auto output_span = output_access.mdspan();
+  auto lhs_span = lhs_access.mdspan();
+  auto rhs_span = rhs_access.mdspan();
   return try_kernel(backend, op, output_span, alpha, lhs_span, rhs_span, beta);
 }
 

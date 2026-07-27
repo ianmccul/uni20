@@ -173,6 +173,89 @@ KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan&& output,
 }
 } // namespace selector_customization_test
 
+namespace blocking_gemm_test
+{
+struct StoragePolicy
+{
+    using backend_selector_type = backend_list<CpuReferenceBackend>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return backend_selector_type{CpuReferenceBackend{}};
+    }
+};
+
+struct AccessCounts
+{
+    int reads = 0;
+    int writes = 0;
+};
+
+class DeferredMatrix {
+  public:
+    using tensor_type = uni20::DenseMatrix<double>;
+    using storage_policy = StoragePolicy;
+    using extents_type = typename tensor_type::extents_type;
+    using index_type = typename extents_type::index_type;
+    using layout_type = typename tensor_type::layout_type;
+    using mapping_type = typename layout_type::template mapping<extents_type>;
+
+    struct DataDescriptor
+    {
+        tensor_type* tensor = nullptr;
+    };
+
+    using mutable_device_span_type =
+        uni20::device_mdspan<double, extents_type, layout_type, stdex::default_accessor<double>, DataDescriptor>;
+    using const_device_span_type = uni20::device_mdspan<double const, extents_type, layout_type,
+                                                        stdex::default_accessor<double const>, DataDescriptor>;
+
+    DeferredMatrix(tensor_type& tensor, AccessCounts& counts) noexcept : tensor_(&tensor), counts_(&counts) {}
+
+    [[nodiscard]] auto device_mdspan() -> mutable_device_span_type
+    {
+      return mutable_device_span_type{DataDescriptor{tensor_}, mapping_type{tensor_->extents()},
+                                      stdex::default_accessor<double>{}};
+    }
+
+    [[nodiscard]] auto device_mdspan() const -> const_device_span_type
+    {
+      return const_device_span_type{DataDescriptor{tensor_}, mapping_type{tensor_->extents()},
+                                    stdex::default_accessor<double const>{}};
+    }
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return StoragePolicy::backend_selector(); }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return tensor_->extents(); }
+
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept -> index_type { return tensor_->extent(axis); }
+
+    [[nodiscard]] tensor_type& tensor() const noexcept { return *tensor_; }
+
+    [[nodiscard]] AccessCounts& counts() const noexcept { return *counts_; }
+
+  private:
+    tensor_type* tensor_;
+    AccessCounts* counts_;
+};
+
+static_assert(uni20::DeviceTensorView<DeferredMatrix>);
+static_assert(uni20::MutableDeviceTensorView<DeferredMatrix>);
+static_assert(!uni20::TensorView<DeferredMatrix>);
+
+[[nodiscard]] auto blocking_read_access(DeferredMatrix const& matrix)
+{
+  ++matrix.counts().reads;
+  return uni20::blocking_read_access(std::as_const(matrix.tensor()));
+}
+
+[[nodiscard]] auto blocking_write_access(DeferredMatrix& matrix)
+{
+  ++matrix.counts().writes;
+  return uni20::blocking_write_access(matrix.tensor());
+}
+} // namespace blocking_gemm_test
+
 struct TryKernelOnlyBackend
 {
     static constexpr std::string_view name = "try_kernel_only";
@@ -707,6 +790,39 @@ TEST(LinalgGemmDispatchTest, TensorOperandsAcceptExplicitSelectorOverride)
 
   uni20::linalg::gemm(CpuReferenceBackend{}, c, 1.0, a, b, 0.0);
 
+  EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
+  EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
+  EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
+  EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
+}
+
+TEST(LinalgGemmDispatchTest, CpuReferenceAcquiresBlockingTensorAccess)
+{
+  using blocking_gemm_test::AccessCounts;
+  using blocking_gemm_test::DeferredMatrix;
+  using tensor_type = DeferredMatrix::tensor_type;
+
+  tensor_type a(2, 2);
+  tensor_type b(2, 2);
+  tensor_type c(2, 2);
+  AccessCounts a_access;
+  AccessCounts b_access;
+  AccessCounts c_access;
+  DeferredMatrix deferred_a(a, a_access);
+  DeferredMatrix deferred_b(b, b_access);
+  DeferredMatrix deferred_c(c, c_access);
+
+  fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
+
+  uni20::linalg::gemm(CpuReferenceBackend{}, deferred_c, 1.0, deferred_a, deferred_b, 0.0);
+
+  EXPECT_EQ(a_access.reads, 1);
+  EXPECT_EQ(a_access.writes, 0);
+  EXPECT_EQ(b_access.reads, 1);
+  EXPECT_EQ(b_access.writes, 0);
+  EXPECT_EQ(c_access.reads, 0);
+  EXPECT_EQ(c_access.writes, 1);
   EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
