@@ -14,6 +14,7 @@
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/storage/cuda_storage.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <cuda_runtime_api.h>
 
@@ -356,7 +357,7 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
 } // namespace detail::cuda_reference
 
 /// \brief Report compile-time eligibility for CUDA Tensor transfer.
-template <class OutputMdspan, class InputMdspan>
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
 consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
   if constexpr (detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan>)
@@ -367,12 +368,38 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
 
 /// \brief Copy compatible contiguous host or CUDA mdspans while preserving supported accessor semantics.
 template <class OutputMdspan, class InputMdspan>
+  requires detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan>
 KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputMdspan&& output, InputMdspan&& input)
 {
   auto preparation = detail::cuda_reference::prepare_copy(output, input);
   if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
   detail::cuda_reference::execute_blocking_copy(preparation);
   return KernelAttempt::success;
+}
+
+/// \brief Report CUDA copy eligibility after normalizing generic tensor metadata.
+template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputTensor&, InputTensor&)
+{
+  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
+  using input_span =
+      std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<InputTensor const&>()))>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CudaReferenceBackend, copy_op, output_span&, input_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::maybe)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Normalize tensor metadata inside the CUDA backend and perform the copy.
+template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
+KernelAttempt try_kernel(CudaReferenceBackend backend, copy_op const& operation, OutputTensor& output,
+                         InputTensor const& input)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto input_span = uni20::detail::tensor_device_mdspan(input);
+  return try_kernel(backend, operation, output_span, input_span);
 }
 
 } // namespace uni20::linalg

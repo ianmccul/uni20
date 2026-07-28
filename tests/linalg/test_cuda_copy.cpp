@@ -26,6 +26,36 @@ using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
 
 using namespace std::chrono_literals;
 
+struct DescriptorSelectedStoragePolicy
+{
+    [[nodiscard]] static constexpr auto backend_selector() noexcept
+    {
+      return uni20::linalg::backend_list<uni20::linalg::CpuReferenceBackend>{uni20::linalg::CpuReferenceBackend{}};
+    }
+};
+
+class CudaDescriptorMatrixView {
+  public:
+    using storage_policy = DescriptorSelectedStoragePolicy;
+    using extents_type = typename cuda_matrix_type::extents_type;
+
+    explicit CudaDescriptorMatrixView(cuda_matrix_type const& tensor) : tensor_(&tensor) {}
+
+    [[nodiscard]] auto device_mdspan() const { return tensor_->device_mdspan(); }
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return tensor_->extents(); }
+
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return tensor_->extent(axis); }
+
+  private:
+    cuda_matrix_type const* tensor_;
+};
+
+static_assert(uni20::DeviceTensorView<CudaDescriptorMatrixView>);
+static_assert(!std::same_as<typename CudaDescriptorMatrixView::storage_policy, uni20::CudaStorage>);
+
 struct CopyGate
 {
     std::atomic<bool> open = false;
@@ -133,6 +163,18 @@ TEST_F(CudaCopyTest, FixedOutputPageableTransfersResizeAndRoundTrip)
 
   EXPECT_EQ(device.rows(), source.rows());
   EXPECT_EQ(device.cols(), source.cols());
+  expect_matrix(result);
+}
+
+TEST_F(CudaCopyTest, ExplicitCudaBackendUsesDescriptorRatherThanStoragePolicy)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  auto device = uni20::to_device(make_matrix(), 0);
+  CudaDescriptorMatrixView input(device);
+  host_matrix_type result;
+
+  uni20::copy(uni20::linalg::CudaReferenceBackend{}, result, input);
+
   expect_matrix(result);
 }
 

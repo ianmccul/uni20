@@ -64,9 +64,7 @@ async::AsyncTask async_cuda_copy_task(BackendSelector const selector, async::Wri
   auto& storage = std::get<0>(awaited);
   auto const& input_value = std::get<1>(awaited);
   auto& output_value = prepare_async_copy_output(storage, input_value);
-  auto output_mdspan = output_value.device_mdspan();
-  auto input_mdspan = input_value.device_mdspan();
-  co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_mdspan, input_mdspan);
+  co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_value, input_value);
   co_return;
 }
 

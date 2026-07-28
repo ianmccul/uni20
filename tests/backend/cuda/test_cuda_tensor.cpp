@@ -50,10 +50,15 @@ struct DeviceSpanCallCounts
     mutable int const_calls = 0;
 };
 
+struct DescriptorSelectedStoragePolicy
+{
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return uni20::CudaStorage::backend_selector(); }
+};
+
 class CountingCudaTensorView {
   public:
     using tensor_type = uni20::CudaTensor<double, 2>;
-    using storage_policy = uni20::CudaStorage;
+    using storage_policy = DescriptorSelectedStoragePolicy;
     using extents_type = typename tensor_type::extents_type;
 
     CountingCudaTensorView(tensor_type& tensor, DeviceSpanCallCounts& calls) : tensor_(&tensor), calls_(&calls) {}
@@ -84,6 +89,7 @@ class CountingCudaTensorView {
 using owning_read_lease_type = decltype(uni20::blocking_read_access(std::declval<tensor_type&&>()));
 using owning_read_access_type =
     decltype(uni20::read_access(std::declval<tensor_type&&>(), std::declval<uni20::cuda::Stream const&>()));
+using counting_read_lease_type = decltype(uni20::blocking_read_access(std::declval<CountingCudaTensorView const&>()));
 
 static_assert(std::same_as<typename tensor_type::storage_type, uni20::cuda::CudaBuffer<double>>);
 static_assert(std::same_as<tensor_type, direct_tensor_type>);
@@ -130,6 +136,8 @@ static_assert(CanBlockingReadRvalue<tensor_type>);
 static_assert(CanStreamReadRvalue<tensor_type>);
 static_assert(uni20::DeviceTensorView<CountingCudaTensorView>);
 static_assert(uni20::MutableDeviceTensorView<CountingCudaTensorView>);
+static_assert(!std::same_as<typename CountingCudaTensorView::storage_policy, uni20::CudaStorage>);
+static_assert(std::same_as<typename counting_read_lease_type::storage_policy, DescriptorSelectedStoragePolicy>);
 static_assert(!uni20::OwningTensor<CountingCudaTensorView>);
 static_assert(!CanBlockingReadRvalue<CountingCudaTensorView>);
 static_assert(!CanStreamReadRvalue<CountingCudaTensorView>);

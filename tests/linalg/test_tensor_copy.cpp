@@ -3,6 +3,8 @@
 #include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/tensor/copy.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -172,4 +174,15 @@ TEST(TensorCopyTest, CpuReferenceCopySupportsScalarConversion)
   EXPECT_DOUBLE_EQ(output[0], 1.25);
   EXPECT_DOUBLE_EQ(output[1], -2.5);
   EXPECT_DOUBLE_EQ(output[2], 4.0);
+}
+
+TEST(TensorCopyTest, CpuReferenceCopyAcquiresDeferredTensorViews)
+{
+  uni20::test::DeferredHostTensor<double, 1> input(3);
+  uni20::test::DeferredHostTensor<double, 1> output(3);
+  input.storage() = {1.25, -2.5, 4.0};
+
+  uni20::copy(output, input);
+
+  EXPECT_EQ(output.storage(), input.storage());
 }

@@ -86,9 +86,7 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
   ensure_shape(output, input.extents());
-  auto output_span = detail::tensor_device_mdspan(output);
-  auto input_span = detail::tensor_device_mdspan(input);
-  copy(std::forward<BackendSelector>(selector), output_span, input_span);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output, input);
 }
 
 /// \brief Copy into a tensor using the operands' default backend selector.
@@ -97,18 +95,16 @@ template <class OutputTensor, class InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
   ensure_shape(output, input.extents());
-  auto output_span = detail::tensor_device_mdspan(output);
-  auto input_span = detail::tensor_device_mdspan(input);
 #if UNI20_BACKEND_CUDA
   if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
   {
-    copy(linalg::CudaReferenceBackend{}, output_span, input_span);
+    copy(linalg::CudaReferenceBackend{}, output, input);
   }
   else
 #endif
   {
     auto selector = linalg::select_backend(linalg::copy_op{}, output, input);
-    copy(selector, output_span, input_span);
+    copy(selector, output, input);
   }
 }
 

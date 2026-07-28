@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <cstddef>
@@ -79,7 +81,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
 
 /// \brief Copy every input element through its accessor into the corresponding output element.
 /// \pre Input and output have equal extents and do not destructively overlap.
-template <class OutputMdspan, class InputMdspan>
+template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& output, InputMdspan&& input)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
@@ -106,6 +108,34 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
       detail::copy_elements<0, false>(output, input, index);
   }
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for a blocking DeviceTensorView element copy.
+template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputTensor&, InputTensor&)
+{
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, copy_op, output_span&, input_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and copy through the resulting mdspans.
+template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, copy_op const& operation, OutputTensor& output,
+                         InputTensor const& input)
+{
+  auto output_access = blocking_write_access(output);
+  auto input_access = blocking_read_access(input);
+  auto output_span = output_access.mdspan();
+  auto input_span = input_access.mdspan();
+  return try_kernel(backend, operation, output_span, input_span);
 }
 
 } // namespace uni20::linalg

@@ -47,4 +47,14 @@ auto try_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output,
   return KernelTaskAttempt<async::CudaTask>{std::move(task)};
 }
 
+/// \brief Normalize tensor metadata inside the CUDA task backend.
+template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
+auto try_kernel_task(CudaReferenceBackend backend, copy_op const& operation, OutputTensor& output,
+                     InputTensor& input) -> KernelTaskAttempt<async::CudaTask>
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto input_span = uni20::detail::tensor_device_mdspan(input);
+  return try_kernel_task(backend, operation, output_span, input_span);
+}
+
 } // namespace uni20::linalg

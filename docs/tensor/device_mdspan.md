@@ -362,6 +362,16 @@ Descriptor-native backends do not use this blocking lowering when their
 execution model requires more context. For example, cuBLAS inspects CUDA
 descriptors and acquires buffer access against its selected stream.
 
+Operation dispatch precedes device-view interpretation. Frontends pass
+`DeviceTensorView` operands to the selected backend without classifying them by
+storage policy or first replacing them with device mdspans. The backend then
+normalizes each tensor to its `DeviceMdspanLike` representation and either
+acquires a lease or interprets its descriptor directly. `CudaStorage` may
+provide the default backend list, but it does not make a tensor a
+`DeviceTensorView` and does not control whether a backend overload participates.
+CUDA-specific lowering identifies a `CudaBufferView` only after normalization
+and checks the accessor independently.
+
 ### CUDA Vertical Slice
 
 `CudaTensor::device_mdspan()` stores:

@@ -19,13 +19,16 @@ namespace uni20
 namespace detail
 {
 
-template <class Tensor>
-concept CudaDeferredTensorView =
-    DeviceTensorView<Tensor> && std::same_as<tensor_storage_policy_t<Tensor>, CudaStorage> &&
-    requires(std::remove_reference_t<Tensor>& tensor, std::remove_reference_t<Tensor> const& const_tensor) {
-      { tensor.device_mdspan() } -> DeviceMdspanLike;
-      { const_tensor.device_mdspan() } -> DeviceMdspanLike;
-    } && (!MdspanLike<decltype(std::declval<std::remove_reference_t<Tensor> const&>().device_mdspan())>);
+template <class Descriptor> struct IsCudaBufferView : std::false_type
+{};
+
+template <class ElementType> struct IsCudaBufferView<cuda::CudaBufferView<ElementType>> : std::true_type
+{};
+
+template <class Span>
+concept CudaBufferDeviceMdspan = DeviceMdspanLike<Span> && requires {
+  typename std::remove_cvref_t<Span>::data_descriptor_type;
+} && IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
 
 template <class Pointer> [[nodiscard]] Pointer offset_cuda_pointer(Pointer pointer, std::size_t offset) noexcept
 {
@@ -54,13 +57,6 @@ template <class DeviceSpan, class Pointer>
                                     typename span_type::layout_type, typename span_type::accessor_type>;
   return mdspan_type{pointer, span.mapping(), span.accessor()};
 }
-
-template <class Tensor>
-concept MovableOwningCudaDeferredTensor =
-    (!std::is_lvalue_reference_v<Tensor>) && CudaDeferredTensorView<std::remove_cvref_t<Tensor>> &&
-    OwningTensor<std::remove_cvref_t<Tensor>> && requires(Tensor&& tensor) {
-      { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
-    };
 
 template <class StoragePolicy, class DeviceSpan, class AccessState, class BackendSelector>
 [[nodiscard]] auto make_cuda_read_tensor_lease(DeviceSpan device_span, std::size_t element_offset, AccessState state,
@@ -96,7 +92,10 @@ template <class StoragePolicy, class DeviceSpan, class ConstDeviceSpan, class Ac
 } // namespace detail
 
 /// \brief Host-wait for prior CUDA work and acquire a read-only TensorView lease.
-template <detail::CudaDeferredTensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor& tensor)
+template <class Tensor>
+  requires DeviceTensorView<Tensor> &&
+           (!TensorView<Tensor>) && detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>>
+[[nodiscard]] auto blocking_read_access(Tensor& tensor)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
   detail::validate_cuda_descriptor_range(device_span);
@@ -108,7 +107,12 @@ template <detail::CudaDeferredTensorView Tensor> [[nodiscard]] auto blocking_rea
 
 /// \brief Move an owning CUDA tensor into a blocking read lease.
 template <class Tensor>
-  requires detail::MovableOwningCudaDeferredTensor<Tensor>
+  requires(!std::is_lvalue_reference_v<Tensor>) && DeviceTensorView<std::remove_cvref_t<Tensor>> &&
+          (!TensorView<std::remove_cvref_t<Tensor>>) && OwningTensor<std::remove_cvref_t<Tensor>> &&
+          detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<std::remove_cvref_t<Tensor>>> &&
+          requires(Tensor&& tensor) {
+            { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
+          }
 [[nodiscard]] auto blocking_read_access(Tensor&& tensor)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
@@ -123,7 +127,9 @@ template <class Tensor>
 
 /// \brief Host-wait for prior CUDA work and acquire a mutable TensorView lease.
 template <class Tensor>
-  requires(detail::CudaDeferredTensorView<Tensor> && MutableDeviceTensorView<Tensor>)
+  requires MutableDeviceTensorView<Tensor> && (!MutableTensorView<Tensor>) &&
+           detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>> &&
+           detail::CudaBufferDeviceMdspan<detail::normalized_mutable_device_mdspan_t<Tensor>>
 [[nodiscard]] auto blocking_write_access(Tensor& tensor)
 {
   auto device_span = tensor.device_mdspan();
@@ -139,7 +145,9 @@ template <class Tensor>
 /// \details Resource admission remains operation-local. Once a stream is
 ///          available, `CudaBuffer` installs predecessor waits synchronously
 ///          and the returned awaitable is ready without suspending.
-template <detail::CudaDeferredTensorView Tensor>
+template <class Tensor>
+  requires DeviceTensorView<Tensor> &&
+           (!TensorView<Tensor>) && detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>>
 [[nodiscard]] auto read_access(Tensor& tensor, cuda::Stream const& stream)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
@@ -152,7 +160,12 @@ template <detail::CudaDeferredTensorView Tensor>
 
 /// \brief Move an owning CUDA tensor into a stream-ordered read lease.
 template <class Tensor>
-  requires detail::MovableOwningCudaDeferredTensor<Tensor>
+  requires(!std::is_lvalue_reference_v<Tensor>) && DeviceTensorView<std::remove_cvref_t<Tensor>> &&
+          (!TensorView<std::remove_cvref_t<Tensor>>) && OwningTensor<std::remove_cvref_t<Tensor>> &&
+          detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<std::remove_cvref_t<Tensor>>> &&
+          requires(Tensor&& tensor) {
+            { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
+          }
 [[nodiscard]] auto read_access(Tensor&& tensor, cuda::Stream const& stream)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
@@ -167,7 +180,9 @@ template <class Tensor>
 
 /// \brief Acquire stream-ordered write access as an immediately-ready awaitable.
 template <class Tensor>
-  requires(detail::CudaDeferredTensorView<Tensor> && MutableDeviceTensorView<Tensor>)
+  requires MutableDeviceTensorView<Tensor> && (!MutableTensorView<Tensor>) &&
+           detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>> &&
+           detail::CudaBufferDeviceMdspan<detail::normalized_mutable_device_mdspan_t<Tensor>>
 [[nodiscard]] auto write_access(Tensor& tensor, cuda::Stream const& stream)
 {
   auto device_span = tensor.device_mdspan();

@@ -127,7 +127,10 @@ kernels operate on resolved mdspans.
   implementation. The synchronous CPU reference, direct BLAS, and dense LAPACK
   adapters follow this pattern, and their tensor-level type probes delegate to
   the resolved mdspan probes. Backends with a descriptor-native execution
-  model may instead lower unresolved metadata directly.
+  model may instead lower unresolved metadata directly. Operation dispatch
+  happens before either form of lowering: storage policy may select the default
+  backend list, but backend participation depends on the normalized mdspan
+  metadata, descriptor, and accessor observed inside that backend.
 - Generated tensors own compact generator state rather than an element buffer.
   They model readable `TensorView` but not `StridedTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is
