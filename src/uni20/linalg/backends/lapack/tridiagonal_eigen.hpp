@@ -13,6 +13,8 @@
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -40,7 +42,7 @@ consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_
 }
 
 /// \brief Compute a real symmetric tridiagonal eigensystem through `sterf` or `steqr`.
-template <class Scalar, class EigenvectorMdspan>
+template <class Scalar, uni20::MutableRankedStridedMdspanLike<2> EigenvectorMdspan>
 KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& op, std::span<Scalar> diagonal,
                          std::span<Scalar> subdiagonal, EigenvectorMdspan&& eigenvectors)
 {
@@ -84,6 +86,32 @@ KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& op
   std::vector<Scalar> work(work_size, Scalar{});
   uni20::lapack::steqr('I', order, diagonal.data(), e, matrix->data, matrix->leading_dimension, work.data());
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for a blocking DeviceTensorView tridiagonal eigensystem.
+template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
+  requires uni20::detail::BlockingWritableTensor<EigenvectorTensor>
+consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
+                                    std::span<Scalar>&, EigenvectorTensor&)
+{
+  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<EigenvectorTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, symmetric_tridiagonal_eigen_op,
+                                                              std::span<Scalar>&, std::span<Scalar>&, vector_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run LAPACK tridiagonal eigenanalysis.
+template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
+  requires uni20::detail::BlockingWritableTensor<EigenvectorTensor>
+KernelAttempt try_kernel(LapackBackend backend, symmetric_tridiagonal_eigen_op const& operation,
+                         std::span<Scalar> diagonal, std::span<Scalar> subdiagonal, EigenvectorTensor& eigenvectors)
+{
+  auto access = blocking_write_access(eigenvectors);
+  auto span = access.mdspan();
+  return try_kernel(backend, operation, diagonal, subdiagonal, span);
 }
 
 } // namespace uni20::linalg

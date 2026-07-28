@@ -11,7 +11,9 @@
 
 #include <concepts>
 #include <cstddef>
+#include <functional>
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -20,6 +22,13 @@ namespace uni20
 namespace detail
 {
 
+/// \concept TensorAccessState
+/// \brief Movable state retaining one acquired tensor data-handle lifetime.
+/// \details `release()` must be idempotent: its first call ends active access,
+///          and later calls have no effect. Moving an active state transfers
+///          that responsibility and leaves the source inactive, so releasing
+///          or destroying the moved-from state has no effect.
+/// \tparam State Access-state type under test.
 template <class State>
 concept TensorAccessState = std::move_constructible<State> && requires(State& state) {
   { state.release() } noexcept;
@@ -74,6 +83,7 @@ template <TensorView Tensor> class borrowed_read_tensor_lease {
     [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
 
     /// \brief End this no-op borrowed access scope.
+    /// \details Repeated calls have no effect.
     void release() noexcept { tensor_ = nullptr; }
 
   private:
@@ -132,6 +142,7 @@ template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
     [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
 
     /// \brief End this no-op borrowed access scope.
+    /// \details Repeated calls have no effect.
     void release() noexcept { tensor_ = nullptr; }
 
   private:
@@ -238,8 +249,11 @@ class read_tensor_lease {
     [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
 
     /// \brief End the access scope and make this lease inactive.
+    /// \details Invalidates the resolved mdspan before releasing the access
+    ///          state. Repeated calls have no effect.
     void release() noexcept
     {
+      if (!mdspan_) return;
       mdspan_.reset();
       state_.release();
     }
@@ -345,8 +359,11 @@ class write_tensor_lease {
     [[nodiscard]] static constexpr std::size_t rank() noexcept { return mdspan_type::rank(); }
 
     /// \brief End the access scope and make this lease inactive.
+    /// \details Invalidates both resolved mdspans before releasing the access
+    ///          state. Repeated calls have no effect.
     void release() noexcept
     {
+      if (!mdspan_) return;
       const_mdspan_.reset();
       mdspan_.reset();
       state_.release();
@@ -360,6 +377,8 @@ class write_tensor_lease {
 };
 
 /// \brief TensorView that owns a move-only read access lifetime.
+/// \details `release()` must be `noexcept` and idempotent. Moving an active
+///          lease transfers its access lifetime and leaves the source inactive.
 template <class Lease>
 concept ReadTensorLease =
     TensorView<Lease> && std::move_constructible<Lease> && (!std::copy_constructible<Lease>) && requires(Lease& lease) {
@@ -417,5 +436,54 @@ template <MutableTensorView Tensor> [[nodiscard]] auto write_access(Tensor& tens
 {
   return ready_tensor_access{blocking_write_access(tensor)};
 }
+
+namespace detail
+{
+
+/// \brief Blocking read lease type obtained from a device tensor view.
+template <class Tensor>
+using blocking_read_tensor_lease_t = decltype(blocking_read_access(std::declval<Tensor const&>()));
+
+/// \brief Blocking write lease type obtained from a mutable device tensor view.
+template <class Tensor> using blocking_write_tensor_lease_t = decltype(blocking_write_access(std::declval<Tensor&>()));
+
+/// \brief Read-only mdspan type resolved by blocking tensor acquisition.
+template <class Tensor>
+using blocking_read_tensor_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<blocking_read_tensor_lease_t<Tensor>&>().mdspan())>;
+
+/// \brief Writable mdspan type resolved by blocking tensor acquisition.
+template <class Tensor>
+using blocking_write_tensor_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<blocking_write_tensor_lease_t<Tensor>&>().mdspan())>;
+
+/// \brief Device tensor view supporting blocking read acquisition.
+template <class Tensor>
+concept BlockingReadableTensor = DeviceTensorView<Tensor> && requires(Tensor const& tensor) {
+  { blocking_read_access(tensor) } -> ReadTensorLease;
+};
+
+/// \brief Mutable device tensor view supporting blocking write acquisition.
+template <class Tensor>
+concept BlockingWritableTensor = MutableDeviceTensorView<Tensor> && requires(Tensor& tensor) {
+  { blocking_write_access(tensor) } -> WriteTensorLease;
+};
+
+/// \brief Invoke a callable with writable mdspans resolved under simultaneous leases.
+template <class Function, BlockingWritableTensor... Tensors>
+decltype(auto) with_blocking_write_tensor_mdspans(Function&& function, Tensors&... tensors)
+{
+  auto accesses = std::tuple{blocking_write_access(tensors)...};
+  return std::apply(
+      [&](auto&... access) -> decltype(auto) {
+        auto mdspans = std::tuple{access.mdspan()...};
+        return std::apply(
+            [&](auto&... mdspan) -> decltype(auto) { return std::invoke(std::forward<Function>(function), mdspan...); },
+            mdspans);
+      },
+      accesses);
+}
+
+} // namespace detail
 
 } // namespace uni20

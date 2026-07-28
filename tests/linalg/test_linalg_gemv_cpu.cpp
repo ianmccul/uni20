@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <initializer_list>
 #include <limits>
 #include <type_traits>
@@ -71,6 +73,19 @@ TEST(CpuGemvBackendTest, TensorOperandsAcceptExplicitSelector)
   uni20::linalg::gemv(uni20::linalg::CpuReferenceBackend{}, output, 1.0, matrix, input, 0.0);
   EXPECT_DOUBLE_EQ(output[0], 8.0);
   EXPECT_DOUBLE_EQ(output[1], 18.0);
+}
+
+TEST(CpuGemvBackendTest, DeferredTensorOperandsUseBlockingLeases)
+{
+  uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
+  uni20::test::DeferredHostTensor<double, 1> input(2);
+  uni20::test::DeferredHostTensor<double, 1> output(2);
+  matrix.storage() = {1.0, 3.0, 2.0, 4.0};
+  input.storage() = {2.0, 3.0};
+
+  uni20::linalg::gemv(uni20::linalg::CpuReferenceBackend{}, output, 1.0, matrix, input, 0.0);
+
+  EXPECT_EQ(output.storage(), (std::vector<double>{8.0, 18.0}));
 }
 
 #if !UNI20_BACKEND_BLAS

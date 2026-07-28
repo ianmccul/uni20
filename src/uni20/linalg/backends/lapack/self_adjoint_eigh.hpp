@@ -16,6 +16,8 @@
 #include <uni20/linalg/blas/mdspan_vector.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -63,7 +65,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op c
 /// \brief Compute an in-place symmetric or Hermitian eigensystem through `syev` or `heev`.
 /// \details LAPACK overwrites `matrix_work`. When eigenvectors are requested,
 ///          its columns contain normalized eigenvectors on return.
-template <class EigenvalueMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, EigenvalueMdspan&& eigenvalues,
                          MatrixMdspan&& matrix_work)
 {
@@ -125,6 +128,38 @@ KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, Eigenval
   }
 
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView self-adjoint eigenanalysis.
+template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
+  requires uni20::detail::BlockingWritableTensor<EigenvalueTensor> &&
+           uni20::detail::BlockingWritableTensor<MatrixTensor>
+consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueTensor&, MatrixTensor&)
+{
+  using eigenvalue_span = uni20::detail::blocking_write_tensor_mdspan_t<EigenvalueTensor>;
+  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<LapackBackend, self_adjoint_eigh_op, eigenvalue_span&, matrix_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run LAPACK self-adjoint eigenanalysis.
+template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
+  requires uni20::detail::BlockingWritableTensor<EigenvalueTensor> &&
+           uni20::detail::BlockingWritableTensor<MatrixTensor>
+KernelAttempt try_kernel(LapackBackend backend, self_adjoint_eigh_op const& operation, EigenvalueTensor& eigenvalues,
+                         MatrixTensor& matrix_work)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto& eigenvalue_span, auto& matrix_span) {
+        return try_kernel(backend, operation, eigenvalue_span, matrix_span);
+      },
+      eigenvalues, matrix_work);
 }
 
 } // namespace uni20::linalg

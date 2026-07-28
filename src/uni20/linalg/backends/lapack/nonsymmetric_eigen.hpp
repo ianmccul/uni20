@@ -15,6 +15,8 @@
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -48,7 +50,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op 
 }
 
 /// \brief Compute eigenvalues and optional right eigenvectors through LAPACK `geev`.
-template <class MatrixMdspan, class EigenScalar, class RightEigenvectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedMdspanLike<2> RightEigenvectorMdspan>
 KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& op, MatrixMdspan&& matrix_work,
                          std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan&& right_eigenvectors)
 {
@@ -181,6 +184,39 @@ KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& op, MatrixM
   }
 
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView nonsymmetric eigenanalysis.
+template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
+  requires uni20::detail::BlockingWritableTensor<MatrixTensor> &&
+           uni20::detail::BlockingWritableTensor<RightEigenvectorTensor>
+consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixTensor&,
+                                    std::span<EigenScalar>&, RightEigenvectorTensor&)
+{
+  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
+  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<RightEigenvectorTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, nonsymmetric_eigen_op, matrix_span&,
+                                                              std::span<EigenScalar>&, vector_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run LAPACK nonsymmetric eigenanalysis.
+template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
+  requires uni20::detail::BlockingWritableTensor<MatrixTensor> &&
+           uni20::detail::BlockingWritableTensor<RightEigenvectorTensor>
+KernelAttempt try_kernel(LapackBackend backend, nonsymmetric_eigen_op const& operation, MatrixTensor& matrix_work,
+                         std::span<EigenScalar> eigenvalues, RightEigenvectorTensor& right_eigenvectors)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto& matrix_span, auto& vector_span) {
+        return try_kernel(backend, operation, matrix_span, eigenvalues, vector_span);
+      },
+      matrix_work, right_eigenvectors);
 }
 
 } // namespace uni20::linalg

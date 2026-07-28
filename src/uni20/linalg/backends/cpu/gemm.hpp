@@ -16,17 +16,16 @@
 
 #include <concepts>
 #include <type_traits>
+#include <utility>
 
 namespace uni20::linalg
 {
 namespace detail
 {
 template <class OutputTensor, class LhsTensor, class RhsTensor>
-concept BlockingGemmTensorAccess = requires(OutputTensor& output, LhsTensor const& lhs, RhsTensor const& rhs) {
-  blocking_write_access(output);
-  blocking_read_access(lhs);
-  blocking_read_access(rhs);
-};
+concept BlockingGemmTensorAccess =
+    uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
+    uni20::detail::BlockingReadableTensor<RhsTensor>;
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
@@ -125,9 +124,12 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Sc
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputTensor&, Scalar const&,
                                     LhsTensor&, RhsTensor&, Scalar const&)
 {
-  if constexpr (std::same_as<uni20::tensor_element_t<OutputTensor>, Scalar> &&
-                std::same_as<uni20::tensor_element_t<LhsTensor>, Scalar> &&
-                std::same_as<uni20::tensor_element_t<RhsTensor>, Scalar>)
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using lhs_span = uni20::detail::blocking_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::blocking_read_tensor_mdspan_t<RhsTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
+                                                              lhs_span&, rhs_span&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
   else
     return kernel_types_no;

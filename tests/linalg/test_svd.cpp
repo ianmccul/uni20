@@ -27,7 +27,8 @@ consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <class SingularValueMdspan, class LeftMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_left_op const& operation,
                                         SingularValueMdspan&& singular_values, LeftMdspan&& left_singular_vectors,
                                         MatrixMdspan&& matrix_work)
@@ -45,13 +46,40 @@ consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <class SingularValueMdspan, class LeftMdspan, class RightAdjointMdspan, class MatrixMdspan>
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_op const& operation,
                                         SingularValueMdspan&& singular_values, LeftMdspan&& left_singular_vectors,
                                         RightAdjointMdspan&& right_singular_vectors_adjoint, MatrixMdspan&& matrix_work)
 {
   return uni20::linalg::try_kernel(uni20::linalg::LapackBackend{}, operation, singular_values, left_singular_vectors,
                                    right_singular_vectors_adjoint, matrix_work);
+}
+
+template <class Operation>
+concept NormalOnlySvdOperation =
+    std::same_as<Operation, uni20::linalg::svd_left_op> || std::same_as<Operation, uni20::linalg::svd_op>;
+
+template <NormalOnlySvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
+  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, Operation const&, Tensors&...)
+{
+  constexpr auto acceptance =
+      uni20::linalg::detail::backend_type_acceptance<NormalOnlySvdBackend, Operation,
+                                                     uni20::detail::blocking_write_tensor_mdspan_t<Tensors>&...>();
+  if constexpr (acceptance == uni20::linalg::KernelTypeAcceptance::no)
+    return uni20::linalg::kernel_types_no;
+  else
+    return uni20::linalg::kernel_types_maybe;
+}
+
+template <NormalOnlySvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
+  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend backend, Operation const& operation, Tensors&... tensors)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto&... spans) { return try_kernel(backend, operation, spans...); }, tensors...);
 }
 
 template <class Scalar> double scalar_error(Scalar const& actual, Scalar const& expected)

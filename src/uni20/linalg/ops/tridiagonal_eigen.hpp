@@ -18,17 +18,17 @@ namespace uni20::linalg
 {
 
 /// \brief Compute a tridiagonal eigensystem through an explicit backend selector.
-template <class BackendSelector, uni20::LapackReal Scalar, uni20::MutableRankedTensorView<2> EigenvectorTensor>
+template <class BackendSelector, uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
 void symmetric_tridiagonal_eigen(BackendSelector&& selector, std::span<Scalar> diagonal, std::span<Scalar> subdiagonal,
                                  EigenvectorTensor&& eigenvectors, bool compute_vectors)
 {
   dispatch_kernel(std::forward<BackendSelector>(selector),
                   symmetric_tridiagonal_eigen_op{.compute_vectors = compute_vectors}, diagonal, subdiagonal,
-                  eigenvectors.mdspan());
+                  eigenvectors);
 }
 
 /// \brief Compute a tridiagonal eigensystem using host tensor backend policy.
-template <uni20::LapackReal Scalar, uni20::MutableRankedTensorView<2> EigenvectorTensor>
+template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
 void symmetric_tridiagonal_eigen(std::span<Scalar> diagonal, std::span<Scalar> subdiagonal,
                                  EigenvectorTensor&& eigenvectors, bool compute_vectors)
 {

@@ -254,7 +254,7 @@ template <class ExactResult>
 } // namespace detail
 
 /// \brief Preserve a matrix and return a truncated reduced SVD through an explicit selector.
-template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::RankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] auto
 truncated_svd(BackendSelector&& selector, MatrixTensor const& matrix,
               SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})
@@ -264,7 +264,7 @@ truncated_svd(BackendSelector&& selector, MatrixTensor const& matrix,
 }
 
 /// \brief Preserve a matrix and return a truncated reduced SVD.
-template <uni20::RankedTensorView<2> MatrixTensor>
+template <uni20::RankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] auto
 truncated_svd(MatrixTensor const& matrix,
               SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})

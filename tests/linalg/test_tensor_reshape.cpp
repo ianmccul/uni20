@@ -19,6 +19,9 @@ using const_reshape = decltype(uni20::reshape_view(std::declval<mutable_matrix c
 using strided_matrix = uni20::StridedTensor<double, 2>;
 using generated_matrix = decltype(uni20::ones<double>(2, 3));
 using const_strided_matrix = uni20::ConstTensorView<strided_matrix>;
+using metadata_extents = stdex::dextents<uni20::index_type, 2>;
+using metadata_span = uni20::device_mdspan<double const, metadata_extents, stdex::layout_stride,
+                                           stdex::default_accessor<double const>, std::size_t>;
 
 static_assert(uni20::MutableRankedTensorView<mutable_reshape, 2>);
 static_assert(uni20::RankedTensorView<const_reshape, 2>);
@@ -177,6 +180,18 @@ TEST(TensorReshapeTest, ViewAcceptsArbitrarySingletonStrideInContiguousMapping)
 
   EXPECT_EQ((reshaped[0, 0]), 1);
   EXPECT_EQ((reshaped[1, 2]), 6);
+}
+
+TEST(TensorReshapeTest, ContiguousMappingAnalysisDoesNotRequireADataHandle)
+{
+  metadata_extents const extents{2, 3};
+  metadata_span const row_major{0, metadata_span::mapping_type{extents, std::array<uni20::index_type, 2>{3, 1}},
+                                metadata_span::accessor_type{}};
+  metadata_span const noncontiguous{0, metadata_span::mapping_type{extents, std::array<uni20::index_type, 2>{4, 1}},
+                                    metadata_span::accessor_type{}};
+
+  EXPECT_TRUE(uni20::detail::has_canonical_contiguous_mapping<uni20::RowMajor>(row_major));
+  EXPECT_FALSE(uni20::detail::has_canonical_contiguous_mapping<uni20::RowMajor>(noncontiguous));
 }
 
 TEST(TensorReshapeTest, ViewRejectsInvalidShapeAndNoncontiguousMapping)

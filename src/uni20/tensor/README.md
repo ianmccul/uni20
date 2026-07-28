@@ -103,7 +103,9 @@ kernels operate on resolved mdspans.
   return RAII TensorViews; immediate lvalue views use borrowed no-op leases and
   do not need a public `storage()` observer. These immediate leases store only
   a pointer to the source view and forward its mdspan and metadata. `read_access`
-  and `write_access` provide the awaitable vocabulary. See
+  and `write_access` provide the awaitable vocabulary. Lease and access-state
+  release is idempotent; moving either transfers the active lifetime and leaves
+  the source inactive. See
   [Device Mdspan](../../../docs/tensor/device_mdspan.md).
 - `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit
@@ -122,9 +124,10 @@ kernels operate on resolved mdspans.
 - Tensor objects deliberately do not model Uni20's mdspan concepts.
   Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Blocking
   backends may acquire TensorView leases before entering an existing mdspan
-  implementation; CPU reference GEMM is the initial exemplar. Backends with a
-  descriptor-native execution model may instead lower unresolved metadata
-  directly.
+  implementation. The synchronous CPU reference, direct BLAS, and dense LAPACK
+  adapters follow this pattern, and their tensor-level type probes delegate to
+  the resolved mdspan probes. Backends with a descriptor-native execution
+  model may instead lower unresolved metadata directly.
 - Generated tensors own compact generator state rather than an element buffer.
   They model readable `TensorView` but not `StridedTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is

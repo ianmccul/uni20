@@ -27,7 +27,8 @@ namespace detail
 {
 using self_adjoint_eigenvalue_extents = stdex::dextents<uni20::index_type, 1>;
 
-template <uni20::MutableRankedTensorView<1> EigenvalueTensor, uni20::MutableRankedTensorView<2> MatrixTensor>
+template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] self_adjoint_eigh_op prepare_self_adjoint_eigh(EigenvalueTensor& eigenvalues, MatrixTensor& matrix_work,
                                                              SelfAdjointEighOptions options)
 {
@@ -37,14 +38,12 @@ template <uni20::MutableRankedTensorView<1> EigenvalueTensor, uni20::MutableRank
   return {.compute_vectors = options.compute_vectors, .triangle = options.triangle};
 }
 
-template <class BackendSelector, uni20::MutableRankedTensorView<1> EigenvalueTensor,
-          uni20::MutableRankedTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
 void dispatch_self_adjoint_eigh(BackendSelector&& selector, self_adjoint_eigh_op operation,
                                 EigenvalueTensor& eigenvalues, MatrixTensor& matrix_work)
 {
-  auto eigenvalue_span = eigenvalues.mdspan();
-  auto matrix_span = matrix_work.mdspan();
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, eigenvalue_span, matrix_span);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, eigenvalues, matrix_work);
 }
 } // namespace detail
 
@@ -54,8 +53,8 @@ void dispatch_self_adjoint_eigh(BackendSelector&& selector, self_adjoint_eigh_op
 ///          normalized eigenvectors on return. `eigenvalues` is resized when
 ///          its output policy permits.
 /// \pre Eigenvalue and matrix storage do not overlap.
-template <class BackendSelector, uni20::MutableRankedTensorView<1> EigenvalueTensor,
-          uni20::MutableRankedTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
 void self_adjoint_eigh(BackendSelector&& selector, EigenvalueTensor&& eigenvalues, MatrixTensor&& matrix_work,
                        SelfAdjointEighOptions options = {})
 {
@@ -64,7 +63,8 @@ void self_adjoint_eigh(BackendSelector&& selector, EigenvalueTensor&& eigenvalue
 }
 
 /// \brief Compute an in-place self-adjoint eigensystem using tensor storage policy.
-template <uni20::MutableRankedTensorView<1> EigenvalueTensor, uni20::MutableRankedTensorView<2> MatrixTensor>
+template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
+          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
 void self_adjoint_eigh(EigenvalueTensor&& eigenvalues, MatrixTensor&& matrix_work, SelfAdjointEighOptions options = {})
 {
   auto operation = detail::prepare_self_adjoint_eigh(eigenvalues, matrix_work, options);
@@ -129,7 +129,7 @@ constexpr MatrixTriangle transposed_triangle(MatrixTriangle triangle)
   PANIC("invalid MatrixTriangle", std::to_underlying(triangle));
 }
 
-template <class WorkMatrix, uni20::RankedTensorView<2> MatrixTensor>
+template <class WorkMatrix, uni20::RankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] WorkMatrix materialize_self_adjoint_eigh_work_matrix(MatrixTensor const& matrix)
 {
   WorkMatrix result = [&] {
@@ -163,7 +163,7 @@ template <class WorkMatrix, uni20::RankedTensorView<2> MatrixTensor>
 }
 
 template <class MatrixTensor>
-  requires uni20::RankedTensorView<MatrixTensor, 2>
+  requires uni20::RankedDeviceTensorView<MatrixTensor, 2>
 [[nodiscard]] constexpr auto select_self_adjoint_eigh_backend(MatrixTriangle triangle)
 {
   using real_type = uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>;
@@ -216,7 +216,7 @@ template <class BackendSelector, uni20::OwningTensor MatrixTensor>
 /// \brief Preserve a matrix and return its complete self-adjoint eigensystem through an explicit selector.
 /// \details Materialization uses the tensors' copy selector; the supplied
 ///          selector controls the destructive eigensolver dispatch.
-template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::RankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] auto eigh(BackendSelector&& selector, MatrixTensor const& matrix,
                         MatrixTriangle triangle = MatrixTriangle::Upper)
 {
@@ -229,7 +229,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
 /// \details This explicit value operation materializes a column-major work
 ///          matrix through `copy_op`, then calls the destructive in-place
 ///          eigensolver with eigenvectors enabled.
-template <uni20::RankedTensorView<2> MatrixTensor>
+template <uni20::RankedDeviceTensorView<2> MatrixTensor>
 [[nodiscard]] auto eigh(MatrixTensor const& matrix, MatrixTriangle triangle = MatrixTriangle::Upper)
 {
   ERROR_IF(matrix.extent(0) != matrix.extent(1), "self-adjoint eigensystem requires a square matrix");

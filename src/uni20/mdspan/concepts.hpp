@@ -421,12 +421,12 @@ namespace detail
 {
 
 /// \brief Helper that materializes strides from the layout mapping.
-/// \tparam S The strided mdspan-like type.
+/// \tparam S The strided device-mdspan-like type.
 /// \tparam I Index sequence selecting the stride positions.
-/// \param s The mdspan instance whose strides will be computed.
+/// \param s The multidimensional descriptor whose strides will be computed.
 /// \return An array containing strides for each dimension in \c S.
 /// \ingroup internal
-template <StridedMdspanLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
+template <StridedDeviceMdspanLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
 {
   using index_type = typename S::index_type;
   // fold the pack I... into an array by calling s.mapping().stride(I) for each I
@@ -435,12 +435,12 @@ template <StridedMdspanLike S, size_t... I> constexpr auto strides_impl(S const&
 
 } // namespace detail
 
-/// \brief Retrieve the strides associated with a strided mdspan-like type.
-/// \tparam S The strided mdspan-like type.
-/// \param s The mdspan instance whose strides will be returned.
+/// \brief Retrieve the strides associated with a strided device-mdspan-like type.
+/// \tparam S The strided device-mdspan-like type.
+/// \param s The multidimensional descriptor whose strides will be returned.
 /// \return A std::array containing the strides for each rank.
 /// \ingroup mdspan_ext
-template <StridedMdspanLike S> auto strides(S const& s)
+template <StridedDeviceMdspanLike S> auto strides(S const& s)
 {
   return detail::strides_impl(s, std::make_index_sequence<S::rank()>{});
 }

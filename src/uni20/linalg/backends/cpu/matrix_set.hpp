@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -70,6 +72,32 @@ KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMds
     }
   }
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView matrix initialization.
+template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, uni20::Scalar Scalar>
+  requires uni20::detail::BlockingWritableTensor<MatrixTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op const&, MatrixTensor&, Scalar const&,
+                                    Scalar const&)
+{
+  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, matrix_set_op, matrix_span&, Scalar const&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and initialize the matrix.
+template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, uni20::Scalar Scalar>
+  requires uni20::detail::BlockingWritableTensor<MatrixTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, matrix_set_op const& op, MatrixTensor& matrix, Scalar diagonal,
+                         Scalar off_diagonal)
+{
+  auto matrix_access = blocking_write_access(matrix);
+  auto matrix_span = matrix_access.mdspan();
+  return try_kernel(backend, op, matrix_span, diagonal, off_diagonal);
 }
 
 } // namespace uni20::linalg

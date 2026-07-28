@@ -14,6 +14,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <cmath>
@@ -325,6 +327,36 @@ void reference_sum(Output& output, sum_reduction_op<InputRank, ReducedRank> cons
   reference_reduce_axes(output, operation.axes, initialize, accumulate, finalize, input);
 }
 
+template <class Output>
+concept BlockingReductionOutput = (!uni20::DeviceTensorView<Output>) || uni20::detail::BlockingWritableTensor<Output>;
+
+template <class Output, bool = uni20::DeviceTensorView<Output>> struct BlockingReductionOutputType
+{
+    using type = std::remove_cvref_t<Output>;
+};
+
+template <class Output> struct BlockingReductionOutputType<Output, true>
+{
+    using type = uni20::detail::blocking_write_tensor_mdspan_t<Output>;
+};
+
+template <class Output> using blocking_reduction_output_t = typename BlockingReductionOutputType<Output>::type;
+
+template <class Output, class Function>
+KernelAttempt with_blocking_reduction_output(Output& output, Function&& function)
+{
+  if constexpr (uni20::DeviceTensorView<Output>)
+  {
+    auto output_access = blocking_write_access(output);
+    auto output_span = output_access.mdspan();
+    return std::invoke(std::forward<Function>(function), output_span);
+  }
+  else
+  {
+    return std::invoke(std::forward<Function>(function), output);
+  }
+}
+
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU inner products.
@@ -390,6 +422,96 @@ KernelAttempt try_kernel(CpuReferenceBackend, sum_reduction_op<InputRank, Reduce
   CHECK(reduction_axes_are_valid(operation.axes));
   detail::reference_sum(output, operation, input);
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for a blocking DeviceTensorView inner product.
+template <class Output, uni20::DeviceTensorView LhsTensor, uni20::DeviceTensorView RhsTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
+           uni20::detail::BlockingReadableTensor<RhsTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op const&, Output&, LhsTensor&,
+                                    RhsTensor&)
+{
+  using output_type = detail::blocking_reduction_output_t<Output>;
+  using lhs_span = uni20::detail::blocking_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::blocking_read_tensor_mdspan_t<RhsTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, inner_product_op, output_type&, lhs_span&, rhs_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and compute an inner product.
+template <class Output, uni20::DeviceTensorView LhsTensor, uni20::DeviceTensorView RhsTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
+           uni20::detail::BlockingReadableTensor<RhsTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, inner_product_op const& operation, Output& output,
+                         LhsTensor const& lhs, RhsTensor const& rhs)
+{
+  auto lhs_access = blocking_read_access(lhs);
+  auto rhs_access = blocking_read_access(rhs);
+  auto lhs_span = lhs_access.mdspan();
+  auto rhs_span = rhs_access.mdspan();
+  return detail::with_blocking_reduction_output(output, [&](auto& resolved_output) {
+    return try_kernel(backend, operation, resolved_output, lhs_span, rhs_span);
+  });
+}
+
+/// \brief Report eligibility for a blocking DeviceTensorView norm.
+template <class Output, uni20::DeviceTensorView InputTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<InputTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, Output&, InputTensor&)
+{
+  using output_type = detail::blocking_reduction_output_t<Output>;
+  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, norm_op, output_type&, input_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and compute a Euclidean norm.
+template <class Output, uni20::DeviceTensorView InputTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<InputTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, norm_op const& operation, Output& output,
+                         InputTensor const& input)
+{
+  auto input_access = blocking_read_access(input);
+  auto input_span = input_access.mdspan();
+  return detail::with_blocking_reduction_output(
+      output, [&](auto& resolved_output) { return try_kernel(backend, operation, resolved_output, input_span); });
+}
+
+/// \brief Report eligibility for a blocking DeviceTensorView sum reduction.
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::DeviceTensorView InputTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<InputTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op<InputRank, ReducedRank> const&,
+                                    Output&, InputTensor&)
+{
+  using output_type = detail::blocking_reduction_output_t<Output>;
+  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, sum_reduction_op<InputRank, ReducedRank>, output_type&,
+                                      input_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and sum selected axes.
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::DeviceTensorView InputTensor>
+  requires detail::BlockingReductionOutput<Output> && uni20::detail::BlockingReadableTensor<InputTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, sum_reduction_op<InputRank, ReducedRank> const& operation,
+                         Output& output, InputTensor const& input)
+{
+  auto input_access = blocking_read_access(input);
+  auto input_span = input_access.mdspan();
+  return detail::with_blocking_reduction_output(
+      output, [&](auto& resolved_output) { return try_kernel(backend, operation, resolved_output, input_span); });
 }
 
 } // namespace uni20::linalg

@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <array>
 
 namespace
@@ -42,6 +44,18 @@ TEST(TensorConjugateInplaceTest, RealMdspanIsAnInPlaceIdentityOperation)
   EXPECT_DOUBLE_EQ((matrix[0, 1]), 2.0);
   EXPECT_DOUBLE_EQ((matrix[1, 0]), 3.0);
   EXPECT_DOUBLE_EQ((matrix[1, 1]), 4.0);
+}
+
+TEST(TensorConjugateInplaceTest, DeferredTensorAcquiresWritableStorage)
+{
+  using scalar_type = uni20::complex<double>;
+  uni20::test::DeferredHostTensor<scalar_type, 1> values(2);
+  values.storage() = {scalar_type{1.0, 2.0}, scalar_type{3.0, -4.0}};
+
+  uni20::conjugate_inplace(values);
+
+  EXPECT_EQ(values.storage()[0], (scalar_type{1.0, -2.0}));
+  EXPECT_EQ(values.storage()[1], (scalar_type{3.0, 4.0}));
 }
 
 } // namespace

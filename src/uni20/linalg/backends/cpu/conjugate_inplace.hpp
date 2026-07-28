@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <cstddef>
@@ -92,6 +94,29 @@ template <class Mdspan> KernelAttempt try_kernel(CpuReferenceBackend, conjugate_
     detail::conjugate_elements<0>(span, index);
   }
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView in-place conjugation.
+template <uni20::MutableDeviceTensorView Tensor>
+  requires uni20::detail::BlockingWritableTensor<Tensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplace_op const&, Tensor&)
+{
+  using span_type = uni20::detail::blocking_write_tensor_mdspan_t<Tensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, conjugate_inplace_op, span_type&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and conjugate every element.
+template <uni20::MutableDeviceTensorView Tensor>
+  requires uni20::detail::BlockingWritableTensor<Tensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, conjugate_inplace_op const& op, Tensor& tensor)
+{
+  auto access = blocking_write_access(tensor);
+  auto span = access.mdspan();
+  return try_kernel(backend, op, span);
 }
 
 } // namespace uni20::linalg

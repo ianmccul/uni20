@@ -169,4 +169,14 @@ TEST(DeviceMdspanTest, ExposesMdspanCompatibleStaticMetadata)
   static_assert(device_span_type::is_always_strided());
 }
 
+TEST(DeviceMdspanTest, MaterializesStridesWithoutADataHandle)
+{
+  extents_type const extents{2, 3};
+  std::array<std::size_t, 2> const expected{1, 5};
+  device_span_type const span{RegionDescriptor{}, device_span_type::mapping_type{extents, expected},
+                              StatefulAccessor{}};
+
+  EXPECT_EQ(uni20::strides(span), expected);
+}
+
 } // namespace

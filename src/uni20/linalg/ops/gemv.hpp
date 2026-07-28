@@ -20,19 +20,18 @@
 namespace uni20::linalg
 {
 
-/// \brief Run fixed-storage tensor GEMV through an explicit backend selector.
-template <class BackendSelector, uni20::MutableRankedTensorView<1> OutputTensor, class Scalar,
-          uni20::RankedTensorView<2> MatrixTensor, uni20::RankedTensorView<1> InputTensor>
+/// \brief Run tensor GEMV through an explicit backend selector.
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
 void gemv(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, MatrixTensor const& matrix,
           InputTensor const& input, Scalar beta)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), gemv_op{}, output.mdspan(), alpha, matrix.mdspan(),
-                  input.mdspan(), beta);
+  dispatch_kernel(std::forward<BackendSelector>(selector), gemv_op{}, output, alpha, matrix, input, beta);
 }
 
-/// \brief Run fixed-storage tensor GEMV using the operands' default backend selector.
-template <uni20::MutableRankedTensorView<1> OutputTensor, class Scalar, uni20::RankedTensorView<2> MatrixTensor,
-          uni20::RankedTensorView<1> InputTensor>
+/// \brief Run tensor GEMV using the operands' default backend selector.
+template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
 void gemv(OutputTensor&& output, Scalar alpha, MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
   auto selector = select_backend(gemv_op{}, output, matrix, input);

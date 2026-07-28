@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -63,6 +65,24 @@ TEST(TensorReductionTest, ExplicitScalarOutputUsesTheSameKernel)
   uni20::inner_product(output, lhs, rhs);
 
   EXPECT_FLOAT_EQ(output[], 8.0F);
+}
+
+TEST(TensorReductionTest, DeferredInputsAndOutputsUseBlockingLeases)
+{
+  uni20::test::DeferredHostTensor<double, 1> lhs(3);
+  uni20::test::DeferredHostTensor<double, 1> rhs(3);
+  uni20::test::DeferredHostTensor<double, 0> sum_output(
+      typename uni20::test::DeferredHostTensor<double, 0>::extents_type{});
+  lhs.storage() = {1.0, 2.0, 3.0};
+  rhs.storage() = {4.0, -1.0, 2.0};
+
+  uni20::sum(sum_output, lhs);
+  auto inner = uni20::inner_product(lhs, rhs);
+  auto const norm = uni20::norm_host(lhs);
+
+  EXPECT_DOUBLE_EQ(sum_output.storage()[0], 6.0);
+  EXPECT_DOUBLE_EQ(inner[], 8.0);
+  EXPECT_DOUBLE_EQ(norm, std::sqrt(14.0));
 }
 
 TEST(TensorReductionTest, FullSumReturnsScalarTensorOrHostScalar)

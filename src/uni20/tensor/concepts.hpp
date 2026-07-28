@@ -214,6 +214,15 @@ concept RankedStridedTensorView = RankedTensorView<T, Rank> && StridedTensorView
 template <class T, std::size_t Rank>
 concept MutableRankedStridedTensorView = MutableRankedTensorView<T, Rank> && MutableStridedTensorView<T>;
 
+/// \brief Retrieve the normalized multidimensional strides of a tensor-level object.
+/// \tparam T The strided device tensor view type.
+/// \param tensor Tensor metadata whose strides will be returned.
+/// \return A std::array containing the strides for each rank.
+template <StridedDeviceTensorView T> [[nodiscard]] auto strides(T const& tensor)
+{
+  return strides(detail::tensor_device_mdspan(tensor));
+}
+
 /// \brief Assign tensor values through a mutable tensor alias descriptor.
 /// \details This declaration is the tensor customization used by capability-aware
 ///          async write proxies. Its definition delegates to `uni20::copy`.

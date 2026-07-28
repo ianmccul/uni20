@@ -18,6 +18,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <complex>
 #include <concepts>
@@ -122,6 +124,37 @@ KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, Outp
     }
   }
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView matrix exponentiation.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> InputTensor,
+          class TimeScalar>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputTensor&,
+                                    InputTensor&, TimeScalar const&)
+{
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, matrix_exponential_op, output_span&,
+                                                              input_span&, TimeScalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and compute a matrix exponential.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> InputTensor,
+          class TimeScalar>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, matrix_exponential_op const& operation, OutputTensor& output,
+                         InputTensor const& input, TimeScalar time)
+{
+  auto output_access = blocking_write_access(output);
+  auto input_access = blocking_read_access(input);
+  auto output_span = output_access.mdspan();
+  auto input_span = input_access.mdspan();
+  return try_kernel(backend, operation, output_span, input_span, time);
 }
 
 } // namespace uni20::linalg

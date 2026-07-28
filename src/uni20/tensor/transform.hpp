@@ -12,6 +12,7 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
@@ -35,19 +36,25 @@ concept UpdateTransformSpans = MutableMdspanLike<Output> && (MdspanLike<Inputs> 
 
 template <class Output, class... Inputs>
 concept OverwriteTransformTensors =
-    MutableTensorView<Output> && (sizeof...(Inputs) >= 1) && (TensorView<Inputs> && ...) &&
-    ((mutable_tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Inputs>::rank()) && ...);
+    MutableDeviceTensorView<Output> && (sizeof...(Inputs) >= 1) && (DeviceTensorView<Inputs> && ...) &&
+    ((device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
-concept UpdateTransformTensors = MutableTensorView<Output> && (TensorView<Inputs> && ...) &&
-                                 ((mutable_tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Inputs>::rank()) && ...);
+concept UpdateTransformTensors =
+    MutableDeviceTensorView<Output> && (DeviceTensorView<Inputs> && ...) &&
+    ((device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Inputs>::rank()) && ...);
 
 template <class Reference, class... Others>
 void require_transform_extents(Reference const& reference, Others const&... others)
 {
   if constexpr (sizeof...(Others) > 0)
   {
-    constexpr std::size_t Rank = static_cast<std::size_t>(std::remove_cvref_t<Reference>::rank());
+    constexpr std::size_t Rank = [] {
+      if constexpr (DeviceTensorView<Reference>)
+        return device_tensor_mdspan_t<Reference>::rank();
+      else
+        return std::remove_cvref_t<Reference>::rank();
+    }();
     if constexpr (Rank > 0)
     {
       auto require_equal = [&](auto const& other) {
@@ -111,8 +118,8 @@ void assign_transform(BackendSelector&& selector, OutputTensor&& output, Functio
   detail::require_transform_extents(first_input, rest_inputs...);
   ensure_shape(output, first_input.extents());
   auto operation = linalg::transform_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output.mdspan(),
-                             first_input.mdspan(), rest_inputs.mdspan()...);
+  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output, first_input,
+                             rest_inputs...);
 }
 
 /// \brief Overwrite a Tensor output using its operands' default backend selector.
@@ -125,8 +132,7 @@ void assign_transform(OutputTensor&& output, Function&& function, FirstInputTens
   auto selector = linalg::select_backend(operation, output, first_input, rest_inputs...);
   detail::require_transform_extents(first_input, rest_inputs...);
   ensure_shape(output, first_input.extents());
-  detail::dispatch_transform(selector, std::move(operation), output.mdspan(), first_input.mdspan(),
-                             rest_inputs.mdspan()...);
+  detail::dispatch_transform(selector, std::move(operation), output, first_input, rest_inputs...);
 }
 
 /// \brief Update a Tensor output through an explicit backend selector.
@@ -140,8 +146,7 @@ void transform_inplace(BackendSelector&& selector, OutputTensor&& output, Functi
 {
   detail::require_transform_extents(output, inputs...);
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output.mdspan(),
-                             inputs.mdspan()...);
+  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output, inputs...);
 }
 
 /// \brief Update a Tensor output using its operands' default backend selector.
@@ -152,7 +157,7 @@ void transform_inplace(OutputTensor&& output, Function&& function, InputTensors 
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
   auto selector = linalg::select_backend(operation, output, inputs...);
   detail::require_transform_extents(output, inputs...);
-  detail::dispatch_transform(selector, std::move(operation), output.mdspan(), inputs.mdspan()...);
+  detail::dispatch_transform(selector, std::move(operation), output, inputs...);
 }
 
 } // namespace uni20

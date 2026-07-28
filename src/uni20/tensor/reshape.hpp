@@ -66,7 +66,7 @@ template <class Index> [[nodiscard]] constexpr bool positive_stride_equals(Index
   return std::in_range<std::size_t>(stride) && static_cast<std::size_t>(stride) == expected;
 }
 
-template <StridedMdspanLike Span> [[nodiscard]] bool has_row_major_contiguous_mapping(Span const& span)
+template <StridedDeviceMdspanLike Span> [[nodiscard]] bool has_row_major_contiguous_mapping(Span const& span)
 {
   std::size_t expected = 1;
   for (std::size_t axis = Span::rank(); axis > 0; --axis)
@@ -82,7 +82,7 @@ template <StridedMdspanLike Span> [[nodiscard]] bool has_row_major_contiguous_ma
   return true;
 }
 
-template <StridedMdspanLike Span> [[nodiscard]] bool has_column_major_contiguous_mapping(Span const& span)
+template <StridedDeviceMdspanLike Span> [[nodiscard]] bool has_column_major_contiguous_mapping(Span const& span)
 {
   std::size_t expected = 1;
   for (std::size_t axis = 0; axis < Span::rank(); ++axis)
@@ -98,7 +98,7 @@ template <StridedMdspanLike Span> [[nodiscard]] bool has_column_major_contiguous
   return true;
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span>
+template <CanonicalReshapeLayout LayoutPolicy, StridedDeviceMdspanLike Span>
 [[nodiscard]] bool has_canonical_contiguous_mapping(Span const& span)
 {
   auto const logical_size = checked_element_count(span.extents());
@@ -122,7 +122,7 @@ template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span>
     return has_row_major_contiguous_mapping(span);
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span>
+template <CanonicalReshapeLayout LayoutPolicy, StridedDeviceMdspanLike Span>
 void require_canonical_contiguous_mapping(Span const& span)
 {
   if constexpr (std::same_as<LayoutPolicy, stdex::layout_left>)

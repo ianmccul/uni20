@@ -11,11 +11,14 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -209,6 +212,74 @@ KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> con
   detail::check_transform_extents(output, inputs...);
   detail::reference_transform<true>(operation, output, inputs...);
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView overwrite transforms.
+template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
+           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputTensor&,
+                                    InputTensors&...)
+{
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, transform_op<Function>, output_span&,
+                                      uni20::detail::blocking_read_tensor_mdspan_t<InputTensors>&...>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and apply an overwrite transform.
+template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
+           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend backend, transform_op<Function> const& operation, OutputTensor& output,
+                         InputTensors const&... inputs)
+{
+  auto output_access = blocking_write_access(output);
+  auto input_accesses = std::tuple{blocking_read_access(inputs)...};
+  return std::apply(
+      [&](auto&... input_access) {
+        auto output_span = output_access.mdspan();
+        return try_kernel(backend, operation, output_span, input_access.mdspan()...);
+      },
+      input_accesses);
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView update transforms.
+template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
+           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputTensor&,
+                                    InputTensors&...)
+{
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<CpuReferenceBackend, transform_inplace_op<Function>, output_span&,
+                                      uni20::detail::blocking_read_tensor_mdspan_t<InputTensors>&...>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and apply an update transform.
+template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
+           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend backend, transform_inplace_op<Function> const& operation,
+                         OutputTensor& output, InputTensors const&... inputs)
+{
+  auto output_access = blocking_write_access(output);
+  auto input_accesses = std::tuple{blocking_read_access(inputs)...};
+  return std::apply(
+      [&](auto&... input_access) {
+        auto output_span = output_access.mdspan();
+        return try_kernel(backend, operation, output_span, input_access.mdspan()...);
+      },
+      input_accesses);
 }
 
 } // namespace uni20::linalg

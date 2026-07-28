@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -85,6 +87,42 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemv_op const&, OutputMdspan&& out
   }
 
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView CPU GEMV.
+template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<MatrixTensor> &&
+           uni20::detail::BlockingReadableTensor<InputTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputTensor&, Scalar const&,
+                                    MatrixTensor&, InputTensor&, Scalar const&)
+{
+  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using matrix_span = uni20::detail::blocking_read_tensor_mdspan_t<MatrixTensor>;
+  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemv_op, output_span&, Scalar const&,
+                                                              matrix_span&, input_span&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve blocking tensor access and run reference GEMV.
+template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
+  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<MatrixTensor> &&
+           uni20::detail::BlockingReadableTensor<InputTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, gemv_op const& op, OutputTensor& output, Scalar alpha,
+                         MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
+{
+  auto output_access = blocking_write_access(output);
+  auto matrix_access = blocking_read_access(matrix);
+  auto input_access = blocking_read_access(input);
+  auto output_span = output_access.mdspan();
+  auto matrix_span = matrix_access.mdspan();
+  auto input_span = input_access.mdspan();
+  return try_kernel(backend, op, output_span, alpha, matrix_span, input_span, beta);
 }
 
 } // namespace uni20::linalg

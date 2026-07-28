@@ -8,6 +8,7 @@ add_test_module(linalg
     test_async_truncated_svd.cpp
     test_async_tensor_reductions.cpp
     test_async_tensor_transform.cpp
+    test_cpu_tensor_dispatch.cpp
     test_cpu_strided_transform.cpp
     test_dispatch_diagnostics.cpp
     test_dense_ops_dispatch.cpp

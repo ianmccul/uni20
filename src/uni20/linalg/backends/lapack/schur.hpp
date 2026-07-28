@@ -15,6 +15,8 @@
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -48,7 +50,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, schur_op const&, Matri
 }
 
 /// \brief Compute a dense Schur form through LAPACK `gees`.
-template <class MatrixMdspan, class EigenScalar, class SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 KernelAttempt try_kernel(LapackBackend, schur_op const& op, MatrixMdspan&& matrix_work,
                          std::span<EigenScalar> eigenvalues, SchurVectorMdspan&& schur_vectors)
 {
@@ -153,7 +156,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, hessenberg_schur_op co
 }
 
 /// \brief Compute a real upper-Hessenberg Schur form through LAPACK `hseqr`.
-template <class MatrixMdspan, class EigenScalar, class SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 KernelAttempt try_kernel(LapackBackend, hessenberg_schur_op const& op, MatrixMdspan&& hessenberg,
                          std::span<EigenScalar> eigenvalues, SchurVectorMdspan&& schur_vectors)
 {
@@ -230,7 +234,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const
 }
 
 /// \brief Move one real Schur block or complex Schur entry through LAPACK `trexc`.
-template <class SchurFormMdspan, class SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspanLike<2> SchurFormMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> SchurVectorMdspan>
 KernelAttempt try_kernel(LapackBackend, schur_reorder_op const& op, SchurFormMdspan&& schur_form,
                          SchurVectorMdspan&& schur_vectors)
 {
@@ -288,6 +293,71 @@ KernelAttempt try_kernel(LapackBackend, schur_reorder_op const& op, SchurFormMds
     uni20::lapack::trexc(compq, order, form->data, form->leading_dimension, vector_data, ldq, first, last);
   }
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView Schur decomposition.
+template <class Operation, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+  requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
+          uni20::detail::BlockingWritableTensor<MatrixTensor> &&
+          uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, MatrixTensor&, std::span<EigenScalar>&,
+                                    SchurVectorTensor&)
+{
+  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
+  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurVectorTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<LapackBackend, Operation, matrix_span&, std::span<EigenScalar>&, vector_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run a LAPACK Schur decomposition.
+template <class Operation, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+  requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
+          uni20::detail::BlockingWritableTensor<MatrixTensor> &&
+          uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+KernelAttempt try_kernel(LapackBackend backend, Operation const& operation, MatrixTensor& matrix_work,
+                         std::span<EigenScalar> eigenvalues, SchurVectorTensor& schur_vectors)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto& matrix_span, auto& vector_span) {
+        return try_kernel(backend, operation, matrix_span, eigenvalues, vector_span);
+      },
+      matrix_work, schur_vectors);
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView Schur reordering.
+template <uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
+          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+  requires uni20::detail::BlockingWritableTensor<SchurFormTensor> &&
+           uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const&, SchurFormTensor&, SchurVectorTensor&)
+{
+  using form_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurFormTensor>;
+  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurVectorTensor>;
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<LapackBackend, schur_reorder_op, form_span&, vector_span&>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run LAPACK Schur reordering.
+template <uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
+          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+  requires uni20::detail::BlockingWritableTensor<SchurFormTensor> &&
+           uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+KernelAttempt try_kernel(LapackBackend backend, schur_reorder_op const& operation, SchurFormTensor& schur_form,
+                         SchurVectorTensor& schur_vectors)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto& form_span, auto& vector_span) { return try_kernel(backend, operation, form_span, vector_span); },
+      schur_form, schur_vectors);
 }
 
 } // namespace uni20::linalg

@@ -17,16 +17,16 @@ namespace uni20::linalg
 {
 
 /// \brief Initialize a matrix region through an explicit backend selector.
-template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor, class Scalar>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class Scalar>
 void set_matrix(BackendSelector&& selector, MatrixTensor&& matrix, Scalar diagonal, Scalar off_diagonal,
                 MatrixRegion region = MatrixRegion::All)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_set_op{.region = region}, matrix.mdspan(), diagonal,
+  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_set_op{.region = region}, matrix, diagonal,
                   off_diagonal);
 }
 
 /// \brief Initialize a matrix region using the matrix storage's backend selector.
-template <uni20::MutableRankedTensorView<2> MatrixTensor, class Scalar>
+template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class Scalar>
 void set_matrix(MatrixTensor&& matrix, Scalar diagonal, Scalar off_diagonal, MatrixRegion region = MatrixRegion::All)
 {
   auto selector = select_backend(matrix_set_op{.region = region}, matrix);

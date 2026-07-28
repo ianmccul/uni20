@@ -11,6 +11,7 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 
 #include <utility>
@@ -26,21 +27,19 @@ void conjugate_inplace(BackendSelector&& selector, Mdspan&& span)
                           std::forward<Mdspan>(span));
 }
 
-/// \brief Conjugate a mutable tensor through an explicit backend selector.
-template <class BackendSelector, MutableTensorView Tensor>
+/// \brief Conjugate a mutable device tensor view through an explicit backend selector.
+template <class BackendSelector, MutableDeviceTensorView Tensor>
 void conjugate_inplace(BackendSelector&& selector, Tensor&& tensor)
 {
-  auto span = tensor.mdspan();
-  conjugate_inplace(std::forward<BackendSelector>(selector), span);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::conjugate_inplace_op{}, tensor);
 }
 
-/// \brief Conjugate a mutable tensor using its storage policy's backend selector.
-template <MutableTensorView Tensor> void conjugate_inplace(Tensor&& tensor)
+/// \brief Conjugate a mutable device tensor view using its storage policy's backend selector.
+template <MutableDeviceTensorView Tensor> void conjugate_inplace(Tensor&& tensor)
 {
   auto operation = linalg::conjugate_inplace_op{};
   auto selector = linalg::select_backend(operation, tensor);
-  auto span = tensor.mdspan();
-  conjugate_inplace(selector, span);
+  conjugate_inplace(selector, std::forward<Tensor>(tensor));
 }
 
 } // namespace uni20

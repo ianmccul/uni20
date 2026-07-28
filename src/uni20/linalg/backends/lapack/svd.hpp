@@ -16,6 +16,8 @@
 #include <uni20/linalg/blas/mdspan_vector.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -28,6 +30,12 @@ namespace uni20::linalg
 {
 namespace lapack_detail
 {
+template <class Operation>
+concept SvdOperation =
+    std::same_as<std::remove_cvref_t<Operation>, singular_values_op> ||
+    std::same_as<std::remove_cvref_t<Operation>, svd_left_op> ||
+    std::same_as<std::remove_cvref_t<Operation>, svd_right_op> || std::same_as<std::remove_cvref_t<Operation>, svd_op>;
+
 inline char svd_job(SvdVectorExtent extent)
 {
   switch (extent)
@@ -153,7 +161,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, singular_values_op con
 }
 
 /// \brief Compute exact singular values through LAPACK `gesvd`.
-template <class SingularValueMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, singular_values_op const&, SingularValueMdspan&& singular_values,
                          MatrixMdspan&& matrix_work)
 {
@@ -193,7 +202,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, Si
 }
 
 /// \brief Compute singular values and left singular vectors through LAPACK `gesvd`.
-template <class SingularValueMdspan, class LeftMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdspan&& singular_values,
                          LeftMdspan&& left_singular_vectors, MatrixMdspan&& matrix_work)
 {
@@ -234,7 +244,8 @@ KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdsp
 }
 
 /// \brief Compute reduced left singular vectors in the matrix input allocation.
-template <class SingularValueMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdspan&& singular_values,
                          MatrixMdspan&& matrix_work)
 {
@@ -277,7 +288,9 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, S
 }
 
 /// \brief Compute singular values and right singular vectors through LAPACK `gesvd`.
-template <class SingularValueMdspan, class RightAdjointMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMdspan&& singular_values,
                          RightAdjointMdspan&& right_singular_vectors_adjoint, MatrixMdspan&& matrix_work)
 {
@@ -318,7 +331,8 @@ KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMds
 }
 
 /// \brief Compute reduced right singular vectors in the matrix input allocation.
-template <class SingularValueMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMdspan&& singular_values,
                          MatrixMdspan&& matrix_work)
 {
@@ -368,7 +382,9 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, Singula
 /// \details `matrix_work` is destroyed. The returned right factor is the
 ///          transpose for real scalars and the conjugate transpose for complex
 ///          scalars, matching LAPACK's `VT` output.
-template <class SingularValueMdspan, class LeftMdspan, class RightAdjointMdspan, class MatrixMdspan>
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& singular_values,
                          LeftMdspan&& left_singular_vectors, RightAdjointMdspan&& right_singular_vectors_adjoint,
                          MatrixMdspan&& matrix_work)
@@ -420,7 +436,9 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
 }
 
 /// \brief Compute an exact dense SVD with one reduced factor overwriting the input allocation.
-template <class SingularValueMdspan, class OtherFactorMdspan, class MatrixMdspan>
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> OtherFactorMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
 KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& singular_values,
                          OtherFactorMdspan&& other_factor, MatrixMdspan&& matrix_work)
 {
@@ -492,6 +510,29 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
   }
   return lapack_detail::run_gesvd(jobu, jobvt, rank, *matrix, *values, left, left_leading_dimension, right,
                                   right_leading_dimension);
+}
+
+/// \brief Report eligibility for blocking DeviceTensorView SVD operands.
+template <lapack_detail::SvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
+  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Tensors&...)
+{
+  constexpr auto acceptance =
+      detail::backend_type_acceptance<LapackBackend, Operation,
+                                      uni20::detail::blocking_write_tensor_mdspan_t<Tensors>&...>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve blocking tensor access and run a LAPACK SVD operation.
+template <lapack_detail::SvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
+  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+KernelAttempt try_kernel(LapackBackend backend, Operation const& operation, Tensors&... tensors)
+{
+  return uni20::detail::with_blocking_write_tensor_mdspans(
+      [&](auto&... spans) { return try_kernel(backend, operation, spans...); }, tensors...);
 }
 
 } // namespace uni20::linalg

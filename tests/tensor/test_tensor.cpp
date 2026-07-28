@@ -130,6 +130,88 @@ struct MismatchedMutableRankTensorView
     extents_2d extents_{2, 2};
 };
 
+struct MetadataDescriptor
+{};
+
+class DeferredStridedTensorView {
+  public:
+    using mdspan_type = uni20::device_mdspan<int const, extents_2d, stdex::layout_stride,
+                                             stdex::default_accessor<int const>, MetadataDescriptor>;
+    using backend_selector_type = linalg::backend_list<linalg::CpuReferenceBackend>;
+
+    DeferredStridedTensorView(extents_2d extents, std::array<index_t, 2> strides)
+        : span_(MetadataDescriptor{}, typename mdspan_type::mapping_type{extents, strides},
+                typename mdspan_type::accessor_type{})
+    {}
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return backend_selector_type{linalg::CpuReferenceBackend{}};
+    }
+
+    [[nodiscard]] auto device_mdspan() const noexcept -> mdspan_type const& { return span_; }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_2d const& { return span_.extents(); }
+
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept -> index_t { return span_.extent(axis); }
+
+  private:
+    mdspan_type span_;
+};
+
+struct AccessStateCounters
+{
+    int release_calls = 0;
+    int completed_releases = 0;
+};
+
+class InstrumentedTensorAccessState {
+  public:
+    explicit InstrumentedTensorAccessState(AccessStateCounters& counters) noexcept : counters_(&counters) {}
+
+    InstrumentedTensorAccessState(InstrumentedTensorAccessState const&) = delete;
+    InstrumentedTensorAccessState& operator=(InstrumentedTensorAccessState const&) = delete;
+
+    InstrumentedTensorAccessState(InstrumentedTensorAccessState&& other) noexcept
+        : counters_(std::exchange(other.counters_, nullptr)), active_(std::exchange(other.active_, false))
+    {}
+
+    InstrumentedTensorAccessState& operator=(InstrumentedTensorAccessState&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->release();
+        counters_ = std::exchange(other.counters_, nullptr);
+        active_ = std::exchange(other.active_, false);
+      }
+      return *this;
+    }
+
+    ~InstrumentedTensorAccessState() { this->release(); }
+
+    void release() noexcept
+    {
+      if (counters_ == nullptr) return;
+      ++counters_->release_calls;
+      if (!active_) return;
+      active_ = false;
+      ++counters_->completed_releases;
+    }
+
+  private:
+    AccessStateCounters* counters_ = nullptr;
+    bool active_ = true;
+};
+
+using access_test_selector = linalg::backend_list<linalg::CpuReferenceBackend>;
+using access_test_mutable_mdspan = stdex::mdspan<int, extents_2d>;
+using access_test_const_mdspan = stdex::mdspan<int const, extents_2d>;
+using instrumented_read_tensor_lease =
+    read_tensor_lease<access_test_const_mdspan, InstrumentedTensorAccessState, access_test_selector, VectorStorage>;
+using instrumented_write_tensor_lease =
+    write_tensor_lease<access_test_mutable_mdspan, access_test_const_mdspan, InstrumentedTensorAccessState,
+                       access_test_selector, VectorStorage>;
+
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
 
@@ -221,11 +303,17 @@ static_assert(
     std::same_as<decltype(std::declval<read_only_tensor&>().device_mdspan()), read_only_tensor::const_mdspan_type>);
 static_assert(ReadTensorLease<storage_free_read_lease>);
 static_assert(WriteTensorLease<storage_free_write_lease>);
+static_assert(detail::TensorAccessState<InstrumentedTensorAccessState>);
+static_assert(ReadTensorLease<instrumented_read_tensor_lease>);
+static_assert(WriteTensorLease<instrumented_write_tensor_lease>);
 static_assert(sizeof(storage_free_read_lease) == sizeof(void*));
 static_assert(sizeof(storage_free_write_lease) == sizeof(void*));
 static_assert(!HasStorageObserver<storage_free_read_lease>);
 static_assert(!HasStorageObserver<storage_free_write_lease>);
 static_assert(!CanBorrowReadFromRvalue<StorageFreeTensorView>);
+static_assert(DeviceTensorView<DeferredStridedTensorView>);
+static_assert(StridedDeviceTensorView<DeferredStridedTensorView>);
+static_assert(!TensorView<DeferredStridedTensorView>);
 
 using row_major_matrix = DenseMatrix<int, RowMajor>;
 using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
@@ -266,6 +354,15 @@ TEST(TensorTest, DefaultMappingUsesColumnMajorVectorStorage)
   EXPECT_EQ((tensor[1, 2]), expected.back());
   EXPECT_EQ(tensor.mapping().stride(0), 1);
   EXPECT_EQ(tensor.mapping().stride(1), 2);
+}
+
+TEST(TensorTest, StridesUseNormalizedImmediateAndDeferredMetadata)
+{
+  StridedTensor<int, 2> immediate(extents_2d{2, 3}, std::array<index_t, 2>{1, 5});
+  DeferredStridedTensorView deferred(extents_2d{2, 3}, std::array<index_t, 2>{7, 2});
+
+  EXPECT_EQ(strides(immediate), (std::array<index_t, 2>{1, 5}));
+  EXPECT_EQ(strides(deferred), (std::array<index_t, 2>{7, 2}));
 }
 
 TEST(TensorTest, ImmediateHandlePrecedesAvailableDescriptor)
@@ -579,6 +676,70 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
   static_assert(!MutableTensorView<decltype(lease)>);
   EXPECT_EQ(&lease.storage(), &tensor.storage());
   EXPECT_EQ((lease.mdspan()[1, 2]), 42);
+}
+
+TEST(TensorTest, GenericReadTensorLeaseReleaseIsIdempotent)
+{
+  AccessStateCounters counters;
+  std::array<int, 4> data{};
+
+  {
+    instrumented_read_tensor_lease lease{InstrumentedTensorAccessState{counters},
+                                         access_test_const_mdspan{data.data(), extents_2d{2, 2}},
+                                         access_test_selector{linalg::CpuReferenceBackend{}}};
+
+    lease.release();
+    EXPECT_EQ(counters.release_calls, 1);
+    EXPECT_EQ(counters.completed_releases, 1);
+
+    lease.release();
+    EXPECT_EQ(counters.release_calls, 1);
+    EXPECT_EQ(counters.completed_releases, 1);
+  }
+
+  EXPECT_EQ(counters.release_calls, 2);
+  EXPECT_EQ(counters.completed_releases, 1);
+}
+
+TEST(TensorTest, GenericWriteTensorLeaseMovesTransferAccessState)
+{
+  AccessStateCounters counters;
+  std::array<int, 4> source_data{};
+  std::array<int, 4> destination_data{};
+
+  {
+    instrumented_write_tensor_lease source{InstrumentedTensorAccessState{counters},
+                                           access_test_mutable_mdspan{source_data.data(), extents_2d{2, 2}},
+                                           access_test_const_mdspan{source_data.data(), extents_2d{2, 2}},
+                                           access_test_selector{linalg::CpuReferenceBackend{}}};
+
+    instrumented_write_tensor_lease moved{std::move(source)};
+    source.release();
+    EXPECT_EQ(counters.completed_releases, 0);
+
+    instrumented_write_tensor_lease destination{InstrumentedTensorAccessState{counters},
+                                                access_test_mutable_mdspan{destination_data.data(), extents_2d{2, 2}},
+                                                access_test_const_mdspan{destination_data.data(), extents_2d{2, 2}},
+                                                access_test_selector{linalg::CpuReferenceBackend{}}};
+
+    destination = std::move(moved);
+    EXPECT_EQ(counters.completed_releases, 1);
+
+    moved.release();
+    EXPECT_EQ(counters.completed_releases, 1);
+
+    EXPECT_EQ(destination.mdspan().data_handle(), source_data.data());
+    destination.mdspan()[0, 1] = 42;
+    EXPECT_EQ((destination.mdspan()[0, 1]), 42);
+
+    destination.release();
+    EXPECT_EQ(counters.completed_releases, 2);
+
+    destination.release();
+    EXPECT_EQ(counters.completed_releases, 2);
+  }
+
+  EXPECT_EQ(counters.completed_releases, 2);
 }
 
 TEST(TensorTest, TraceFormattingUsesPresentationTensorArt)

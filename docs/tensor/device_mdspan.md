@@ -204,6 +204,14 @@ The mutable forms additionally require non-const element semantics and an
 assignable accessor reference. They describe eventual mutation after
 acquisition and do not add indexing to an unresolved descriptor.
 
+Metadata-only helpers use the device concepts directly. For example,
+`uni20::strides()` accepts `StridedDeviceMdspanLike`, and its tensor overload
+accepts `StridedDeviceTensorView`. Both immediate and descriptor-backed inputs
+therefore expose the same mapping information without acquiring a handle.
+Contiguous-mapping analysis used by reshape order validation follows the same
+rule; the view-producing reshape operations remain mdspan-only because they
+must retain an immediately usable handle.
+
 ### Tensor-Level Concepts
 
 `DeviceTensorView<T>` is the tensor-level counterpart. A model exposes:
@@ -244,6 +252,24 @@ of the owner remains unavailable during the lease.
 Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
 templates, but an acquisition backend may return any type satisfying the
 concepts.
+
+### Access-State Lifetime Contract
+
+An acquired lease and the access state retained inside it follow the same
+one-owner lifetime rules:
+
+- `release()` is `noexcept` and idempotent. Its first call ends active access;
+  later calls have no effect.
+- Moving an active lease or access state transfers responsibility for the
+  access lifetime and leaves the source inactive.
+- Releasing or destroying a moved-from object has no effect.
+- Move assignment, when supported, releases the destination's previous access
+  before transferring the source access.
+
+The generic leases use the presence of their resolved mdspan as their active
+marker. They invalidate every resolved mdspan before releasing the retained
+access state. The access state must still implement idempotent release because
+it may itself be an RAII guard whose destructor calls `release()`.
 
 ## Acquisition
 
@@ -317,10 +343,20 @@ return try_kernel(
     beta);
 ```
 
-The CPU reference GEMM backend is the initial exemplar. For an ordinary host
-`TensorView`, acquisition creates only pointer-sized borrowed leases and the
-forwarding optimizes to the direct mdspan path. A deferred implementation may
-block while producing the same `TensorView` lease interface.
+The synchronous CPU reference kernels, direct BLAS adapters, and dense LAPACK
+adapters use this pattern. This includes GEMM, GEMV, matrix initialization,
+elementwise transforms, in-place conjugation, reductions, matrix
+exponentiation, and the fixed-output dense decompositions. For an ordinary
+host `TensorView`, acquisition creates only pointer-sized borrowed leases and
+the forwarding optimizes to the direct mdspan path. A deferred implementation
+may block while producing the same `TensorView` lease interface.
+
+The tensor-level `kernel_accepts_types` overload for a blocking adapter derives
+the exact mdspan types returned by its leases and delegates to the existing
+mdspan-level probe. The mdspan probe is therefore the single source of truth
+for accessor, scalar, rank, layout, and assignment eligibility. A tensor probe
+must not report stronger acceptance than the implementation reached after
+acquisition.
 
 Descriptor-native backends do not use this blocking lowering when their
 execution model requires more context. For example, cuBLAS inspects CUDA
@@ -427,6 +463,8 @@ automatically change its type, state, or constness.
 - A read or write lease models `TensorView`, retains backend selection and the
   state controlling handle validity through RAII. Read-only storage inspection
   is optional for read leases; write leases expose no storage observer.
+- Lease and access-state release is idempotent, and moves transfer the active
+  access lifetime while leaving the source inactive.
 - Construction and metadata observation perform no handle acquisition.
 
 ## Source and Tests
@@ -442,5 +480,6 @@ automatically change its type, state, or constness.
 The tests cover concrete storage of stateful descriptor/mapping/accessor
 objects, independent structural models, ordinary-mdspan compatibility, ranked
 and strided refinements, move-only descriptors, the absence of premature handle
-access, immediate tensor leases, and CUDA pointer resolution through blocking
-and stream-ordered leases.
+access, immediate tensor leases, idempotent generic release, access-state
+transfer across lease moves, and CUDA pointer resolution through blocking and
+stream-ordered leases.
