@@ -89,9 +89,9 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDev
 
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor, class AlphaAwaiter>
-async::AsyncTask async_assign_product_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                           async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
-                                           AlphaAwaiter alpha)
+async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                   async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
+                                   AlphaAwaiter alpha)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, lhs, rhs, alpha);
@@ -113,9 +113,9 @@ async::AsyncTask async_assign_product_task(BackendSelector const selector, async
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor, class AlphaAwaiter,
           class BetaAwaiter>
-async::AsyncTask async_gemm_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                 async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
-                                 BetaAwaiter beta)
+async::AsyncTask co_gemm(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                         async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
+                         BetaAwaiter beta)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, lhs, rhs, alpha, beta);
@@ -142,7 +142,7 @@ void schedule_async_assign_product(BackendSelector selector, async::Async<Output
                                    AlphaAwaiter alpha)
 {
   validate_async_matrix_product_aliasing(output, lhs, rhs);
-  auto task = async_assign_product_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha));
+  auto task = co_assign_product(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha));
   task.debug_name("assign_product");
   async::schedule(std::move(task));
 }
@@ -155,8 +155,7 @@ void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& o
                          BetaAwaiter beta)
 {
   validate_async_matrix_product_aliasing(output, lhs, rhs);
-  auto task =
-      async_gemm_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha), std::move(beta));
+  auto task = co_gemm(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha), std::move(beta));
   task.debug_name("gemm");
   async::schedule(std::move(task));
 }

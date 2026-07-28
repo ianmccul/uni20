@@ -56,8 +56,8 @@ template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
 }
 
 template <class BackendSelector, OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
-async::AsyncTask async_cuda_copy_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                      async::ReadBuffer<InputTensor> input)
+async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                              async::ReadBuffer<InputTensor> input)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, input);
@@ -74,7 +74,7 @@ void schedule_async_cuda_copy(BackendSelector selector, async::Async<OutputTenso
 {
   ERROR_IF(std::addressof(output.queue()) == std::addressof(input.queue()),
            "async CUDA copy output must not share an epoch queue with its input");
-  auto task = async_cuda_copy_task(std::move(selector), output.write(), input.read());
+  auto task = co_cuda_copy(std::move(selector), output.write(), input.read());
   task.debug_name("copy");
   async::schedule(std::move(task));
 }

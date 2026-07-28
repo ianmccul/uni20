@@ -64,7 +64,7 @@ struct move_only_scale
     double operator()(double value) const { return *scale * value; }
 };
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
   co_return;
@@ -85,8 +85,8 @@ async_vector_type schedule_transform_from_local_state()
   async_vector_type rhs;
   async_vector_type output;
 
-  uni20::async::schedule(publish(lhs.write(), make_vector({1.0, 2.0, 3.0})));
-  uni20::async::schedule(publish(rhs.write(), make_vector({10.0, 20.0, 30.0})));
+  uni20::async::schedule(co_publish(lhs.write(), make_vector({1.0, 2.0, 3.0})));
+  uni20::async::schedule(co_publish(rhs.write(), make_vector({10.0, 20.0, 30.0})));
   uni20::assign_transform(
       output, [offset = std::make_unique<double>(0.5)](double left, double right) { return left + right + *offset; },
       lhs, rhs);

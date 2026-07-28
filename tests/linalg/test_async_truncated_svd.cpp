@@ -25,7 +25,7 @@ matrix_type make_matrix()
   return matrix;
 }
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
 }
@@ -68,7 +68,7 @@ TEST(AsyncTruncatedSvdTest, PreservingCallAwaitsInputAndReturnsIndependentOutput
   uni20::async::DebugScheduler scheduler;
   uni20::async::ScopedScheduler scoped(&scheduler);
   async_matrix_type matrix;
-  uni20::async::schedule(publish(matrix.write(), make_matrix()));
+  uni20::async::schedule(co_publish(matrix.write(), make_matrix()));
 
   auto [left, singular_values, right_adjoint, truncation] = uni20::linalg::truncated_svd(
       matrix, uni20::linalg::SvdTruncationPolicy<double>{.maximum_discarded_weight = 0.02});

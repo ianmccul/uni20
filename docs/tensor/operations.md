@@ -380,7 +380,7 @@ explicit.
 
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
-`try_kernel_task` returns a nested `CudaTask` bound to the operand device. It
+`try_make_kernel_task` returns a nested `CudaTask` bound to the operand device. It
 inherits the compatible unified scheduler, awaits an idle cuBLAS handle and
 stream, and publishes CUDA buffer completion records before returning. Column-
 and row-major outputs are supported. A direct non-Async Tensor `gemm` uses the

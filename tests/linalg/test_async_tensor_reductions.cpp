@@ -45,7 +45,7 @@ class ErrorModeGuard {
     bool previous_;
 };
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
   co_return;
@@ -69,7 +69,7 @@ TEST(AsyncTensorReductionTest, FullSumAndHostSumAwaitPendingInput)
   uni20::async::ScopedScheduler scoped(&scheduler);
   async_tensor_type input;
 
-  uni20::async::schedule(publish(input.write(), make_input()));
+  uni20::async::schedule(co_publish(input.write(), make_input()));
   auto tensor_result = uni20::sum(input);
   auto host_result = uni20::sum_host(input);
 
@@ -111,7 +111,7 @@ TEST(AsyncTensorReductionTest, ExplicitOutputConstructsOrResizesAfterInputIsRead
   async_scalar_tensor_type scalar_output;
   uni20::async::Async<uni20::RowMajorTensor<double, 2>> partial_output = uni20::RowMajorTensor<double, 2>(1, 1);
 
-  uni20::async::schedule(publish(input.write(), make_input()));
+  uni20::async::schedule(co_publish(input.write(), make_input()));
   uni20::sum(uni20::linalg::CpuReferenceBackend{}, scalar_output, input);
   uni20::sum(partial_output, input, 1);
 

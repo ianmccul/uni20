@@ -228,7 +228,7 @@ Many kernels can run directly when a coroutine reaches them. Requiring every bac
 wrap ordinary work in a coroutine would add boilerplate without improving semantics.
 
 Some backends do need suspension, especially for bounded execution-resource admission.
-For those cases, `try_kernel_task` returns either:
+For those cases, `try_make_kernel_task` returns either:
 
 - a clean decline;
 - completed success;

@@ -17,7 +17,7 @@ material interval.
 Related notes:
 
 - [Kernel Dispatch](../../architecture/kernel_dispatch.md) defines the generic
-  `kernel_accepts_types` / `try_kernel` / optional `try_kernel_task` /
+  `kernel_accepts_types` / `try_kernel` / optional `try_make_kernel_task` /
   backend-list contract.
 - [Execution Architecture](../../architecture/execution.md) describes scheduler
   and storage-policy layering.
@@ -113,7 +113,7 @@ not be stored in the backend selector. Ordinary `CublasBackend` GEMM prepares
 the operands, blocks for an execution lease, and submits the prepared call.
 Async fixed-output GEMM and matrix-product lowering instead call generic
 `co_dispatch_kernel`.
-`CublasBackend::try_kernel_task` prepares the same operands and returns a CUDA
+`CublasBackend::try_make_kernel_task` prepares the same operands and returns a CUDA
 task that suspends for the execution lease before invoking the prepared cuBLAS
 leaf. Backends without this optional hook use their ordinary blocking
 `try_kernel` implementation directly inside the dispatch coroutine.
@@ -380,7 +380,7 @@ focused tests, and profiling.
 Ordinary `dispatch_kernel` remains non-coroutine code and invokes only
 `try_kernel`. `co_dispatch_kernel` performs the same ordered type and runtime
 backend walk from within a coroutine. For each backend/operation pair it awaits
-`try_kernel_task` when that optional customization exists; otherwise it invokes
+`try_make_kernel_task` when that optional customization exists; otherwise it invokes
 ordinary `try_kernel` inline.
 
 The cuBLAS GEMM customization completes runtime operand preparation before

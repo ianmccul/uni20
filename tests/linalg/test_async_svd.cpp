@@ -32,7 +32,7 @@ matrix_type make_matrix()
   return matrix;
 }
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
 }
@@ -100,7 +100,7 @@ TEST(AsyncSvdTest, PreservingSolveAwaitsInputAndReturnsIndependentOutputs)
   uni20::async::ScopedScheduler scoped(&scheduler);
   async_matrix_type matrix;
   matrix_type const expected = make_matrix();
-  uni20::async::schedule(publish(matrix.write(), expected));
+  uni20::async::schedule(co_publish(matrix.write(), expected));
 
   auto [left, singular_values, right_adjoint] = uni20::linalg::svd(matrix);
 

@@ -57,9 +57,8 @@ template <AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t In
 
 template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t InputRank,
           std::size_t ReducedRank>
-async::AsyncTask async_sum_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                async::ReadBuffer<InputTensor> input,
-                                linalg::ReductionAxes<InputRank, ReducedRank> axes)
+async::AsyncTask co_sum(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                        async::ReadBuffer<InputTensor> input, linalg::ReductionAxes<InputRank, ReducedRank> axes)
 {
   if constexpr (async::is_async_alias_v<OutputTensor>)
   {
@@ -83,9 +82,8 @@ async::AsyncTask async_sum_task(BackendSelector const selector, async::WriteBuff
 }
 
 template <class BackendSelector, TensorView InputTensor>
-async::AsyncTask async_sum_host_task(BackendSelector const selector,
-                                     async::WriteBuffer<tensor_element_t<InputTensor>> output,
-                                     async::ReadBuffer<InputTensor> input)
+async::AsyncTask co_sum_host(BackendSelector const selector, async::WriteBuffer<tensor_element_t<InputTensor>> output,
+                             async::ReadBuffer<InputTensor> input)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, input);
@@ -102,7 +100,7 @@ void schedule_async_sum(BackendSelector selector, async::Async<OutputTensor>& ou
                         async::Async<InputTensor> const& input, linalg::ReductionAxes<InputRank, ReducedRank> axes)
 {
   validate_async_reduction_aliasing(output, input);
-  auto task = async_sum_task(std::move(selector), output.write(), input.read(), std::move(axes));
+  auto task = co_sum(std::move(selector), output.write(), input.read(), std::move(axes));
   task.debug_name("sum");
   async::schedule(std::move(task));
 }
@@ -112,7 +110,7 @@ template <class BackendSelector, TensorView InputTensor>
 {
   async::Async<tensor_element_t<InputTensor>> output;
   output.debug_name("sum_host.result");
-  auto task = async_sum_host_task(std::move(selector), output.write(), input.read());
+  auto task = co_sum_host(std::move(selector), output.write(), input.read());
   task.debug_name("sum_host");
   async::schedule(std::move(task));
   return output;

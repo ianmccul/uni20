@@ -98,6 +98,24 @@ references to the `Async<T>` handles into the coroutine. The moved buffers
 already retain storage, queue context, and the selected epochs, so the original
 handles may be destroyed immediately after submission.
 
+## Coroutine and Task-Factory Names
+
+Use names that distinguish C++ coroutine bodies from ordinary functions that
+return task handles:
+
+| Function kind | Naming form | Example |
+|---|---|---|
+| Coroutine body containing `co_await`, `co_yield`, or `co_return` | `co_<operation>` | `co_gemm_submission(...)` |
+| Ordinary function returning a task | `make_<operation>_task` | `make_prefetch_task(...)` |
+| Ordinary fallible factory returning an optional or attempt wrapper | `try_make_<operation>_task` | `try_make_kernel_task(...)` |
+| Ordinary function that submits work to a scheduler | `schedule_<operation>` | `schedule_async_gemm(...)` |
+| Synchronous implementation | `<operation>` | `gemm(...)` |
+
+Reserve the `co_` prefix for actual coroutine bodies. Returning `AsyncTask`,
+`CudaTask`, or a wrapper around one does not by itself make an ordinary factory
+a coroutine. Conversely, `_async` describes an API or execution model and does
+not identify whether the function body uses the C++ coroutine mechanism.
+
 ## Access and Aliasing
 
 An ordinary one-output operation has one writer and any number of distinct
@@ -326,5 +344,5 @@ Keep operation-specific Tensor wrappers explicit because output construction,
 mutation, and multi-output exception routing differ materially between
 algorithms. Once the wrapper has awaited its values and resolved stable mdspan
 operands, use generic `co_dispatch_kernel`. Blocking backends require no
-coroutine wrapper; individual backend/operation pairs add `try_kernel_task`
+coroutine wrapper; individual backend/operation pairs add `try_make_kernel_task`
 only when resource admission or execution must suspend.

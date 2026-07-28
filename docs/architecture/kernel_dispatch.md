@@ -19,7 +19,7 @@ runtime attempt, and every non-success result must occur before argument mutatio
 submission, output commitment, or any other externally visible effect.
 `dispatch_kernel` reports exhaustion, while `try_dispatch_kernel` returns whether any
 candidate accepted the operation. `co_dispatch_kernel` follows the same ordered walk
-and may use `try_kernel_task` when a backend needs to suspend for resource admission.
+and may use `try_make_kernel_task` when a backend needs to suspend for resource admission.
 
 ## Scope
 
@@ -52,7 +52,7 @@ operation parameters remain ordinary values.
 This tensor-view boundary applies to `probe_dispatch_kernel`,
 `kernel_type_candidates`, `try_dispatch_kernel`, `dispatch_kernel`,
 `dynamic_dispatch_kernel`, and `co_dispatch_kernel`, and therefore to the
-`kernel_accepts_types`, `try_kernel`, and `try_kernel_task` customization points
+`kernel_accepts_types`, `try_kernel`, and `try_make_kernel_task` customization points
 that implement an operation tag.
 
 A public convenience function may accept a bare mdspan when no tensor policy is
@@ -247,11 +247,14 @@ operation's ordinary error or exception mechanism.
 A backend that needs suspendable resource admission may additionally define:
 
 ```cpp
-try_kernel_task(backend, operation, args...)
+try_make_kernel_task(backend, operation, args...)
     -> KernelTaskAttempt<ConcreteTask>
 ```
 
 `ConcreteTask` must derive from `async::BasicTask`.
+
+`try_make_kernel_task` is an ordinary fallible task factory, not a coroutine.
+Any coroutine it creates uses a `co_`-prefixed name.
 
 `KernelTaskAttempt` represents one of three states:
 
@@ -264,7 +267,7 @@ A completed success represents an operation that is already finished, such as a
 zero-size output. A deferred success commits the backend when the task is awaited;
 failures after that point are terminal and must not trigger fallback.
 
-Backends without `try_kernel_task` are invoked through their ordinary `try_kernel`
+Backends without `try_make_kernel_task` are invoked through their ordinary `try_kernel`
 implementation on the current scheduler thread.
 
 ## Type probing and candidate filtering
@@ -367,7 +370,7 @@ diagnostics, and exhaustion behavior as `dispatch_kernel`.
 
 For each eligible backend:
 
-1. If `try_kernel_task` is available, the coroutine obtains a
+1. If `try_make_kernel_task` is available, the coroutine obtains a
    `KernelTaskAttempt`.
 2. A clean decline continues to the next candidate.
 3. A completed success terminates the walk.
@@ -492,7 +495,7 @@ When adding a kernel to a backend:
 5. Complete all runtime acceptance checks before any side effect.
 6. Return a specific `KernelAttempt` for each clean-decline category.
 7. Report failures after commitment through the ordinary terminal error path.
-8. Add `try_kernel_task` only when suspension is required.
+8. Add `try_make_kernel_task` only when suspension is required.
 9. Keep the ordinary and coroutine implementations on the same static domain.
 10. Preserve mdspan accessor semantics.
 11. Do not introduce implicit transfer or symmetry-erasing fallback.

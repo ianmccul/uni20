@@ -91,41 +91,41 @@ KernelAttempt try_kernel(BlockingTestBackend, AsyncDispatchTestOp const&, int& v
   return KernelAttempt::success;
 }
 
-KernelTaskAttempt<async::AsyncTask> try_kernel_task(DecliningTaskBackend, AsyncDispatchTestOp const&, int&)
+KernelTaskAttempt<async::AsyncTask> try_make_kernel_task(DecliningTaskBackend, AsyncDispatchTestOp const&, int&)
 {
   return KernelTaskAttempt<async::AsyncTask>{KernelAttempt::unsupported_instance};
 }
 
-async::AsyncTask set_deferred_value(int& value)
+async::AsyncTask co_set_deferred_value(int& value)
 {
   value = 29;
   co_return;
 }
 
-KernelTaskAttempt<async::AsyncTask> try_kernel_task(DeferredTaskBackend, AsyncDispatchTestOp const&, int& value)
+KernelTaskAttempt<async::AsyncTask> try_make_kernel_task(DeferredTaskBackend, AsyncDispatchTestOp const&, int& value)
 {
-  return KernelTaskAttempt<async::AsyncTask>{set_deferred_value(value)};
+  return KernelTaskAttempt<async::AsyncTask>{co_set_deferred_value(value)};
 }
 
-async::AsyncTask fail_deferred_value(int&, int&)
+async::AsyncTask co_fail_deferred_value(int&, int&)
 {
   throw std::runtime_error("deferred kernel failed");
   co_return;
 }
 
-KernelTaskAttempt<async::AsyncTask> try_kernel_task(FailingTaskBackend, AsyncDispatchTestOp const&, int& value,
-                                                    int& calls)
+KernelTaskAttempt<async::AsyncTask> try_make_kernel_task(FailingTaskBackend, AsyncDispatchTestOp const&, int& value,
+                                                         int& calls)
 {
-  return KernelTaskAttempt<async::AsyncTask>{fail_deferred_value(value, calls)};
+  return KernelTaskAttempt<async::AsyncTask>{co_fail_deferred_value(value, calls)};
 }
 
-template <class Selector> async::AsyncTask run_async_dispatch(Selector selector, int& value)
+template <class Selector> async::AsyncTask co_run_async_dispatch(Selector selector, int& value)
 {
   co_await co_dispatch_kernel(std::move(selector), AsyncDispatchTestOp{}, value);
 }
 
 template <class Selector>
-async::AsyncTask run_failing_async_dispatch(Selector selector, async::WriteBuffer<int> output, int& blocking_calls)
+async::AsyncTask co_run_failing_async_dispatch(Selector selector, async::WriteBuffer<int> output, int& blocking_calls)
 {
   int& value = co_await output;
   co_await co_dispatch_kernel(std::move(selector), AsyncDispatchTestOp{}, value, blocking_calls);
@@ -135,7 +135,7 @@ TEST(AsyncDispatchTest, TaskDeclineFallsThroughToBlockingKernel)
 {
   async::DebugScheduler scheduler;
   int value = 0;
-  auto task = run_async_dispatch(backend_list{DecliningTaskBackend{}, BlockingTestBackend{}}, value);
+  auto task = co_run_async_dispatch(backend_list{DecliningTaskBackend{}, BlockingTestBackend{}}, value);
   scheduler.schedule(std::move(task));
   scheduler.run_all();
   EXPECT_EQ(value, 17);
@@ -145,7 +145,7 @@ TEST(AsyncDispatchTest, SuccessfulDeferredTaskBypassesBlockingKernel)
 {
   async::DebugScheduler scheduler;
   int value = 0;
-  auto task = run_async_dispatch(backend_list{DeferredTaskBackend{}, BlockingTestBackend{}}, value);
+  auto task = co_run_async_dispatch(backend_list{DeferredTaskBackend{}, BlockingTestBackend{}}, value);
   scheduler.schedule(std::move(task));
   scheduler.run_all();
   EXPECT_EQ(value, 29);
@@ -156,8 +156,8 @@ TEST(AsyncDispatchTest, DeferredTaskFailureIsTerminal)
   async::DebugScheduler scheduler;
   async::Async<int> output = 0;
   int blocking_calls = 0;
-  auto task = run_failing_async_dispatch(backend_list{FailingTaskBackend{}, BlockingTestBackend{}}, output.write(),
-                                         blocking_calls);
+  auto task = co_run_failing_async_dispatch(backend_list{FailingTaskBackend{}, BlockingTestBackend{}}, output.write(),
+                                            blocking_calls);
   scheduler.schedule(std::move(task));
   scheduler.run_all();
 

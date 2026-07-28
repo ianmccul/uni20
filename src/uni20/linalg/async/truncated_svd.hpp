@@ -38,12 +38,12 @@ using async_truncated_svd_result_t =
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
           class TruncationInfo, uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_truncated_svd_task(
-    BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
-    async::WriteBuffer<SingularValueTensor> singular_values,
-    async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-    async::WriteBuffer<TruncationInfo> truncation, async::ReadBuffer<MatrixTensor> matrix,
-    svd_truncation_policy_t<MatrixTensor> const policy)
+async::AsyncTask
+co_preserving_truncated_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
+                            async::WriteBuffer<SingularValueTensor> singular_values,
+                            async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                            async::WriteBuffer<TruncationInfo> truncation, async::ReadBuffer<MatrixTensor> matrix,
+                            svd_truncation_policy_t<MatrixTensor> const policy)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -67,12 +67,11 @@ template <class BackendSelector, class LeftTensor, class SingularValueTensor, cl
           class TruncationInfo, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask
-async_consuming_truncated_svd_task(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
-                                   async::WriteBuffer<SingularValueTensor> singular_values,
-                                   async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-                                   async::WriteBuffer<TruncationInfo> truncation,
-                                   async::WriteBuffer<MatrixTensor> matrix,
-                                   svd_truncation_policy_t<MatrixTensor> const policy)
+co_consuming_truncated_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
+                           async::WriteBuffer<SingularValueTensor> singular_values,
+                           async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                           async::WriteBuffer<TruncationInfo> truncation, async::WriteBuffer<MatrixTensor> matrix,
+                           svd_truncation_policy_t<MatrixTensor> const policy)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -103,7 +102,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   outputs.right_singular_vectors_adjoint.debug_name("truncated_svd.right_singular_vectors_adjoint");
   outputs.truncation.debug_name("truncated_svd.truncation");
 
-  auto task = async_preserving_truncated_svd_task(
+  auto task = co_preserving_truncated_svd(
       std::move(selector), outputs.left_singular_vectors.write(), outputs.singular_values.write(),
       outputs.right_singular_vectors_adjoint.write(), outputs.truncation.write(), matrix.read(), std::move(policy));
   task.debug_name("truncated_svd");
@@ -123,7 +122,7 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   outputs.right_singular_vectors_adjoint.debug_name("truncated_svd.right_singular_vectors_adjoint");
   outputs.truncation.debug_name("truncated_svd.truncation");
 
-  auto task = async_consuming_truncated_svd_task(
+  auto task = co_consuming_truncated_svd(
       std::move(selector), outputs.left_singular_vectors.write(), outputs.singular_values.write(),
       outputs.right_singular_vectors_adjoint.write(), outputs.truncation.write(), matrix.write(), std::move(policy));
   task.debug_name("truncated_svd");

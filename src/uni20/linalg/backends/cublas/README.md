@@ -7,7 +7,7 @@ and calls the provider-ready leaf. This is the ordinary direct Tensor path.
 
 The current first operation is GEMM. Direct Tensor dispatch uses the blocking
 `try_kernel` entry point. Coroutine dispatch detects the backend's
-`try_kernel_task` customization, which prepares the same operands, binds a CUDA
+`try_make_kernel_task` customization, which prepares the same operands, binds a CUDA
 child to their device, awaits an execution lease, and invokes the prepared
 provider leaf without redispatching.
 

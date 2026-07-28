@@ -22,16 +22,17 @@ namespace uni20::linalg
 namespace detail
 {
 
-template <class Backend, class Op, class... Args> consteval bool backend_has_kernel_task()
+template <class Backend, class Op, class... Args> consteval bool backend_has_kernel_task_factory()
 {
   if constexpr (requires {
-                  try_kernel_task(std::declval<Backend const&>(), std::declval<Op const&>(),
-                                  std::declval<kernel_type_probe_arg_t<Args>>()...);
+                  try_make_kernel_task(std::declval<Backend const&>(), std::declval<Op const&>(),
+                                       std::declval<kernel_type_probe_arg_t<Args>>()...);
                 })
   {
-    using result_type = decltype(try_kernel_task(std::declval<Backend const&>(), std::declval<Op const&>(),
-                                                 std::declval<kernel_type_probe_arg_t<Args>>()...));
-    static_assert(is_kernel_task_attempt<result_type>, "try_kernel_task must return KernelTaskAttempt<ConcreteTask>");
+    using result_type = decltype(try_make_kernel_task(std::declval<Backend const&>(), std::declval<Op const&>(),
+                                                      std::declval<kernel_type_probe_arg_t<Args>>()...));
+    static_assert(is_kernel_task_attempt<result_type>,
+                  "try_make_kernel_task must return KernelTaskAttempt<ConcreteTask>");
     return true;
   }
   return false;
@@ -55,9 +56,9 @@ async::AsyncTask co_dispatch_kernel_at(backend_list<Backends...> const& backends
     if constexpr (acceptance != KernelTypeAcceptance::no)
     {
       KernelAttempt attempt;
-      if constexpr (backend_has_kernel_task<backend_type, Op, Args&...>())
+      if constexpr (backend_has_kernel_task_factory<backend_type, Op, Args&...>())
       {
-        auto task_attempt = try_kernel_task(std::get<Index>(backends.entries), op, args...);
+        auto task_attempt = try_make_kernel_task(std::get<Index>(backends.entries), op, args...);
         attempt = task_attempt.attempt();
         runtime_results[Index] = attempt;
         if (kernel_attempt_succeeded(attempt) && task_attempt.has_task())
@@ -90,11 +91,12 @@ async::AsyncTask co_dispatch_kernel_at(backend_list<Backends...> const& backends
 } // namespace detail
 
 /// \brief Dispatch a kernel from a coroutine without requiring coroutine wrappers for blocking backends.
-/// \details Each backend may optionally provide `try_kernel_task`, returning a
-///          `KernelTaskAttempt` whose concrete task is awaited before dispatch
-///          completes. A backend without that customization is invoked through
-///          its ordinary `try_kernel` implementation on the current scheduler
-///          thread. Runtime declines remain side-effect free and permit fallback.
+/// \details Each backend may optionally provide `try_make_kernel_task`,
+///          returning a `KernelTaskAttempt` whose concrete task is awaited
+///          before dispatch completes. A backend without that customization is
+///          invoked through its ordinary `try_kernel` implementation on the
+///          current scheduler thread. Runtime declines remain side-effect free
+///          and permit fallback.
 /// \note Operation arguments are stable lvalues owned by the calling coroutine.
 ///       This avoids copying arbitrary operands and matches the ordinary dispatch
 ///       probe and invocation contract.

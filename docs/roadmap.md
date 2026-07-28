@@ -114,7 +114,7 @@ See the [Async Documentation Index](async/) and
   acquires a handle-plus-stream lease and lowers through staged CUDA mdspans,
   synchronized buffer access, and checked `S/D/C/ZGEMM` provider calls.
 - Ordinary `CublasBackend` uses blocking resource admission. Async lowering
-  uses generic `co_dispatch_kernel`; its optional cuBLAS `try_kernel_task`
+  uses generic `co_dispatch_kernel`; its optional cuBLAS `try_make_kernel_task`
   implementation suspends while the same execution resources are unavailable.
   Both paths share operand preparation and provider execution.
 
@@ -199,7 +199,7 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
 - Preserve the distinction between independent async values and aliases bound
   to an owner's lifetime and epoch queue.
 - Add coroutine kernel implementations incrementally through
-  `try_kernel_task`. Backends without one continue through ordinary
+  `try_make_kernel_task`. Backends without one continue through ordinary
   `try_kernel` inside `co_dispatch_kernel`; allocation, mutation, and
   consumption remain operation-specific Tensor concerns.
 - Improve deadlock and task-provenance diagnostics without adding meaningful

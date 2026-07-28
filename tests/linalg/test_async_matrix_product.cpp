@@ -75,7 +75,7 @@ Matrix make_matrix(uni20::index_type rows, uni20::index_type cols,
   return result;
 }
 
-template <class T> uni20::async::AsyncTask produce_value(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_produce_value(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
   co_return;
@@ -87,8 +87,8 @@ async_matrix_type schedule_product_from_local_inputs()
   async_matrix_type rhs;
   async_matrix_type output;
 
-  uni20::async::schedule(produce_value(lhs.write(), make_matrix<matrix_type>(2, 3, {1, 2, 3, 4, 5, 6})));
-  uni20::async::schedule(produce_value(rhs.write(), make_matrix<matrix_type>(3, 2, {7, 8, 9, 10, 11, 12})));
+  uni20::async::schedule(co_produce_value(lhs.write(), make_matrix<matrix_type>(2, 3, {1, 2, 3, 4, 5, 6})));
+  uni20::async::schedule(co_produce_value(rhs.write(), make_matrix<matrix_type>(3, 2, {7, 8, 9, 10, 11, 12})));
   uni20::linalg::assign_product(output, lhs, rhs);
   return output;
 }
@@ -100,7 +100,7 @@ async_matrix_type schedule_update_with_local_async_alpha()
   async_matrix_type output = make_matrix<matrix_type>(2, 2, {10, 20, 30, 40});
   uni20::async::Async<double> alpha;
 
-  uni20::async::schedule(produce_value(alpha.write(), 0.5));
+  uni20::async::schedule(co_produce_value(alpha.write(), 0.5));
   uni20::linalg::add_product(output, lhs, rhs, alpha);
   return output;
 }
@@ -179,8 +179,8 @@ TEST(AsyncMatrixProductTest, GemmAwaitsBothScalarsAndUpdatesFixedOutput)
   uni20::async::Async<double> alpha;
   uni20::async::Async<double> beta;
 
-  uni20::async::schedule(produce_value(alpha.write(), 0.5));
-  uni20::async::schedule(produce_value(beta.write(), 2.0));
+  uni20::async::schedule(co_produce_value(alpha.write(), 0.5));
+  uni20::async::schedule(co_produce_value(beta.write(), 2.0));
   uni20::linalg::gemm(uni20::linalg::CpuReferenceBackend{}, output, alpha, lhs, rhs, beta);
 
   auto const& result = output.get_wait(scheduler);

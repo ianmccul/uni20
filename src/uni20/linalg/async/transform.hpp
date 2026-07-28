@@ -72,9 +72,9 @@ void invoke_async_transform_inplace(BackendSelector const& selector, linalg::tra
 }
 
 template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
-async::AsyncTask async_assign_transform_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                             linalg::transform_op<Function> operation,
-                                             async::ReadBuffer<InputTensors>... inputs)
+async::AsyncTask co_assign_transform(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                     linalg::transform_op<Function> operation,
+                                     async::ReadBuffer<InputTensors>... inputs)
 {
   if constexpr (async::is_async_alias_v<OutputTensor>)
   {
@@ -98,9 +98,9 @@ async::AsyncTask async_assign_transform_task(BackendSelector const selector, asy
 }
 
 template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
-async::AsyncTask async_transform_inplace_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                              linalg::transform_inplace_op<Function> operation,
-                                              async::ReadBuffer<InputTensors>... inputs)
+async::AsyncTask co_transform_inplace(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                      linalg::transform_inplace_op<Function> operation,
+                                      async::ReadBuffer<InputTensors>... inputs)
 {
   if constexpr (async::is_async_alias_v<OutputTensor>)
   {
@@ -127,7 +127,7 @@ void schedule_async_assign_transform(BackendSelector selector, async::Async<Outp
                                      async::Async<InputTensors> const&... inputs)
 {
   validate_async_transform_aliasing(output, inputs...);
-  auto task = async_assign_transform_task(std::move(selector), output.write(), std::move(operation), inputs.read()...);
+  auto task = co_assign_transform(std::move(selector), output.write(), std::move(operation), inputs.read()...);
   task.debug_name("assign_transform");
   async::schedule(std::move(task));
 }
@@ -138,7 +138,7 @@ void schedule_async_transform_inplace(BackendSelector selector, async::Async<Out
                                       async::Async<InputTensors> const&... inputs)
 {
   validate_async_transform_aliasing(output, inputs...);
-  auto task = async_transform_inplace_task(std::move(selector), output.write(), std::move(operation), inputs.read()...);
+  auto task = co_transform_inplace(std::move(selector), output.write(), std::move(operation), inputs.read()...);
   task.debug_name("transform_inplace");
   async::schedule(std::move(task));
 }
