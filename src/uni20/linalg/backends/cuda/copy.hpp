@@ -354,28 +354,27 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
   }
 }
 
-} // namespace detail::cuda_reference
-
-/// \brief Report compile-time eligibility for CUDA Tensor transfer.
+/// \brief Report compile-time eligibility for CUDA mdspan copy lowering.
 template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
-consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
+consteval auto cuda_copy_mdspans_acceptance()
 {
-  if constexpr (detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan>)
+  if constexpr (SupportedCopyMdspans<OutputMdspan, InputMdspan>)
     return kernel_types_maybe;
   else
     return kernel_types_no;
 }
 
-/// \brief Copy compatible contiguous host or CUDA mdspans while preserving supported accessor semantics.
+/// \brief Copy compatible mdspans after tensor-level CUDA backend selection.
 template <class OutputMdspan, class InputMdspan>
-  requires detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan>
-KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputMdspan&& output, InputMdspan&& input)
+  requires SupportedCopyMdspans<OutputMdspan, InputMdspan>
+KernelAttempt copy_mdspans_cuda(OutputMdspan&& output, InputMdspan&& input)
 {
-  auto preparation = detail::cuda_reference::prepare_copy(output, input);
+  auto preparation = prepare_copy(output, input);
   if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
-  detail::cuda_reference::execute_blocking_copy(preparation);
+  execute_blocking_copy(preparation);
   return KernelAttempt::success;
 }
+} // namespace detail::cuda_reference
 
 /// \brief Report CUDA copy eligibility after normalizing generic tensor metadata.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
@@ -384,8 +383,7 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
   using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
   using input_span =
       std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<InputTensor const&>()))>;
-  constexpr auto acceptance =
-      detail::backend_type_acceptance<CudaReferenceBackend, copy_op, output_span&, input_span&>();
+  constexpr auto acceptance = detail::cuda_reference::cuda_copy_mdspans_acceptance<output_span, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::maybe)
     return kernel_types_maybe;
   else
@@ -394,12 +392,11 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
 
 /// \brief Normalize tensor metadata inside the CUDA backend and perform the copy.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-KernelAttempt try_kernel(CudaReferenceBackend backend, copy_op const& operation, OutputTensor& output,
-                         InputTensor const& input)
+KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputTensor& output, InputTensor const& input)
 {
   auto output_span = uni20::detail::tensor_device_mdspan(output);
   auto input_span = uni20::detail::tensor_device_mdspan(input);
-  return try_kernel(backend, operation, output_span, input_span);
+  return detail::cuda_reference::copy_mdspans_cuda(output_span, input_span);
 }
 
 } // namespace uni20::linalg

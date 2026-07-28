@@ -3,7 +3,7 @@
 /**
  * \file operation_tags.hpp
  * \ingroup linalg
- * \brief Backend-independent operation values used by dense linalg dispatch.
+ * \brief Backend-independent tensor-view operation values used by dense linalg dispatch.
  */
 
 #include <uni20/linalg/reduction_axes.hpp>

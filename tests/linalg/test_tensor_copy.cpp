@@ -10,6 +10,7 @@
 #include <array>
 #include <concepts>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 
 namespace
@@ -35,6 +36,26 @@ void fill_complex_matrix(uni20::DenseMatrix<complex_type, uni20::RowMajor>& matr
   matrix[0, 1] = complex_type{3.0, -4.0};
   matrix[1, 0] = complex_type{-5.0, 6.0};
   matrix[1, 1] = complex_type{7.0, 8.0};
+}
+
+struct TensorViewOnlyCopyBackend
+{
+    static constexpr std::string_view name = "tensor_view_only_copy";
+    bool* called;
+};
+
+template <uni20::MutableDeviceTensorView Output, uni20::DeviceTensorView Input>
+consteval auto kernel_accepts_types(TensorViewOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
+{
+  return uni20::linalg::kernel_types_yes;
+}
+
+template <uni20::MutableDeviceTensorView Output, uni20::DeviceTensorView Input>
+uni20::linalg::KernelAttempt try_kernel(TensorViewOnlyCopyBackend const& backend, uni20::linalg::copy_op const&,
+                                        Output&, Input const&)
+{
+  *backend.called = true;
+  return uni20::linalg::KernelAttempt::success;
 }
 } // namespace
 
@@ -108,6 +129,23 @@ TEST(TensorCopyTest, MakeTensorAcceptsExplicitLayoutAndBareMdspanSelector)
   EXPECT_EQ((result[1, 0]), (complex_type{-5.0, -6.0}));
   EXPECT_EQ(result.mapping().stride(0), 1);
   EXPECT_EQ(result.mapping().stride(1), 2);
+}
+
+TEST(TensorCopyTest, BareMdspanConvenienceAdaptsToTensorViewsBeforeDispatch)
+{
+  uni20::Tensor<double, 1> input(3);
+  uni20::Tensor<double, 1> output(3);
+  auto input_span = input.mdspan();
+  auto output_span = output.mdspan();
+  bool called = false;
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::copy_op{},
+                                                 output_span, input_span),
+            uni20::linalg::KernelTypeAcceptance::no);
+
+  uni20::copy(TensorViewOnlyCopyBackend{.called = &called}, output_span, input_span);
+
+  EXPECT_TRUE(called);
 }
 
 TEST(TensorCopyTest, MakeTensorMaterializesStaticExtentsAsGeneralPurposeTensor)

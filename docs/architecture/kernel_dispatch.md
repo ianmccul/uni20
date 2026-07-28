@@ -26,7 +26,7 @@ and may use `try_kernel_task` when a backend needs to suspend for resource admis
 Kernel dispatch answers one question:
 
 > Which implementation in an ordered backend selector can perform this operation on
-> these resolved argument types and values?
+> these tensor-view operand types and values?
 
 It does not:
 
@@ -41,6 +41,29 @@ Those responsibilities belong to higher-level operation wrappers or lower-level
 provider adapters.
 
 ## Core vocabulary
+
+### Dispatch operand boundary
+
+Operations identified by Uni20 operation tags, such as `gemm_op{}` and `copy_op{}`,
+dispatch tensor operands as `TensorView`, `DeviceTensorView`, or an applicable
+mutable/ranked/strided refinement. Scalar coefficients, axes, and other non-tensor
+operation parameters remain ordinary values.
+
+This tensor-view boundary applies to `probe_dispatch_kernel`,
+`kernel_type_candidates`, `try_dispatch_kernel`, `dispatch_kernel`,
+`dynamic_dispatch_kernel`, and `co_dispatch_kernel`, and therefore to the
+`kernel_accepts_types`, `try_kernel`, and `try_kernel_task` customization points
+that implement an operation tag.
+
+A public convenience function may accept a bare mdspan when no tensor policy is
+needed, but it must adapt that mdspan to a lightweight `TensorView` before entering
+operation dispatch. A backend then interprets or acquires the `DeviceTensorView` and
+lowers it to an mdspan valid in the backend's execution domain.
+
+Functions that operate directly on resolved mdspans sit below operation dispatch.
+They are provider/library API calls or lower-level Uni20 module interfaces, not
+`xxxx_op{}` dispatch customization points. This separation keeps acquisition,
+execution-domain validation, and accessor lowering inside the selected backend.
 
 ### Operation tag
 
@@ -352,24 +375,25 @@ For each eligible backend:
 5. If no task customization exists, the coroutine calls ordinary `try_kernel`.
 
 Operation arguments are stable lvalues owned by the calling coroutine. This avoids
-copying arbitrary descriptors and keeps type probing and invocation consistent.
+copying arbitrary tensor views and keeps type probing and invocation consistent.
 
 `co_dispatch_kernel` does not enroll epochs or await `Async<T>` operands. An async
 operation wrapper must first establish the correct epoch reads and writes, await the
-resolved values, prepare the output, and then dispatch the resolved mdspans or other
-kernel arguments.
+resolved values, prepare the output, and then dispatch tensor views and the operation's
+ordinary scalar or configuration arguments.
 
 Async legality comes from epoch causality. Scheduler timing and fortunate task order
 are not correctness arguments.
 
 ## Tensor, mdspan, and provider boundaries
 
-The usual dense operation path has three layers:
+The usual dense operation path has four layers:
 
 ```text
 Tensor operation wrapper
-    -> kernel dispatch over resolved mdspans
-    -> provider or reference implementation
+    -> operation-tag dispatch over TensorView / DeviceTensorView operands
+    -> selected backend lowering to execution-domain mdspans
+    -> provider API or lower-level Uni20 module
 ```
 
 ### Tensor operation wrapper
@@ -387,22 +411,25 @@ For example, an assigning matrix product may construct or resize its output befo
 calling a fixed-output GEMM kernel, while an additive matrix product requires an
 existing shape-compatible output.
 
-### Mdspan dispatch boundary
+### Tensor-view dispatch boundary
 
-The kernel operation receives resolved mdspans and scalar parameters. Backends may
-inspect runtime extents, mappings, strides, accessors, and handles before accepting the
-instance.
+The operation-tag kernel receives tensor views and scalar parameters. A backend may
+inspect normalized device-mdspan metadata before accepting an instance. Once selected,
+it obtains any required domain-specific leases and resolves the operands to mdspans
+whose handles and accessors are usable by its implementation.
 
 The mdspan accessor defines value semantics. A pointer-shaped `data_handle_type` does
 not prove that a backend may dereference the handle or pass it to a provider. A backend
 may bypass indexed accessor operations only when it explicitly understands and lowers
 that accessor's semantics.
 
-### Provider boundary
+### Lower-level boundary
 
-Provider adapters receive only arguments already normalized to the provider contract.
-At this point the backend has committed. Provider failure is terminal and may not
-return a dispatch decline.
+Provider adapters and lower-level Uni20 modules receive arguments already normalized
+to their contracts, commonly resolved mdspans or provider descriptors. These functions
+do not participate in the `xxxx_op{}` backend walk. At this point the backend has
+committed. Provider or lower-level failure is terminal and may not return a dispatch
+decline.
 
 Kernel dispatch never performs an implicit host/device transfer or an implicit dense
 projection. A backend list for opaque device storage must contain only backends that can

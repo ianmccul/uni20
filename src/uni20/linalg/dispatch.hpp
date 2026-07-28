@@ -3,7 +3,7 @@
 /**
  * \file dispatch.hpp
  * \ingroup linalg
- * \brief Minimal operation-tag backend dispatch helpers for dense linalg.
+ * \brief Operation-tag backend dispatch over tensor-view operands.
  */
 
 #include <uni20/common/trace.hpp>
@@ -327,7 +327,9 @@ void dispatch_backend_list(backend_list<Backends...> const& backends, Op const& 
 /// \brief Normalize a selector and try each eligible backend until one performs the operation.
 /// \details A backend returning a decline result must preserve every argument
 ///          and produce no externally visible side effect, so a later backend
-///          receives the original operation instance intact.
+///          receives the original operation instance intact. Tensor operands
+///          are TensorView or DeviceTensorView models; selected backends perform
+///          execution-domain acquisition and mdspan lowering.
 template <class BackendSelector, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
 bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
@@ -351,7 +353,8 @@ bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 
 /// \brief Normalize a selector and dispatch or report that every eligible backend declined.
 /// \details Each runtime decline has the same argument-preservation and
-///          no-side-effect contract as `try_dispatch_kernel`.
+///          no-side-effect contract as `try_dispatch_kernel`. Tensor operands
+///          remain tensor views until a selected backend lowers them.
 template <class BackendSelector, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
 void dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)

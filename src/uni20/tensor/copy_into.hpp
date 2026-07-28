@@ -20,6 +20,7 @@
 #endif
 
 #include <cstddef>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -28,7 +29,7 @@ namespace uni20
 namespace detail
 {
 template <class Output, class Input>
-concept CopySpans = MutableDeviceMdspanLike<Output> && DeviceMdspanLike<Input> &&
+concept CopySpans = MutableMdspanLike<Output> && MdspanLike<Input> &&
                     (std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Input>::rank());
 
 template <class Output, class Input>
@@ -63,19 +64,96 @@ template <DeviceMdspanLike Output, DeviceMdspanLike Input>
     return true;
   }
 }
+
+template <MdspanLike Span> [[nodiscard]] auto make_const_copy_mdspan(Span const& span)
+{
+  auto accessor = const_accessor(span.accessor());
+  using accessor_type = decltype(accessor);
+  using span_type = std::remove_cvref_t<Span>;
+  using const_mdspan_type = stdex::mdspan<typename accessor_type::element_type, typename span_type::extents_type,
+                                          typename span_type::layout_type, accessor_type>;
+  return const_mdspan_type{span.data_handle(), span.mapping(), std::move(accessor)};
+}
+
+/// \brief Read-only TensorView facade for explicit-selector bare-mdspan copy.
+template <MdspanLike Span, class BackendSelector> class CopyReadTensorView {
+  public:
+    using source_type = std::remove_cvref_t<Span>;
+    using mdspan_type = decltype(make_const_copy_mdspan(std::declval<source_type const&>()));
+    using storage_policy = void;
+    using index_type = typename mdspan_type::index_type;
+
+    CopyReadTensorView(source_type const& span, BackendSelector const& selector)
+        : span_(make_const_copy_mdspan(span)), selector_(std::addressof(selector))
+    {}
+
+    [[nodiscard]] auto mdspan() const& -> mdspan_type const& { return span_; }
+
+    [[nodiscard]] auto device_mdspan() const& -> mdspan_type const& { return span_; }
+
+    [[nodiscard]] auto backend_selector() const -> BackendSelector const& { return *selector_; }
+
+    [[nodiscard]] auto extents() const -> typename mdspan_type::extents_type const& { return span_.extents(); }
+
+    [[nodiscard]] index_type extent(std::size_t axis) const { return span_.extent(axis); }
+
+  private:
+    mdspan_type span_;
+    BackendSelector const* selector_;
+};
+
+/// \brief Mutable TensorView facade for explicit-selector bare-mdspan copy.
+template <MutableMdspanLike Span, class BackendSelector> class CopyWriteTensorView {
+  public:
+    using mdspan_type = std::remove_cvref_t<Span>;
+    using const_mdspan_type = decltype(make_const_copy_mdspan(std::declval<mdspan_type const&>()));
+    using storage_policy = void;
+    using index_type = typename mdspan_type::index_type;
+
+    CopyWriteTensorView(mdspan_type& span, BackendSelector const& selector)
+        : span_(std::addressof(span)), const_span_(make_const_copy_mdspan(span)), selector_(std::addressof(selector))
+    {}
+
+    [[nodiscard]] auto mdspan() & -> mdspan_type& { return *span_; }
+
+    [[nodiscard]] auto mdspan() const& -> const_mdspan_type const& { return const_span_; }
+
+    [[nodiscard]] auto device_mdspan() & -> mdspan_type& { return *span_; }
+
+    [[nodiscard]] auto device_mdspan() const& -> const_mdspan_type const& { return const_span_; }
+
+    [[nodiscard]] auto backend_selector() const -> BackendSelector const& { return *selector_; }
+
+    [[nodiscard]] auto extents() const -> typename mdspan_type::extents_type const& { return span_->extents(); }
+
+    [[nodiscard]] index_type extent(std::size_t axis) const { return span_->extent(axis); }
+
+  private:
+    mdspan_type* span_;
+    const_mdspan_type const_span_;
+    BackendSelector const* selector_;
+};
 } // namespace detail
 
 /// \brief Copy between fixed-shape mdspan-like operands through an explicit selector.
 /// \details Accessor semantics are observed by the selected backend, so a
 ///          conjugating input remains a lazy view until this explicit copy.
+///          The operands are adapted to immediate tensor views before entering
+///          operation-tag dispatch.
 /// \pre Input and output do not destructively overlap.
 template <class BackendSelector, class OutputMdspan, class InputMdspan>
   requires detail::CopySpans<OutputMdspan, InputMdspan>
 void copy(BackendSelector&& selector, OutputMdspan&& output, InputMdspan&& input)
 {
   ERROR_IF(!detail::copy_extents_match(output, input), "copy output shape does not match input shape");
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{},
-                          std::forward<OutputMdspan>(output), std::forward<InputMdspan>(input));
+  using selector_type = std::remove_cvref_t<BackendSelector>;
+  using output_type = std::remove_cvref_t<OutputMdspan>;
+  using input_type = std::remove_cvref_t<InputMdspan>;
+  detail::CopyWriteTensorView<output_type, selector_type> output_view{output, selector};
+  detail::CopyReadTensorView<input_type, selector_type> input_view{input, selector};
+  static_assert(MutableTensorView<decltype(output_view)>);
+  static_assert(TensorView<decltype(input_view)>);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_view, input_view);
 }
 
 /// \brief Copy into a resizable or already-compatible tensor through an explicit selector.

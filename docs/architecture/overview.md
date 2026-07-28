@@ -33,7 +33,8 @@ graph TD
         Presentation[Presentation and structured diagnostics]
     end
 
-    subgraph Leaf[Resolved dense operands and kernels]
+    subgraph Leaf[Backend lowering and dense kernels]
+        Lower[Selected backend acquisition and lowering]
         Mdspan[mdspan layouts and accessors]
         Cpu[CPU reference kernels]
         Blas[BLAS kernels]
@@ -62,7 +63,8 @@ graph TD
     TensorAD -.-> AD
     TensorAD -.-> TensorOps
 
-    Dispatch --> Mdspan
+    Dispatch --> Lower
+    Lower --> Mdspan
     Mdspan --> Cpu
     Mdspan --> Blas
     Mdspan --> Lapack
@@ -90,9 +92,10 @@ operations share one kernel path:
 Tensor front end
   -> output shape, ownership, and storage policy
   -> backend selector
-  -> resolved mdspan operands
-  -> operation-tag dispatch
-  -> CPU, BLAS, or LAPACK kernel
+  -> operation-tag dispatch over TensorView / DeviceTensorView operands
+  -> selected CPU, BLAS, LAPACK, or CUDA backend
+  -> execution-domain mdspan lowering
+  -> provider API or lower-level Uni20 kernel
 ```
 
 An Async wrapper enrolls epochs, schedules a coroutine, awaits stored Tensor
@@ -105,8 +108,10 @@ than a private dense backend.
 
 ## Important Boundaries
 
-- Tensor storage, views, and operation output policy are resolved before leaf
-  kernels receive mdspans.
+- Operation-tag dispatch receives tensor views. The selected backend owns
+  execution-domain acquisition and mdspan lowering.
+- Provider APIs and lower-level Uni20 module kernels may receive resolved
+  mdspans; they sit below the operation-tag dispatch boundary.
 - Mdspan accessors carry value semantics. A pointer-shaped handle alone does not
   authorize direct BLAS/LAPACK access.
 - Async owns causal ordering and lifetime. A future CUDA event or MPI request is

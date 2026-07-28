@@ -177,7 +177,7 @@ then forms an lvalue reference while preserving cv-qualification.
 
 ## Why Tensor policy is outside the dispatcher
 
-Kernel dispatch is deliberately fixed-output and descriptor-oriented. A Tensor
+Kernel dispatch is deliberately fixed-output and tensor-view-oriented. A Tensor
 operation may need to:
 
 - construct or resize an output;
@@ -188,9 +188,11 @@ operation may need to:
 
 Those are operation semantics, not backend selection.
 
-The Tensor wrapper resolves those decisions first and then passes mdspans or other
-kernel descriptors into the dispatcher. This keeps the same backend implementation
-usable from synchronous and coroutine-aware front ends.
+The Tensor wrapper resolves those decisions first and then passes `TensorView` or
+`DeviceTensorView` operands into the dispatcher. The selected backend acquires and
+lowers those views to execution-domain mdspans before calling a provider API or a
+lower-level Uni20 module. This keeps the same backend implementation usable from
+synchronous and coroutine-aware front ends.
 
 ## Why mdspan accessors are part of eligibility
 

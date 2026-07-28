@@ -30,13 +30,15 @@ The implemented dense GEMM and GEMV paths use a strict layer split:
    structure, and a default backend selector.
 2. **Backend dispatch** selects a backend from an operation tag plus a backend
    selector derived from tensor storage policy.
-3. **Leaf kernels** operate on resolved mdspan-like views. At this level the
-   backend has already been selected, and the only remaining job is to run the
-   kernel on handles, extents, strides, and accessors.
+3. **Backend lowering** acquires or interprets those tensor views in the selected
+   execution domain and produces resolved mdspan-like views.
+4. **Leaf kernels** are provider calls or lower-level Uni20 module functions.
+   They run on handles, extents, strides, accessors, or provider descriptors and
+   do not participate in the operation-tag dispatch walk.
 
-A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a leaf kernel
-but is not sufficient for top-level Uni20 dispatch. It does not carry the
-storage policy needed to derive the default backend stack.
+A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a lower-level
+kernel but is not an operation-dispatch operand. It does not carry the tensor-level
+acquisition and backend-selection contract.
 
 For local dense tensors, the tensor-level concepts are intentionally not
 mdspan-like:
@@ -47,8 +49,9 @@ MutableTensorView = TensorView + writable mdspan() result
 ```
 
 The tensor object itself does not model `MdspanLike`. This keeps policy selection
-at the tensor layer and makes the lowering boundary explicit. A bare mdspan is
-accepted by raw kernels only when the caller supplies a backend selector.
+at the tensor layer and makes the lowering boundary explicit. A public
+bare-mdspan convenience overload may take an explicit selector, but it adapts the
+mdspan to a tensor view before operation dispatch.
 
 ## Type Roles
 
@@ -990,11 +993,13 @@ being raw mdspan descriptors.
 
 ## Tentative Conclusions
 
-- Default-selector dispatch requires tensor-level operands; bare mdspans use an
-  explicit selector.
+- Operation-tag dispatch requires tensor-level operands. Bare-mdspan convenience
+  overloads use an explicit selector and adapt their operands to tensor views
+  before dispatch.
 - `TensorView` and `MutableTensorView` are tensor-level concepts. Their objects
   deliberately do not model `MdspanLike`; they produce resolved mdspans.
-- Leaf kernels should operate on resolved mdspan-like views.
+- Provider APIs and lower-level Uni20 module kernels may operate directly on
+  resolved mdspan-like views; they are below operation-tag dispatch.
 - Storage policy and backend selector should be split: storage provides a
   default backend selector, but non-owning views can carry a selector/domain
   without owning storage.
