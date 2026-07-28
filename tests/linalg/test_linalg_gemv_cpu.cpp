@@ -75,7 +75,7 @@ TEST(CpuGemvBackendTest, TensorOperandsAcceptExplicitSelector)
   EXPECT_DOUBLE_EQ(output[1], 18.0);
 }
 
-TEST(CpuGemvBackendTest, DeferredTensorOperandsUseBlockingLeases)
+TEST(CpuGemvBackendTest, DeferredTensorOperandsUseHostLeases)
 {
   uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
   uni20::test::DeferredHostTensor<double, 1> input(2);

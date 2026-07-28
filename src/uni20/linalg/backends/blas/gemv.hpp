@@ -45,17 +45,17 @@ KernelAttempt try_kernel(BlasBackend, gemv_op const&, OutputMdspan&& output, Sca
                                        std::forward<InputMdspan>(input), beta);
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView BLAS GEMV.
+/// \brief Report eligibility for host DeviceTensorView BLAS GEMV.
 template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
           uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<MatrixTensor> &&
-           uni20::detail::BlockingReadableTensor<InputTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<MatrixTensor> &&
+           uni20::detail::HostReadableTensor<InputTensor>
 consteval auto kernel_accepts_types(BlasBackend const&, gemv_op const&, OutputTensor&, Scalar const&, MatrixTensor&,
                                     InputTensor&, Scalar const&)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
-  using matrix_span = uni20::detail::blocking_read_tensor_mdspan_t<MatrixTensor>;
-  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using matrix_span = uni20::detail::host_read_tensor_mdspan_t<MatrixTensor>;
+  using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<BlasBackend, gemv_op, output_span&, Scalar const&,
                                                               matrix_span&, input_span&, Scalar const&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -64,17 +64,17 @@ consteval auto kernel_accepts_types(BlasBackend const&, gemv_op const&, OutputTe
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and try BLAS GEMV.
+/// \brief Resolve host tensor access and try BLAS GEMV.
 template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
           uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<MatrixTensor> &&
-           uni20::detail::BlockingReadableTensor<InputTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<MatrixTensor> &&
+           uni20::detail::HostReadableTensor<InputTensor>
 KernelAttempt try_kernel(BlasBackend backend, gemv_op const& op, OutputTensor& output, Scalar alpha,
                          MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
-  auto output_access = blocking_write_access(output);
-  auto matrix_access = blocking_read_access(matrix);
-  auto input_access = blocking_read_access(input);
+  auto output_access = acquire_host_write_access(output);
+  auto matrix_access = acquire_host_read_access(matrix);
+  auto input_access = acquire_host_read_access(input);
   auto output_span = output_access.mdspan();
   auto matrix_span = matrix_access.mdspan();
   auto input_span = input_access.mdspan();

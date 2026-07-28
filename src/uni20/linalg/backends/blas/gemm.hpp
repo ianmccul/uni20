@@ -49,14 +49,14 @@ KernelAttempt try_kernel(BlasBackend, gemm_op const&, OutputMdspan&& output, Sca
 /// \brief Report BLAS eligibility for DeviceTensorView GEMM operands.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
-           uni20::detail::BlockingReadableTensor<RhsTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
+           uni20::detail::HostReadableTensor<RhsTensor>
 consteval auto kernel_accepts_types(BlasBackend const&, gemm_op const&, OutputTensor&, Scalar const&, LhsTensor&,
                                     RhsTensor&, Scalar const&)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
-  using lhs_span = uni20::detail::blocking_read_tensor_mdspan_t<LhsTensor>;
-  using rhs_span = uni20::detail::blocking_read_tensor_mdspan_t<RhsTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<BlasBackend, gemm_op, output_span&, Scalar const&,
                                                               lhs_span&, rhs_span&, Scalar const&>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
@@ -70,14 +70,14 @@ consteval auto kernel_accepts_types(BlasBackend const&, gemm_op const&, OutputTe
 /// \brief Lower DeviceTensorView operands and invoke the BLAS GEMM adapter.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
-           uni20::detail::BlockingReadableTensor<RhsTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
+           uni20::detail::HostReadableTensor<RhsTensor>
 KernelAttempt try_kernel(BlasBackend backend, gemm_op const& op, OutputTensor& output, Scalar alpha,
                          LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_access = blocking_write_access(output);
-  auto lhs_access = blocking_read_access(lhs);
-  auto rhs_access = blocking_read_access(rhs);
+  auto output_access = acquire_host_write_access(output);
+  auto lhs_access = acquire_host_read_access(lhs);
+  auto rhs_access = acquire_host_read_access(rhs);
   auto output_span = output_access.mdspan();
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();

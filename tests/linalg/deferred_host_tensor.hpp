@@ -101,7 +101,7 @@ template <class Element, std::size_t Rank, class Layout = stdex::layout_left> cl
 };
 
 template <class Element, std::size_t Rank, class Layout>
-[[nodiscard]] auto blocking_read_access(DeferredHostTensor<Element, Rank, Layout> const& tensor)
+[[nodiscard]] auto acquire_host_read_access(DeferredHostTensor<Element, Rank, Layout> const& tensor)
 {
   using tensor_type = DeferredHostTensor<Element, Rank, Layout>;
   using lease_type =
@@ -114,7 +114,7 @@ template <class Element, std::size_t Rank, class Layout>
 }
 
 template <class Element, std::size_t Rank, class Layout>
-[[nodiscard]] auto blocking_write_access(DeferredHostTensor<Element, Rank, Layout>& tensor)
+[[nodiscard]] auto acquire_host_write_access(DeferredHostTensor<Element, Rank, Layout>& tensor)
 {
   using tensor_type = DeferredHostTensor<Element, Rank, Layout>;
   using lease_type =
@@ -132,7 +132,7 @@ template <class Element, std::size_t Rank, class Layout>
 static_assert(DeviceTensorView<DeferredHostTensor<double, 2>>);
 static_assert(MutableDeviceTensorView<DeferredHostTensor<double, 2>>);
 static_assert(!TensorView<DeferredHostTensor<double, 2>>);
-static_assert(detail::BlockingReadableTensor<DeferredHostTensor<double, 2>>);
-static_assert(detail::BlockingWritableTensor<DeferredHostTensor<double, 2>>);
+static_assert(detail::HostReadableTensor<DeferredHostTensor<double, 2>>);
+static_assert(detail::HostWritableTensor<DeferredHostTensor<double, 2>>);
 
 } // namespace uni20::test

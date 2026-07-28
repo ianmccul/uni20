@@ -389,6 +389,24 @@ concept ReadTensorLease =
 template <class Lease>
 concept WriteTensorLease = ReadTensorLease<Lease> && MutableTensorView<Lease>;
 
+/// \brief Read lease whose resolved mdspan is directly host-accessible.
+template <class Lease>
+concept HostReadTensorLease = ReadTensorLease<Lease> && HostAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
+/// \brief Write lease whose resolved mutable mdspan is directly host-accessible.
+template <class Lease>
+concept HostWriteTensorLease =
+    WriteTensorLease<Lease> && HostAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
+/// \brief Read lease whose resolved mdspan is directly CUDA-accessible.
+template <class Lease>
+concept CudaReadTensorLease = ReadTensorLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
+/// \brief Write lease whose resolved mutable mdspan is directly CUDA-accessible.
+template <class Lease>
+concept CudaWriteTensorLease =
+    WriteTensorLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
 /// \brief Always-ready awaitable that transfers one tensor access lease.
 template <class Lease> class ready_tensor_access {
   public:
@@ -411,69 +429,77 @@ template <class Lease> class ready_tensor_access {
     lease_type lease_;
 };
 
-/// \brief Acquire an immediate tensor view for read-only use.
-template <TensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor& tensor)
+/// \brief Acquire an immediately host-accessible tensor view for read-only use.
+template <TensorView Tensor>
+  requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
+[[nodiscard]] auto acquire_host_read_access(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
   return detail::borrowed_read_tensor_lease<tensor_type>{tensor};
 }
 
-/// \brief Acquire an immediate mutable tensor view.
-template <MutableTensorView Tensor> [[nodiscard]] auto blocking_write_access(Tensor& tensor)
+/// \brief Acquire an immediately host-accessible mutable tensor view.
+template <MutableTensorView Tensor>
+  requires HostAccessibleMdspan<mutable_tensor_mdspan_t<Tensor>>
+[[nodiscard]] auto acquire_host_write_access(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
   return detail::borrowed_write_tensor_lease<tensor_type>{tensor};
 }
 
-/// \brief Return an immediately-ready read acquisition for an immediate TensorView.
-template <TensorView Tensor> [[nodiscard]] auto read_access(Tensor& tensor)
+/// \brief Return an immediately-ready host read acquisition.
+template <TensorView Tensor>
+  requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
+[[nodiscard]] auto acquire_host_read_access_async(Tensor& tensor)
 {
-  return ready_tensor_access{blocking_read_access(tensor)};
+  return ready_tensor_access{acquire_host_read_access(tensor)};
 }
 
-/// \brief Return an immediately-ready write acquisition for an immediate mutable TensorView.
-template <MutableTensorView Tensor> [[nodiscard]] auto write_access(Tensor& tensor)
+/// \brief Return an immediately-ready host write acquisition.
+template <MutableTensorView Tensor>
+  requires HostAccessibleMdspan<mutable_tensor_mdspan_t<Tensor>>
+[[nodiscard]] auto acquire_host_write_access_async(Tensor& tensor)
 {
-  return ready_tensor_access{blocking_write_access(tensor)};
+  return ready_tensor_access{acquire_host_write_access(tensor)};
 }
 
 namespace detail
 {
 
-/// \brief Blocking read lease type obtained from a device tensor view.
+/// \brief Host read lease type obtained from a device tensor view.
 template <class Tensor>
-using blocking_read_tensor_lease_t = decltype(blocking_read_access(std::declval<Tensor const&>()));
+using host_read_tensor_lease_t = decltype(acquire_host_read_access(std::declval<Tensor const&>()));
 
-/// \brief Blocking write lease type obtained from a mutable device tensor view.
-template <class Tensor> using blocking_write_tensor_lease_t = decltype(blocking_write_access(std::declval<Tensor&>()));
+/// \brief Host write lease type obtained from a mutable device tensor view.
+template <class Tensor> using host_write_tensor_lease_t = decltype(acquire_host_write_access(std::declval<Tensor&>()));
 
-/// \brief Read-only mdspan type resolved by blocking tensor acquisition.
+/// \brief Read-only mdspan type resolved by host tensor acquisition.
 template <class Tensor>
-using blocking_read_tensor_mdspan_t =
-    std::remove_cvref_t<decltype(std::declval<blocking_read_tensor_lease_t<Tensor>&>().mdspan())>;
+using host_read_tensor_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<host_read_tensor_lease_t<Tensor>&>().mdspan())>;
 
-/// \brief Writable mdspan type resolved by blocking tensor acquisition.
+/// \brief Writable mdspan type resolved by host tensor acquisition.
 template <class Tensor>
-using blocking_write_tensor_mdspan_t =
-    std::remove_cvref_t<decltype(std::declval<blocking_write_tensor_lease_t<Tensor>&>().mdspan())>;
+using host_write_tensor_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<host_write_tensor_lease_t<Tensor>&>().mdspan())>;
 
-/// \brief Device tensor view supporting blocking read acquisition.
+/// \brief Device tensor view supporting host read acquisition.
 template <class Tensor>
-concept BlockingReadableTensor = DeviceTensorView<Tensor> && requires(Tensor const& tensor) {
-  { blocking_read_access(tensor) } -> ReadTensorLease;
+concept HostReadableTensor = DeviceTensorView<Tensor> && requires(Tensor const& tensor) {
+  { acquire_host_read_access(tensor) } -> HostReadTensorLease;
 };
 
-/// \brief Mutable device tensor view supporting blocking write acquisition.
+/// \brief Mutable device tensor view supporting host write acquisition.
 template <class Tensor>
-concept BlockingWritableTensor = MutableDeviceTensorView<Tensor> && requires(Tensor& tensor) {
-  { blocking_write_access(tensor) } -> WriteTensorLease;
+concept HostWritableTensor = MutableDeviceTensorView<Tensor> && requires(Tensor& tensor) {
+  { acquire_host_write_access(tensor) } -> HostWriteTensorLease;
 };
 
-/// \brief Invoke a callable with writable mdspans resolved under simultaneous leases.
-template <class Function, BlockingWritableTensor... Tensors>
-decltype(auto) with_blocking_write_tensor_mdspans(Function&& function, Tensors&... tensors)
+/// \brief Invoke a callable with host-writable mdspans under simultaneous leases.
+template <class Function, HostWritableTensor... Tensors>
+decltype(auto) with_host_write_tensor_mdspans(Function&& function, Tensors&... tensors)
 {
-  auto accesses = std::tuple{blocking_write_access(tensors)...};
+  auto accesses = std::tuple{acquire_host_write_access(tensors)...};
   return std::apply(
       [&](auto&... access) -> decltype(auto) {
         auto mdspans = std::tuple{access.mdspan()...};

@@ -26,7 +26,7 @@ template <class ElementType> struct IsCudaBufferView<cuda::CudaBufferView<Elemen
 {};
 
 template <class Span>
-concept CudaBufferDeviceMdspan = DeviceMdspanLike<Span> && requires {
+concept CudaBufferDeviceMdspan = CudaAccessibleDeviceMdspan<Span> && requires {
   typename std::remove_cvref_t<Span>::data_descriptor_type;
 } && IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
 
@@ -91,11 +91,12 @@ template <class StoragePolicy, class DeviceSpan, class ConstDeviceSpan, class Ac
 
 } // namespace detail
 
-/// \brief Host-wait for prior CUDA work and acquire a read-only TensorView lease.
+/// \brief Host-wait for prior CUDA work and acquire a CUDA-accessible read lease.
+/// \details Synchronization does not copy or otherwise make the data host-accessible.
 template <class Tensor>
   requires DeviceTensorView<Tensor> &&
            (!TensorView<Tensor>) && detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>>
-[[nodiscard]] auto blocking_read_access(Tensor& tensor)
+[[nodiscard]] auto acquire_cuda_read_access_sync(Tensor& tensor)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
   detail::validate_cuda_descriptor_range(device_span);
@@ -105,7 +106,7 @@ template <class Tensor>
       std::move(device_span), element_offset, std::move(state), tensor.backend_selector());
 }
 
-/// \brief Move an owning CUDA tensor into a blocking read lease.
+/// \brief Move an owning CUDA tensor into a synchronized CUDA read lease.
 template <class Tensor>
   requires(!std::is_lvalue_reference_v<Tensor>) && DeviceTensorView<std::remove_cvref_t<Tensor>> &&
           (!TensorView<std::remove_cvref_t<Tensor>>) && OwningTensor<std::remove_cvref_t<Tensor>> &&
@@ -113,7 +114,7 @@ template <class Tensor>
           requires(Tensor&& tensor) {
             { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
           }
-[[nodiscard]] auto blocking_read_access(Tensor&& tensor)
+[[nodiscard]] auto acquire_cuda_read_access_sync(Tensor&& tensor)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
   detail::validate_cuda_descriptor_range(device_span);
@@ -125,12 +126,13 @@ template <class Tensor>
       std::move(device_span), element_offset, std::move(state), std::move(selector));
 }
 
-/// \brief Host-wait for prior CUDA work and acquire a mutable TensorView lease.
+/// \brief Host-wait for prior CUDA work and acquire a CUDA-accessible write lease.
+/// \details Synchronization does not copy or otherwise make the data host-accessible.
 template <class Tensor>
   requires MutableDeviceTensorView<Tensor> && (!MutableTensorView<Tensor>) &&
            detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>> &&
            detail::CudaBufferDeviceMdspan<detail::normalized_mutable_device_mdspan_t<Tensor>>
-[[nodiscard]] auto blocking_write_access(Tensor& tensor)
+[[nodiscard]] auto acquire_cuda_write_access_sync(Tensor& tensor)
 {
   auto device_span = tensor.device_mdspan();
   auto const_device_span = std::as_const(tensor).device_mdspan();
@@ -148,7 +150,7 @@ template <class Tensor>
 template <class Tensor>
   requires DeviceTensorView<Tensor> &&
            (!TensorView<Tensor>) && detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>>
-[[nodiscard]] auto read_access(Tensor& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_read_access(Tensor& tensor, cuda::Stream const& stream)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
   detail::validate_cuda_descriptor_range(device_span);
@@ -166,7 +168,7 @@ template <class Tensor>
           requires(Tensor&& tensor) {
             { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
           }
-[[nodiscard]] auto read_access(Tensor&& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_read_access(Tensor&& tensor, cuda::Stream const& stream)
 {
   auto device_span = std::as_const(tensor).device_mdspan();
   detail::validate_cuda_descriptor_range(device_span);
@@ -183,7 +185,7 @@ template <class Tensor>
   requires MutableDeviceTensorView<Tensor> && (!MutableTensorView<Tensor>) &&
            detail::CudaBufferDeviceMdspan<detail::normalized_const_device_mdspan_t<Tensor>> &&
            detail::CudaBufferDeviceMdspan<detail::normalized_mutable_device_mdspan_t<Tensor>>
-[[nodiscard]] auto write_access(Tensor& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_write_access(Tensor& tensor, cuda::Stream const& stream)
 {
   auto device_span = tensor.device_mdspan();
   auto const_device_span = std::as_const(tensor).device_mdspan();

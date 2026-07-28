@@ -512,26 +512,25 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
                                   right_leading_dimension);
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView SVD operands.
+/// \brief Report eligibility for host DeviceTensorView SVD operands.
 template <lapack_detail::SvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
-  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+  requires(uni20::detail::HostWritableTensor<Tensors> && ...)
 consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Tensors&...)
 {
-  constexpr auto acceptance =
-      detail::backend_type_acceptance<LapackBackend, Operation,
-                                      uni20::detail::blocking_write_tensor_mdspan_t<Tensors>&...>();
+  constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, Operation,
+                                                              uni20::detail::host_write_tensor_mdspan_t<Tensors>&...>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
   else
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run a LAPACK SVD operation.
+/// \brief Resolve host tensor access and run a LAPACK SVD operation.
 template <lapack_detail::SvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
-  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+  requires(uni20::detail::HostWritableTensor<Tensors> && ...)
 KernelAttempt try_kernel(LapackBackend backend, Operation const& operation, Tensors&... tensors)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto&... spans) { return try_kernel(backend, operation, spans...); }, tensors...);
 }
 

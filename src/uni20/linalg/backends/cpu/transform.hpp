@@ -214,32 +214,30 @@ KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> con
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView overwrite transforms.
+/// \brief Report eligibility for host DeviceTensorView overwrite transforms.
 template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
-           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputTensor&,
                                     InputTensors&...)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<CpuReferenceBackend, transform_op<Function>, output_span&,
-                                      uni20::detail::blocking_read_tensor_mdspan_t<InputTensors>&...>();
+                                      uni20::detail::host_read_tensor_mdspan_t<InputTensors>&...>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Resolve blocking tensor access and apply an overwrite transform.
+/// \brief Resolve host tensor access and apply an overwrite transform.
 template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
-           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
 KernelAttempt try_kernel(CpuReferenceBackend backend, transform_op<Function> const& operation, OutputTensor& output,
                          InputTensors const&... inputs)
 {
-  auto output_access = blocking_write_access(output);
-  auto input_accesses = std::tuple{blocking_read_access(inputs)...};
+  auto output_access = acquire_host_write_access(output);
+  auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();
@@ -248,32 +246,30 @@ KernelAttempt try_kernel(CpuReferenceBackend backend, transform_op<Function> con
       input_accesses);
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView update transforms.
+/// \brief Report eligibility for host DeviceTensorView update transforms.
 template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
-           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputTensor&,
                                     InputTensors&...)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<CpuReferenceBackend, transform_inplace_op<Function>, output_span&,
-                                      uni20::detail::blocking_read_tensor_mdspan_t<InputTensors>&...>();
+                                      uni20::detail::host_read_tensor_mdspan_t<InputTensors>&...>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Resolve blocking tensor access and apply an update transform.
+/// \brief Resolve host tensor access and apply an update transform.
 template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> &&
-           (uni20::detail::BlockingReadableTensor<InputTensors> && ...)
+  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
 KernelAttempt try_kernel(CpuReferenceBackend backend, transform_inplace_op<Function> const& operation,
                          OutputTensor& output, InputTensors const&... inputs)
 {
-  auto output_access = blocking_write_access(output);
-  auto input_accesses = std::tuple{blocking_read_access(inputs)...};
+  auto output_access = acquire_host_write_access(output);
+  auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();

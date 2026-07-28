@@ -67,6 +67,33 @@ concept AccessorPolicy = requires {
   { a.access(dh, off) } -> std::same_as<typename AP::reference>;
 };
 
+/// \brief Execution domain in which ordinary host code may evaluate an accessor.
+struct host_access_domain
+{};
+
+/// \brief Execution domain in which CUDA device code may evaluate an accessor.
+struct cuda_access_domain
+{};
+
+/// \brief Opt-in customization for the execution domains supported by an accessor.
+/// \details Specializations must describe where `access(...)` may be evaluated,
+///          independently of whether `data_handle_type` is pointer-shaped.
+/// \tparam Accessor Accessor policy being classified.
+/// \tparam Domain Execution-domain tag.
+template <class Accessor, class Domain> inline constexpr bool enable_accessor_in_domain = false;
+
+/// \brief Standard mdspan accessors are directly host-accessible.
+template <class ElementType>
+inline constexpr bool enable_accessor_in_domain<stdex::default_accessor<ElementType>, host_access_domain> = true;
+
+/// \concept AccessorInDomain
+/// \brief Accessor policy explicitly valid in one execution domain.
+/// \tparam Accessor Accessor policy being tested.
+/// \tparam Domain Execution-domain tag.
+template <class Accessor, class Domain>
+concept AccessorInDomain = AccessorPolicy<std::remove_cvref_t<Accessor>> &&
+                           enable_accessor_in_domain<std::remove_cvref_t<Accessor>, std::remove_cvref_t<Domain>>;
+
 /// \brief Adaptor that exposes a mutable lvalue accessor as read-only.
 /// \details Example: to turn a mutable accessor returning \c T& into a read-only
 ///          accessor returning \c T const&, use
@@ -94,6 +121,11 @@ class const_accessor_adaptor {
   private:
     Accessor wrapped_;
 };
+
+/// \brief A const accessor adaptor preserves its wrapped accessor's execution domains.
+template <class Accessor, class Domain>
+inline constexpr bool enable_accessor_in_domain<const_accessor_adaptor<Accessor>, Domain> =
+    enable_accessor_in_domain<Accessor, Domain>;
 
 //
 // const_accessor overloads: build a read-only accessor from a mutable one.
@@ -251,6 +283,34 @@ concept MdspanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail
 template <class S>
 concept DeviceMdspanLike = MdspanLike<S> || (detail::DeviceSpanDescriptor<S> &&
                                              AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
+
+/// \concept HostAccessibleMdspan
+/// \brief Mdspan whose accessor may be evaluated directly by host code.
+/// \tparam S Mdspan-like type being tested.
+template <class S>
+concept HostAccessibleMdspan =
+    MdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, host_access_domain>;
+
+/// \concept CudaAccessibleMdspan
+/// \brief Mdspan whose accessor may be evaluated directly by CUDA device code.
+/// \tparam S Mdspan-like type being tested.
+template <class S>
+concept CudaAccessibleMdspan =
+    MdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, cuda_access_domain>;
+
+/// \concept HostAccessibleDeviceMdspan
+/// \brief Immediate or descriptor-backed mdspan metadata targeting host access.
+/// \tparam S Device-mdspan-like type being tested.
+template <class S>
+concept HostAccessibleDeviceMdspan =
+    DeviceMdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, host_access_domain>;
+
+/// \concept CudaAccessibleDeviceMdspan
+/// \brief Immediate or descriptor-backed mdspan metadata targeting CUDA access.
+/// \tparam S Device-mdspan-like type being tested.
+template <class S>
+concept CudaAccessibleDeviceMdspan =
+    DeviceMdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, cuda_access_domain>;
 
 namespace detail
 {

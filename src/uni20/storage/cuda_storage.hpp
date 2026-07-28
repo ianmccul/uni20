@@ -98,6 +98,20 @@ template <class ElementType> struct CudaPointerAccessor
     }
 };
 
+} // namespace uni20::cuda
+
+namespace uni20
+{
+
+/// \brief CUDA pointer accessors are valid only in the CUDA execution domain.
+template <class ElementType>
+inline constexpr bool enable_accessor_in_domain<cuda::CudaPointerAccessor<ElementType>, cuda_access_domain> = true;
+
+} // namespace uni20
+
+namespace uni20::cuda
+{
+
 /// \brief Factory that resolves CUDA accessors for Tensor descriptors.
 struct CudaAccessorFactory
 {

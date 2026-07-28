@@ -104,6 +104,21 @@ template <class Function, MdspanLike... Spans> class transform_accessor {
 
 } // namespace detail
 
+/// \brief A unary transform is accessible wherever its wrapped span is accessible.
+template <class Function, MdspanLike Span, class Domain>
+inline constexpr bool enable_accessor_in_domain<detail::unary_transform_accessor<Function, Span>, Domain> =
+    enable_accessor_in_domain<typename Span::accessor_type, Domain>;
+
+/// \brief A multi-input transform is host-accessible when every wrapped span is.
+template <class Function, MdspanLike... Spans>
+inline constexpr bool enable_accessor_in_domain<detail::transform_accessor<Function, Spans...>, host_access_domain> =
+    (enable_accessor_in_domain<typename Spans::accessor_type, host_access_domain> && ...);
+
+/// \brief A multi-input transform is CUDA-accessible when every wrapped span is.
+template <class Function, MdspanLike... Spans>
+inline constexpr bool enable_accessor_in_domain<detail::transform_accessor<Function, Spans...>, cuda_access_domain> =
+    (enable_accessor_in_domain<typename Spans::accessor_type, cuda_access_domain> && ...);
+
 /// \brief Create a lazy read-only unary transform view while preserving the input mapping.
 template <class Function, MdspanLike Span>
 [[nodiscard]] constexpr auto transform_view(Function&& function, Span const& span)

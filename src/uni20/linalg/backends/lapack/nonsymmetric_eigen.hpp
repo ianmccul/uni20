@@ -186,16 +186,15 @@ KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& op, MatrixM
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView nonsymmetric eigenanalysis.
+/// \brief Report eligibility for host DeviceTensorView nonsymmetric eigenanalysis.
 template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
           uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
-  requires uni20::detail::BlockingWritableTensor<MatrixTensor> &&
-           uni20::detail::BlockingWritableTensor<RightEigenvectorTensor>
+  requires uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<RightEigenvectorTensor>
 consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixTensor&,
                                     std::span<EigenScalar>&, RightEigenvectorTensor&)
 {
-  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
-  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<RightEigenvectorTensor>;
+  using matrix_span = uni20::detail::host_write_tensor_mdspan_t<MatrixTensor>;
+  using vector_span = uni20::detail::host_write_tensor_mdspan_t<RightEigenvectorTensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, nonsymmetric_eigen_op, matrix_span&,
                                                               std::span<EigenScalar>&, vector_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -204,15 +203,14 @@ consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op 
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run LAPACK nonsymmetric eigenanalysis.
+/// \brief Resolve host tensor access and run LAPACK nonsymmetric eigenanalysis.
 template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
           uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
-  requires uni20::detail::BlockingWritableTensor<MatrixTensor> &&
-           uni20::detail::BlockingWritableTensor<RightEigenvectorTensor>
+  requires uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<RightEigenvectorTensor>
 KernelAttempt try_kernel(LapackBackend backend, nonsymmetric_eigen_op const& operation, MatrixTensor& matrix_work,
                          std::span<EigenScalar> eigenvalues, RightEigenvectorTensor& right_eigenvectors)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         return try_kernel(backend, operation, matrix_span, eigenvalues, vector_span);
       },

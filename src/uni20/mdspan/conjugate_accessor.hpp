@@ -80,6 +80,11 @@ class conjugated_accessor {
 template <AccessorPolicy Accessor> struct accessor_applies_conjugation<conjugated_accessor<Accessor>> : std::true_type
 {};
 
+/// \brief Conjugation preserves the execution domains of the wrapped accessor.
+template <AccessorPolicy Accessor, class Domain>
+inline constexpr bool enable_accessor_in_domain<conjugated_accessor<Accessor>, Domain> =
+    enable_accessor_in_domain<Accessor, Domain>;
+
 /// \brief Return a read-only mdspan view that presents conjugated complex values.
 template <MdspanLike Span>
   requires(uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&

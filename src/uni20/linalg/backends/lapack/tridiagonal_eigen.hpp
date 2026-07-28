@@ -88,13 +88,13 @@ KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& op
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for a blocking DeviceTensorView tridiagonal eigensystem.
+/// \brief Report eligibility for a host DeviceTensorView tridiagonal eigensystem.
 template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
-  requires uni20::detail::BlockingWritableTensor<EigenvectorTensor>
+  requires uni20::detail::HostWritableTensor<EigenvectorTensor>
 consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
                                     std::span<Scalar>&, EigenvectorTensor&)
 {
-  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<EigenvectorTensor>;
+  using vector_span = uni20::detail::host_write_tensor_mdspan_t<EigenvectorTensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, symmetric_tridiagonal_eigen_op,
                                                               std::span<Scalar>&, std::span<Scalar>&, vector_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -103,13 +103,13 @@ consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run LAPACK tridiagonal eigenanalysis.
+/// \brief Resolve host tensor access and run LAPACK tridiagonal eigenanalysis.
 template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
-  requires uni20::detail::BlockingWritableTensor<EigenvectorTensor>
+  requires uni20::detail::HostWritableTensor<EigenvectorTensor>
 KernelAttempt try_kernel(LapackBackend backend, symmetric_tridiagonal_eigen_op const& operation,
                          std::span<Scalar> diagonal, std::span<Scalar> subdiagonal, EigenvectorTensor& eigenvectors)
 {
-  auto access = blocking_write_access(eigenvectors);
+  auto access = acquire_host_write_access(eigenvectors);
   auto span = access.mdspan();
   return try_kernel(backend, operation, diagonal, subdiagonal, span);
 }

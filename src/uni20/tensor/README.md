@@ -99,13 +99,15 @@ kernels operate on resolved mdspans.
   selected only when no immediate handle is available. Readable and writable
   capabilities are independent.
 - `DeviceTensorView` extends this vocabulary to tensors whose usable data handle
-  requires acquisition. `blocking_read_access` and `blocking_write_access`
-  return RAII TensorViews; immediate lvalue views use borrowed no-op leases and
-  do not need a public `storage()` observer. These immediate leases store only
-  a pointer to the source view and forward its mdspan and metadata. `read_access`
-  and `write_access` provide the awaitable vocabulary. Lease and access-state
-  release is idempotent; moving either transfers the active lifetime and leaves
-  the source inactive. See
+  requires acquisition. Domain-explicit operations such as
+  `acquire_host_read_access` and `acquire_cuda_write_access` return RAII
+  TensorViews whose mdspan accessor is valid in the named execution domain.
+  Immediate host lvalue views use borrowed no-op leases and do not need a
+  public `storage()` observer. These immediate leases store only a pointer to
+  the source view and forward its mdspan and metadata. Acquisition never
+  transfers data between host and CUDA domains; `copy` is the explicit bridge.
+  Lease and access-state release is idempotent; moving either transfers the
+  active lifetime and leaves the source inactive. See
   [Device Mdspan](../../../docs/tensor/device_mdspan.md).
 - `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit

@@ -110,13 +110,13 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for a blocking DeviceTensorView element copy.
+/// \brief Report eligibility for a host DeviceTensorView element copy.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputTensor&, InputTensor&)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
-  using input_span = uni20::detail::blocking_read_tensor_mdspan_t<InputTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<CpuReferenceBackend, copy_op, output_span&, input_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
@@ -125,14 +125,14 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
     return kernel_types_no;
 }
 
-/// \brief Resolve blocking tensor access and copy through the resulting mdspans.
+/// \brief Resolve host tensor access and copy through the resulting mdspans.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-  requires uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<InputTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
 KernelAttempt try_kernel(CpuReferenceBackend backend, copy_op const& operation, OutputTensor& output,
                          InputTensor const& input)
 {
-  auto output_access = blocking_write_access(output);
-  auto input_access = blocking_read_access(input);
+  auto output_access = acquire_host_write_access(output);
+  auto input_access = acquire_host_read_access(input);
   auto output_span = output_access.mdspan();
   auto input_span = input_access.mdspan();
   return try_kernel(backend, operation, output_span, input_span);

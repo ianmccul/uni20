@@ -295,17 +295,16 @@ KernelAttempt try_kernel(LapackBackend, schur_reorder_op const& op, SchurFormMds
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView Schur decomposition.
+/// \brief Report eligibility for host DeviceTensorView Schur decomposition.
 template <class Operation, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
           uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
   requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
-          uni20::detail::BlockingWritableTensor<MatrixTensor> &&
-          uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+          uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<SchurVectorTensor>
 consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, MatrixTensor&, std::span<EigenScalar>&,
                                     SchurVectorTensor&)
 {
-  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
-  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurVectorTensor>;
+  using matrix_span = uni20::detail::host_write_tensor_mdspan_t<MatrixTensor>;
+  using vector_span = uni20::detail::host_write_tensor_mdspan_t<SchurVectorTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<LapackBackend, Operation, matrix_span&, std::span<EigenScalar>&, vector_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -314,31 +313,29 @@ consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Matr
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run a LAPACK Schur decomposition.
+/// \brief Resolve host tensor access and run a LAPACK Schur decomposition.
 template <class Operation, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
           uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
   requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
-          uni20::detail::BlockingWritableTensor<MatrixTensor> &&
-          uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+          uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<SchurVectorTensor>
 KernelAttempt try_kernel(LapackBackend backend, Operation const& operation, MatrixTensor& matrix_work,
                          std::span<EigenScalar> eigenvalues, SchurVectorTensor& schur_vectors)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         return try_kernel(backend, operation, matrix_span, eigenvalues, vector_span);
       },
       matrix_work, schur_vectors);
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView Schur reordering.
+/// \brief Report eligibility for host DeviceTensorView Schur reordering.
 template <uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
           uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
-  requires uni20::detail::BlockingWritableTensor<SchurFormTensor> &&
-           uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+  requires uni20::detail::HostWritableTensor<SchurFormTensor> && uni20::detail::HostWritableTensor<SchurVectorTensor>
 consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const&, SchurFormTensor&, SchurVectorTensor&)
 {
-  using form_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurFormTensor>;
-  using vector_span = uni20::detail::blocking_write_tensor_mdspan_t<SchurVectorTensor>;
+  using form_span = uni20::detail::host_write_tensor_mdspan_t<SchurFormTensor>;
+  using vector_span = uni20::detail::host_write_tensor_mdspan_t<SchurVectorTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<LapackBackend, schur_reorder_op, form_span&, vector_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -347,15 +344,14 @@ consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run LAPACK Schur reordering.
+/// \brief Resolve host tensor access and run LAPACK Schur reordering.
 template <uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
           uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
-  requires uni20::detail::BlockingWritableTensor<SchurFormTensor> &&
-           uni20::detail::BlockingWritableTensor<SchurVectorTensor>
+  requires uni20::detail::HostWritableTensor<SchurFormTensor> && uni20::detail::HostWritableTensor<SchurVectorTensor>
 KernelAttempt try_kernel(LapackBackend backend, schur_reorder_op const& operation, SchurFormTensor& schur_form,
                          SchurVectorTensor& schur_vectors)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto& form_span, auto& vector_span) { return try_kernel(backend, operation, form_span, vector_span); },
       schur_form, schur_vectors);
 }

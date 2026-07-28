@@ -62,12 +62,12 @@ concept NormalOnlySvdOperation =
     std::same_as<Operation, uni20::linalg::svd_left_op> || std::same_as<Operation, uni20::linalg::svd_op>;
 
 template <NormalOnlySvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
-  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+  requires(uni20::detail::HostWritableTensor<Tensors> && ...)
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, Operation const&, Tensors&...)
 {
   constexpr auto acceptance =
       uni20::linalg::detail::backend_type_acceptance<NormalOnlySvdBackend, Operation,
-                                                     uni20::detail::blocking_write_tensor_mdspan_t<Tensors>&...>();
+                                                     uni20::detail::host_write_tensor_mdspan_t<Tensors>&...>();
   if constexpr (acceptance == uni20::linalg::KernelTypeAcceptance::no)
     return uni20::linalg::kernel_types_no;
   else
@@ -75,10 +75,10 @@ consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, Operation const
 }
 
 template <NormalOnlySvdOperation Operation, uni20::MutableDeviceTensorView... Tensors>
-  requires(uni20::detail::BlockingWritableTensor<Tensors> && ...)
+  requires(uni20::detail::HostWritableTensor<Tensors> && ...)
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend backend, Operation const& operation, Tensors&... tensors)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto&... spans) { return try_kernel(backend, operation, spans...); }, tensors...);
 }
 

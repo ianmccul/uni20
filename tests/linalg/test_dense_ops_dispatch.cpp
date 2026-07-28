@@ -94,7 +94,7 @@ TEST(LinalgDenseOpsDispatchTest, MatrixSetAcquiresDeferredWritableStorage)
 
   uni20::linalg::set_matrix(matrix, 4.0, -1.0);
 
-  auto access = uni20::test::blocking_read_access(matrix);
+  auto access = uni20::test::acquire_host_read_access(matrix);
   auto span = access.mdspan();
   for (uni20::index_type row = 0; row < 2; ++row)
     for (uni20::index_type col = 0; col < 3; ++col)

@@ -173,7 +173,7 @@ KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan&& output,
 }
 } // namespace selector_customization_test
 
-namespace blocking_gemm_test
+namespace host_gemm_test
 {
 struct StoragePolicy
 {
@@ -243,18 +243,18 @@ static_assert(uni20::DeviceTensorView<DeferredMatrix>);
 static_assert(uni20::MutableDeviceTensorView<DeferredMatrix>);
 static_assert(!uni20::TensorView<DeferredMatrix>);
 
-[[nodiscard]] auto blocking_read_access(DeferredMatrix const& matrix)
+[[nodiscard]] auto acquire_host_read_access(DeferredMatrix const& matrix)
 {
   ++matrix.counts().reads;
-  return uni20::blocking_read_access(std::as_const(matrix.tensor()));
+  return uni20::acquire_host_read_access(std::as_const(matrix.tensor()));
 }
 
-[[nodiscard]] auto blocking_write_access(DeferredMatrix& matrix)
+[[nodiscard]] auto acquire_host_write_access(DeferredMatrix& matrix)
 {
   ++matrix.counts().writes;
-  return uni20::blocking_write_access(matrix.tensor());
+  return uni20::acquire_host_write_access(matrix.tensor());
 }
-} // namespace blocking_gemm_test
+} // namespace host_gemm_test
 
 struct TryKernelOnlyBackend
 {
@@ -796,10 +796,10 @@ TEST(LinalgGemmDispatchTest, TensorOperandsAcceptExplicitSelectorOverride)
   EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
 }
 
-TEST(LinalgGemmDispatchTest, CpuReferenceAcquiresBlockingTensorAccess)
+TEST(LinalgGemmDispatchTest, CpuReferenceAcquiresHostTensorAccess)
 {
-  using blocking_gemm_test::AccessCounts;
-  using blocking_gemm_test::DeferredMatrix;
+  using host_gemm_test::AccessCounts;
+  using host_gemm_test::DeferredMatrix;
   using tensor_type = DeferredMatrix::tensor_type;
 
   tensor_type a(2, 2);

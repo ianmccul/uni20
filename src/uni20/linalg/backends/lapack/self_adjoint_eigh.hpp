@@ -130,15 +130,14 @@ KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, Eigenval
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView self-adjoint eigenanalysis.
+/// \brief Report eligibility for host DeviceTensorView self-adjoint eigenanalysis.
 template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
           uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
-  requires uni20::detail::BlockingWritableTensor<EigenvalueTensor> &&
-           uni20::detail::BlockingWritableTensor<MatrixTensor>
+  requires uni20::detail::HostWritableTensor<EigenvalueTensor> && uni20::detail::HostWritableTensor<MatrixTensor>
 consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueTensor&, MatrixTensor&)
 {
-  using eigenvalue_span = uni20::detail::blocking_write_tensor_mdspan_t<EigenvalueTensor>;
-  using matrix_span = uni20::detail::blocking_write_tensor_mdspan_t<MatrixTensor>;
+  using eigenvalue_span = uni20::detail::host_write_tensor_mdspan_t<EigenvalueTensor>;
+  using matrix_span = uni20::detail::host_write_tensor_mdspan_t<MatrixTensor>;
   constexpr auto acceptance =
       detail::backend_type_acceptance<LapackBackend, self_adjoint_eigh_op, eigenvalue_span&, matrix_span&>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
@@ -147,15 +146,14 @@ consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op c
     return kernel_types_maybe;
 }
 
-/// \brief Resolve blocking tensor access and run LAPACK self-adjoint eigenanalysis.
+/// \brief Resolve host tensor access and run LAPACK self-adjoint eigenanalysis.
 template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
           uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
-  requires uni20::detail::BlockingWritableTensor<EigenvalueTensor> &&
-           uni20::detail::BlockingWritableTensor<MatrixTensor>
+  requires uni20::detail::HostWritableTensor<EigenvalueTensor> && uni20::detail::HostWritableTensor<MatrixTensor>
 KernelAttempt try_kernel(LapackBackend backend, self_adjoint_eigh_op const& operation, EigenvalueTensor& eigenvalues,
                          MatrixTensor& matrix_work)
 {
-  return uni20::detail::with_blocking_write_tensor_mdspans(
+  return uni20::detail::with_host_write_tensor_mdspans(
       [&](auto& eigenvalue_span, auto& matrix_span) {
         return try_kernel(backend, operation, eigenvalue_span, matrix_span);
       },

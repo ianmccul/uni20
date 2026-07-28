@@ -84,4 +84,9 @@ template <class ElementType, class Extents, class Generator> class generated_acc
     [[no_unique_address]] generator_type generator_{};
 };
 
+/// \brief Generated accessors evaluate their stored callable in the host domain.
+template <class ElementType, class Extents, class Generator>
+inline constexpr bool
+    enable_accessor_in_domain<generated_accessor<ElementType, Extents, Generator>, host_access_domain> = true;
+
 } // namespace uni20

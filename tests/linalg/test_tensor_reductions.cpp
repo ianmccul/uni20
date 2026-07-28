@@ -67,7 +67,7 @@ TEST(TensorReductionTest, ExplicitScalarOutputUsesTheSameKernel)
   EXPECT_FLOAT_EQ(output[], 8.0F);
 }
 
-TEST(TensorReductionTest, DeferredInputsAndOutputsUseBlockingLeases)
+TEST(TensorReductionTest, DeferredInputsAndOutputsUseHostLeases)
 {
   uni20::test::DeferredHostTensor<double, 1> lhs(3);
   uni20::test::DeferredHostTensor<double, 1> rhs(3);

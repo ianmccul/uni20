@@ -240,6 +240,11 @@ The acquisition result concepts are:
 ```cpp
 uni20::ReadTensorLease<T>
 uni20::WriteTensorLease<T>
+
+uni20::HostReadTensorLease<T>
+uni20::HostWriteTensorLease<T>
+uni20::CudaReadTensorLease<T>
+uni20::CudaWriteTensorLease<T>
 ```
 
 Both are move-only `TensorView` models with `.backend_selector()`, `.mdspan()`,
@@ -252,6 +257,42 @@ of the owner remains unavailable during the lease.
 Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
 templates, but an acquisition backend may return any type satisfying the
 concepts.
+
+### Execution-Domain Concepts
+
+The shape of `data_handle_type` does not determine where an mdspan can be used.
+In particular, a CUDA device pointer and a host pointer may both be spelled
+`T*`. The accessor explicitly opts into the execution domains in which its
+`access(...)` operation is valid.
+
+The mdspan concepts are:
+
+```cpp
+uni20::HostAccessibleMdspan<Span>
+uni20::CudaAccessibleMdspan<Span>
+
+uni20::HostAccessibleDeviceMdspan<Span>
+uni20::CudaAccessibleDeviceMdspan<Span>
+```
+
+The first pair requires a resolved `MdspanLike`. The second pair also accepts
+descriptor-backed `DeviceMdspanLike` metadata targeting that domain.
+`stdex::default_accessor<T>` is host-accessible.
+`uni20::cuda::CudaPointerAccessor<T>` is CUDA-accessible. Const adaptation,
+conjugation, and elementwise transform accessors preserve the domains supported
+by their wrapped accessors.
+
+Custom accessors opt in through:
+
+```cpp
+template<>
+inline constexpr bool
+    uni20::enable_accessor_in_domain<MyAccessor,
+                                     uni20::host_access_domain> = true;
+```
+
+This is a semantic declaration about where the accessor may be evaluated. It
+must not be inferred from the handle type.
 
 ### Access-State Lifetime Contract
 
@@ -279,14 +320,16 @@ Include the tensor acquisition API through:
 #include <uni20/tensor/tensor.hpp>
 ```
 
-The common free-function vocabulary is:
+Acquisition names the execution domain of the resulting mdspan:
 
 ```cpp
-auto read_lease = uni20::blocking_read_access(tensor);
-auto write_lease = uni20::blocking_write_access(tensor);
+auto host_read = uni20::acquire_host_read_access(host_tensor);
+auto host_write = uni20::acquire_host_write_access(host_tensor);
 
-auto read_awaitable = uni20::read_access(tensor, acquisition_arguments...);
-auto write_awaitable = uni20::write_access(tensor, acquisition_arguments...);
+auto cuda_read =
+    co_await uni20::acquire_cuda_read_access(cuda_tensor, stream);
+auto cuda_write =
+    co_await uni20::acquire_cuda_write_access(cuda_tensor, stream);
 ```
 
 These are constrained overloads, not required members of the data descriptor.
@@ -294,7 +337,14 @@ This keeps storage and resource policy in the acquisition layer. A descriptor
 may identify a buffer that can be mapped, migrated, prefetched, or admitted to
 a device without imposing those operations on every descriptor type.
 
-For an immediately accessible tensor view, blocking acquisition is a borrowed
+Acquisition never performs an implicit cross-domain transfer. It resolves
+synchronization, resource admission, and handle lifetime within the named
+domain. Host-to-CUDA, CUDA-to-host, and CUDA-to-CUDA movement use explicit
+`copy` operations. A future managed or mapped representation may explicitly
+model accessibility in more than one domain, but ordinary host and CUDA
+storage do not.
+
+For an immediately host-accessible tensor view, host acquisition is a borrowed
 no-op lifetime guard. It depends only on the source `TensorView`, not on a
 public storage observer. The concrete immediate leases store only a pointer to
 the source view and forward `.mdspan()`, extents, and backend selection. Read
@@ -305,14 +355,15 @@ mdspan or backend selector:
 uni20::Tensor<float, 2> tensor(4, 8);
 
 {
-  auto lease = uni20::blocking_write_access(tensor);
-  static_assert(uni20::WriteTensorLease<decltype(lease)>);
+  auto lease = uni20::acquire_host_write_access(tensor);
+  static_assert(uni20::HostWriteTensorLease<decltype(lease)>);
   lease.mdspan()[2, 3] = 1.0F;
 }
 ```
 
-`read_access(tensor)` and `write_access(tensor)` provide always-ready awaitables
-for the same immediate case.
+`acquire_host_read_access_async(tensor)` and
+`acquire_host_write_access_async(tensor)` provide always-ready awaitables for
+the same immediate case.
 
 The borrowed overloads accept lvalues only because their leases retain a
 reference to the source tensor or view. Descriptor-backed acquisition instead
@@ -322,16 +373,16 @@ device-mdspan metadata, moves the `CudaBuffer` into a distinct owning access
 state, and resolves the mdspan against that owned buffer. Non-owning deferred
 views remain lvalue-only.
 
-### Blocking Backend Lowering
+### Host Backend Lowering
 
-A blocking backend can accept `DeviceTensorView` operands without distinguishing
-immediate from deferred storage. It acquires the required read and write leases,
-then invokes its existing mdspan implementation:
+A host backend can accept `DeviceTensorView` operands without distinguishing
+immediate from deferred host storage. It acquires the required host read and
+write leases, then invokes its existing mdspan implementation:
 
 ```cpp
-auto output_access = blocking_write_access(output);
-auto lhs_access = blocking_read_access(lhs);
-auto rhs_access = blocking_read_access(rhs);
+auto output_access = acquire_host_write_access(output);
+auto lhs_access = acquire_host_read_access(lhs);
+auto rhs_access = acquire_host_read_access(rhs);
 
 return try_kernel(
     backend,
@@ -351,14 +402,14 @@ host `TensorView`, acquisition creates only pointer-sized borrowed leases and
 the forwarding optimizes to the direct mdspan path. A deferred implementation
 may block while producing the same `TensorView` lease interface.
 
-The tensor-level `kernel_accepts_types` overload for a blocking adapter derives
+The tensor-level `kernel_accepts_types` overload for a host adapter derives
 the exact mdspan types returned by its leases and delegates to the existing
 mdspan-level probe. The mdspan probe is therefore the single source of truth
 for accessor, scalar, rank, layout, and assignment eligibility. A tensor probe
 must not report stronger acceptance than the implementation reached after
 acquisition.
 
-Descriptor-native backends do not use this blocking lowering when their
+Descriptor-native backends do not use this host lowering when their
 execution model requires more context. For example, cuBLAS inspects CUDA
 descriptors and acquires buffer access against its selected stream.
 
@@ -388,43 +439,47 @@ descriptor through `CudaBuffer` access state:
 ```cpp
 auto stream = co_await uni20::cuda::acquire_stream(
     tensor.storage().resources().streams());
-auto lease = co_await uni20::write_access(tensor, stream);
+auto lease = co_await uni20::acquire_cuda_write_access(tensor, stream);
 
-static_assert(uni20::WriteTensorLease<decltype(lease)>);
+static_assert(uni20::CudaWriteTensorLease<decltype(lease)>);
 launch_kernel(stream, lease.mdspan());
 ```
 
 Acquiring the stream is separate from acquiring tensor data. Once a stream is
-available, `write_access(tensor, stream)` installs predecessor waits through
-`CudaBuffer` and returns an immediately-ready task awaitable. Destroying the
-lease records the writer completion at the stream tail. A later blocking or
-stream-ordered access observes that completion.
+available, `acquire_cuda_write_access(tensor, stream)` installs predecessor
+waits through `CudaBuffer` and returns an immediately-ready task awaitable.
+Destroying the lease records the writer completion at the stream tail. A later
+synchronized or stream-ordered CUDA access observes that completion.
 
-Blocking CUDA acquisition is also available:
+Host-synchronized CUDA-domain acquisition is also available:
 
 ```cpp
-auto lease = uni20::blocking_read_access(std::as_const(tensor));
+auto lease = uni20::acquire_cuda_read_access_sync(std::as_const(tensor));
 copy_to_host_synchronously(lease.mdspan().data_handle());
 ```
+
+The synchronization waits on the host, but the resolved mdspan remains
+CUDA-accessible and is not host-dereferenceable. The explicit copy in the
+example is the domain crossing.
 
 An owning rvalue transfers its CUDA buffer into the read lease:
 
 ```cpp
-auto lease = uni20::blocking_read_access(std::move(tensor));
+auto lease = uni20::acquire_cuda_read_access_sync(std::move(tensor));
 ```
 
 The owning CUDA access state does not retain a guard pointer into the original
 tensor. It owns the moved buffer directly, so the lease may move without
 invalidating its data handle.
 
-All device operations using a blocking lease must complete before the lease is
-destroyed. Stream-ordered work should use the stream overloads so lease release
-can publish the completion event.
+All device operations using a synchronized lease must complete before the
+lease is destroyed. Stream-ordered work should use the stream overloads so
+lease release can publish the completion event.
 
 CUDA copy and GEMM accept deferred metadata without making `CudaTensor` an
 immediate `TensorView`. GEMM passes `DeviceTensorView` operands through
 `dispatch_kernel`; the selected backend acquires the operands according to its
-execution model. CPU reference GEMM uses the blocking lease interface. The
+execution model. CPU reference GEMM uses the host lease interface. The
 cuBLAS backend lowers `device_mdspan()` descriptors directly: its synchronous
 path blocks for stream and provider resources, while its async path awaits
 them.
@@ -491,5 +546,5 @@ The tests cover concrete storage of stateful descriptor/mapping/accessor
 objects, independent structural models, ordinary-mdspan compatibility, ranked
 and strided refinements, move-only descriptors, the absence of premature handle
 access, immediate tensor leases, idempotent generic release, access-state
-transfer across lease moves, and CUDA pointer resolution through blocking and
-stream-ordered leases.
+transfer across lease moves, and CUDA pointer resolution through synchronized
+and stream-ordered leases.

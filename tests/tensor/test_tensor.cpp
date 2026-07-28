@@ -215,18 +215,18 @@ using instrumented_write_tensor_lease =
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
 
-using read_lease_type = decltype(blocking_read_access(std::declval<tensor_type const&>()));
-using write_lease_type = decltype(blocking_write_access(std::declval<tensor_type&>()));
-using read_access_type = decltype(read_access(std::declval<tensor_type const&>()));
-using write_access_type = decltype(write_access(std::declval<tensor_type&>()));
-using storage_free_read_lease = decltype(blocking_read_access(std::declval<StorageFreeTensorView const&>()));
-using storage_free_write_lease = decltype(blocking_write_access(std::declval<StorageFreeTensorView&>()));
+using read_lease_type = decltype(acquire_host_read_access(std::declval<tensor_type const&>()));
+using write_lease_type = decltype(acquire_host_write_access(std::declval<tensor_type&>()));
+using read_access_type = decltype(acquire_host_read_access_async(std::declval<tensor_type const&>()));
+using write_access_type = decltype(acquire_host_write_access_async(std::declval<tensor_type&>()));
+using storage_free_read_lease = decltype(acquire_host_read_access(std::declval<StorageFreeTensorView const&>()));
+using storage_free_write_lease = decltype(acquire_host_write_access(std::declval<StorageFreeTensorView&>()));
 
 template <class T>
 concept HasStorageObserver = requires(T& value) { value.storage(); };
 
 template <class T>
-concept CanBorrowReadFromRvalue = requires(T&& value) { blocking_read_access(std::move(value)); };
+concept CanBorrowReadFromRvalue = requires(T&& value) { acquire_host_read_access(std::move(value)); };
 
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
@@ -237,6 +237,8 @@ static_assert(std::constructible_from<strided_tensor_type, extents_2d const&, st
 
 static_assert(TensorView<tensor_type>);
 static_assert(DeviceTensorView<tensor_type>);
+static_assert(HostAccessibleMdspan<tensor_mdspan_t<tensor_type>>);
+static_assert(!CudaAccessibleMdspan<tensor_mdspan_t<tensor_type>>);
 static_assert(MutableDeviceTensorView<tensor_type>);
 static_assert(OwningTensor<tensor_type>);
 static_assert(OwningTensor<tensor_type const>);
@@ -261,6 +263,10 @@ static_assert(!ScalarTensorView<tensor_type>);
 static_assert(MdspanLike<decltype(std::declval<tensor_type const&>().device_mdspan())>);
 static_assert(ReadTensorLease<read_lease_type>);
 static_assert(WriteTensorLease<write_lease_type>);
+static_assert(HostReadTensorLease<read_lease_type>);
+static_assert(HostWriteTensorLease<write_lease_type>);
+static_assert(!CudaReadTensorLease<read_lease_type>);
+static_assert(!CudaWriteTensorLease<write_lease_type>);
 static_assert(sizeof(read_lease_type) == sizeof(void*));
 static_assert(sizeof(write_lease_type) == sizeof(void*));
 static_assert(std::is_trivially_destructible_v<read_lease_type>);
@@ -397,12 +403,12 @@ TEST(TensorTest, ImmediateLeasesDoNotRequireStorageObserver)
   StorageFreeTensorView view(values.data(), extents_2d{2, 3});
 
   {
-    auto lease = blocking_write_access(view);
+    auto lease = acquire_host_write_access(view);
     lease.mdspan()[1, 2] = 42;
   }
 
   auto const& const_view = view;
-  auto lease = blocking_read_access(const_view);
+  auto lease = acquire_host_read_access(const_view);
   EXPECT_EQ((lease.mdspan()[1, 2]), 42);
 }
 
@@ -662,7 +668,7 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
   tensor_type tensor(extents_2d{2, 3});
 
   {
-    auto acquisition = write_access(tensor);
+    auto acquisition = acquire_host_write_access_async(tensor);
     EXPECT_TRUE(acquisition.await_ready());
     auto lease = acquisition.await_resume();
     static_assert(MutableTensorView<decltype(lease)>);
@@ -671,7 +677,7 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
     lease.mdspan()[1, 2] = 42;
   }
 
-  auto lease = blocking_read_access(std::as_const(tensor));
+  auto lease = acquire_host_read_access(std::as_const(tensor));
   static_assert(TensorView<decltype(lease)>);
   static_assert(!MutableTensorView<decltype(lease)>);
   EXPECT_EQ(&lease.storage(), &tensor.storage());

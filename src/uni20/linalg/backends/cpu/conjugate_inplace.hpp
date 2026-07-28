@@ -96,12 +96,12 @@ template <class Mdspan> KernelAttempt try_kernel(CpuReferenceBackend, conjugate_
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView in-place conjugation.
+/// \brief Report eligibility for host DeviceTensorView in-place conjugation.
 template <uni20::MutableDeviceTensorView Tensor>
-  requires uni20::detail::BlockingWritableTensor<Tensor>
+  requires uni20::detail::HostWritableTensor<Tensor>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplace_op const&, Tensor&)
 {
-  using span_type = uni20::detail::blocking_write_tensor_mdspan_t<Tensor>;
+  using span_type = uni20::detail::host_write_tensor_mdspan_t<Tensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, conjugate_inplace_op, span_type&>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -109,12 +109,12 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplac
     return kernel_types_no;
 }
 
-/// \brief Resolve blocking tensor access and conjugate every element.
+/// \brief Resolve host tensor access and conjugate every element.
 template <uni20::MutableDeviceTensorView Tensor>
-  requires uni20::detail::BlockingWritableTensor<Tensor>
+  requires uni20::detail::HostWritableTensor<Tensor>
 KernelAttempt try_kernel(CpuReferenceBackend backend, conjugate_inplace_op const& op, Tensor& tensor)
 {
-  auto access = blocking_write_access(tensor);
+  auto access = acquire_host_write_access(tensor);
   auto span = access.mdspan();
   return try_kernel(backend, op, span);
 }

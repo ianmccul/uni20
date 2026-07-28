@@ -23,9 +23,9 @@ namespace uni20::linalg
 namespace detail
 {
 template <class OutputTensor, class LhsTensor, class RhsTensor>
-concept BlockingGemmTensorAccess =
-    uni20::detail::BlockingWritableTensor<OutputTensor> && uni20::detail::BlockingReadableTensor<LhsTensor> &&
-    uni20::detail::BlockingReadableTensor<RhsTensor>;
+concept HostGemmTensorAccess =
+    uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
+    uni20::detail::HostReadableTensor<RhsTensor>;
 } // namespace detail
 
 /// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
@@ -117,16 +117,16 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& out
   return KernelAttempt::success;
 }
 
-/// \brief Report eligibility for blocking DeviceTensorView CPU GEMM.
+/// \brief Report eligibility for host DeviceTensorView CPU GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::BlockingGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+  requires detail::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputTensor&, Scalar const&,
                                     LhsTensor&, RhsTensor&, Scalar const&)
 {
-  using output_span = uni20::detail::blocking_write_tensor_mdspan_t<OutputTensor>;
-  using lhs_span = uni20::detail::blocking_read_tensor_mdspan_t<LhsTensor>;
-  using rhs_span = uni20::detail::blocking_read_tensor_mdspan_t<RhsTensor>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
   constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
                                                               lhs_span&, rhs_span&, Scalar const&>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
@@ -135,16 +135,16 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, 
     return kernel_types_no;
 }
 
-/// \brief Resolve blocking tensor access and run reference GEMM.
+/// \brief Resolve host tensor access and run reference GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::BlockingGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+  requires detail::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
 KernelAttempt try_kernel(CpuReferenceBackend backend, gemm_op const& op, OutputTensor& output, Scalar alpha,
                          LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_access = blocking_write_access(output);
-  auto lhs_access = blocking_read_access(lhs);
-  auto rhs_access = blocking_read_access(rhs);
+  auto output_access = acquire_host_write_access(output);
+  auto lhs_access = acquire_host_read_access(lhs);
+  auto rhs_access = acquire_host_read_access(rhs);
   auto output_span = output_access.mdspan();
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();
