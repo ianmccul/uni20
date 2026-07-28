@@ -377,37 +377,36 @@ views remain lvalue-only.
 
 A host backend can accept `DeviceTensorView` operands without distinguishing
 immediate from deferred host storage. It acquires the required host read and
-write leases, then invokes its existing mdspan implementation:
+write leases, then invokes its backend-specific lower-level mdspan
+implementation:
 
 ```cpp
 auto output_access = acquire_host_write_access(output);
-auto lhs_access = acquire_host_read_access(lhs);
-auto rhs_access = acquire_host_read_access(rhs);
+auto input_access = acquire_host_read_access(input);
 
-return try_kernel(
-    backend,
-    operation,
+return cpu_reference::copy(
     output_access.mdspan(),
-    alpha,
-    lhs_access.mdspan(),
-    rhs_access.mdspan(),
-    beta);
+    input_access.mdspan());
 ```
 
+The operation-tag `try_kernel` customization does not re-enter operation
+dispatch or call another operation-tag overload with the resolved mdspans.
+Instead it calls a function whose namespace or name identifies the selected
+backend, such as `cpu_reference::copy`, `blas::try_gemm`, or
+`cuda_reference::copy`.
+
 The synchronous CPU reference kernels, direct BLAS adapters, and dense LAPACK
-adapters use this pattern. This includes GEMM, GEMV, matrix initialization,
-elementwise transforms, in-place conjugation, reductions, matrix
-exponentiation, and the fixed-output dense decompositions. For an ordinary
-host `TensorView`, acquisition creates only pointer-sized borrowed leases and
-the forwarding optimizes to the direct mdspan path. A deferred implementation
-may block while producing the same `TensorView` lease interface.
+adapters use this lowering pattern. For an ordinary host `TensorView`,
+acquisition creates only pointer-sized borrowed leases and the forwarding
+optimizes to the direct mdspan path. A deferred implementation may block while
+producing the same `TensorView` lease interface.
 
 The tensor-level `kernel_accepts_types` overload for a host adapter derives
-the exact mdspan types returned by its leases and delegates to the existing
-mdspan-level probe. The mdspan probe is therefore the single source of truth
-for accessor, scalar, rank, layout, and assignment eligibility. A tensor probe
-must not report stronger acceptance than the implementation reached after
-acquisition.
+the exact mdspan types returned by its leases and delegates to the
+backend-specific lower-level acceptance helper. That helper is the single
+source of truth for accessor, scalar, rank, layout, and assignment eligibility;
+it is not another operation-tag customization point. A tensor probe must not
+report stronger acceptance than the implementation reached after acquisition.
 
 Descriptor-native backends do not use this host lowering when their
 execution model requires more context. For example, cuBLAS inspects CUDA

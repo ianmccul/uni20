@@ -13,36 +13,36 @@
 
 namespace uni20::linalg
 {
-namespace detail
+namespace detail::cuda_reference
 {
 
-template <class Scalar> async::CudaTask cuda_reference_copy_task(cuda_reference::CopyPlan<Scalar> plan)
+template <class Scalar> async::CudaTask copy_submission_task(CopyPlan<Scalar> plan)
 {
   auto& resources = plan.output_buffer->resources();
   co_await uni20::cuda::set_device(resources.device());
   auto stream = co_await uni20::cuda::acquire_stream(resources.streams());
-  cuda_reference::enqueue_device_copy(plan, stream);
+  enqueue_device_copy(plan, stream);
   co_return;
 }
 
 /// \brief Lower CUDA mdspans into a deferred non-blocking copy submission.
 template <class OutputMdspan, class InputMdspan>
-  requires(cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan> &&
-           cuda_reference::is_raw_cuda_mdspan<OutputMdspan> && cuda_reference::is_raw_cuda_mdspan<InputMdspan>)
-auto cuda_reference_copy_mdspans_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
+  requires(SupportedCopyMdspans<OutputMdspan, InputMdspan> && is_raw_cuda_mdspan<OutputMdspan> &&
+           is_raw_cuda_mdspan<InputMdspan>)
+auto copy_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {
-  auto preparation = cuda_reference::prepare_copy(output, input);
+  auto preparation = prepare_copy(output, input);
   if (!kernel_attempt_succeeded(preparation.attempt) || !preparation.has_work)
   {
     return KernelTaskAttempt<async::CudaTask>{preparation.attempt};
   }
 
   int const device = preparation.output_buffer->device().ordinal();
-  auto task = cuda_reference_copy_task(std::move(preparation));
+  auto task = copy_submission_task(std::move(preparation));
   async::cuda_promise(task.handle()).bind_device(device);
   return KernelTaskAttempt<async::CudaTask>{std::move(task)};
 }
-} // namespace detail
+} // namespace detail::cuda_reference
 
 /// \brief Normalize tensor metadata inside the CUDA task backend.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
@@ -51,7 +51,7 @@ auto try_kernel_task(CudaReferenceBackend, copy_op const&, OutputTensor& output,
 {
   auto output_span = uni20::detail::tensor_device_mdspan(output);
   auto input_span = uni20::detail::tensor_device_mdspan(input);
-  return detail::cuda_reference_copy_mdspans_task(output_span, input_span);
+  return detail::cuda_reference::copy_task(output_span, input_span);
 }
 
 } // namespace uni20::linalg

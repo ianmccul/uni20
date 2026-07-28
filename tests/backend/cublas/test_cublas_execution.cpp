@@ -614,7 +614,7 @@ TEST_F(CublasExecutionTest, ZeroInnerExtentScalesOutputWithNullInputs)
   EXPECT_EQ(result, (std::array<double, 4>{3.0, 6.0, 9.0, 12.0}));
 }
 
-TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
+TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaTensorViews)
 {
   using matrix_type = uni20::CudaMatrix<double>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
@@ -634,6 +634,25 @@ TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
   uni20::linalg::gemm(output, 1.0, lhs, rhs, 1.0);
 
   EXPECT_EQ(download_tensor(output), (std::vector<double>{116, 278, 128, 308}));
+}
+
+TEST_F(CublasExecutionTest, OperationDispatchAcceptsTensorViewsRatherThanDeviceMdspans)
+{
+  using matrix_type = uni20::CudaMatrix<double>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(resources, 2, 3);
+  matrix_type rhs(resources, 3, 2);
+  matrix_type output(resources, 2, 2);
+  auto output_span = output.device_mdspan();
+  auto lhs_span = lhs.device_mdspan();
+  auto rhs_span = rhs.device_mdspan();
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output_span,
+                                                 1.0, lhs_span, rhs_span, 0.0),
+            uni20::linalg::KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output, 1.0,
+                                                 lhs, rhs, 0.0),
+            uni20::linalg::KernelTypeAcceptance::maybe);
 }
 
 TEST_F(CublasExecutionTest, TensorGemmConformanceScalarsAndCanonicalLayouts)

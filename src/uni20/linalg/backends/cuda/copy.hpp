@@ -356,7 +356,7 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
 
 /// \brief Report compile-time eligibility for CUDA mdspan copy lowering.
 template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
-consteval auto cuda_copy_mdspans_acceptance()
+consteval auto copy_acceptance()
 {
   if constexpr (SupportedCopyMdspans<OutputMdspan, InputMdspan>)
     return kernel_types_maybe;
@@ -367,7 +367,7 @@ consteval auto cuda_copy_mdspans_acceptance()
 /// \brief Copy compatible mdspans after tensor-level CUDA backend selection.
 template <class OutputMdspan, class InputMdspan>
   requires SupportedCopyMdspans<OutputMdspan, InputMdspan>
-KernelAttempt copy_mdspans_cuda(OutputMdspan&& output, InputMdspan&& input)
+KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 {
   auto preparation = prepare_copy(output, input);
   if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
@@ -383,7 +383,7 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
   using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
   using input_span =
       std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<InputTensor const&>()))>;
-  constexpr auto acceptance = detail::cuda_reference::cuda_copy_mdspans_acceptance<output_span, input_span>();
+  constexpr auto acceptance = detail::cuda_reference::copy_acceptance<output_span, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::maybe)
     return kernel_types_maybe;
   else
@@ -396,7 +396,7 @@ KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputTensor& out
 {
   auto output_span = uni20::detail::tensor_device_mdspan(output);
   auto input_span = uni20::detail::tensor_device_mdspan(input);
-  return detail::cuda_reference::copy_mdspans_cuda(output_span, input_span);
+  return detail::cuda_reference::copy(output_span, input_span);
 }
 
 } // namespace uni20::linalg

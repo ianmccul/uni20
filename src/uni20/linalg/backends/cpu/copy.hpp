@@ -21,7 +21,7 @@
 
 namespace uni20::linalg
 {
-namespace detail
+namespace detail::cpu_reference
 {
 template <class OutputMdspan, class InputMdspan, std::size_t... Axis>
 consteval bool copy_element_is_assignable(std::index_sequence<Axis...>)
@@ -63,12 +63,10 @@ void copy_elements(OutputMdspan& output, InputMdspan& input,
 }
 
 /// \brief Report compile-time eligibility for reference CPU mdspan copy lowering.
-template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan>
-consteval auto cpu_copy_mdspans_acceptance()
+template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan> consteval auto copy_acceptance()
 {
   if constexpr (OutputMdspan::rank() == InputMdspan::rank() &&
-                detail::copy_element_is_assignable<OutputMdspan, InputMdspan>(
-                    std::make_index_sequence<OutputMdspan::rank()>{}))
+                copy_element_is_assignable<OutputMdspan, InputMdspan>(std::make_index_sequence<OutputMdspan::rank()>{}))
   {
     return kernel_types_yes;
   }
@@ -81,7 +79,7 @@ consteval auto cpu_copy_mdspans_acceptance()
 /// \brief Copy mdspans after tensor-level CPU backend selection.
 /// \pre Input and output have equal extents and do not destructively overlap.
 template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan>
-KernelAttempt copy_mdspans_cpu(OutputMdspan&& output, InputMdspan&& input)
+KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
   static_assert(output_type::rank() == std::remove_cvref_t<InputMdspan>::rank());
@@ -102,13 +100,13 @@ KernelAttempt copy_mdspans_cpu(OutputMdspan&& output, InputMdspan&& input)
   {
     std::array<typename output_type::index_type, output_type::rank()> index{};
     if constexpr (std::same_as<typename output_type::layout_type, stdex::layout_left>)
-      detail::copy_elements<0, true>(output, input, index);
+      copy_elements<0, true>(output, input, index);
     else
-      detail::copy_elements<0, false>(output, input, index);
+      copy_elements<0, false>(output, input, index);
   }
   return KernelAttempt::success;
 }
-} // namespace detail
+} // namespace detail::cpu_reference
 
 /// \brief Report eligibility for a host DeviceTensorView element copy.
 template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
@@ -117,7 +115,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
 {
   using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
   using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
-  constexpr auto acceptance = detail::cpu_copy_mdspans_acceptance<output_span, input_span>();
+  constexpr auto acceptance = detail::cpu_reference::copy_acceptance<output_span, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
   else
@@ -133,7 +131,7 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputTensor& outp
   auto input_access = acquire_host_read_access(input);
   auto output_span = output_access.mdspan();
   auto input_span = input_access.mdspan();
-  return detail::copy_mdspans_cpu(output_span, input_span);
+  return detail::cpu_reference::copy(output_span, input_span);
 }
 
 } // namespace uni20::linalg
