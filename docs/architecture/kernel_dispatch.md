@@ -48,34 +48,43 @@ provider adapters.
 
 ### Dispatch operand boundary
 
-Operations identified by Uni20 operation tags, such as `assign_product_op{}`,
-`gemm_op{}`, and `copy_op{}`, dispatch tensor operands as `TensorView`,
-`DeviceTensorView`, or an applicable mutable/ranked/strided refinement. Scalar
-coefficients, axes, and other non-tensor operation parameters remain ordinary
-values.
+Each operation tag defines its operand boundary. Fixed existing operands no
+longer need tensor policy after the frontend has selected a backend list.
+`copy_op{}`, fixed-output `gemm_op{}`, and `gemv_op{}` therefore enter
+`probe_dispatch_kernel`, `kernel_type_candidates`, `try_dispatch_kernel`,
+`dispatch_kernel`, or `co_dispatch_kernel` as `DeviceMdspanLike` operands, with
+the applicable mutable and ranked refinements. Their `kernel_accepts_types`,
+`try_kernel`, and `try_make_kernel_task` customizations use the same descriptor
+types. Scalar coefficients, axes, and other non-tensor parameters remain
+ordinary values.
 
-This tensor-view boundary applies to `probe_dispatch_kernel`,
-`kernel_type_candidates`, `try_dispatch_kernel`, `dispatch_kernel`,
-`dynamic_dispatch_kernel`, and `co_dispatch_kernel`, and therefore to the
-`kernel_accepts_types`, `try_kernel`, and `try_make_kernel_task` customization points
-that implement an operation tag.
+The tensor frontend must select the backend while storage and execution policy
+are still available, then normalize each fixed operand exactly once. A readable
+input is normalized through the tensor's const interface and a writable output
+through its mutable interface. An immediate `TensorView` produces an ordinary
+mdspan; a deferred `DeviceTensorView` produces descriptor-backed
+`device_mdspan` metadata. A bare mdspan convenience API directly supplies the
+same normalized descriptor boundary and does not need a temporary tensor
+facade.
 
-A public convenience function may accept a bare mdspan when no tensor policy is
-needed, but it must adapt that mdspan to a lightweight `TensorView` before entering
-operation dispatch. A backend then interprets or acquires the `DeviceTensorView` and
-lowers it to an mdspan valid in the backend's execution domain.
+A replaceable output is not a fixed multidimensional descriptor.
+`assign_product_op{}` therefore remains tensor-level: its synchronous form
+receives a mutable tensor object and its async form may receive an unconstructed
+`shared_storage<Tensor>`. The selected backend chooses and prepares the output,
+then normalizes the resulting fixed descriptor. Its readable tensor inputs may
+also be normalized at the start of that backend attempt.
 
 Functions that operate directly on resolved mdspans sit below operation dispatch.
 They are provider/library API calls or lower-level Uni20 module interfaces, not
 `xxxx_op{}` dispatch customization points. This separation keeps acquisition,
 execution-domain validation, and accessor lowering inside the selected backend.
 
-Within one backend attempt, normalize each existing fixed input once and retain
-that descriptor for the rest of the attempt. A replaceable output must be
-prepared before its writable descriptor is retained, because preparation may
-invalidate an earlier descriptor. After lowering, invoke the backend's private
-descriptor or provider implementation directly; do not redispatch the resolved
-operands through another operation-tag customization.
+Within a replaceable-output backend attempt, normalize each readable input once
+and retain that descriptor. Prepare the output before retaining its writable
+descriptor because preparation may invalidate an earlier descriptor. After
+lowering, invoke the backend's private descriptor or provider implementation
+directly; do not redispatch the resolved operands through another operation-tag
+customization.
 
 ### Operation tag
 
@@ -426,8 +435,9 @@ The usual dense operation path has four layers:
 
 ```text
 Tensor operation wrapper
-    -> operation-tag dispatch over TensorView / DeviceTensorView operands
-    -> selected backend lowering to execution-domain mdspans
+    -> selector resolution and fixed-operand device-mdspan normalization
+    -> operation-tag dispatch over normalized descriptors
+    -> selected backend acquisition/lowering to execution-domain mdspans
     -> provider API or lower-level Uni20 module
 ```
 
@@ -446,12 +456,18 @@ For example, an assigning matrix product may construct or resize its output befo
 calling a fixed-output GEMM kernel, while an additive matrix product requires an
 existing shape-compatible output.
 
-### Tensor-view dispatch boundary
+### Fixed-descriptor dispatch boundary
 
-The operation-tag kernel receives tensor views and scalar parameters. A backend may
-inspect normalized device-mdspan metadata before accepting an instance. Once selected,
-it obtains any required domain-specific leases and resolves the operands to mdspans
-whose handles and accessors are usable by its implementation.
+A fixed-output operation-tag kernel receives normalized device mdspans and
+scalar parameters. The backend may inspect their mappings, accessors, and data
+descriptors before accepting an instance. Once selected, it obtains any
+required domain-specific leases and resolves the operands to mdspans whose
+handles and accessors are usable by its implementation.
+
+Replaceable-output tags retain their tensor or output-storage operand until the
+selected backend has supplied the missing shape and placement policy. That
+backend lowers the output immediately after preparation and does not redispatch
+it as a fixed-output operation tag.
 
 The mdspan accessor defines value semantics. A pointer-shaped `data_handle_type` does
 not prove that a backend may dereference the handle or pass it to a provider. A backend

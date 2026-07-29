@@ -26,7 +26,11 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputT
 void gemv(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, MatrixTensor const& matrix,
           InputTensor const& input, Scalar beta)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), gemv_op{}, output, alpha, matrix, input, beta);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto matrix_span = uni20::detail::tensor_device_mdspan(matrix);
+  auto input_span = uni20::detail::tensor_device_mdspan(input);
+  dispatch_kernel(std::forward<BackendSelector>(selector), gemv_op{}, output_span, alpha, matrix_span, input_span,
+                  beta);
 }
 
 /// \brief Run tensor GEMV using the operands' default backend selector.

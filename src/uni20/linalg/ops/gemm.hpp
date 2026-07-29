@@ -29,7 +29,10 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 void gemm(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs,
           Scalar beta)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), gemm_op{}, output, alpha, lhs, rhs, beta);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  dispatch_kernel(std::forward<BackendSelector>(selector), gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 }
 
 /// \brief Run fixed-storage tensor GEMM using the operands' default backend selector.

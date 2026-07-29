@@ -92,7 +92,8 @@ operations share one kernel path:
 Tensor front end
   -> output shape, ownership, and storage policy
   -> backend selector
-  -> operation-tag dispatch over TensorView / DeviceTensorView operands
+  -> fixed-operand DeviceMdspanLike normalization
+  -> operation-tag dispatch over normalized descriptors
   -> selected CPU, BLAS, LAPACK, or CUDA backend
   -> execution-domain mdspan lowering
   -> provider API or lower-level Uni20 kernel
@@ -108,8 +109,10 @@ than a private dense backend.
 
 ## Important Boundaries
 
-- Operation-tag dispatch receives tensor views. The selected backend owns
-  execution-domain acquisition and mdspan lowering.
+- Fixed-output operation-tag dispatch receives normalized device mdspans. The
+  selected backend owns execution-domain acquisition and resolved-mdspan
+  lowering. Replaceable outputs remain tensor or shared-storage objects until
+  a backend prepares them.
 - Provider APIs and lower-level Uni20 module kernels may receive resolved
   mdspans; they sit below the operation-tag dispatch boundary.
 - Mdspan accessors carry value semantics. A pointer-shaped handle alone does not

@@ -40,6 +40,32 @@ class HostAccessState {
     bool active_ = true;
 };
 
+template <class Element, class Extents, class Layout, class Accessor, class Storage>
+  requires std::is_const_v<Element>
+[[nodiscard]] auto
+acquire_host_read_access(device_mdspan<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>> const& span)
+{
+  using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
+  using lease_type = read_mdspan_lease<mdspan_type, HostAccessState>;
+  return lease_type{
+      HostAccessState{},
+      mdspan_type{span.data_descriptor().storage->data(), span.mapping(), span.accessor()},
+  };
+}
+
+template <class Element, class Extents, class Layout, class Accessor, class Storage>
+  requires(!std::is_const_v<Element>)
+[[nodiscard]] auto
+acquire_host_write_access(device_mdspan<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>>& span)
+{
+  using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
+  using lease_type = write_mdspan_lease<mdspan_type, HostAccessState>;
+  return lease_type{
+      HostAccessState{},
+      mdspan_type{span.data_descriptor().storage->data(), span.mapping(), span.accessor()},
+  };
+}
+
 template <class Element, std::size_t Rank, class Layout = stdex::layout_left> class DeferredHostTensor {
   public:
     using element_type = Element;
@@ -132,6 +158,8 @@ template <class Element, std::size_t Rank, class Layout>
 static_assert(DeviceTensorView<DeferredHostTensor<double, 2>>);
 static_assert(MutableDeviceTensorView<DeferredHostTensor<double, 2>>);
 static_assert(!TensorView<DeferredHostTensor<double, 2>>);
+static_assert(detail::HostReadableDeviceMdspan<typename DeferredHostTensor<double, 2>::const_device_mdspan_type>);
+static_assert(detail::HostWritableDeviceMdspan<typename DeferredHostTensor<double, 2>::mutable_device_mdspan_type>);
 static_assert(detail::HostReadableTensor<DeferredHostTensor<double, 2>>);
 static_assert(detail::HostWritableTensor<DeferredHostTensor<double, 2>>);
 

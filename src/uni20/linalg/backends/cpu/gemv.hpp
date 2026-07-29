@@ -17,40 +17,40 @@ namespace uni20::linalg
 {
 namespace detail
 {
-template <class OutputTensor, class MatrixTensor, class InputTensor>
-concept HostGemvTensorAccess =
-    uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<MatrixTensor> &&
-    uni20::detail::HostReadableTensor<InputTensor>;
+template <class OutputMdspan, class MatrixMdspan, class InputMdspan>
+concept HostGemvMdspanAccess =
+    uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<MatrixMdspan> &&
+    uni20::detail::HostReadableDeviceMdspan<InputMdspan>;
 
-template <class OutputTensor, class Scalar, class MatrixTensor, class InputTensor>
+template <class OutputMdspan, class Scalar, class MatrixMdspan, class InputMdspan>
 consteval bool cpu_gemv_types_compatible()
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  using matrix_span = uni20::detail::host_read_tensor_mdspan_t<MatrixTensor>;
-  using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
+  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  using matrix_span = uni20::detail::host_read_mdspan_t<MatrixMdspan>;
+  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
   return uni20::linalg::cpu::GemvCompatible<output_span, Scalar, matrix_span, input_span>;
 }
 } // namespace detail
 
-/// \brief Report eligibility for host DeviceTensorView CPU GEMV.
-template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, uni20::Scalar Scalar,
-          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
-  requires detail::HostGemvTensorAccess<OutputTensor, MatrixTensor, InputTensor>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputTensor&, Scalar const&,
-                                    MatrixTensor&, InputTensor&, Scalar const&)
+/// \brief Report eligibility for host-accessible device-mdspan CPU GEMV.
+template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, uni20::Scalar Scalar,
+          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
+  requires detail::HostGemvMdspanAccess<OutputMdspan, MatrixMdspan, InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputMdspan&, Scalar const&,
+                                    MatrixMdspan&, InputMdspan&, Scalar const&)
 {
-  if constexpr (detail::cpu_gemv_types_compatible<OutputTensor, Scalar, MatrixTensor, InputTensor>())
+  if constexpr (detail::cpu_gemv_types_compatible<OutputMdspan, Scalar, MatrixMdspan, InputMdspan>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Resolve host tensor access and run reference GEMV.
-template <uni20::MutableRankedDeviceTensorView<1> OutputTensor, uni20::Scalar Scalar,
-          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
-  requires detail::HostGemvTensorAccess<OutputTensor, MatrixTensor, InputTensor>
-KernelAttempt try_kernel(CpuReferenceBackend, gemv_op const&, OutputTensor& output, Scalar alpha,
-                         MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
+/// \brief Resolve host access and run reference GEMV.
+template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, uni20::Scalar Scalar,
+          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
+  requires detail::HostGemvMdspanAccess<OutputMdspan, MatrixMdspan, InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, gemv_op const&, OutputMdspan& output, Scalar alpha, MatrixMdspan& matrix,
+                         InputMdspan& input, Scalar beta)
 {
   auto output_access = acquire_host_write_access(output);
   auto matrix_access = acquire_host_read_access(matrix);

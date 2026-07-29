@@ -7,6 +7,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <utility>
 
 namespace
 {
@@ -14,22 +15,26 @@ using extents_2d = stdex::dextents<uni20::index_type, 2>;
 using extents_1d = stdex::dextents<uni20::index_type, 1>;
 using backend_selector_type = uni20::linalg::backend_list<uni20::linalg::CpuReferenceBackend>;
 using dense_mdspan = stdex::mdspan<double, extents_2d, stdex::layout_left>;
+using dense_const_mdspan = stdex::mdspan<double const, extents_2d, stdex::layout_left>;
 using dense_vector_mdspan = stdex::mdspan<double, extents_1d, stdex::layout_left>;
+using dense_const_vector_mdspan = stdex::mdspan<double const, extents_1d, stdex::layout_left>;
 
-template <class Backend, class Span>
-concept HasDirectGemmTryKernel = requires(Backend backend, Span& output, Span& lhs, Span& rhs, double scalar) {
-  uni20::linalg::try_kernel(backend, uni20::linalg::gemm_op{}, output, scalar, lhs, rhs, scalar);
-};
+template <class Backend, class OutputSpan, class InputSpan>
+concept HasDirectGemmTryKernel =
+    requires(Backend backend, OutputSpan& output, InputSpan& lhs, InputSpan& rhs, double scalar) {
+      uni20::linalg::try_kernel(backend, uni20::linalg::gemm_op{}, output, scalar, lhs, rhs, scalar);
+    };
 
-static_assert(!HasDirectGemmTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan>);
+static_assert(HasDirectGemmTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan, dense_const_mdspan>);
 
-template <class Backend, class MatrixSpan, class VectorSpan>
+template <class Backend, class OutputSpan, class MatrixSpan, class InputSpan>
 concept HasDirectGemvTryKernel =
-    requires(Backend backend, VectorSpan& output, MatrixSpan& matrix, VectorSpan& input, double scalar) {
+    requires(Backend backend, OutputSpan& output, MatrixSpan& matrix, InputSpan& input, double scalar) {
       uni20::linalg::try_kernel(backend, uni20::linalg::gemv_op{}, output, scalar, matrix, input, scalar);
     };
 
-static_assert(!HasDirectGemvTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan, dense_vector_mdspan>);
+static_assert(HasDirectGemvTryKernel<uni20::linalg::CpuReferenceBackend, dense_vector_mdspan, dense_const_mdspan,
+                                     dense_const_vector_mdspan>);
 
 struct NonConvertibleReference
 {
@@ -107,56 +112,62 @@ static_assert(uni20::TensorView<NonConvertibleReadVectorView>);
 static_assert(uni20::RankedDeviceTensorView<NonConvertibleReadVectorView, 1>);
 } // namespace
 
-TEST(CpuGemmDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+TEST(CpuGemmDispatchTest, NormalizedMdspansAreKernelDispatchOperands)
 {
   uni20::DenseMatrix<double> output(2, 2);
   uni20::DenseMatrix<double> lhs(2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
   auto output_span = output.mdspan();
-  auto lhs_span = lhs.mdspan();
-  auto rhs_span = rhs.mdspan();
+  auto lhs_span = std::as_const(lhs).mdspan();
+  auto rhs_span = std::as_const(rhs).mdspan();
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{},
                                                  output_span, 1.0, lhs_span, rhs_span, 0.0),
-            uni20::linalg::KernelTypeAcceptance::no);
+            uni20::linalg::KernelTypeAcceptance::yes);
 }
 
-TEST(CpuGemmDispatchTest, TensorProbeRejectsIncompatibleResolvedMdspan)
+TEST(CpuGemmDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
 {
   uni20::DenseMatrix<double> output(2, 2);
   std::array<double, 4> lhs_storage{};
   NonConvertibleReadMatrixView lhs(lhs_storage.data(), 2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
 
-  auto const tensor_acceptance = uni20::linalg::probe_dispatch_kernel(
-      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output, 1.0, lhs, rhs, 0.0);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
+  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
+  auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
+      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0, lhs_span, rhs_span, 0.0);
 
-  EXPECT_EQ(tensor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
+  EXPECT_EQ(descriptor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
 }
 
-TEST(CpuGemvDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+TEST(CpuGemvDispatchTest, NormalizedMdspansAreKernelDispatchOperands)
 {
   uni20::Tensor<double, 1> output(2);
   uni20::DenseMatrix<double> matrix(2, 2);
   uni20::Tensor<double, 1> input(2);
   auto output_span = output.mdspan();
-  auto matrix_span = matrix.mdspan();
-  auto input_span = input.mdspan();
+  auto matrix_span = std::as_const(matrix).mdspan();
+  auto input_span = std::as_const(input).mdspan();
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{},
                                                  output_span, 1.0, matrix_span, input_span, 0.0),
-            uni20::linalg::KernelTypeAcceptance::no);
+            uni20::linalg::KernelTypeAcceptance::yes);
 }
 
-TEST(CpuGemvDispatchTest, TensorProbeRejectsIncompatibleResolvedMdspan)
+TEST(CpuGemvDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
 {
   uni20::Tensor<double, 1> output(2);
   uni20::DenseMatrix<double> matrix(2, 2);
   std::array<double, 2> input_storage{};
   NonConvertibleReadVectorView input(input_storage.data(), 2);
 
-  auto const tensor_acceptance = uni20::linalg::probe_dispatch_kernel(
-      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output, 1.0, matrix, input, 0.0);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto matrix_span = uni20::detail::tensor_device_mdspan(std::as_const(matrix));
+  auto input_span = uni20::detail::tensor_device_mdspan(std::as_const(input));
+  auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
+      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output_span, 1.0, matrix_span, input_span, 0.0);
 
-  EXPECT_EQ(tensor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
+  EXPECT_EQ(descriptor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
 }

@@ -1,9 +1,10 @@
 # src/uni20/linalg/backends/cublas
 
-This directory adapts deferred CUDA `DeviceTensorView` operands to cuBLAS
-operation tags. `CublasBackend` lowers and validates their device-mdspan
-metadata, blocks for an execution lease, opens synchronized CUDA buffer access,
-and calls the provider-ready leaf. This is the ordinary direct Tensor path.
+This directory adapts normalized CUDA device-mdspan operands to cuBLAS
+operation tags. Tensor frontends select the backend while storage policy is
+available, then lower fixed operands before dispatch. `CublasBackend` validates
+their device-mdspan metadata, blocks for an execution lease, opens synchronized
+CUDA buffer access, and calls the provider-ready leaf.
 
 The current first operation is GEMM. Direct Tensor dispatch uses the blocking
 `try_kernel` entry point. Coroutine dispatch detects the backend's

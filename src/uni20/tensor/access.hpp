@@ -1,7 +1,7 @@
 /**
  * \file access.hpp
  * \ingroup tensor
- * \brief RAII leases that resolve device tensor views into immediate tensor views.
+ * \brief RAII leases that resolve device descriptors and tensor views to mdspans.
  */
 
 #pragma once
@@ -32,6 +32,11 @@ namespace detail
 template <class State>
 concept TensorAccessState = std::move_constructible<State> && requires(State& state) {
   { state.release() } noexcept;
+};
+
+struct immediate_mdspan_access_state
+{
+    void release() noexcept {}
 };
 
 /// \brief Pointer-only read lease for an immediately accessible tensor view.
@@ -156,6 +161,154 @@ template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
 };
 
 } // namespace detail
+
+/// \brief Move-only RAII lease exposing one resolved read-only mdspan.
+/// \details This lower-level lease intentionally carries no tensor storage
+///          policy or backend selector. The access state is stored before the
+///          mdspan so the mdspan is destroyed before access ends.
+/// \tparam Mdspan Read-only resolved mdspan type.
+/// \tparam AccessState RAII state retaining the acquired data handle.
+template <MdspanLike Mdspan, detail::TensorAccessState AccessState>
+  requires std::is_const_v<typename Mdspan::element_type>
+class read_mdspan_lease {
+  public:
+    using mdspan_type = Mdspan;
+    using access_state_type = AccessState;
+
+    /// \brief Construct an active read lease.
+    read_mdspan_lease(access_state_type state, mdspan_type mdspan)
+        : state_(std::move(state)), mdspan_(std::move(mdspan))
+    {}
+
+    read_mdspan_lease(read_mdspan_lease const&) = delete;
+    read_mdspan_lease& operator=(read_mdspan_lease const&) = delete;
+
+    read_mdspan_lease(read_mdspan_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
+                                                          std::is_nothrow_move_constructible_v<mdspan_type>)
+        : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_))
+    {
+      other.mdspan_.reset();
+    }
+
+    read_mdspan_lease&
+    operator=(read_mdspan_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
+                                                  std::is_nothrow_move_assignable_v<mdspan_type>)
+      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type>)
+    {
+      if (this != &other)
+      {
+        this->release();
+        state_ = std::move(other.state_);
+        mdspan_ = std::move(other.mdspan_);
+        other.mdspan_.reset();
+      }
+      return *this;
+    }
+
+    ~read_mdspan_lease() { this->release(); }
+
+    /// \brief Return the resolved read-only mdspan.
+    [[nodiscard]] mdspan_type& mdspan() &
+    {
+      CHECK(mdspan_.has_value(), "cannot use an inactive mdspan lease");
+      return *mdspan_;
+    }
+
+    /// \brief Return the resolved read-only mdspan.
+    [[nodiscard]] mdspan_type const& mdspan() const&
+    {
+      CHECK(mdspan_.has_value(), "cannot use an inactive mdspan lease");
+      return *mdspan_;
+    }
+
+    mdspan_type mdspan() && = delete;
+
+    /// \brief End the access scope.
+    /// \details Repeated calls have no effect.
+    void release() noexcept
+    {
+      if (!mdspan_) return;
+      mdspan_.reset();
+      state_.release();
+    }
+
+  private:
+    [[no_unique_address]] access_state_type state_;
+    std::optional<mdspan_type> mdspan_;
+};
+
+/// \brief Move-only RAII lease exposing one resolved writable mdspan.
+/// \details This lower-level lease intentionally carries no tensor storage
+///          policy or backend selector. The access state is stored before the
+///          mdspan so the mdspan is destroyed before access ends.
+/// \tparam Mdspan Writable resolved mdspan type.
+/// \tparam AccessState RAII state retaining the acquired data handle.
+template <MutableMdspanLike Mdspan, detail::TensorAccessState AccessState> class write_mdspan_lease {
+  public:
+    using mdspan_type = Mdspan;
+    using access_state_type = AccessState;
+
+    /// \brief Construct an active write lease.
+    write_mdspan_lease(access_state_type state, mdspan_type mdspan)
+        : state_(std::move(state)), mdspan_(std::move(mdspan))
+    {}
+
+    write_mdspan_lease(write_mdspan_lease const&) = delete;
+    write_mdspan_lease& operator=(write_mdspan_lease const&) = delete;
+
+    write_mdspan_lease(write_mdspan_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
+                                                            std::is_nothrow_move_constructible_v<mdspan_type>)
+        : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_))
+    {
+      other.mdspan_.reset();
+    }
+
+    write_mdspan_lease&
+    operator=(write_mdspan_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
+                                                   std::is_nothrow_move_assignable_v<mdspan_type>)
+      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type>)
+    {
+      if (this != &other)
+      {
+        this->release();
+        state_ = std::move(other.state_);
+        mdspan_ = std::move(other.mdspan_);
+        other.mdspan_.reset();
+      }
+      return *this;
+    }
+
+    ~write_mdspan_lease() { this->release(); }
+
+    /// \brief Return the resolved writable mdspan.
+    [[nodiscard]] mdspan_type& mdspan() &
+    {
+      CHECK(mdspan_.has_value(), "cannot use an inactive mdspan lease");
+      return *mdspan_;
+    }
+
+    /// \brief Return the resolved writable mdspan without changing lease ownership.
+    [[nodiscard]] mdspan_type const& mdspan() const&
+    {
+      CHECK(mdspan_.has_value(), "cannot use an inactive mdspan lease");
+      return *mdspan_;
+    }
+
+    mdspan_type mdspan() && = delete;
+
+    /// \brief End the access scope.
+    /// \details Repeated calls have no effect.
+    void release() noexcept
+    {
+      if (!mdspan_) return;
+      mdspan_.reset();
+      state_.release();
+    }
+
+  private:
+    [[no_unique_address]] access_state_type state_;
+    std::optional<mdspan_type> mdspan_;
+};
 
 /// \brief Move-only RAII lease exposing a read-only immediate TensorView.
 /// \details The access state is stored before the mdspan so the mdspan is
@@ -376,6 +529,32 @@ class write_tensor_lease {
     [[no_unique_address]] backend_selector_type selector_;
 };
 
+/// \brief Move-only lease exposing a resolved read-only mdspan.
+template <class Lease>
+concept ReadMdspanLease =
+    std::move_constructible<Lease> && (!std::copy_constructible<Lease>) && requires(Lease& lease) {
+      requires MdspanLike<decltype(lease.mdspan())>;
+      requires std::is_const_v<typename std::remove_cvref_t<decltype(lease.mdspan())>::element_type>;
+      { lease.release() } noexcept;
+    };
+
+/// \brief Move-only lease exposing a resolved writable mdspan.
+template <class Lease>
+concept WriteMdspanLease =
+    std::move_constructible<Lease> && (!std::copy_constructible<Lease>) && requires(Lease& lease) {
+      requires MutableMdspanLike<decltype(lease.mdspan())>;
+      { lease.release() } noexcept;
+    };
+
+/// \brief Read mdspan lease whose resolved accessor is valid in host code.
+template <class Lease>
+concept HostReadMdspanLease = ReadMdspanLease<Lease> && HostAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
+/// \brief Write mdspan lease whose resolved accessor is valid in host code.
+template <class Lease>
+concept HostWriteMdspanLease =
+    WriteMdspanLease<Lease> && HostAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
 /// \brief TensorView that owns a move-only read access lifetime.
 /// \details `release()` must be `noexcept` and idempotent. Moving an active
 ///          lease transfers its access lifetime and leaves the source inactive.
@@ -429,6 +608,26 @@ template <class Lease> class ready_tensor_access {
     lease_type lease_;
 };
 
+/// \brief Acquire a directly host-accessible read-only mdspan.
+template <HostAccessibleMdspan Mdspan>
+  requires std::is_const_v<typename std::remove_cvref_t<Mdspan>::element_type>
+[[nodiscard]] auto acquire_host_read_access(Mdspan const& mdspan)
+{
+  using mdspan_type = std::remove_cvref_t<Mdspan>;
+  return read_mdspan_lease<mdspan_type, detail::immediate_mdspan_access_state>{detail::immediate_mdspan_access_state{},
+                                                                               mdspan};
+}
+
+/// \brief Acquire a directly host-accessible writable mdspan.
+template <MutableMdspanLike Mdspan>
+  requires HostAccessibleMdspan<Mdspan>
+[[nodiscard]] auto acquire_host_write_access(Mdspan& mdspan)
+{
+  using mdspan_type = std::remove_cvref_t<Mdspan>;
+  return write_mdspan_lease<mdspan_type, detail::immediate_mdspan_access_state>{detail::immediate_mdspan_access_state{},
+                                                                                mdspan};
+}
+
 /// \brief Acquire an immediately host-accessible tensor view for read-only use.
 template <TensorView Tensor>
   requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
@@ -465,6 +664,33 @@ template <MutableTensorView Tensor>
 
 namespace detail
 {
+
+/// \brief Host read lease type obtained from device-mdspan metadata.
+template <class Mdspan>
+using host_read_mdspan_lease_t = decltype(acquire_host_read_access(std::declval<Mdspan const&>()));
+
+/// \brief Host write lease type obtained from mutable device-mdspan metadata.
+template <class Mdspan> using host_write_mdspan_lease_t = decltype(acquire_host_write_access(std::declval<Mdspan&>()));
+
+/// \brief Read-only mdspan type resolved by host descriptor acquisition.
+template <class Mdspan>
+using host_read_mdspan_t = std::remove_cvref_t<decltype(std::declval<host_read_mdspan_lease_t<Mdspan>&>().mdspan())>;
+
+/// \brief Writable mdspan type resolved by host descriptor acquisition.
+template <class Mdspan>
+using host_write_mdspan_t = std::remove_cvref_t<decltype(std::declval<host_write_mdspan_lease_t<Mdspan>&>().mdspan())>;
+
+/// \brief Device-mdspan metadata supporting host read acquisition.
+template <class Mdspan>
+concept HostReadableDeviceMdspan = DeviceMdspanLike<Mdspan> && requires(Mdspan const& mdspan) {
+  { acquire_host_read_access(mdspan) } -> HostReadMdspanLease;
+};
+
+/// \brief Mutable device-mdspan metadata supporting host write acquisition.
+template <class Mdspan>
+concept HostWritableDeviceMdspan = MutableDeviceMdspanLike<Mdspan> && requires(Mdspan& mdspan) {
+  { acquire_host_write_access(mdspan) } -> HostWriteMdspanLease;
+};
 
 /// \brief Host read lease type obtained from a device tensor view.
 template <class Tensor>

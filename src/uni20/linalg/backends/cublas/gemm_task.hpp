@@ -52,17 +52,14 @@ auto try_make_gemm_task(OutputMdspan& output, Scalar const& alpha, LhsMdspan& lh
 }
 } // namespace detail::cublas_backend
 
-/// \brief Lower DeviceTensorView operands before preparing asynchronous cuBLAS work.
-template <uni20::cublas::CublasScalar Scalar, class OutputTensor, class LhsTensor, class RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<OutputTensor, 2> && uni20::RankedDeviceTensorView<LhsTensor, 2> &&
-               uni20::RankedDeviceTensorView<RhsTensor, 2>
-auto try_make_kernel_task(CublasBackend, gemm_op const&, OutputTensor& output, Scalar const& alpha, LhsTensor& lhs,
-                          RhsTensor& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
+/// \brief Prepare asynchronous cuBLAS work from normalized device mdspans.
+template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
+  requires uni20::MutableRankedDeviceMdspanLike<OutputMdspan, 2> && uni20::RankedDeviceMdspanLike<LhsMdspan, 2> &&
+               uni20::RankedDeviceMdspanLike<RhsMdspan, 2>
+auto try_make_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs,
+                          RhsMdspan& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  return detail::cublas_backend::try_make_gemm_task(output_span, alpha, lhs_span, rhs_span, beta);
+  return detail::cublas_backend::try_make_gemm_task(output, alpha, lhs, rhs, beta);
 }
 
 /// \brief Prepare a replaceable output and lower the operands once for asynchronous cuBLAS work.

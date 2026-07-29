@@ -38,21 +38,21 @@ void fill_complex_matrix(uni20::DenseMatrix<complex_type, uni20::RowMajor>& matr
   matrix[1, 1] = complex_type{7.0, 8.0};
 }
 
-struct TensorViewOnlyCopyBackend
+struct DeviceMdspanOnlyCopyBackend
 {
-    static constexpr std::string_view name = "tensor_view_only_copy";
+    static constexpr std::string_view name = "device_mdspan_only_copy";
     bool* called;
 };
 
-template <uni20::MutableDeviceTensorView Output, uni20::DeviceTensorView Input>
-consteval auto kernel_accepts_types(TensorViewOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
+template <uni20::MutableDeviceMdspanLike Output, uni20::DeviceMdspanLike Input>
+consteval auto kernel_accepts_types(DeviceMdspanOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
 {
   return uni20::linalg::kernel_types_yes;
 }
 
-template <uni20::MutableDeviceTensorView Output, uni20::DeviceTensorView Input>
-uni20::linalg::KernelAttempt try_kernel(TensorViewOnlyCopyBackend const& backend, uni20::linalg::copy_op const&,
-                                        Output&, Input const&)
+template <uni20::MutableDeviceMdspanLike Output, uni20::DeviceMdspanLike Input>
+uni20::linalg::KernelAttempt try_kernel(DeviceMdspanOnlyCopyBackend const& backend, uni20::linalg::copy_op const&,
+                                        Output&, Input&)
 {
   *backend.called = true;
   return uni20::linalg::KernelAttempt::success;
@@ -131,7 +131,7 @@ TEST(TensorCopyTest, MakeTensorAcceptsExplicitLayoutAndBareMdspanSelector)
   EXPECT_EQ(result.mapping().stride(1), 2);
 }
 
-TEST(TensorCopyTest, BareMdspanConvenienceAdaptsToTensorViewsBeforeDispatch)
+TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedDeviceMdspans)
 {
   uni20::Tensor<double, 1> input(3);
   uni20::Tensor<double, 1> output(3);
@@ -143,7 +143,7 @@ TEST(TensorCopyTest, BareMdspanConvenienceAdaptsToTensorViewsBeforeDispatch)
                                                  output_span, input_span),
             uni20::linalg::KernelTypeAcceptance::no);
 
-  uni20::copy(TensorViewOnlyCopyBackend{.called = &called}, output_span, input_span);
+  uni20::copy(DeviceMdspanOnlyCopyBackend{.called = &called}, output_span, input_span);
 
   EXPECT_TRUE(called);
 }

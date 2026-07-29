@@ -90,8 +90,9 @@ The coroutine then:
 1. Awaits the Tensor buffers and any async scalar buffers together.
 2. Resolves references to the stored Tensor values.
 3. Prepares an unconstructed overwrite output when supported.
-4. Resolves stable mdspans and calls `co_dispatch_kernel` with the operation tag
-   and resolved selector.
+4. Normalizes fixed operands to stable device mdspans and calls
+   `co_dispatch_kernel` with the operation tag and resolved selector. A
+   replaceable output remains shared storage until the backend prepares it.
 
 Use a named free coroutine, or a captureless C++23 `static` lambda. Never pass
 references to the `Async<T>` handles into the coroutine. The moved buffers

@@ -28,31 +28,25 @@ template <uni20::DeviceMdspanLike Mdspan> [[nodiscard]] uni20::cuda::Device span
 
 } // namespace detail::cublas_backend
 
-/// \brief Report cuBLAS eligibility for DeviceTensorView GEMM operands.
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-consteval auto kernel_accepts_types(CublasBackend const&, gemm_op const&, OutputTensor&, Scalar const&, LhsTensor&,
-                                    RhsTensor&, Scalar const&)
+/// \brief Report cuBLAS eligibility for normalized device-mdspan GEMM operands.
+template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, class Scalar,
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+consteval auto kernel_accepts_types(CublasBackend const&, gemm_op const&, OutputMdspan&, Scalar const&, LhsMdspan&,
+                                    RhsMdspan&, Scalar const&)
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
-  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
-  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, lhs_span, rhs_span>())
+  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, OutputMdspan, LhsMdspan, RhsMdspan>())
     return kernel_types_maybe;
   else
     return kernel_types_no;
 }
 
-/// \brief Lower DeviceTensorView operands and invoke the cuBLAS GEMM adapter.
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-KernelAttempt try_kernel(CublasBackend, gemm_op const&, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
-                         RhsTensor const& rhs, Scalar beta)
+/// \brief Invoke the cuBLAS GEMM adapter with normalized device mdspans.
+template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, class Scalar,
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+KernelAttempt try_kernel(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar alpha, LhsMdspan& lhs,
+                         RhsMdspan& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  return detail::cublas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, beta);
+  return detail::cublas_backend::try_gemm(output, alpha, lhs, rhs, beta);
 }
 
 /// \brief Report cuBLAS eligibility for replaceable-output matrix products.

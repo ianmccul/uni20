@@ -120,19 +120,19 @@ kernels operate on resolved mdspans.
   deferred views remain lvalue-only. Stream-ordered access installs predecessor
   waits and publishes completion when the lease ends. `CudaTensor` deliberately
   does not expose `mdspan()` and therefore models `DeviceTensorView`, not
-  `TensorView`. CUDA GEMM dispatch receives the tensor-level objects; the cuBLAS
-  backend lowers their `device_mdspan()` metadata and acquires the referenced
+  `TensorView`. Fixed CUDA GEMM dispatch receives normalized device-mdspan
+  descriptors; the cuBLAS backend validates them and acquires the referenced
   buffers.
-- Tensor objects deliberately do not model Uni20's mdspan concepts.
-  Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Blocking
-  backends may acquire TensorView leases before entering an existing mdspan
-  implementation. The synchronous CPU reference, direct BLAS, and dense LAPACK
-  adapters follow this pattern, and their tensor-level type probes delegate to
-  the resolved mdspan probes. Backends with a descriptor-native execution
-  model may instead lower unresolved metadata directly. Operation dispatch
-  happens before either form of lowering: storage policy may select the default
-  backend list, but backend participation depends on the normalized mdspan
-  metadata, descriptor, and accessor observed inside that backend.
+- Tensor objects deliberately do not model Uni20's mdspan concepts. `TensorView`
+  and `DeviceTensorView` expose `.mdspan()` or `.device_mdspan()` for that
+  purpose, and the concepts explicitly reject objects that directly model the
+  corresponding mdspan representation. Fixed-output operation frontends select
+  a backend list from tensor policy, then dispatch normalized
+  `DeviceMdspanLike` operands. Blocking backends acquire mdspan leases before
+  entering an existing mdspan implementation; descriptor-native backends may
+  interpret unresolved metadata directly. Replaceable-output operation tags
+  retain tensor or shared-storage outputs until the selected backend prepares
+  them.
 - Generated tensors own compact generator state rather than an element buffer.
   They model readable `TensorView` but not `StridedTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is

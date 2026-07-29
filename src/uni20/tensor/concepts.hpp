@@ -61,10 +61,11 @@ using normalized_mutable_device_mdspan_t = decltype(tensor_device_mdspan(std::de
 /// \brief Tensor-level object that exposes a readable mdspan and backend selector.
 /// \details A tensor view combines mdspan access with storage/execution policy.
 ///          Non-owning views remain subject to their documented source lifetime.
-///          Backend adapters may accept the tensor object and lower `mdspan()`
-///          at their provider boundary.
+///          It is intentionally distinct from `MdspanLike`: the tensor object
+///          exposes its multidimensional descriptor through `mdspan()` rather
+///          than modeling that descriptor directly.
 template <class T>
-concept TensorView = requires(std::remove_reference_t<T> const& tensor) {
+concept TensorView = (!MdspanLike<T>) && requires(std::remove_reference_t<T> const& tensor) {
   typename std::remove_cvref_t<detail::tensor_const_mdspan_t<T>>::extents_type;
   tensor.backend_selector();
   tensor.mdspan();
@@ -80,9 +81,10 @@ concept TensorView = requires(std::remove_reference_t<T> const& tensor) {
 /// \details An ordinary `TensorView` is the immediate case. A deferred model
 ///          exposes `device_mdspan()` returning a `DeviceMdspanLike`; explicit
 ///          read or write access resolves that metadata into a `TensorView`
-///          whose lifetime is governed by an RAII lease.
+///          whose lifetime is governed by an RAII lease. The policy-bearing
+///          tensor object does not itself model `DeviceMdspanLike`.
 template <class T>
-concept DeviceTensorView = requires(std::remove_reference_t<T> const& tensor) {
+concept DeviceTensorView = (!DeviceMdspanLike<T>) && requires(std::remove_reference_t<T> const& tensor) {
   typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::extents_type;
   tensor.backend_selector();
   detail::tensor_device_mdspan(tensor);

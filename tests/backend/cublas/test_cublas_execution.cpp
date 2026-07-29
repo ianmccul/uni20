@@ -246,11 +246,15 @@ class CudaGemmPlatform {
 
     [[nodiscard]] auto resources() noexcept -> uni20::cuda::DeviceResources& { return resources_; }
 
-    template <class Selector, class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
-    [[nodiscard]] auto kernel_type_candidates(Selector const& selector, OutputMdspan& output, Scalar alpha,
-                                              LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta)
+    template <class Selector, class OutputTensor, class Scalar, class LhsTensor, class RhsTensor>
+    [[nodiscard]] auto kernel_type_candidates(Selector const& selector, OutputTensor& output, Scalar alpha,
+                                              LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
     {
-      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output, alpha, lhs, rhs, beta);
+      auto output_span = uni20::detail::tensor_device_mdspan(output);
+      auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+      auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output_span, alpha, lhs_span,
+                                                   rhs_span, beta);
     }
 
     template <class Backend, class OutputTensor, class Scalar, class LhsTensor, class RhsTensor>
@@ -779,7 +783,7 @@ TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaTensorViews)
   EXPECT_EQ(download_tensor(output), (std::vector<double>{116, 278, 128, 308}));
 }
 
-TEST_F(CublasExecutionTest, OperationDispatchAcceptsTensorViewsRatherThanDeviceMdspans)
+TEST_F(CublasExecutionTest, OperationDispatchAcceptsNormalizedDeviceMdspansRatherThanTensorViews)
 {
   using matrix_type = uni20::CudaMatrix<double>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
@@ -787,15 +791,15 @@ TEST_F(CublasExecutionTest, OperationDispatchAcceptsTensorViewsRatherThanDeviceM
   matrix_type rhs(resources, 3, 2);
   matrix_type output(resources, 2, 2);
   auto output_span = output.device_mdspan();
-  auto lhs_span = lhs.device_mdspan();
-  auto rhs_span = rhs.device_mdspan();
+  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
+  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output_span,
                                                  1.0, lhs_span, rhs_span, 0.0),
-            uni20::linalg::KernelTypeAcceptance::no);
+            uni20::linalg::KernelTypeAcceptance::maybe);
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output, 1.0,
                                                  lhs, rhs, 0.0),
-            uni20::linalg::KernelTypeAcceptance::maybe);
+            uni20::linalg::KernelTypeAcceptance::no);
 }
 
 TEST_F(CublasExecutionTest, TensorGemmConformanceScalarsAndCanonicalLayouts)
@@ -1029,13 +1033,16 @@ TEST_F(CublasExecutionTest, TensorGemmDeclinesCrossDeviceOperands)
   uni20::CudaMatrix<double> output(device0, 2, 2);
   uni20::CudaMatrix<double> lhs(device0, 2, 2);
   uni20::CudaMatrix<double> rhs(device1, 2, 2);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
+  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
 
-  EXPECT_EQ(
-      uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output, 1.0, lhs, rhs, 0.0),
-      uni20::linalg::KernelAttempt::incompatible_devices);
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0,
+                                      lhs_span, rhs_span, 0.0),
+            uni20::linalg::KernelAttempt::incompatible_devices);
 
   auto task_attempt = uni20::linalg::try_make_kernel_task(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{},
-                                                          output, 1.0, lhs, rhs, 0.0);
+                                                          output_span, 1.0, lhs_span, rhs_span, 0.0);
   EXPECT_EQ(task_attempt.attempt(), uni20::linalg::KernelAttempt::incompatible_devices);
   EXPECT_FALSE(task_attempt.has_task());
 }

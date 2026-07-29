@@ -206,6 +206,8 @@ class InstrumentedTensorAccessState {
 using access_test_selector = linalg::backend_list<linalg::CpuReferenceBackend>;
 using access_test_mutable_mdspan = stdex::mdspan<int, extents_2d>;
 using access_test_const_mdspan = stdex::mdspan<int const, extents_2d>;
+using instrumented_read_mdspan_lease = read_mdspan_lease<access_test_const_mdspan, InstrumentedTensorAccessState>;
+using instrumented_write_mdspan_lease = write_mdspan_lease<access_test_mutable_mdspan, InstrumentedTensorAccessState>;
 using instrumented_read_tensor_lease =
     read_tensor_lease<access_test_const_mdspan, InstrumentedTensorAccessState, access_test_selector, VectorStorage>;
 using instrumented_write_tensor_lease =
@@ -253,7 +255,14 @@ static_assert(!RankedTensorView<tensor_type, 1>);
 static_assert(!MutableRankedTensorView<tensor_type, 1>);
 static_assert(!MutableTensorView<tensor_type const>);
 static_assert(!MdspanLike<tensor_type>);
+static_assert(!DeviceMdspanLike<tensor_type>);
 static_assert(!StridedMdspanLike<tensor_type>);
+static_assert(detail::HostReadableDeviceMdspan<access_test_const_mdspan>);
+static_assert(detail::HostWritableDeviceMdspan<access_test_mutable_mdspan>);
+static_assert(ReadMdspanLease<instrumented_read_mdspan_lease>);
+static_assert(WriteMdspanLease<instrumented_write_mdspan_lease>);
+static_assert(!TensorView<instrumented_read_mdspan_lease>);
+static_assert(!TensorView<instrumented_write_mdspan_lease>);
 static_assert(ScalarTensorView<scalar_tensor_type>);
 static_assert(MutableScalarTensorView<scalar_tensor_type>);
 static_assert(ScalarDeviceTensorView<scalar_tensor_type>);
@@ -682,6 +691,43 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
   static_assert(!MutableTensorView<decltype(lease)>);
   EXPECT_EQ(&lease.storage(), &tensor.storage());
   EXPECT_EQ((lease.mdspan()[1, 2]), 42);
+}
+
+TEST(TensorTest, ImmediateMdspanAccessUsesPolicyFreeLeases)
+{
+  std::array<int, 4> data{};
+  access_test_mutable_mdspan mutable_span{data.data(), extents_2d{2, 2}};
+
+  {
+    auto lease = acquire_host_write_access(mutable_span);
+    static_assert(HostWriteMdspanLease<decltype(lease)>);
+    lease.mdspan()[1, 0] = 42;
+  }
+
+  access_test_const_mdspan const_span{data.data(), extents_2d{2, 2}};
+  auto lease = acquire_host_read_access(const_span);
+  static_assert(HostReadMdspanLease<decltype(lease)>);
+  EXPECT_EQ((lease.mdspan()[1, 0]), 42);
+}
+
+TEST(TensorTest, GenericMdspanLeasesReleaseAndMoveAccessState)
+{
+  AccessStateCounters counters;
+  std::array<int, 4> data{};
+
+  {
+    instrumented_write_mdspan_lease source{InstrumentedTensorAccessState{counters},
+                                           access_test_mutable_mdspan{data.data(), extents_2d{2, 2}}};
+    instrumented_write_mdspan_lease lease{std::move(source)};
+    source.release();
+    EXPECT_EQ(counters.completed_releases, 0);
+
+    lease.release();
+    lease.release();
+    EXPECT_EQ(counters.completed_releases, 1);
+  }
+
+  EXPECT_EQ(counters.completed_releases, 1);
 }
 
 TEST(TensorTest, GenericReadTensorLeaseReleaseIsIdempotent)

@@ -44,14 +44,12 @@ auto try_make_copy_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskA
 }
 } // namespace detail::cuda_reference
 
-/// \brief Normalize tensor metadata inside the CUDA task backend.
-template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-auto try_make_kernel_task(CudaReferenceBackend, copy_op const&, OutputTensor& output,
-                          InputTensor& input) -> KernelTaskAttempt<async::CudaTask>
+/// \brief Create a CUDA copy task from normalized device mdspans.
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+auto try_make_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output,
+                          InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto input_span = uni20::detail::tensor_device_mdspan(input);
-  return detail::cuda_reference::try_make_copy_task(output_span, input_span);
+  return detail::cuda_reference::try_make_copy_task(output, input);
 }
 
 } // namespace uni20::linalg

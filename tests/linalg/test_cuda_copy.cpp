@@ -213,9 +213,10 @@ TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
   EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output_span, input_span),
             uni20::linalg::KernelAttempt::unsupported_transform);
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
-                                                  device, conjugated));
+                                                  output_span, input_span));
+  auto same_input_span = uni20::detail::tensor_device_mdspan(std::as_const(device));
   EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
-                                                 device, device));
+                                                 output_span, same_input_span));
 
   auto result = uni20::to_host(device);
   EXPECT_EQ((result[0, 0]), (complex_type{1.0, 2.0}));

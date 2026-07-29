@@ -108,13 +108,13 @@ KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 }
 } // namespace detail::cpu_reference
 
-/// \brief Report eligibility for a host DeviceTensorView element copy.
-template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputTensor&, InputTensor&)
+/// \brief Report eligibility for a host-accessible device-mdspan element copy.
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
+  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
   constexpr auto acceptance = detail::cpu_reference::copy_acceptance<output_span, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -122,10 +122,10 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
     return kernel_types_no;
 }
 
-/// \brief Resolve host tensor access and copy through the resulting mdspans.
-template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
-KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputTensor& output, InputTensor const& input)
+/// \brief Resolve host access and copy through the resulting mdspans.
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
 {
   auto output_access = acquire_host_write_access(output);
   auto input_access = acquire_host_read_access(input);

@@ -183,10 +183,10 @@ inside that stable object.
 The type probe deliberately mirrors this invocation shape. It removes a reference and
 then forms an lvalue reference while preserving cv-qualification.
 
-## Why Tensor policy is explicit at the dispatch boundary
+## Why Tensor policy is resolved before fixed dispatch
 
-Kernel dispatch is tensor-view-oriented, while operation tags declare whether an
-output is fixed, updated, or replaceable. A Tensor operation may need to:
+Operation tags declare whether an output is fixed, updated, or replaceable. A
+Tensor operation may need to:
 
 - construct or resize an output;
 - choose resources for that output;
@@ -194,12 +194,14 @@ output is fixed, updated, or replaceable. A Tensor operation may need to:
 - enroll async reads and writes;
 - preserve symmetry or block structure.
 
-Those permissions are operation semantics, while exact placement requirements may be
-backend-specific. The Tensor wrapper establishes the operand roles and passes
-`TensorView`, `DeviceTensorView`, or potentially unconstructed replaceable-output
-storage into the dispatcher. A backend may provisionally prepare a replaceable output,
-then acquire and lower the resulting views to execution-domain mdspans. This keeps the
-same backend implementation usable from synchronous and coroutine-aware front ends.
+Those permissions are operation semantics, while exact placement requirements
+may be backend-specific. For fixed existing operands, the Tensor wrapper first
+selects the backend list and then passes normalized `DeviceMdspanLike`
+descriptors into the dispatcher. For a replaceable output, it instead passes
+the tensor or potentially unconstructed shared storage so the selected backend
+can prepare it. The backend then acquires or lowers fixed descriptors to
+execution-domain mdspans. This keeps the same backend implementation usable
+from synchronous and coroutine-aware front ends.
 
 ## Why mdspan accessors are part of eligibility
 

@@ -38,7 +38,8 @@ Tensor operations have three distinct layers:
 Tensor operation
   -> shape, ownership, and output policy
   -> storage-derived backend selector
-  -> backend dispatch on TensorView / DeviceTensorView operands
+  -> fixed-operand DeviceMdspanLike normalization
+  -> backend dispatch on normalized descriptors
   -> backend-specific execution-domain acquisition
   -> resolved mdspan leaf kernel
 ```
@@ -49,8 +50,8 @@ An Async operation adds scheduling around the same synchronous operation:
 Async<Tensor> operands
   -> enroll ReadBuffer and WriteBuffer epochs
   -> scheduled coroutine awaits stored Tensor values
-  -> synchronous Tensor operation
-  -> tensor-view backend dispatch and resolved mdspan leaf kernel
+  -> fixed-operand normalization or replaceable-output dispatch
+  -> descriptor acquisition and resolved mdspan leaf kernel
 ```
 
 Leaf kernels do not receive `Tensor` or `Async<Tensor>`. They receive resolved
@@ -403,7 +404,12 @@ explicit.
 
 ```cpp
 dispatch_kernel(selector, assign_product_op{}, output, alpha, lhs, rhs);
-dispatch_kernel(selector, gemm_op{}, output, alpha, lhs, rhs, beta);
+
+auto output_span = tensor_device_mdspan(output);
+auto lhs_span = tensor_device_mdspan(std::as_const(lhs));
+auto rhs_span = tensor_device_mdspan(std::as_const(rhs));
+dispatch_kernel(
+    selector, gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 ```
 
 `assign_product_op` is a replaceable-output overwrite. The previous output value
@@ -420,6 +426,13 @@ preparation occur in the `assign_product_op` backend adapter, where the backend
 has enough information to state its storage requirements. The synchronous form
 receives a concrete Tensor output. The async form receives the output's
 potentially unconstructed `shared_storage<Tensor>`.
+
+The fixed-output frontend selects its backend list while tensor policy is still
+available, then normalizes the existing output and inputs exactly once before
+dispatch. `gemm_op` backend customizations therefore accept
+`MutableDeviceMdspanLike` and `DeviceMdspanLike` refinements, not tensor views.
+`assign_product_op` remains tensor-level because its output may not exist until
+the selected backend supplies placement and storage requirements.
 
 Host backends require only the product shape. The cuBLAS backend also requires
 the output to use the operands' CUDA device, after first rejecting operands that

@@ -382,27 +382,22 @@ KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 }
 } // namespace detail::cuda_reference
 
-/// \brief Report CUDA copy eligibility after normalizing generic tensor metadata.
-template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputTensor&, InputTensor&)
+/// \brief Report CUDA copy eligibility for normalized device mdspans.
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using input_span =
-      std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<InputTensor const&>()))>;
-  constexpr auto acceptance = detail::cuda_reference::copy_acceptance<output_span, input_span>();
+  constexpr auto acceptance = detail::cuda_reference::copy_acceptance<OutputMdspan, InputMdspan>();
   if constexpr (acceptance == KernelTypeAcceptance::maybe)
     return kernel_types_maybe;
   else
     return kernel_types_no;
 }
 
-/// \brief Normalize tensor metadata inside the CUDA backend and perform the copy.
-template <uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView InputTensor>
-KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputTensor& output, InputTensor const& input)
+/// \brief Perform a CUDA copy from normalized device mdspans.
+template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto input_span = uni20::detail::tensor_device_mdspan(input);
-  return detail::cuda_reference::copy(output_span, input_span);
+  return detail::cuda_reference::copy(output, input);
 }
 
 } // namespace uni20::linalg

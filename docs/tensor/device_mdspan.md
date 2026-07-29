@@ -230,6 +230,11 @@ TensorView   is an immediate DeviceTensorView
 MdspanLike   is an immediate DeviceMdspanLike
 ```
 
+The object categories remain distinct: `TensorView` does not itself model
+`MdspanLike`, and `DeviceTensorView` does not itself model
+`DeviceMdspanLike`. The tensor-level object exposes the corresponding
+descriptor through `.mdspan()` or `.device_mdspan()`.
+
 Rank, stride, and mutability use the same Cartesian naming for immediate and
 device tensor views. Rank-zero convenience concepts are
 `ScalarTensorView`, `MutableScalarTensorView`, `ScalarDeviceTensorView`, and
@@ -238,6 +243,11 @@ device tensor views. Rank-zero convenience concepts are
 The acquisition result concepts are:
 
 ```cpp
+uni20::ReadMdspanLease<T>
+uni20::WriteMdspanLease<T>
+uni20::HostReadMdspanLease<T>
+uni20::HostWriteMdspanLease<T>
+
 uni20::ReadTensorLease<T>
 uni20::WriteTensorLease<T>
 
@@ -247,16 +257,18 @@ uni20::CudaReadTensorLease<T>
 uni20::CudaWriteTensorLease<T>
 ```
 
-Both are move-only `TensorView` models with `.backend_selector()`, `.mdspan()`,
-and `release()`. A write lease is a `MutableTensorView`, while its const
-interface returns a const-element mdspan. A read lease may additionally expose
-read-only storage inspection. Write leases deliberately expose no storage
-observer: element mutation goes through `.mdspan()`, while structural mutation
-of the owner remains unavailable during the lease.
+Mdspan leases are move-only, policy-free access lifetimes with `.mdspan()` and
+`release()`. They deliberately do not model `TensorView`; a fixed-operation
+backend no longer needs a backend selector or storage policy after dispatch has
+selected that backend. Tensor leases additionally model `TensorView` and expose
+`.backend_selector()`. A write tensor lease is a `MutableTensorView`, while its
+const interface returns a const-element mdspan. Write leases deliberately
+expose no storage observer: element mutation goes through `.mdspan()`, while
+structural mutation of the owner remains unavailable during the lease.
 
-Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
-templates, but an acquisition backend may return any type satisfying the
-concepts.
+Uni20 provides the generic `read_mdspan_lease`, `write_mdspan_lease`,
+`read_tensor_lease`, and `write_tensor_lease` class templates, but an
+acquisition backend may return any type satisfying the relevant concepts.
 
 ### Execution-Domain Concepts
 
@@ -375,10 +387,11 @@ views remain lvalue-only.
 
 ### Host Backend Lowering
 
-A host backend can accept `DeviceTensorView` operands without distinguishing
-immediate from deferred host storage. It acquires the required host read and
-write leases, then invokes its backend-specific lower-level mdspan
-implementation:
+After tensor-level selector resolution, a fixed operation normalizes its
+operands to `DeviceMdspanLike` descriptors. A host backend accepts those
+descriptors without distinguishing immediate from deferred host storage. It
+acquires the required host read and write leases, then invokes its
+backend-specific lower-level mdspan implementation:
 
 ```cpp
 auto output_access = acquire_host_write_access(output);
@@ -395,32 +408,31 @@ Instead it calls a function whose namespace or name identifies the selected
 backend, such as `cpu_reference::copy`, `blas::try_gemm`, or
 `cuda_reference::copy`.
 
-The synchronous CPU reference kernels, direct BLAS adapters, and dense LAPACK
-adapters use this lowering pattern. For an ordinary host `TensorView`,
-acquisition creates only pointer-sized borrowed leases and the forwarding
-optimizes to the direct mdspan path. A deferred implementation may block while
-producing the same `TensorView` lease interface.
+The synchronous CPU reference kernels and direct BLAS adapters use this
+lowering pattern for fixed GEMM, GEMV, and copy. For an ordinary host
+`TensorView`, the normalized descriptor is an mdspan and acquisition creates a
+small no-op lease; the forwarding optimizes to the direct mdspan path. A
+deferred descriptor implementation may block while producing the same
+mdspan-lease interface.
 
-The tensor-level `kernel_accepts_types` overload for a host adapter derives
-the exact mdspan types returned by its leases and delegates to the
-backend-specific lower-level acceptance helper. That helper is the single
-source of truth for accessor, scalar, rank, layout, and assignment eligibility;
-it is not another operation-tag customization point. A tensor probe must not
-report stronger acceptance than the implementation reached after acquisition.
+The descriptor-level `kernel_accepts_types` overload derives the exact resolved
+mdspan types returned by acquisition and delegates to the backend-specific
+lower-level acceptance helper. That helper is the single source of truth for
+accessor, scalar, rank, layout, and assignment eligibility; it is not another
+operation-tag customization point.
 
 Descriptor-native backends do not use this host lowering when their
 execution model requires more context. For example, cuBLAS inspects CUDA
 descriptors and acquires buffer access against its selected stream.
 
-Operation dispatch precedes device-view interpretation. Frontends pass
-`DeviceTensorView` operands to the selected backend without classifying them by
-storage policy or first replacing them with device mdspans. The backend then
-normalizes each tensor to its `DeviceMdspanLike` representation and either
-acquires a lease or interprets its descriptor directly. `CudaStorage` may
-provide the default backend list, but it does not make a tensor a
-`DeviceTensorView` and does not control whether a backend overload participates.
-CUDA-specific lowering identifies a `CudaBufferView` only after normalization
-and checks the accessor independently.
+Selector resolution precedes device-view normalization. Fixed-operation
+frontends use tensor storage policy to choose the backend list, then pass each
+normalized `DeviceMdspanLike` representation into the backend walk. A backend
+either acquires a lease or interprets the descriptor directly. `CudaStorage`
+may provide the default backend list, but it does not make a tensor a
+`DeviceTensorView` and does not by itself make a backend overload participate.
+CUDA-specific lowering identifies a `CudaBufferView` from the normalized
+descriptor and checks the accessor independently.
 
 ### CUDA Vertical Slice
 
@@ -475,13 +487,12 @@ All device operations using a synchronized lease must complete before the
 lease is destroyed. Stream-ordered work should use the stream overloads so
 lease release can publish the completion event.
 
-CUDA copy and GEMM accept deferred metadata without making `CudaTensor` an
-immediate `TensorView`. GEMM passes `DeviceTensorView` operands through
-`dispatch_kernel`; the selected backend acquires the operands according to its
-execution model. CPU reference GEMM uses the host lease interface. The
-cuBLAS backend lowers `device_mdspan()` descriptors directly: its synchronous
-path blocks for stream and provider resources, while its async path awaits
-them.
+CUDA copy and fixed GEMM accept deferred metadata without making `CudaTensor`
+an immediate `TensorView`. Their tensor frontends select the backend, normalize
+the operands to CUDA `device_mdspan()` descriptors, and pass those descriptors
+through `dispatch_kernel` or `co_dispatch_kernel`. CPU reference GEMM uses the
+host descriptor lease interface. The cuBLAS synchronous path blocks for stream
+and provider resources, while its async path awaits them.
 
 ## Data Descriptor Boundary
 

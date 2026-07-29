@@ -567,12 +567,13 @@ scratch storage.
 
 ## Relation To Dispatch
 
-The direct GEMM and GEMV wrappers are wired below tensor-view backend
-implementations. Operation-tag dispatch receives tensor operands as `TensorView`
-or `DeviceTensorView` refinements; the selected backend lowers them to the direct
-mdspan wrappers. Fixed-output tensor overloads derive the default selector from
-tensor storage. A future bare-mdspan convenience overload must adapt its operands
-to lightweight tensor views before dispatch. The remaining axes of progress are:
+The direct GEMM and GEMV wrappers are wired below descriptor-level backend
+implementations. Fixed-output tensor overloads derive the default selector from
+tensor storage, normalize the existing operands to `DeviceMdspanLike`
+refinements, and enter operation-tag dispatch. The selected backend acquires
+host mdspan leases and calls the direct wrappers. Bare-mdspan convenience
+overloads pass const-normalized inputs through the same descriptor boundary.
+The remaining axes of progress are:
 
 1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
    descriptors.

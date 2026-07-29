@@ -36,6 +36,54 @@ template <class Scalar> using vector_mdspan = stdex::mdspan<Scalar, extents_1d, 
 using host_backend_selector =
     uni20::linalg::backend_list<uni20::linalg::BlasBackend, uni20::linalg::CpuReferenceBackend>;
 
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+[[nodiscard]] auto normalized_gemm_candidates(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
+                                              LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return uni20::linalg::kernel_type_candidates(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
+                                               output_span, alpha, lhs_span, rhs_span, beta);
+}
+
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+[[nodiscard]] auto probe_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
+                                         LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return uni20::linalg::probe_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
+                                              output_span, alpha, lhs_span, rhs_span, beta);
+}
+
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+[[nodiscard]] bool try_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
+                                       LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return uni20::linalg::try_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
+                                            output_span, alpha, lhs_span, rhs_span, beta);
+}
+
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+void dispatch_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
+                              RhsTensor const& rhs, Scalar beta)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  uni20::linalg::dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{}, output_span, alpha,
+                                 lhs_span, rhs_span, beta);
+}
+
 template <class Scalar> class ValueTransformMatrixView {
   public:
     using value_type = std::remove_cv_t<Scalar>;
@@ -89,9 +137,16 @@ struct HostGemmPlatform
     {
       return tensor.storage();
     }
+
+    template <class BackendSelector, class OutputTensor, class Scalar, class LhsTensor, class RhsTensor>
+    [[nodiscard]] auto kernel_type_candidates(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
+                                              LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+    {
+      return normalized_gemm_candidates(std::forward<BackendSelector>(selector), output, alpha, lhs, rhs, beta);
+    }
 };
 
-template <class Scalar> class NonStridedMatrixView {
+template <class Scalar> class NonStridedMdspan {
   public:
     using element_type = Scalar;
     using value_type = std::remove_cv_t<element_type>;
@@ -103,7 +158,7 @@ template <class Scalar> class NonStridedMatrixView {
     using reference = typename accessor_type::reference;
     using index_type = typename extents_type::index_type;
 
-    NonStridedMatrixView(data_handle_type data, index_type rows, index_type cols) : span_(data, rows, cols) {}
+    NonStridedMdspan(data_handle_type data, index_type rows, index_type cols) : span_(data, rows, cols) {}
 
     static constexpr std::size_t rank() noexcept { return 2; }
     static constexpr bool is_always_strided() noexcept { return false; }
@@ -116,11 +171,25 @@ template <class Scalar> class NonStridedMatrixView {
 
     reference operator[](index_type row, index_type col) const { return span_[row, col]; }
 
-    [[nodiscard]] auto mdspan() noexcept -> NonStridedMatrixView { return *this; }
+  private:
+    left_mdspan<element_type> span_;
+};
 
-    [[nodiscard]] auto mdspan() const noexcept -> NonStridedMatrixView<value_type const>
+template <class Scalar> class NonStridedMatrixView {
+  public:
+    using value_type = std::remove_cv_t<Scalar>;
+    using extents_type = extents_2d;
+    using index_type = typename extents_type::index_type;
+    using mdspan_type = NonStridedMdspan<Scalar>;
+    using const_mdspan_type = NonStridedMdspan<value_type const>;
+
+    NonStridedMatrixView(Scalar* data, index_type rows, index_type cols) : span_(data, rows, cols) {}
+
+    [[nodiscard]] auto mdspan() noexcept -> mdspan_type { return span_; }
+
+    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
     {
-      return NonStridedMatrixView<value_type const>{span_.data_handle(), span_.extent(0), span_.extent(1)};
+      return const_mdspan_type{span_.data_handle(), span_.extent(0), span_.extent(1)};
     }
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> host_backend_selector
@@ -128,8 +197,13 @@ template <class Scalar> class NonStridedMatrixView {
       return host_backend_selector{uni20::linalg::BlasBackend{}, uni20::linalg::CpuReferenceBackend{}};
     }
 
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return span_.extents(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return span_.extent(axis); }
+
+    decltype(auto) operator[](index_type row, index_type col) const { return span_[row, col]; }
+
   private:
-    left_mdspan<element_type> span_;
+    mdspan_type span_;
 };
 
 template <class Matrix> void fill_matrix(Matrix&& matrix, std::initializer_list<double> values)
@@ -195,17 +269,14 @@ template <class... Args> consteval auto kernel_accepts_types(Backend const&, gem
   return kernel_types_yes;
 }
 
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
-                         RhsTensor const& rhs, Scalar beta)
+template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, class Scalar,
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan& output, Scalar alpha, LhsMdspan& lhs,
+                         RhsMdspan& rhs, Scalar beta)
 {
   (void)backend;
   backend_was_called = true;
-  auto output_span = output.mdspan();
-  auto lhs_span = lhs.mdspan();
-  auto rhs_span = rhs.mdspan();
-  uni20::linalg::cpu::gemm(output_span, alpha, lhs_span, rhs_span, beta);
+  uni20::linalg::cpu::gemm(output, alpha, lhs, rhs, beta);
   return KernelAttempt::success;
 }
 } // namespace selector_customization_test
@@ -240,6 +311,7 @@ class DeferredMatrix {
     struct DataDescriptor
     {
         tensor_type* tensor = nullptr;
+        AccessCounts* counts = nullptr;
     };
 
     using mutable_device_span_type =
@@ -251,13 +323,13 @@ class DeferredMatrix {
 
     [[nodiscard]] auto device_mdspan() -> mutable_device_span_type
     {
-      return mutable_device_span_type{DataDescriptor{tensor_}, mapping_type{tensor_->extents()},
+      return mutable_device_span_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
                                       stdex::default_accessor<double>{}};
     }
 
     [[nodiscard]] auto device_mdspan() const -> const_device_span_type
     {
-      return const_device_span_type{DataDescriptor{tensor_}, mapping_type{tensor_->extents()},
+      return const_device_span_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
                                     stdex::default_accessor<double const>{}};
     }
 
@@ -280,16 +352,26 @@ static_assert(uni20::DeviceTensorView<DeferredMatrix>);
 static_assert(uni20::MutableDeviceTensorView<DeferredMatrix>);
 static_assert(!uni20::TensorView<DeferredMatrix>);
 
-[[nodiscard]] auto acquire_host_read_access(DeferredMatrix const& matrix)
+template <class Element, class Extents, class Layout, class Accessor>
+  requires std::is_const_v<Element>
+[[nodiscard]] auto acquire_host_read_access(
+    uni20::device_mdspan<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor> const& span)
 {
-  ++matrix.counts().reads;
-  return uni20::acquire_host_read_access(std::as_const(matrix.tensor()));
+  ++span.data_descriptor().counts->reads;
+  using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
+  mdspan_type resolved{span.data_descriptor().tensor->storage().data(), span.mapping(), span.accessor()};
+  return uni20::acquire_host_read_access(resolved);
 }
 
-[[nodiscard]] auto acquire_host_write_access(DeferredMatrix& matrix)
+template <class Element, class Extents, class Layout, class Accessor>
+  requires(!std::is_const_v<Element>)
+[[nodiscard]] auto acquire_host_write_access(
+    uni20::device_mdspan<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor>& span)
 {
-  ++matrix.counts().writes;
-  return uni20::acquire_host_write_access(matrix.tensor());
+  ++span.data_descriptor().counts->writes;
+  using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
+  mdspan_type resolved{span.data_descriptor().tensor->storage().data(), span.mapping(), span.accessor()};
+  return uni20::acquire_host_write_access(resolved);
 }
 } // namespace host_gemm_test
 
@@ -412,9 +494,14 @@ static_assert(!HasTryDispatchKernel<unavailable_backends, test_dispatch_op, int&
 static_assert(!HasDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
 static_assert(HasDynamicDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
 
-static_assert(uni20::RankedMdspanLike<NonStridedMatrixView<double>, 2>);
-static_assert(uni20::MutableRankedMdspanLike<NonStridedMatrixView<double>, 2>);
-static_assert(!uni20::StridedMdspanLike<NonStridedMatrixView<double>>);
+static_assert(uni20::RankedMdspanLike<NonStridedMdspan<double>, 2>);
+static_assert(uni20::MutableRankedMdspanLike<NonStridedMdspan<double>, 2>);
+static_assert(!uni20::StridedMdspanLike<NonStridedMdspan<double>>);
+static_assert(uni20::detail::HostWritableDeviceMdspan<NonStridedMdspan<double>>);
+static_assert(uni20::detail::HostReadableDeviceMdspan<NonStridedMdspan<double const>>);
+static_assert(uni20::linalg::detail::cpu_gemm_mdspan_types_compatible<
+              NonStridedMdspan<double>, double, NonStridedMdspan<double const>, NonStridedMdspan<double const>>());
+static_assert(!uni20::MdspanLike<NonStridedMatrixView<double>>);
 static_assert(uni20::TensorView<NonStridedMatrixView<double>>);
 static_assert(uni20::MutableTensorView<NonStridedMatrixView<double>>);
 static_assert(uni20::TensorView<ValueTransformMatrixView<double>>);
@@ -457,16 +544,17 @@ TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
       KernelTypeAcceptance::no);
 }
 
-TEST(LinalgGemmDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+TEST(LinalgGemmDispatchTest, NormalizedMdspansAreKernelDispatchOperands)
 {
   std::vector<double> storage(4);
-  left_mdspan<double> span(storage.data(), 2, 2);
+  left_mdspan<double> output(storage.data(), 2, 2);
+  left_mdspan<double const> input(storage.data(), 2, 2);
   auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
 
-  auto candidates = uni20::linalg::kernel_type_candidates(selector, gemm_op{}, span, 1.0, span, span, 0.0);
-  static_assert(std::same_as<decltype(candidates), backend_list<>>);
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(selector, gemm_op{}, span, 1.0, span, span, 0.0),
-            KernelTypeAcceptance::no);
+  auto candidates = uni20::linalg::kernel_type_candidates(selector, gemm_op{}, output, 1.0, input, input, 0.0);
+  static_assert(std::same_as<decltype(candidates), backend_list<BlasBackend, CpuReferenceBackend>>);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(selector, gemm_op{}, output, 1.0, input, input, 0.0),
+            KernelTypeAcceptance::yes);
 }
 
 TEST(LinalgGemmDispatchTest, TypeCandidatesExposeEveryCompatibleGemmBackend)
@@ -479,13 +567,13 @@ TEST(LinalgGemmDispatchTest, TypeCandidatesExposeEveryCompatibleGemmBackend)
 
   auto selector =
       backend_list{TryKernelOnlyBackend{}, uni20::linalg::LapackBackend{}, BlasBackend{}, CpuReferenceBackend{}};
-  auto candidates = uni20::linalg::kernel_type_candidates(selector, gemm_op{}, c, 1.0, a, b, 0.0);
+  auto candidates = normalized_gemm_candidates(selector, c, 1.0, a, b, 0.0);
   static_assert(std::same_as<decltype(candidates), backend_list<BlasBackend, CpuReferenceBackend>>);
 
   int tested_backends = 0;
   auto test_backend = [&](auto const& backend) {
     fill_matrix(c, {0.0, 0.0, 0.0, 0.0});
-    EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(backend, gemm_op{}, c, 1.0, a, b, 0.0));
+    EXPECT_TRUE(try_normalized_gemm(backend, c, 1.0, a, b, 0.0));
     EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
     EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
     EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
@@ -616,18 +704,15 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableTensorViews)
   uni20::DenseMatrix<double> b(3, 2);
   uni20::DenseMatrix<double> c(2, 2);
 
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::maybe);
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::no);
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}}, gemm_op{}, c, 1.0,
-                                                 a, b, 0.0),
+  EXPECT_EQ(probe_normalized_gemm(backend_list{BlasBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::maybe);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{TryKernelOnlyBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::no);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{BlasBackend{}, CpuReferenceBackend{}}, c, 1.0, a, b, 0.0),
             KernelTypeAcceptance::yes);
 
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(BlasBackend{}, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 64.0);
@@ -646,14 +731,14 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendDeclinesUnsupportedStrideBeforeSid
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
   fill_matrix(c, {-7.0, -7.0, -7.0, -7.0});
 
-  EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_FALSE(try_normalized_gemm(BlasBackend{}, c, 1.0, a, b, 0.0));
 
   bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
   trace::get_formatting_options().set_errors_abort(false);
   std::optional<uni20::linalg::KernelDispatchError> captured_error;
   try
   {
-    uni20::linalg::dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0);
+    dispatch_normalized_gemm(BlasBackend{}, c, 1.0, a, b, 0.0);
     ADD_FAILURE() << "direct BLAS dispatch should have declined the unsupported layout";
   }
   catch (uni20::linalg::KernelDispatchError const& error)
@@ -683,7 +768,7 @@ TEST(LinalgGemmDispatchTest, BackendListFallsThroughWhenBlasDeclinesStride)
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
   auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(selector, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
@@ -699,16 +784,14 @@ TEST(LinalgGemmDispatchTest, BackendListFallsThroughForAccessorOnlyReadableInput
   uni20::DenseMatrix<double> b(2, 2);
   uni20::DenseMatrix<double> c(2, 2);
 
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::no);
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{CpuReferenceBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::yes);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{BlasBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::no);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{CpuReferenceBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::yes);
 
   fill_matrix(a_raw, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b, {1.0, 0.0, 0.0, 1.0});
 
   auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(selector, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 2.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 4.0);
@@ -725,7 +808,7 @@ TEST(LinalgGemmDispatchTest, CpuReferenceDoesNotReadOutputWhenBetaIsZero)
   b[0, 0] = 4.0;
   c[0, 0] = std::numeric_limits<double>::quiet_NaN();
 
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(CpuReferenceBackend{}, c, 1.0, a, b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
 }
 
@@ -736,8 +819,7 @@ TEST(LinalgGemmDispatchTest, CpuReferenceAppliesBetaForZeroInnerExtent)
   uni20::DenseMatrix<double> c(2, 2);
 
   fill_matrix(c, {1.0, 2.0, 3.0, 4.0});
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c,
-                                                 std::numeric_limits<double>::infinity(), a, b, 3.0));
+  EXPECT_TRUE(try_normalized_gemm(CpuReferenceBackend{}, c, std::numeric_limits<double>::infinity(), a, b, 3.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 3.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 6.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 9.0);
@@ -745,8 +827,7 @@ TEST(LinalgGemmDispatchTest, CpuReferenceAppliesBetaForZeroInnerExtent)
 
   fill_matrix(c, {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
                   std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()});
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c,
-                                                 std::numeric_limits<double>::infinity(), a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(CpuReferenceBackend{}, c, std::numeric_limits<double>::infinity(), a, b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 0.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 0.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 0.0);
@@ -761,7 +842,7 @@ TEST(LinalgGemmDispatchTest, BlasDeclineFallsThroughForZeroInnerExtent)
   fill_matrix(c, {1.0, 2.0, 3.0, 4.0});
 
   auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 2.0));
+  EXPECT_TRUE(try_normalized_gemm(selector, c, 1.0, a, b, 2.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 2.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 4.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 6.0);
@@ -778,16 +859,14 @@ TEST(LinalgGemmDispatchTest, CpuReferenceAcceptsNonStridedAddressableViews)
   NonStridedMatrixView<double> b(b_storage.data(), 2, 2);
   NonStridedMatrixView<double> c(c_storage.data(), 2, 2);
 
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::no);
-  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{CpuReferenceBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
-            KernelTypeAcceptance::yes);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{BlasBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::no);
+  EXPECT_EQ(probe_normalized_gemm(backend_list{CpuReferenceBackend{}}, c, 1.0, a, b, 0.0), KernelTypeAcceptance::yes);
 
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
   auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(try_normalized_gemm(selector, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
