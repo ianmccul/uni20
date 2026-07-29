@@ -70,6 +70,13 @@ They are provider/library API calls or lower-level Uni20 module interfaces, not
 `xxxx_op{}` dispatch customization points. This separation keeps acquisition,
 execution-domain validation, and accessor lowering inside the selected backend.
 
+Within one backend attempt, normalize each existing fixed input once and retain
+that descriptor for the rest of the attempt. A replaceable output must be
+prepared before its writable descriptor is retained, because preparation may
+invalidate an earlier descriptor. After lowering, invoke the backend's private
+descriptor or provider implementation directly; do not redispatch the resolved
+operands through another operation-tag customization.
+
 ### Operation tag
 
 An operation tag is a lightweight value identifying a kernel family. Operation tags

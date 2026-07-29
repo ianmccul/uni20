@@ -441,7 +441,11 @@ output and is committed to execution.
 The cuBLAS `assign_product_op` adapter uses the provisional-preparation
 contract instead: it may prepare the actual CUDA output and then decline an
 unsupported layout or transform. A later CUDA backend receives that prepared
-output and may reuse or replace it.
+output and may reuse or replace it. Within one cuBLAS attempt, the readable
+inputs are normalized once before preparation and the writable output is
+normalized once afterward. The adapter then invokes the private cuBLAS mdspan
+implementation directly rather than redispatching those operands as
+`gemm_op`.
 
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's

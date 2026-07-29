@@ -32,7 +32,10 @@ fallback kernels remain operation-specific.
 replaceable output before mdspan layout and transform acceptance completes. A
 decline submits no CUDA work and leaves the prepared output available to a later
 backend, which may reuse or replace it. Fixed-output `gemm_op` retains the
-stronger unchanged-on-decline contract.
+stronger unchanged-on-decline contract. The adapter normalizes each readable
+input once, prepares the output, normalizes that output once after preparation,
+and then calls the private cuBLAS mdspan implementation directly. It does not
+redispatch the resolved operands through a `gemm_op` customization.
 
 The Tensor conformance tests share their scalar and canonical-layout cases with
 the host GEMM backends. cuBLAS-specific tests cover deferred buffer offsets,

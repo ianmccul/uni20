@@ -81,6 +81,51 @@ template <class Tensor> class CudaMatrixView {
     mapping_type mapping_;
 };
 
+template <class Tensor> class DescriptorCountingCudaTensorView {
+  public:
+    using tensor_type = Tensor;
+    using element_type = typename tensor_type::element_type;
+    using storage_policy = typename tensor_type::storage_policy;
+    using extents_type = typename tensor_type::extents_type;
+
+    DescriptorCountingCudaTensorView(tensor_type& tensor, std::size_t& descriptor_count)
+        : tensor_(&tensor), descriptor_count_(&descriptor_count)
+    {}
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
+
+    [[nodiscard]] auto device_mdspan()
+    {
+      ++*descriptor_count_;
+      return tensor_->device_mdspan();
+    }
+
+    [[nodiscard]] auto device_mdspan() const
+    {
+      ++*descriptor_count_;
+      return std::as_const(*tensor_).device_mdspan();
+    }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return tensor_->extents(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return tensor_->extent(axis); }
+
+    void reset_shape(extents_type const& extents) { tensor_->reset_shape(extents); }
+
+    template <class Placement> [[nodiscard]] bool storage_is_compatible(Placement const& placement) const
+    {
+      return tensor_->storage_is_compatible(placement);
+    }
+
+    template <class Placement> void replace(extents_type const& extents, Placement const& placement)
+    {
+      tensor_->replace(extents, placement);
+    }
+
+  private:
+    tensor_type* tensor_;
+    std::size_t* descriptor_count_;
+};
+
 template <class ElementType> struct UnrecognizedCudaAccessor
 {
     using element_type = ElementType;
@@ -899,6 +944,52 @@ TEST_F(CublasExecutionTest, AssignProductDeclineMayConstructDeferredOutput)
   ASSERT_TRUE(task_output.constructed());
   EXPECT_EQ(task_output->rows(), 2);
   EXPECT_EQ(task_output->cols(), 2);
+}
+
+TEST_F(CublasExecutionTest, AssignProductLowersEachOperandOnceAfterPreparingOutput)
+{
+  using matrix_type = uni20::CudaMatrix<double>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(resources, 2, 3);
+  matrix_type rhs(resources, 3, 2);
+  matrix_type output(resources, 1, 1);
+  std::array<double, 6> const lhs_values{1, 4, 2, 5, 3, 6};
+  std::array<double, 6> const rhs_values{7, 9, 11, 8, 10, 12};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  std::size_t output_descriptor_count = 0;
+  std::size_t lhs_descriptor_count = 0;
+  std::size_t rhs_descriptor_count = 0;
+  DescriptorCountingCudaTensorView output_view(output, output_descriptor_count);
+  DescriptorCountingCudaTensorView lhs_view(lhs, lhs_descriptor_count);
+  DescriptorCountingCudaTensorView rhs_view(rhs, rhs_descriptor_count);
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output_view,
+                                      1.0, lhs_view, rhs_view),
+            uni20::linalg::KernelAttempt::success);
+  EXPECT_EQ(output_descriptor_count, 1);
+  EXPECT_EQ(lhs_descriptor_count, 1);
+  EXPECT_EQ(rhs_descriptor_count, 1);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{58, 139, 64, 154}));
+
+  output.reset_shape(matrix_type::extents_type{1, 1});
+  output_descriptor_count = 0;
+  lhs_descriptor_count = 0;
+  rhs_descriptor_count = 0;
+
+  auto task_attempt = uni20::linalg::try_make_kernel_task(
+      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output_view, 1.0, lhs_view, rhs_view);
+  ASSERT_EQ(task_attempt.attempt(), uni20::linalg::KernelAttempt::success);
+  ASSERT_TRUE(task_attempt.has_task());
+  EXPECT_EQ(output_descriptor_count, 1);
+  EXPECT_EQ(lhs_descriptor_count, 1);
+  EXPECT_EQ(rhs_descriptor_count, 1);
+
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(device_));
+  scheduler.schedule(std::move(task_attempt).take_task(), device_);
+  scheduler.run_all();
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{58, 139, 64, 154}));
 }
 
 TEST_F(CublasExecutionTest, TensorGemmRejectsExactOutputInputAlias)
