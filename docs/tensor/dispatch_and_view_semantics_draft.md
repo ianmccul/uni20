@@ -261,11 +261,11 @@ output-preparation step while the output type controls whether resizing is legal
 
 `prepare_output` must run before materializing the output write view. For a
 resizable tensor it may reallocate and invalidate any previous mdspan-like
-object referring to the old storage. When a backend candidate owns preparation,
-it must first complete every check that could produce a clean decline; calling
-`prepare_output` commits that candidate to the operation. A front end may
-prepare before dispatch only when output mutation is unconditional regardless
-of which backend subsequently executes the operation.
+object referring to the old storage. When the operation declares its output
+replaceable, a backend candidate may provisionally prepare it and later decline
+without writing result elements or submitting work. The next candidate may
+reuse or replace that prepared output. Fixed and update outputs remain unchanged
+on decline.
 
 ### Fixed Output
 

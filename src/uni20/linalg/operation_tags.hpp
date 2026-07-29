@@ -56,7 +56,8 @@ template <class Function> transform_inplace_op(Function) -> transform_inplace_op
 /// \brief Replaceable-output dense matrix product operation tag.
 /// \details Computes `output = alpha * lhs * rhs`. The old output value is not
 ///          an operand, and an output type that supports replacement may change
-///          its shape or storage to satisfy the selected backend.
+///          its shape or storage during backend attempts. A declining backend
+///          may leave the output provisionally prepared for a later backend.
 struct assign_product_op
 {
     static constexpr std::string_view name = "assign_product";

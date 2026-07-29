@@ -3,22 +3,19 @@
 /**
  * \file gemm.hpp
  * \ingroup linalg
- * \brief Reference CPU GEMM backend for mdspan-like dense matrices.
+ * \brief Reference CPU GEMM backend for tensor-view operands.
  */
 
-#include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
+#include <uni20/linalg/cpu/gemm.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/matrix_product_shape.hpp>
 #include <uni20/linalg/operation_tags.hpp>
-#include <uni20/mdspan/concepts.hpp>
 #include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
 #include <concepts>
-#include <type_traits>
-#include <utility>
 
 namespace uni20::linalg
 {
@@ -28,96 +25,15 @@ template <class OutputTensor, class LhsTensor, class RhsTensor>
 concept HostGemmTensorAccess =
     uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
     uni20::detail::HostReadableTensor<RhsTensor>;
+
+template <class OutputTensor, class Scalar, class LhsTensor, class RhsTensor> consteval bool cpu_gemm_types_compatible()
+{
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
+  return uni20::linalg::cpu::GemmCompatible<output_span, Scalar, lhs_span, rhs_span>;
+}
 } // namespace detail
-
-/// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
-template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspanLike<2> LhsMdspan,
-          uni20::RankedMdspanLike<2> RhsMdspan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputMdspan&, Scalar const&,
-                                    LhsMdspan&, RhsMdspan&, Scalar const&)
-{
-  using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
-  using lhs_scalar = std::remove_cv_t<typename LhsMdspan::element_type>;
-  using rhs_scalar = std::remove_cv_t<typename RhsMdspan::element_type>;
-  if constexpr (std::same_as<output_scalar, Scalar> && std::same_as<lhs_scalar, Scalar> &&
-                std::same_as<rhs_scalar, Scalar> &&
-                requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs, typename OutputMdspan::index_type index,
-                         Scalar value) {
-                  static_cast<Scalar>(output.operator[](index, index));
-                  static_cast<Scalar>(lhs.operator[](index, index));
-                  static_cast<Scalar>(rhs.operator[](index, index));
-                  output.operator[](index, index) = value;
-                  value += value * value;
-                  {
-                    value == Scalar {}
-                  } -> std::convertible_to<bool>;
-                })
-  {
-    return kernel_types_yes;
-  }
-  else
-  {
-    return kernel_types_no;
-  }
-}
-
-/// \brief Reference accessor-respecting GEMM fallback.
-template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspanLike<2> LhsMdspan,
-          uni20::RankedMdspanLike<2> RhsMdspan>
-KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
-                         RhsMdspan&& rhs, Scalar beta)
-{
-  using output_type = std::remove_cvref_t<OutputMdspan>;
-  using index_type = typename output_type::index_type;
-
-  CHECK_EQUAL(lhs.extent(1), rhs.extent(0));
-  CHECK_EQUAL(output.extent(0), lhs.extent(0));
-  CHECK_EQUAL(output.extent(1), rhs.extent(1));
-
-  index_type const rows = static_cast<index_type>(output.extent(0));
-  index_type const cols = static_cast<index_type>(output.extent(1));
-  index_type const inner = static_cast<index_type>(lhs.extent(1));
-
-  if (alpha == Scalar{} || inner == 0)
-  {
-    if (beta == Scalar{1}) return KernelAttempt::success;
-
-    for (index_type row = 0; row < rows; ++row)
-    {
-      for (index_type col = 0; col < cols; ++col)
-      {
-        if (beta == Scalar{})
-          output[row, col] = Scalar{};
-        else
-          output[row, col] = beta * static_cast<Scalar>(output[row, col]);
-      }
-    }
-    return KernelAttempt::success;
-  }
-
-  for (index_type row = 0; row < rows; ++row)
-  {
-    for (index_type col = 0; col < cols; ++col)
-    {
-      Scalar product{};
-      for (index_type k = 0; k < inner; ++k)
-      {
-        product += static_cast<Scalar>(lhs[row, k]) * static_cast<Scalar>(rhs[k, col]);
-      }
-
-      if (beta == Scalar{})
-      {
-        output[row, col] = alpha * product;
-      }
-      else
-      {
-        output[row, col] = beta * static_cast<Scalar>(output[row, col]) + alpha * product;
-      }
-    }
-  }
-
-  return KernelAttempt::success;
-}
 
 /// \brief Report eligibility for host DeviceTensorView CPU GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
@@ -126,12 +42,7 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Sc
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputTensor&, Scalar const&,
                                     LhsTensor&, RhsTensor&, Scalar const&)
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
-  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
-                                                              lhs_span&, rhs_span&, Scalar const&>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
+  if constexpr (detail::cpu_gemm_types_compatible<OutputTensor, Scalar, LhsTensor, RhsTensor>())
     return kernel_types_yes;
   else
     return kernel_types_no;
@@ -141,8 +52,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, 
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
   requires detail::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
-KernelAttempt try_kernel(CpuReferenceBackend backend, gemm_op const& op, OutputTensor& output, Scalar alpha,
-                         LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
+                         RhsTensor const& rhs, Scalar beta)
 {
   auto output_access = acquire_host_write_access(output);
   auto lhs_access = acquire_host_read_access(lhs);
@@ -150,7 +61,8 @@ KernelAttempt try_kernel(CpuReferenceBackend backend, gemm_op const& op, OutputT
   auto output_span = output_access.mdspan();
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();
-  return try_kernel(backend, op, output_span, alpha, lhs_span, rhs_span, beta);
+  uni20::linalg::cpu::gemm(output_span, alpha, lhs_span, rhs_span, beta);
+  return KernelAttempt::success;
 }
 
 /// \brief Report eligibility for replaceable-output host tensor matrix products.
@@ -160,12 +72,7 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Sc
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, assign_product_op const&, OutputTensor&, Scalar const&,
                                     LhsTensor&, RhsTensor&)
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
-  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
-                                                              lhs_span&, rhs_span&, Scalar const&>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
+  if constexpr (detail::cpu_gemm_types_compatible<OutputTensor, Scalar, LhsTensor, RhsTensor>())
     return kernel_types_yes;
   else
     return kernel_types_no;
@@ -184,32 +91,25 @@ KernelAttempt try_kernel(CpuReferenceBackend backend, assign_product_op const&, 
 }
 
 /// \brief Report eligibility for a deferred host Tensor matrix-product output.
-template <uni20::TensorOutputStorage OutputStorage, uni20::Scalar Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
-          uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
-           detail::HostGemmTensorAccess<uni20::tensor_output_storage_t<OutputStorage>, LhsTensor, RhsTensor>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, assign_product_op const&, OutputStorage&, Scalar const&,
-                                    LhsTensor&, RhsTensor&)
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires detail::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, assign_product_op const&,
+                                    async::shared_storage<OutputTensor>&, Scalar const&, LhsTensor&, RhsTensor&)
 {
-  using output_tensor = uni20::tensor_output_storage_t<OutputStorage>;
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<output_tensor>;
-  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
-  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
-                                                              lhs_span&, rhs_span&, Scalar const&>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
+  if constexpr (detail::cpu_gemm_types_compatible<OutputTensor, Scalar, LhsTensor, RhsTensor>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
 /// \brief Construct or resize a deferred host output and run reference GEMM.
-template <uni20::TensorOutputStorage OutputStorage, uni20::Scalar Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
-          uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
-           detail::HostGemmTensorAccess<uni20::tensor_output_storage_t<OutputStorage>, LhsTensor, RhsTensor>
-KernelAttempt try_kernel(CpuReferenceBackend backend, assign_product_op const&, OutputStorage& output_storage,
-                         Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs)
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires detail::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, assign_product_op const&,
+                         async::shared_storage<OutputTensor>& output_storage, Scalar alpha, LhsTensor const& lhs,
+                         RhsTensor const& rhs)
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
   auto& output = uni20::prepare_output(output_storage, shape);

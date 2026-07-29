@@ -28,12 +28,18 @@ that case. `CudaReferenceBackend` follows `CublasBackend` in the storage-selecte
 backend list. It currently handles contiguous Tensor transfer; additional
 fallback kernels remain operation-specific.
 
+`assign_product_op` may provisionally construct, resize, or relocate its
+replaceable output before mdspan layout and transform acceptance completes. A
+decline submits no CUDA work and leaves the prepared output available to a later
+backend, which may reuse or replace it. Fixed-output `gemm_op` retains the
+stronger unchanged-on-decline contract.
+
 The Tensor conformance tests share their scalar and canonical-layout cases with
 the host GEMM backends. cuBLAS-specific tests cover deferred buffer offsets,
 transpose and conjugate-transpose subviews, padded leading dimensions, clean
-layout decline before resource acquisition, and hard device/alias contract
-violations. Unknown accessor semantics are rejected at type probing rather than
-bypassed through the descriptor.
+layout decline before resource acquisition, structured incompatible-device
+decline, and hard alias contract violations. Unknown accessor semantics are
+rejected at type probing rather than bypassed through the descriptor.
 
 ## Related Documentation
 

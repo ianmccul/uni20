@@ -6,6 +6,7 @@
  * \brief Shape preparation contracts for tensor operation outputs.
  */
 
+#include <uni20/async/shared_storage.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/tensor/concepts.hpp>
 
@@ -71,18 +72,6 @@ concept ResizableTensorOutput =
     MutableDeviceTensorView<T> &&
     requires(std::remove_reference_t<T>& output, tensor_extents_t<T> const& extents) { output.reset_shape(extents); };
 
-/// \brief Deferred storage that may contain a mutable Tensor output.
-template <class T>
-concept TensorOutputStorage = requires(std::remove_reference_t<T>& storage) {
-  typename std::remove_cvref_t<T>::element_type;
-  { storage.constructed() } -> std::convertible_to<bool>;
-  { storage.get() } -> std::same_as<typename std::remove_cvref_t<T>::element_type*>;
-} && MutableDeviceTensorView<typename std::remove_cvref_t<T>::element_type>;
-
-/// \brief Tensor value type contained by deferred output storage.
-template <TensorOutputStorage Storage>
-using tensor_output_storage_t = typename std::remove_cvref_t<Storage>::element_type;
-
 /// \brief Require an existing tensor output to have the specified shape.
 /// \details This operation validates only and never modifies the output,
 ///          including when the output owns replaceable storage.
@@ -99,9 +88,11 @@ void require_output(Output const& output, RequiredExtents const& required)
 /// \details Resizable outputs retain their current storage and values when the
 ///          shape already matches, and call `reset_shape` otherwise. Fixed
 ///          outputs validate through `require_output` and never rebind storage.
-/// \warning This operation may modify the output. A dispatch backend must call
-///          it only after every check that could produce a clean decline has
-///          succeeded and the backend is committed to the operation.
+/// \warning This operation may construct, resize, or replace the output.
+///          For operations whose contract declares the output replaceable, a
+///          backend may call this before completing all side-effect-free
+///          acceptance checks. If that backend later declines, subsequent
+///          backends may reuse or replace the prepared output.
 /// \return Reference to the prepared output.
 template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
 Output& prepare_output(Output& output, RequiredExtents const& required)
@@ -126,9 +117,11 @@ Output& prepare_output(Output& output, RequiredExtents const& required)
 /// \brief Prepare a mutable Tensor output with compatible shape and storage.
 /// \details A matching output is retained. Otherwise a replaceable output is
 ///          reconstructed with the required extents and placement.
-/// \warning This operation may modify the output. A dispatch backend must call
-///          it only after every check that could produce a clean decline has
-///          succeeded and the backend is committed to the operation.
+/// \warning This operation may construct, resize, or replace the output.
+///          For operations whose contract declares the output replaceable, a
+///          backend may call this before completing all side-effect-free
+///          acceptance checks. If that backend later declines, subsequent
+///          backends may reuse or replace the prepared output.
 /// \tparam Placement Storage-policy placement requirement.
 /// \return Reference to the prepared output.
 template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents, class Placement>
@@ -156,42 +149,41 @@ Output& prepare_output(Output& output, RequiredExtents const& required, Placemen
 }
 
 /// \brief Construct or resize a deferred Tensor output to the required shape.
-/// \warning This operation may construct or modify the output. A dispatch
-///          backend must call it only after every check that could produce a
-///          clean decline has succeeded and the backend is committed.
+/// \warning This operation may construct, resize, or replace the output.
+///          For operations whose contract declares the output replaceable, a
+///          backend may call this before completing all side-effect-free
+///          acceptance checks. If that backend later declines, subsequent
+///          backends may reuse or replace the prepared output.
 /// \return Reference to the prepared output value.
-template <TensorOutputStorage Storage, detail::TensorExtentsLike RequiredExtents>
-  requires std::constructible_from<typename std::remove_cvref_t<Storage>::element_type,
-                                   tensor_extents_t<typename std::remove_cvref_t<Storage>::element_type> const&>
-auto prepare_output(Storage& storage, RequiredExtents const& required) ->
-    typename std::remove_cvref_t<Storage>::element_type&
+template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
+  requires std::constructible_from<Output, tensor_extents_t<Output> const&>
+Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents const& required)
 {
-  using output_type = typename std::remove_cvref_t<Storage>::element_type;
   if (storage.constructed()) return prepare_output(*storage, required);
 
-  auto const converted = detail::convert_tensor_extents<tensor_extents_t<output_type>>(required);
+  auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
   return storage.emplace(converted);
 }
 
 /// \brief Construct or replace a deferred Tensor output with compatible shape and storage.
-/// \warning This operation may construct or modify the output. A dispatch
-///          backend must call it only after every check that could produce a
-///          clean decline has succeeded and the backend is committed.
+/// \warning This operation may construct, resize, or replace the output.
+///          For operations whose contract declares the output replaceable, a
+///          backend may call this before completing all side-effect-free
+///          acceptance checks. If that backend later declines, subsequent
+///          backends may reuse or replace the prepared output.
 /// \tparam Placement Storage-policy placement requirement.
 /// \return Reference to the prepared output value.
-template <TensorOutputStorage Storage, detail::TensorExtentsLike RequiredExtents, class Placement>
-  requires std::constructible_from<typename std::remove_cvref_t<Storage>::element_type, Placement const&,
-                                   tensor_extents_t<typename std::remove_cvref_t<Storage>::element_type> const&> &&
-               requires(typename std::remove_cvref_t<Storage>::element_type& output,
-                        tensor_extents_t<typename std::remove_cvref_t<Storage>::element_type> const& extents,
-                        Placement const& placement) { prepare_output(output, extents, placement); }
-auto prepare_output(Storage& storage, RequiredExtents const& required, Placement const& placement) ->
-    typename std::remove_cvref_t<Storage>::element_type&
+template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents, class Placement>
+  requires std::constructible_from<Output, Placement const&, tensor_extents_t<Output> const&> &&
+           requires(Output& output, tensor_extents_t<Output> const& extents, Placement const& placement) {
+             prepare_output(output, extents, placement);
+           }
+Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents const& required,
+                       Placement const& placement)
 {
-  using output_type = typename std::remove_cvref_t<Storage>::element_type;
   if (storage.constructed()) return prepare_output(*storage, required, placement);
 
-  auto const converted = detail::convert_tensor_extents<tensor_extents_t<output_type>>(required);
+  auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
   return storage.emplace(placement, converted);
 }
 

@@ -12,6 +12,14 @@ namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
 using backend_selector_type = uni20::linalg::backend_list<uni20::linalg::CpuReferenceBackend>;
+using dense_mdspan = stdex::mdspan<double, extents_2d, stdex::layout_left>;
+
+template <class Backend, class Span>
+concept HasDirectGemmTryKernel = requires(Backend backend, Span& output, Span& lhs, Span& rhs, double scalar) {
+  uni20::linalg::try_kernel(backend, uni20::linalg::gemm_op{}, output, scalar, lhs, rhs, scalar);
+};
+
+static_assert(!HasDirectGemmTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan>);
 
 struct NonConvertibleReference
 {
@@ -89,23 +97,31 @@ static_assert(uni20::TensorView<NonConvertibleReadVectorView>);
 static_assert(uni20::RankedDeviceTensorView<NonConvertibleReadVectorView, 1>);
 } // namespace
 
-TEST(CpuGemmDispatchTest, TensorProbeUsesResolvedMdspanAcceptance)
+TEST(CpuGemmDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+{
+  uni20::DenseMatrix<double> output(2, 2);
+  uni20::DenseMatrix<double> lhs(2, 2);
+  uni20::DenseMatrix<double> rhs(2, 2);
+  auto output_span = output.mdspan();
+  auto lhs_span = lhs.mdspan();
+  auto rhs_span = rhs.mdspan();
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{},
+                                                 output_span, 1.0, lhs_span, rhs_span, 0.0),
+            uni20::linalg::KernelTypeAcceptance::no);
+}
+
+TEST(CpuGemmDispatchTest, TensorProbeRejectsIncompatibleResolvedMdspan)
 {
   uni20::DenseMatrix<double> output(2, 2);
   std::array<double, 4> lhs_storage{};
   NonConvertibleReadMatrixView lhs(lhs_storage.data(), 2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
 
-  auto output_span = output.mdspan();
-  auto lhs_span = lhs.mdspan();
-  auto rhs_span = rhs.mdspan();
-  auto const mdspan_acceptance = uni20::linalg::probe_dispatch_kernel(
-      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0, lhs_span, rhs_span, 0.0);
   auto const tensor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output, 1.0, lhs, rhs, 0.0);
 
-  EXPECT_EQ(mdspan_acceptance, uni20::linalg::KernelTypeAcceptance::no);
-  EXPECT_EQ(tensor_acceptance, mdspan_acceptance);
+  EXPECT_EQ(tensor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
 }
 
 TEST(CpuGemvDispatchTest, TensorProbeUsesResolvedMdspanAcceptance)

@@ -38,9 +38,9 @@ Tensor operations have three distinct layers:
 Tensor operation
   -> shape, ownership, and output policy
   -> storage-derived backend selector
-  -> resolved mdspan operands
-  -> backend dispatch
-  -> leaf kernel
+  -> backend dispatch on TensorView / DeviceTensorView operands
+  -> backend-specific execution-domain acquisition
+  -> resolved mdspan leaf kernel
 ```
 
 An Async operation adds scheduling around the same synchronous operation:
@@ -50,12 +50,17 @@ Async<Tensor> operands
   -> enroll ReadBuffer and WriteBuffer epochs
   -> scheduled coroutine awaits stored Tensor values
   -> synchronous Tensor operation
-  -> mdspan dispatch and leaf kernel
+  -> tensor-view backend dispatch and resolved mdspan leaf kernel
 ```
 
 Leaf kernels do not receive `Tensor` or `Async<Tensor>`. They receive resolved
 mdspan-like operands after ownership, storage domain, output policy, and async
 ordering have been handled by higher layers.
+
+Operation-tag `kernel_accepts_types(...)` and `try_kernel(...)` overloads are
+backend adapters and therefore accept tensor views, not resolved mdspans. A
+backend calls an ordinary lower-level function such as `cpu::gemm` or
+`blas::try_gemm` after acquiring the required execution-domain leases.
 
 ### Type Roles
 
@@ -195,11 +200,17 @@ replace storage.
 Shape preparation must happen before resolving the output mdspan because
 resizing may invalidate its handle.
 
-`prepare_output` may invalidate storage and resolved views. A dispatch backend
-must therefore complete every check that could produce a clean decline before
-calling it. Once preparation begins, the backend is committed: allocation,
-provider, or execution failures are terminal rather than reasons to fall
-through to another backend.
+`prepare_output` may invalidate storage and resolved views. For an operation
+whose contract declares the output replaceable, a backend may prepare it before
+completing all acceptance checks. If that backend declines without writing
+result elements or submitting work, a later backend receives the prepared
+output and may reuse or replace it. If every backend declines, the output
+remains valid but its shape, allocation, placement, and values may reflect
+provisional preparation.
+
+Inputs and fixed or update outputs remain unchanged on decline. Once a backend
+writes result elements, submits work, or enters a provider operation, later
+failure is terminal and must not trigger fallback.
 
 ### Move and Storage Reuse
 
@@ -316,7 +327,7 @@ contracts described later in this guide.
 | `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
 | `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
 | `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Not implemented. |
-| `require_output`, `prepare_output` | Output-policy helpers for operation authors. | Validate only, or construct/resize/replace when the output type permits it. | Backend preparation follows all clean-decline checks. |
+| `require_output`, `prepare_output` | Output-policy helpers for operation authors. | Validate only, or construct/resize/replace when the output type permits it. | Replaceable-output preparation may be provisional across backend decline; fixed and update outputs remain unchanged. |
 
 For a rank-`R` result, generalized `eye<T>(n0, ..., n{R-1})` returns
 one exactly when all indices agree. It includes scalar one, an all-ones
@@ -416,6 +427,20 @@ pool or `DeviceResources`; `CudaStorage` resolves the device through the
 process-wide CUDA runtime when it must allocate a new buffer. A matching
 allocation is retained, a shape mismatch on the same device preserves its
 existing storage resources, and a device mismatch replaces the allocation.
+Operands that reside on different CUDA devices produce
+`KernelAttempt::incompatible_devices` before output preparation.
+
+For `assign_product_op`, the BLAS backend resolves the readable input mdspans
+and probes the prospective output metadata before calling `prepare_output`.
+`unsupported_instance`, `unsupported_layout`, and `unsupported_transform`
+therefore leave a wrong-shaped concrete output unchanged and leave deferred
+output storage unconstructed. After the probe succeeds, BLAS prepares the real
+output and is committed to execution.
+
+The cuBLAS `assign_product_op` adapter uses the provisional-preparation
+contract instead: it may prepare the actual CUDA output and then decline an
+unsupported layout or transform. A later CUDA backend receives that prepared
+output and may reuse or replace it.
 
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's

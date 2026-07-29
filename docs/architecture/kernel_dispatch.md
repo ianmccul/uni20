@@ -15,8 +15,11 @@ Kernel dispatch walks an ordered backend selector for an operation tag.
 `kernel_accepts_types` classifies each backend as `no`, `maybe`, or `yes` from the
 argument types. A `no` candidate is not instantiated, a `maybe` candidate may cleanly
 decline at runtime, and a `yes` candidate must succeed. `try_kernel` performs the
-runtime attempt, and every non-success result must occur before argument mutation, work
-submission, output commitment, or any other externally visible effect.
+runtime attempt. Every non-success result must preserve inputs and fixed or update
+outputs and must occur before work submission, result writes, or any other externally
+visible execution effect. An operation-declared replaceable output is the narrow
+exception: a backend may provisionally construct, resize, or replace it before
+declining, and a later backend may reuse or replace that prepared output.
 `dispatch_kernel` reports exhaustion, while `try_dispatch_kernel` returns whether any
 candidate accepted the operation. `co_dispatch_kernel` follows the same ordered walk
 and may use `try_make_kernel_task` when a backend needs to suspend for resource admission.
@@ -28,7 +31,8 @@ Kernel dispatch answers one question:
 > Which implementation in an ordered backend selector can perform this operation on
 > these tensor-view operand types and values?
 
-It does not:
+Except for operation-authorized provisional preparation of a replaceable output, it
+does not:
 
 - choose tensor shapes or allocate outputs;
 - transfer values between storage domains;
@@ -84,6 +88,9 @@ argument. `gemm_op` treats the output as an existing fixed-storage operand and
 never authorizes rebinding, even when `beta` is numerically zero or is represented
 by an opaque backend scalar handle. A backend may lower both operations to one
 provider GEMM implementation after applying their different output contracts.
+Because `assign_product_op` declares its output replaceable, a candidate may prepare
+that output before its final layout or transform check. A decline may therefore leave
+the output prepared for the next candidate, but may not write result elements.
 
 ### Backend
 
@@ -241,12 +248,16 @@ KernelAttempt::unsupported_shape
 KernelAttempt::unsupported_layout
 KernelAttempt::unsupported_accessor
 KernelAttempt::unsupported_transform
+KernelAttempt::incompatible_devices
 KernelAttempt::unavailable
 KernelAttempt::insufficient_resources
 ```
 
-Every value other than `success` is a clean decline. A decline must preserve all
-arguments and produce no externally visible side effect.
+Every value other than `success` is a clean decline. A decline must preserve inputs
+and fixed or update outputs, submit no work, and publish no result. When the operation
+declares an output replaceable, its contract may permit provisional construction,
+resizing, or replacement before a decline. Later candidates receive that prepared
+output and may reuse or replace it.
 
 Terminal failures are not represented by `KernelAttempt`. Once execution is committed,
 provider failures, task failures, and operation failures are reported through the
@@ -272,7 +283,8 @@ Any coroutine it creates uses a `co_`-prefixed name.
 2. **Completed success:** `success` and no task.
 3. **Deferred success:** `success` and a task.
 
-A decline has the same side-effect-free contract as an ordinary `try_kernel` decline.
+A decline has the same input-preservation and provisional replaceable-output
+preparation contract as an ordinary `try_kernel` decline.
 A completed success represents an operation that is already finished, such as a
 zero-size output. A deferred success commits the backend when the task is awaited;
 failures after that point are terminal and must not trigger fallback.
@@ -337,6 +349,8 @@ walks candidates in selector order and returns:
 - `false` when every eligible backend cleanly declines.
 
 A `yes` candidate must succeed and therefore terminates the walk.
+For an operation-declared replaceable output, `false` may leave that output
+provisionally constructed, resized, or replaced. Its element values are unspecified.
 
 ### `dispatch_kernel`
 
@@ -382,7 +396,8 @@ For each eligible backend:
 
 1. If `try_make_kernel_task` is available, the coroutine obtains a
    `KernelTaskAttempt`.
-2. A clean decline continues to the next candidate.
+2. A clean decline continues to the next candidate, which receives any provisionally
+   prepared replaceable output.
 3. A completed success terminates the walk.
 4. A deferred success awaits the task and then terminates the walk.
 5. If no task customization exists, the coroutine calls ordinary `try_kernel`.
@@ -391,9 +406,9 @@ Operation arguments are stable lvalues owned by the calling coroutine. This avoi
 copying arbitrary tensor views and keeps type probing and invocation consistent.
 
 `co_dispatch_kernel` does not enroll epochs or await `Async<T>` operands. An async
-operation wrapper must first establish the correct epoch reads and writes, await the
-resolved values, prepare the output, and then dispatch tensor views and the operation's
-ordinary scalar or configuration arguments.
+operation wrapper must first establish the correct epoch reads and writes and await the
+resolved inputs. An operation-declared replaceable output may remain unconstructed when
+backend dispatch begins, allowing the attempted backend to choose its placement.
 
 Async legality comes from epoch causality. Scheduler timing and fortunate task order
 are not correctness arguments.
@@ -454,22 +469,29 @@ Fallback is legal only after a clean decline.
 
 Before returning a non-success `KernelAttempt`, a backend must not:
 
-- write or resize an output;
+- write result elements or mutate a fixed or update output;
 - mutate an input;
 - submit provider work;
 - enqueue device work;
 - acquire a resource in a way visible to later candidates;
 - publish a completion event;
-- commit output ownership;
+- publish or commit a completed result;
 - perform communication visible outside the attempt.
+
+When the operation declares an output replaceable, the backend may provisionally
+construct, resize, replace, or rebind that output before returning a decline. The next
+candidate receives the prepared output and may reuse or replace it. If every candidate
+declines, the output remains valid, but its storage, placement, shape, and element
+values may reflect provisional preparation and must not be treated as a completed
+result.
 
 Preparation may inspect descriptors and create temporary local values. Any temporary
 resource acquired before a possible decline must be released without externally
 visible effects.
 
-Once a backend mutates state, submits work, commits output, awaits a successful
-deferred task, or enters a provider operation, failure is terminal. The dispatcher
-must not continue to a later backend.
+Once a backend mutates an input, a fixed or update output, or result elements; submits
+work; commits a result; awaits a successful deferred task; or enters a provider
+operation, failure is terminal. The dispatcher must not continue to a later backend.
 
 Fallback also may not change the mathematical object. Symmetry metadata, block-space
 metadata, local-space metadata, and leg orientation are part of the value. A
@@ -502,7 +524,8 @@ When adding a kernel to a backend:
 2. Add `kernel_accepts_types` for the exact static domain.
 3. Return `yes` only when the implementation is total for that domain.
 4. Provide `try_kernel` for every `maybe` or `yes` result.
-5. Complete all runtime acceptance checks before any side effect.
+5. Complete all runtime acceptance checks before any effect other than
+   operation-authorized provisional preparation of a replaceable output.
 6. Return a specific `KernelAttempt` for each clean-decline category.
 7. Report failures after commitment through the ordinary terminal error path.
 8. Add `try_make_kernel_task` only when suspension is required.
@@ -527,7 +550,8 @@ Focused tests should cover:
 
 - direct success;
 - each meaningful decline reason;
-- output and input preservation after decline;
+- input and fixed/update-output preservation after decline;
+- reusable provisional preparation for replaceable-output operations;
 - fallback to the next candidate;
 - exhaustion when all candidates decline;
 - totality of every `yes` domain.

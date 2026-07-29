@@ -85,7 +85,7 @@ KernelAttempt try_kernel(CublasBackend backend, assign_product_op const&, Output
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
   auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
-  if (detail::cublas_backend::tensor_device(rhs) != lhs_device) return KernelAttempt::unsupported_instance;
+  if (detail::cublas_backend::tensor_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
 
   bool const shape_matches = detail::cublas_backend::output_shape_matches(output, shape);
   bool const device_matches = detail::cublas_backend::tensor_device(output) == lhs_device;
@@ -98,28 +98,23 @@ KernelAttempt try_kernel(CublasBackend backend, assign_product_op const&, Output
     }
     else
     {
-      return shape_matches ? KernelAttempt::unsupported_instance : KernelAttempt::unsupported_shape;
+      return shape_matches ? KernelAttempt::incompatible_devices : KernelAttempt::unsupported_shape;
     }
   }
 
   KernelAttempt const attempt = try_kernel(backend, gemm_op{}, output, alpha, lhs, rhs, Scalar{});
-  if (replacement_required) CHECK(kernel_attempt_succeeded(attempt));
   return attempt;
 }
 
 /// \brief Report cuBLAS eligibility for a deferred Tensor matrix-product output.
-template <uni20::TensorOutputStorage OutputStorage, class Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
-          uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
-           requires(OutputStorage& storage, detail::matrix_product_extents const& shape, uni20::cuda::Device device) {
-             uni20::prepare_output(storage, shape, device);
-           }
-consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op const&, OutputStorage&, Scalar const&,
-                                    LhsTensor&, RhsTensor&)
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
+                    uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
+consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op const&,
+                                    async::shared_storage<OutputTensor>&, Scalar const&, LhsTensor&, RhsTensor&)
 {
-  using output_tensor = uni20::tensor_output_storage_t<OutputStorage>;
-  using output_span =
-      std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<output_tensor&>()))>;
+  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
   using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
   using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
   if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, lhs_span, rhs_span>())
@@ -129,24 +124,22 @@ consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op cons
 }
 
 /// \brief Construct or relocate a deferred CUDA output and run blocking cuBLAS GEMM.
-template <uni20::TensorOutputStorage OutputStorage, class Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
-          uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
-           requires(OutputStorage& storage, detail::matrix_product_extents const& shape, uni20::cuda::Device device) {
-             uni20::prepare_output(storage, shape, device);
-           }
-KernelAttempt try_kernel(CublasBackend backend, assign_product_op const&, OutputStorage& output_storage, Scalar alpha,
-                         LhsTensor const& lhs, RhsTensor const& rhs)
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
+                    uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
+KernelAttempt try_kernel(CublasBackend backend, assign_product_op const&,
+                         async::shared_storage<OutputTensor>& output_storage, Scalar alpha, LhsTensor const& lhs,
+                         RhsTensor const& rhs)
 {
   if (output_storage.constructed()) return try_kernel(backend, assign_product_op{}, *output_storage, alpha, lhs, rhs);
 
   auto const shape = detail::matrix_product_shape(lhs, rhs);
   auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
-  if (detail::cublas_backend::tensor_device(rhs) != lhs_device) return KernelAttempt::unsupported_instance;
+  if (detail::cublas_backend::tensor_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
   KernelAttempt const attempt = try_kernel(backend, gemm_op{}, output, alpha, lhs, rhs, Scalar{});
-  CHECK(kernel_attempt_succeeded(attempt));
   return attempt;
 }
 

@@ -361,7 +361,9 @@ below are addressed:
 - Maintain C++23 and the captureless `static` coroutine-lambda rule.
 - Treat accessor semantics, storage domain, and symmetry metadata as
   correctness constraints.
-- Keep backend decline side-effect free; execution failure is not fallback.
+- Keep backend decline free of execution effects. Operation-authorized
+  preparation of a replaceable output may survive a decline; execution failure
+  is not fallback.
 - Make allocation, materialization, transfer, synchronization, and dense
   projection explicit.
 - Prefer incremental vertical slices with independent numerical evidence over

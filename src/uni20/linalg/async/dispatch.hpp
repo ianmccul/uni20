@@ -95,8 +95,9 @@ async::AsyncTask co_dispatch_kernel_at(backend_list<Backends...> const& backends
 ///          returning a `KernelTaskAttempt` whose concrete task is awaited
 ///          before dispatch completes. A backend without that customization is
 ///          invoked through its ordinary `try_kernel` implementation on the
-///          current scheduler thread. Runtime declines remain side-effect free
-///          and permit fallback.
+///          current scheduler thread. Runtime declines submit no work and
+///          permit fallback; an operation-declared replaceable output may
+///          remain provisionally prepared for the next backend.
 /// \note Operation arguments are stable lvalues owned by the calling coroutine.
 ///       This avoids copying arbitrary operands and matches the ordinary dispatch
 ///       probe and invocation contract.

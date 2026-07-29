@@ -31,7 +31,7 @@ async::CudaTask co_gemm_submission(GemmPlan<Scalar> plan, Scalar alpha, Scalar b
 
 /// \brief Prepare cuBLAS GEMM and return a deferred non-blocking submission task.
 /// \details Runtime operand acceptance is decided before the task is created.
-///          A decline is side-effect free. Once the returned task is awaited,
+///          A decline submits no work. Once the returned task is awaited,
 ///          resource or provider failures are terminal and cannot fall through
 ///          to another backend.
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
@@ -75,7 +75,7 @@ auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, Outpu
   auto const shape = detail::matrix_product_shape(lhs, rhs);
   auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
   if (detail::cublas_backend::tensor_device(rhs) != lhs_device)
-    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::unsupported_instance};
+    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
 
   bool const shape_matches = detail::cublas_backend::output_shape_matches(output, shape);
   bool const device_matches = detail::cublas_backend::tensor_device(output) == lhs_device;
@@ -88,26 +88,25 @@ auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, Outpu
     }
     else
     {
-      return KernelTaskAttempt<async::CudaTask>{shape_matches ? KernelAttempt::unsupported_instance
+      return KernelTaskAttempt<async::CudaTask>{shape_matches ? KernelAttempt::incompatible_devices
                                                               : KernelAttempt::unsupported_shape};
     }
   }
 
   Scalar const beta{};
   auto attempt = try_make_kernel_task(backend, gemm_op{}, output, alpha, lhs, rhs, beta);
-  if (replacement_required) CHECK(kernel_attempt_succeeded(attempt.attempt()));
   return attempt;
 }
 
 /// \brief Prepare asynchronous cuBLAS assignment into deferred Tensor storage.
-template <uni20::cublas::CublasScalar Scalar, uni20::TensorOutputStorage OutputStorage, class LhsTensor,
+template <uni20::cublas::CublasScalar Scalar, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class LhsTensor,
           class RhsTensor>
-  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
-               uni20::RankedDeviceTensorView<LhsTensor, 2> && uni20::RankedDeviceTensorView<RhsTensor, 2> &&
-               requires(OutputStorage& storage, detail::matrix_product_extents const& shape,
+  requires uni20::RankedDeviceTensorView<LhsTensor, 2> && uni20::RankedDeviceTensorView<RhsTensor, 2> &&
+               requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
                         uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
-auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, OutputStorage& output_storage,
-                          Scalar const& alpha, LhsTensor& lhs, RhsTensor& rhs) -> KernelTaskAttempt<async::CudaTask>
+auto try_make_kernel_task(CublasBackend backend, assign_product_op const&,
+                          async::shared_storage<OutputTensor>& output_storage, Scalar const& alpha, LhsTensor& lhs,
+                          RhsTensor& rhs) -> KernelTaskAttempt<async::CudaTask>
 {
   if (output_storage.constructed())
     return try_make_kernel_task(backend, assign_product_op{}, *output_storage, alpha, lhs, rhs);
@@ -115,12 +114,11 @@ auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, Outpu
   auto const shape = detail::matrix_product_shape(lhs, rhs);
   auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
   if (detail::cublas_backend::tensor_device(rhs) != lhs_device)
-    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::unsupported_instance};
+    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
   Scalar const beta{};
   auto attempt = try_make_kernel_task(backend, gemm_op{}, output, alpha, lhs, rhs, beta);
-  CHECK(kernel_attempt_succeeded(attempt.attempt()));
   return attempt;
 }
 

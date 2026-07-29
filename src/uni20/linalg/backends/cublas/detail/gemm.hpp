@@ -181,8 +181,10 @@ prepare_staged_gemm(blas::BlasWritableMatrix<Scalar, uni20::cuda::CudaBufferView
         "cuBLAS GEMM output must not share a CUDA buffer with an input");
 
   int const device = output_buffer.device().ordinal();
-  CHECK_EQUAL(lhs_buffer.device().ordinal(), device, "cuBLAS GEMM operands must use one CUDA device");
-  CHECK_EQUAL(rhs_buffer.device().ordinal(), device, "cuBLAS GEMM operands must use one CUDA device");
+  if (lhs_buffer.device().ordinal() != device || rhs_buffer.device().ordinal() != device)
+  {
+    return {.attempt = KernelAttempt::incompatible_devices};
+  }
   require_view_covers_matrix(output.data, output);
   require_view_covers_matrix(lhs.data, lhs);
   require_view_covers_matrix(rhs.data, rhs);

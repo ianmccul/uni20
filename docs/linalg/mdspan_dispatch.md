@@ -105,8 +105,10 @@ The final layering should look like this:
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
    - Passes tensor operands as `TensorView` or `DeviceTensorView` refinements.
 3. **Backend lowering**
-   - Completes every backend-specific check that may produce a clean decline,
-     then commits and prepares replaceable outputs with `prepare_output(...)`.
+   - May provisionally prepare an operation-declared replaceable output with
+     `prepare_output(...)`; a later backend may reuse or replace it after a
+     decline.
+   - Completes all checks before writing result elements or submitting work.
    - Interprets or acquires the tensor views in the backend's execution domain.
    - Produces resolved mdspan-like views or provider descriptors.
 4. **Linalg leaf kernel**
@@ -708,8 +710,10 @@ Minimal tests:
 ## Error Semantics
 
 Low-level `try_kernel(...)` functions return a specific non-success
-`KernelAttempt` for clean runtime decline before side effects. Once a LAPACK
-routine has been called, a terminal positive `INFO` raises a structured
+`KernelAttempt` for clean runtime decline before execution effects. Provisional
+preparation of an operation-declared replaceable output is permitted; input,
+fixed-output, and update-output mutation is not. Once a LAPACK routine has been
+called, a terminal positive `INFO` raises a structured
 `LapackError`; dispatch must not continue because update operands may already
 have been overwritten. A negative `INFO` is an unconditional invariant failure:
 it means the provider rejected arguments constructed by the checked Uni20
@@ -844,8 +848,16 @@ The Tensor front-end checkpoints now:
   dispatches `copy_op`.
 
 Replaceable-output backend adapters call `prepare_output(...)` before resolving
-the writable mdspan, but only after the adapter can no longer return a clean
-decline. Fixed-output GEMM and GEMV only validate their existing outputs.
+the writable mdspan. They may still return a clean decline after preparation;
+the next backend receives the prepared output and may reuse or replace it.
+Fixed-output GEMM and GEMV only validate their existing outputs and remain
+unchanged on decline.
+
+The current BLAS `assign_product_op` adapter provides a stronger guarantee by
+resolving its input mdspans and probing BLAS with prospective output
+mapping/accessor metadata. The probe uses no usable data handle and performs no
+provider call. This avoids provisional host-output preparation, but that extra
+preflight is an implementation choice rather than a dispatch requirement.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan

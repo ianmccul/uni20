@@ -64,8 +64,9 @@ Durable Uni20 invariants:
 - Async legality comes from epoch causality, not scheduler timing.
 - Respect mdspan accessor semantics; a pointer-shaped handle does not prove raw
   provider readability or writability.
-- Backend fallback is permitted only after a clean, side-effect-free decline.
-  Failure after mutation, work submission, or output commitment is terminal.
+- Backend fallback is permitted only after a clean decline. An operation may
+  authorize provisional preparation of a replaceable output; input mutation,
+  result writes, work submission, or completed-result commitment are terminal.
 - Async coroutine lambdas are captureless and static; pass state as parameters.
 
 Answer style:

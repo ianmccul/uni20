@@ -84,29 +84,63 @@ void gemm(BlasWritableMatrix<Scalar, OutputHandle> output, BlasReadableMatrix<Sc
                       rhs_data, rhs.leading_dimension, beta, output_data, output.leading_dimension);
 }
 
-} // namespace detail
-
-/// \brief Try a direct no-copy BLAS GEMM from mdspan-like operands.
-/// \return `success`, `unsupported_layout`, or `unsupported_transform`.
-template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
-  requires detail::writable_blas_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
-           detail::readable_blas_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
-           detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
-KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+template <uni20::BlasScalar Scalar> struct GemmPlan
 {
+    BlasWritableMatrix<Scalar, Scalar*> output{};
+    BlasReadableMatrix<Scalar, Scalar const*> lhs{};
+    BlasReadableMatrix<Scalar, Scalar const*> rhs{};
+    bool has_work = false;
+};
+
+template <uni20::BlasScalar Scalar> struct GemmPreparation
+{
+    KernelAttempt attempt = KernelAttempt::unsupported_instance;
+    GemmPlan<Scalar> plan{};
+};
+
+template <uni20::BlasScalar Scalar, class Handle>
+auto provider_writable_matrix(BlasWritableMatrix<Scalar, Handle> matrix) -> BlasWritableMatrix<Scalar, Scalar*>
+{
+  return {.data = matrix.data, .rows = matrix.rows, .cols = matrix.cols, .leading_dimension = matrix.leading_dimension};
+}
+
+template <uni20::BlasScalar Scalar, class Handle>
+auto provider_readable_matrix(BlasReadableMatrix<Scalar, Handle> matrix) -> BlasReadableMatrix<Scalar, Scalar const*>
+{
+  return {.data = matrix.data,
+          .rows = matrix.rows,
+          .cols = matrix.cols,
+          .leading_dimension = matrix.leading_dimension,
+          .transform = matrix.transform};
+}
+
+template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
+  requires writable_blas_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           readable_blas_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+auto prepare_gemm(OutputMdspan&& output, LhsMdspan&& lhs, RhsMdspan&& rhs)
+{
+  using preparation_type = GemmPreparation<Scalar>;
+
   CHECK_EQUAL(lhs.extent(1), rhs.extent(0));
   CHECK_EQUAL(output.extent(0), lhs.extent(0));
   CHECK_EQUAL(output.extent(1), rhs.extent(1));
 
-  if (output.extent(0) == 0 || output.extent(1) == 0) return KernelAttempt::success;
-  if (lhs.extent(1) == 0) return KernelAttempt::unsupported_instance;
+  if (output.extent(0) == 0 || output.extent(1) == 0)
+  {
+    return preparation_type{.attempt = KernelAttempt::success};
+  }
+  if (lhs.extent(1) == 0)
+  {
+    return preparation_type{.attempt = KernelAttempt::unsupported_instance};
+  }
 
   auto output_stage = try_mdspan_matrix_stage(output);
   auto lhs_stage = try_mdspan_matrix_stage(lhs);
   auto rhs_stage = try_mdspan_matrix_stage(rhs);
   if (!output_stage || !lhs_stage || !rhs_stage)
   {
-    return KernelAttempt::unsupported_layout;
+    return preparation_type{.attempt = KernelAttempt::unsupported_layout};
   }
 
   // The user-provided direct GEMM output must be ordinary writable storage.
@@ -114,31 +148,73 @@ KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, Rhs
   // call as an internal workaround for unsupported readable transforms.
   if (output_stage->needs_conjugation)
   {
-    return KernelAttempt::unsupported_transform;
+    return preparation_type{.attempt = KernelAttempt::unsupported_transform};
   }
 
-  auto const output_matrix = blas_writable_matrix(*output_stage);
+  auto const output_matrix = provider_writable_matrix(blas_writable_matrix(*output_stage));
   if (output_stage->unit_stride_axis == 0)
   {
-    auto const lhs_matrix = blas_readable_matrix(*lhs_stage);
-    auto const rhs_matrix = blas_readable_matrix(*rhs_stage);
-    if (!detail::provider_transforms_are_supported(lhs_matrix, rhs_matrix))
+    auto const lhs_matrix = provider_readable_matrix(blas_readable_matrix(*lhs_stage));
+    auto const rhs_matrix = provider_readable_matrix(blas_readable_matrix(*rhs_stage));
+    if (!provider_transforms_are_supported(lhs_matrix, rhs_matrix))
     {
-      return KernelAttempt::unsupported_transform;
+      return preparation_type{.attempt = KernelAttempt::unsupported_transform};
     }
 
-    detail::gemm(output_matrix, lhs_matrix, rhs_matrix, alpha, beta);
-    return KernelAttempt::success;
+    return preparation_type{.attempt = KernelAttempt::success,
+                            .plan = {.output = output_matrix, .lhs = lhs_matrix, .rhs = rhs_matrix, .has_work = true}};
   }
 
-  auto const lhs_matrix = detail::with_transform(blas_readable_matrix(*rhs_stage), MatrixTransform::transpose);
-  auto const rhs_matrix = detail::with_transform(blas_readable_matrix(*lhs_stage), MatrixTransform::transpose);
-  if (!detail::provider_transforms_are_supported(lhs_matrix, rhs_matrix))
+  auto const lhs_matrix =
+      provider_readable_matrix(with_transform(blas_readable_matrix(*rhs_stage), MatrixTransform::transpose));
+  auto const rhs_matrix =
+      provider_readable_matrix(with_transform(blas_readable_matrix(*lhs_stage), MatrixTransform::transpose));
+  if (!provider_transforms_are_supported(lhs_matrix, rhs_matrix))
   {
-    return KernelAttempt::unsupported_transform;
+    return preparation_type{.attempt = KernelAttempt::unsupported_transform};
   }
 
-  detail::gemm(output_matrix, lhs_matrix, rhs_matrix, alpha, beta);
+  return preparation_type{.attempt = KernelAttempt::success,
+                          .plan = {.output = output_matrix, .lhs = lhs_matrix, .rhs = rhs_matrix, .has_work = true}};
+}
+
+template <uni20::BlasScalar Scalar> void execute_gemm(GemmPlan<Scalar> const& plan, Scalar alpha, Scalar beta)
+{
+  if (plan.has_work) gemm(plan.output, plan.lhs, plan.rhs, alpha, beta);
+}
+
+} // namespace detail
+
+/// \brief Probe direct no-copy BLAS GEMM without invoking the provider.
+/// \details This performs the same instance, layout, and transform checks as
+///          `try_gemm`, but does not read or write matrix elements.
+/// \return `success`, `unsupported_instance`, `unsupported_layout`, or
+///         `unsupported_transform`.
+template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
+  requires detail::writable_blas_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           detail::readable_blas_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+KernelAttempt probe_gemm(OutputMdspan&& output, LhsMdspan&& lhs, RhsMdspan&& rhs)
+{
+  return detail::prepare_gemm<Scalar>(std::forward<OutputMdspan>(output), std::forward<LhsMdspan>(lhs),
+                                      std::forward<RhsMdspan>(rhs))
+      .attempt;
+}
+
+/// \brief Try a direct no-copy BLAS GEMM from mdspan-like operands.
+/// \return `success`, `unsupported_instance`, `unsupported_layout`, or
+///         `unsupported_transform`.
+template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
+  requires detail::writable_blas_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           detail::readable_blas_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+{
+  auto preparation = detail::prepare_gemm<Scalar>(std::forward<OutputMdspan>(output), std::forward<LhsMdspan>(lhs),
+                                                  std::forward<RhsMdspan>(rhs));
+  if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
+
+  detail::execute_gemm(preparation.plan, alpha, beta);
   return KernelAttempt::success;
 }
 

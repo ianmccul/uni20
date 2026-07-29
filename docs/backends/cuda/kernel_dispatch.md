@@ -309,8 +309,8 @@ edge.
 
 `try_kernel(...)` remains an ordinary function. Direct GEMM acquires a CUDA
 execution lease and scoped buffer guards inside the accepted backend attempt.
-Async lowering performs side-effect-free preparation followed by awaitable
-resource admission before entering the same non-suspending prepared leaf. A
+Async lowering prepares provider metadata without submitting work, followed by
+awaitable resource admission before entering the same non-suspending prepared leaf. A
 CUDA backend attempt may:
 
 1. validate all remaining runtime preconditions;
@@ -328,11 +328,13 @@ operation runnable are released, the CUDA scoped guards must have been
 destroyed or otherwise released so their tokens are retained by the affected
 storage epochs.
 
-The strong clean-decline contract remains unchanged. A CUDA backend may decline
-only before it changes provider state, enqueues work, consumes an operand,
-commits output, or produces another externally visible side effect. Failure
-after that point is an operation error and must not fall through to another
-backend.
+The clean-decline contract permits operation-authorized provisional preparation
+of a replaceable output. A CUDA backend may allocate, resize, or rebind such an
+output and still decline; the next backend may reuse or replace it. The backend
+must decline before it changes provider state, enqueues work, consumes an input,
+writes result elements, mutates a fixed or update output, or commits a completed
+result. Failure after that point is an operation error and must not fall through
+to another backend.
 
 ## Submission And Completion Boundaries
 
