@@ -196,6 +196,34 @@ TEST_F(CudaCopyTest, DeviceToHostCopyObservesConjugatingAccessor)
   EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
 }
 
+TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  complex_host_matrix_type source(2, 2);
+  source[0, 0] = complex_type{1.0, 2.0};
+  source[1, 0] = complex_type{-3.0, 4.0};
+  source[0, 1] = complex_type{5.0, -6.0};
+  source[1, 1] = complex_type{-7.0, -8.0};
+
+  auto device = uni20::to_device(source, 0);
+  auto conjugated = uni20::conj(device);
+  auto output_span = device.device_mdspan();
+  auto input_span = conjugated.device_mdspan();
+
+  EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output_span, input_span),
+            uni20::linalg::KernelAttempt::unsupported_transform);
+  EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
+                                                  device, conjugated));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
+                                                 device, device));
+
+  auto result = uni20::to_host(device);
+  EXPECT_EQ((result[0, 0]), (complex_type{1.0, 2.0}));
+  EXPECT_EQ((result[1, 0]), (complex_type{-3.0, 4.0}));
+  EXPECT_EQ((result[0, 1]), (complex_type{5.0, -6.0}));
+  EXPECT_EQ((result[1, 1]), (complex_type{-7.0, -8.0}));
+}
+
 TEST_F(CudaCopyTest, HostToDeviceCopyObservesConjugatingAccessor)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});

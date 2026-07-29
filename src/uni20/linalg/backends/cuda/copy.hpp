@@ -232,16 +232,6 @@ template <class OutputMdspan, class InputMdspan>
   if constexpr (is_cuda_mdspan<OutputMdspan> && is_cuda_mdspan<InputMdspan>)
   {
     plan.direction = CopyDirection::device_to_device;
-    if (plan.output_buffer == plan.input_buffer)
-    {
-      if (plan.output_offset == plan.input_offset)
-      {
-        plan.attempt = KernelAttempt::success;
-        return plan;
-      }
-      plan.attempt = KernelAttempt::unsupported_instance;
-      return plan;
-    }
   }
   else if constexpr (is_cuda_mdspan<OutputMdspan>)
   {
@@ -268,6 +258,22 @@ template <class OutputMdspan, class InputMdspan>
     for (std::size_t index = 0; index < plan.element_count; ++index)
       plan.input_staging[index] = uni20::conj(plan.input_host[index]);
     plan.input_host = plan.input_staging.data();
+  }
+
+  if constexpr (is_cuda_mdspan<OutputMdspan> && is_cuda_mdspan<InputMdspan>)
+  {
+    if (plan.output_buffer == plan.input_buffer)
+    {
+      if (plan.output_offset == plan.input_offset)
+      {
+        // Reaching this point proves that the supported accessors observe the
+        // same values. Semantic transforms such as conjugation decline above.
+        plan.attempt = KernelAttempt::success;
+        return plan;
+      }
+      plan.attempt = KernelAttempt::unsupported_instance;
+      return plan;
+    }
   }
 
   plan.attempt = KernelAttempt::success;
