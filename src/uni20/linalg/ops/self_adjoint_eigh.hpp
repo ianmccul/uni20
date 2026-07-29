@@ -33,8 +33,8 @@ template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
                                                              SelfAdjointEighOptions options)
 {
   ERROR_IF(matrix_work.extent(0) != matrix_work.extent(1), "self-adjoint eigensystem requires a square matrix");
-  uni20::ensure_shape(eigenvalues,
-                      self_adjoint_eigenvalue_extents{static_cast<uni20::index_type>(matrix_work.extent(0))});
+  uni20::prepare_output(eigenvalues,
+                        self_adjoint_eigenvalue_extents{static_cast<uni20::index_type>(matrix_work.extent(0))});
   return {.compute_vectors = options.compute_vectors, .triangle = options.triangle};
 }
 

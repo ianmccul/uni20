@@ -180,17 +180,26 @@ their selector through storage policy.
 Output operations use two contracts:
 
 ```cpp
-uni20::require_shape(output, required); // validate only
-uni20::ensure_shape(output, required);  // resize owner or validate fixed view
+uni20::require_output(output, required);            // validate only
+uni20::prepare_output(output, required);            // resize owner or validate fixed view
+uni20::prepare_output(output, required, placement); // shape plus backend storage requirement
 ```
 
-An update operation uses `require_shape` because old output values participate.
-An overwrite operation may use `ensure_shape`. A resizable owner retains a
+An update operation uses `require_output` because old output values participate.
+An overwrite backend may use `prepare_output`. A resizable owner retains a
 matching allocation and calls `reset_shape` only when the shape differs. A
-fixed view can never resize.
+placement-aware overload additionally retains compatible storage or replaces
+it through the Tensor's storage policy. A fixed view can never resize or
+replace storage.
 
 Shape preparation must happen before resolving the output mdspan because
 resizing may invalidate its handle.
+
+`prepare_output` may invalidate storage and resolved views. A dispatch backend
+must therefore complete every check that could produce a clean decline before
+calling it. Once preparation begins, the backend is committed: allocation,
+provider, or execution failures are terminal rather than reasons to fall
+through to another backend.
 
 ### Move and Storage Reuse
 
@@ -307,7 +316,7 @@ contracts described later in this guide.
 | `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
 | `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
 | `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Not implemented. |
-| `require_shape`, `ensure_shape` | Output-policy helpers for operation authors. | Validate only, or resize when the output type permits it. | Used inside wrappers; not standalone Async operations. |
+| `require_output`, `prepare_output` | Output-policy helpers for operation authors. | Validate only, or construct/resize/replace when the output type permits it. | Backend preparation follows all clean-decline checks. |
 
 For a rank-`R` result, generalized `eye<T>(n0, ..., n{R-1})` returns
 one exactly when all indices agree. It includes scalar one, an all-ones
@@ -378,6 +387,36 @@ ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
 
+`assign_product` and `gemm` use distinct dispatch operations:
+
+```cpp
+dispatch_kernel(selector, assign_product_op{}, output, alpha, lhs, rhs);
+dispatch_kernel(selector, gemm_op{}, output, alpha, lhs, rhs, beta);
+```
+
+`assign_product_op` is a replaceable-output overwrite. The previous output value
+is irrelevant, so an output type that supports replacement may change its shape
+or storage. `gemm_op` is a fixed-output update: its output must already exist and
+its storage is never rebound. This remains true when `beta` is numerically zero.
+Dispatch does not inspect `beta` to infer overwrite permission because a backend
+may represent scalar parameters with opaque or device-resident handles.
+
+Backends may lower both operation tags to the same provider GEMM implementation.
+The `assign_product_op` adapter supplies zero in the representation required by
+that backend; `gemm_op` forwards the caller's `beta`. Shape and storage
+preparation occur in the `assign_product_op` backend adapter, where the backend
+has enough information to state its storage requirements. The synchronous form
+receives a concrete Tensor output. The async form receives the output's
+potentially unconstructed `shared_storage<Tensor>`.
+
+Host backends require only the product shape. The cuBLAS backend also requires
+the output to use the operands' CUDA device, after first rejecting operands that
+reside on different devices. This requirement is a `cuda::Device`, not a stream
+pool or `DeviceResources`; `CudaStorage` resolves the device through the
+process-wide CUDA runtime when it must allocate a new buffer. A matching
+allocation is retained, a shape mismatch on the same device preserves its
+existing storage resources, and a device mismatch replaces the allocation.
+
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
 `try_make_kernel_task` returns a nested `CudaTask` bound to the operand device. It
@@ -386,8 +425,8 @@ stream, and publishes CUDA buffer completion records before returning. Column-
 and row-major outputs are supported. A direct non-Async Tensor `gemm` uses the
 same operand preparation and provider leaf but may block during resource
 admission. Async `gemm` and `add_product` require an existing compatible output;
-`assign_product` prepares an unconstructed or resizable output before entering
-the same kernel-dispatch path.
+`assign_product` uses its distinct replaceable-output dispatch operation and may
+prepare an unconstructed or resizable output.
 
 ## Async Tensor Contract
 
@@ -413,17 +452,17 @@ descriptor is passed by value and require separate lifetime analysis.
 The wrapper resolves the immutable selector from tensor/storage types before
 scheduling, enrolls buffers, and moves all coroutine state into a named
 coroutine or captureless static coroutine lambda. The coroutine awaits stored
-Tensor values and invokes the synchronous operation. Runtime backend declines
-still happen after the mdspans are available.
+Tensor values and invokes backend dispatch. Runtime backend declines still
+happen after the Tensor values are available.
 
 Do not make `Async<Tensor>` model `TensorView`, and do not add Async awareness
 to leaf backends.
 
 ### Overwrite and Update Outputs
 
-For async `assign_product`, an unconstructed output may be constructed from the
-required extents. An existing output follows synchronous `ensure_shape`
-semantics.
+For async `assign_product`, backend dispatch receives the output's
+`shared_storage<Tensor>`. The selected backend may construct an unconstructed
+output or prepare an existing one through `prepare_output`.
 
 For async `add_product`, output is both input and output. It uses one
 `WriteBuffer`, must already be constructed, and cannot resize. Taking separate

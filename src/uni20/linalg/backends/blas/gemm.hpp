@@ -8,9 +8,11 @@
 
 #include <uni20/linalg/blas/gemm.hpp>
 #include <uni20/linalg/dispatch.hpp>
+#include <uni20/linalg/matrix_product_shape.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
+#include <uni20/tensor/output.hpp>
 
 #include <concepts>
 #include <utility>
@@ -82,6 +84,77 @@ KernelAttempt try_kernel(BlasBackend backend, gemm_op const& op, OutputTensor& o
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();
   return try_kernel(backend, op, output_span, alpha, lhs_span, rhs_span, beta);
+}
+
+/// \brief Report BLAS eligibility for replaceable-output tensor matrix products.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
+           uni20::detail::HostReadableTensor<RhsTensor>
+consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&, OutputTensor&, Scalar const&,
+                                    LhsTensor&, RhsTensor&)
+{
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
+  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<BlasBackend, gemm_op, output_span&, Scalar const&,
+                                                              lhs_span&, rhs_span&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else if constexpr (acceptance == KernelTypeAcceptance::maybe)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Lower a replaceable-output tensor matrix product to fixed-output BLAS GEMM.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<LhsTensor> &&
+           uni20::detail::HostReadableTensor<RhsTensor>
+KernelAttempt try_kernel(BlasBackend backend, assign_product_op const&, OutputTensor& output, Scalar alpha,
+                         LhsTensor const& lhs, RhsTensor const& rhs)
+{
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  uni20::prepare_output(output, shape);
+  return try_kernel(backend, gemm_op{}, output, alpha, lhs, rhs, Scalar{});
+}
+
+/// \brief Report BLAS eligibility for a deferred Tensor matrix-product output.
+template <uni20::TensorOutputStorage OutputStorage, class Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
+          uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
+           uni20::detail::HostWritableTensor<uni20::tensor_output_storage_t<OutputStorage>> &&
+           uni20::detail::HostReadableTensor<LhsTensor> && uni20::detail::HostReadableTensor<RhsTensor>
+consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&, OutputStorage&, Scalar const&,
+                                    LhsTensor&, RhsTensor&)
+{
+  using output_tensor = uni20::tensor_output_storage_t<OutputStorage>;
+  using output_span = uni20::detail::host_write_tensor_mdspan_t<output_tensor>;
+  using lhs_span = uni20::detail::host_read_tensor_mdspan_t<LhsTensor>;
+  using rhs_span = uni20::detail::host_read_tensor_mdspan_t<RhsTensor>;
+  constexpr auto acceptance = detail::backend_type_acceptance<BlasBackend, gemm_op, output_span&, Scalar const&,
+                                                              lhs_span&, rhs_span&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else if constexpr (acceptance == KernelTypeAcceptance::maybe)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Construct or resize a deferred host output and run BLAS GEMM.
+template <uni20::TensorOutputStorage OutputStorage, class Scalar, uni20::RankedDeviceTensorView<2> LhsTensor,
+          uni20::RankedDeviceTensorView<2> RhsTensor>
+  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
+           uni20::detail::HostWritableTensor<uni20::tensor_output_storage_t<OutputStorage>> &&
+           uni20::detail::HostReadableTensor<LhsTensor> && uni20::detail::HostReadableTensor<RhsTensor>
+KernelAttempt try_kernel(BlasBackend backend, assign_product_op const&, OutputStorage& output_storage, Scalar alpha,
+                         LhsTensor const& lhs, RhsTensor const& rhs)
+{
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  auto& output = uni20::prepare_output(output_storage, shape);
+  return try_kernel(backend, gemm_op{}, output, alpha, lhs, rhs, Scalar{});
 }
 
 } // namespace uni20::linalg

@@ -53,7 +53,19 @@ template <class Function> struct transform_inplace_op
 /// \brief Deduce an update operation that owns a decayed callable value.
 template <class Function> transform_inplace_op(Function) -> transform_inplace_op<std::decay_t<Function>>;
 
-/// \brief Dense matrix multiplication operation tag.
+/// \brief Replaceable-output dense matrix product operation tag.
+/// \details Computes `output = alpha * lhs * rhs`. The old output value is not
+///          an operand, and an output type that supports replacement may change
+///          its shape or storage to satisfy the selected backend.
+struct assign_product_op
+{
+    static constexpr std::string_view name = "assign_product";
+};
+
+/// \brief Fixed-output dense matrix multiplication operation tag.
+/// \details Computes `output = alpha * lhs * rhs + beta * output`. The output is
+///          an existing operand whose storage is never rebound by this operation,
+///          even when `beta` is numerically zero.
 struct gemm_op
 {
     static constexpr std::string_view name = "gemm";

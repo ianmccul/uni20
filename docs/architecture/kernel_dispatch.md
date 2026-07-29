@@ -44,10 +44,11 @@ provider adapters.
 
 ### Dispatch operand boundary
 
-Operations identified by Uni20 operation tags, such as `gemm_op{}` and `copy_op{}`,
-dispatch tensor operands as `TensorView`, `DeviceTensorView`, or an applicable
-mutable/ranked/strided refinement. Scalar coefficients, axes, and other non-tensor
-operation parameters remain ordinary values.
+Operations identified by Uni20 operation tags, such as `assign_product_op{}`,
+`gemm_op{}`, and `copy_op{}`, dispatch tensor operands as `TensorView`,
+`DeviceTensorView`, or an applicable mutable/ranked/strided refinement. Scalar
+coefficients, axes, and other non-tensor operation parameters remain ordinary
+values.
 
 This tensor-view boundary applies to `probe_dispatch_kernel`,
 `kernel_type_candidates`, `try_dispatch_kernel`, `dispatch_kernel`,
@@ -70,10 +71,19 @@ execution-domain validation, and accessor lowering inside the selected backend.
 An operation tag is a lightweight value identifying a kernel family. Operation tags
 must define a stable static `name` used by diagnostics.
 
-Examples include `gemm_op`, `gemv_op`, and decomposition-specific operation tags.
+Examples include `assign_product_op`, `gemm_op`, `gemv_op`, and
+decomposition-specific operation tags.
 
 The operation tag is passed to all backend customization points. This keeps the
 dispatcher generic and allows one backend value to implement many operations.
+
+Operation tags also carry output semantics that cannot safely be inferred from
+runtime scalar values. `assign_product_op` permits a replaceable output because
+the old output value is irrelevant. Its dispatch signature has no `beta`
+argument. `gemm_op` treats the output as an existing fixed-storage operand and
+never authorizes rebinding, even when `beta` is numerically zero or is represented
+by an opaque backend scalar handle. A backend may lower both operations to one
+provider GEMM implementation after applying their different output contracts.
 
 ### Backend
 

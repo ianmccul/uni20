@@ -226,6 +226,22 @@ class Tensor {
         : Tensor(internal_tag{}, make_payload(context, make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
+    /// \brief Construct a tensor with storage satisfying a placement value.
+    /// \details The storage policy interprets the placement and resolves any
+    ///          allocation resources needed to construct the buffer.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param placement Required storage placement.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
+    template <class Placement>
+      requires requires(Placement const& placement, std::size_t count) {
+        { storage_policy::template make_storage<element_type>(placement, count) } -> std::same_as<storage_type>;
+      }
+    explicit Tensor(Placement const& placement, extents_type const& exts,
+                    accessor_factory_type accessor_factory = accessor_factory_type{})
+        : Tensor(internal_tag{}, make_payload(placement, make_default_mapping(exts), std::move(accessor_factory)))
+    {}
+
     /// \brief Construct a fully dynamic tensor from one extent per axis.
     /// \details This convenience form is available when every extent is
     ///          dynamic and keeps rank-specific aliases ergonomic without
@@ -294,6 +310,41 @@ class Tensor {
     {
       auto mapping = make_default_mapping(exts);
       Tensor replacement(internal_tag{}, make_payload_like(data_, std::move(mapping), accessor_factory_));
+      this->swap_state(replacement);
+    }
+
+    /// \brief Report whether owned storage satisfies a placement requirement.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param placement Required storage placement.
+    /// \return `true` when the current allocation may be retained.
+    template <class Placement>
+      requires requires(storage_type const& storage, Placement const& placement) {
+        { storage_policy::storage_is_compatible(storage, placement) } -> std::convertible_to<bool>;
+      }
+    [[nodiscard]] bool storage_is_compatible(Placement const& placement) const
+    {
+      return storage_policy::storage_is_compatible(data_, placement);
+    }
+
+    /// \brief Replace tensor shape and storage to satisfy a placement requirement.
+    /// \details The replacement discards current values and uses the storage
+    ///          policy to allocate for `placement`. Construction completes before
+    ///          the current tensor state is swapped.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param exts New tensor extents.
+    /// \param placement Required storage placement.
+    template <class Placement>
+      requires(std::copy_constructible<accessor_factory_type> && std::is_nothrow_swappable_v<mapping_type> &&
+               std::is_nothrow_swappable_v<storage_type> && std::is_nothrow_swappable_v<accessor_factory_type> &&
+               requires(Placement const& required_placement, std::size_t count) {
+                 {
+                   storage_policy::template make_storage<element_type>(required_placement, count)
+                 } -> std::same_as<storage_type>;
+               })
+    void replace(extents_type const& exts, Placement const& placement)
+    {
+      auto mapping = make_default_mapping(exts);
+      Tensor replacement(internal_tag{}, make_payload(placement, std::move(mapping), accessor_factory_));
       this->swap_state(replacement);
     }
 
@@ -578,6 +629,20 @@ class Tensor {
     {
       auto const count = static_cast<std::size_t>(mapping.required_span_size());
       auto storage = Policy::template make_storage<element_type>(context, count);
+      return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+    }
+
+    template <class Placement>
+    static ctor_payload make_payload(Placement const& placement, mapping_type mapping,
+                                     accessor_factory_type accessor_factory)
+      requires requires(Placement const& required_placement, std::size_t count) {
+        {
+          storage_policy::template make_storage<element_type>(required_placement, count)
+        } -> std::same_as<storage_type>;
+      }
+    {
+      auto const count = static_cast<std::size_t>(mapping.required_span_size());
+      auto storage = storage_policy::template make_storage<element_type>(placement, count);
       return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
     }
 

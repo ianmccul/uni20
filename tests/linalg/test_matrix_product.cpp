@@ -66,7 +66,7 @@ TEST(MatrixProductTest, AssignProductResizesAndUsesDefaultSelector)
   check_reference_product<double>();
 
   ASSERT_EQ(events.size(), 1);
-  EXPECT_EQ(events[0].operation, "gemm");
+  EXPECT_EQ(events[0].operation, "assign_product");
   EXPECT_TRUE(events[0].succeeded());
   EXPECT_TRUE(events[0].selected_backend().has_value());
 }
@@ -85,6 +85,24 @@ TEST(MatrixProductTest, AssignProductRetainsMatchingOutputStorage)
   EXPECT_EQ(output.mutable_handle(), original_handle);
   EXPECT_DOUBLE_EQ((output[0, 0]), 2.0);
   EXPECT_DOUBLE_EQ((output[1, 1]), 8.0);
+}
+
+TEST(MatrixProductTest, GemmWithZeroBetaRetainsFixedOutputDispatchIdentity)
+{
+  namespace diagnostics = uni20::linalg::dispatch_diagnostics;
+  std::vector<diagnostics::event> events;
+  diagnostics::scoped_sink capture([&](diagnostics::event const& event) { events.push_back(event); });
+  uni20::DenseMatrix<double> lhs(1, 1);
+  uni20::DenseMatrix<double> rhs(1, 1);
+  uni20::DenseMatrix<double> output(1, 1);
+  lhs[0, 0] = 2.0;
+  rhs[0, 0] = 3.0;
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+
+  ASSERT_EQ(events.size(), 1);
+  EXPECT_EQ(events[0].operation, "gemm");
+  EXPECT_DOUBLE_EQ((output[0, 0]), 6.0);
 }
 
 TEST(MatrixProductTest, AddProductUsesFixedOutputAndExistingValues)

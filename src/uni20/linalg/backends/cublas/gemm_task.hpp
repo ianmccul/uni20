@@ -65,4 +65,63 @@ auto try_make_kernel_task(CublasBackend, gemm_op const&, OutputTensor& output, S
   return detail::cublas_backend::try_make_gemm_task(output_span, alpha, lhs_span, rhs_span, beta);
 }
 
+/// \brief Lower replaceable-output Tensor operands before preparing asynchronous cuBLAS work.
+template <uni20::cublas::CublasScalar Scalar, class OutputTensor, class LhsTensor, class RhsTensor>
+  requires uni20::MutableRankedDeviceTensorView<OutputTensor, 2> && uni20::RankedDeviceTensorView<LhsTensor, 2> &&
+               uni20::RankedDeviceTensorView<RhsTensor, 2>
+auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, OutputTensor& output, Scalar const& alpha,
+                          LhsTensor& lhs, RhsTensor& rhs) -> KernelTaskAttempt<async::CudaTask>
+{
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
+  if (detail::cublas_backend::tensor_device(rhs) != lhs_device)
+    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::unsupported_instance};
+
+  bool const shape_matches = detail::cublas_backend::output_shape_matches(output, shape);
+  bool const device_matches = detail::cublas_backend::tensor_device(output) == lhs_device;
+  bool const replacement_required = !shape_matches || !device_matches;
+  if (replacement_required)
+  {
+    if constexpr (requires { uni20::prepare_output(output, shape, lhs_device); })
+    {
+      uni20::prepare_output(output, shape, lhs_device);
+    }
+    else
+    {
+      return KernelTaskAttempt<async::CudaTask>{shape_matches ? KernelAttempt::unsupported_instance
+                                                              : KernelAttempt::unsupported_shape};
+    }
+  }
+
+  Scalar const beta{};
+  auto attempt = try_make_kernel_task(backend, gemm_op{}, output, alpha, lhs, rhs, beta);
+  if (replacement_required) CHECK(kernel_attempt_succeeded(attempt.attempt()));
+  return attempt;
+}
+
+/// \brief Prepare asynchronous cuBLAS assignment into deferred Tensor storage.
+template <uni20::cublas::CublasScalar Scalar, uni20::TensorOutputStorage OutputStorage, class LhsTensor,
+          class RhsTensor>
+  requires uni20::MutableRankedDeviceTensorView<uni20::tensor_output_storage_t<OutputStorage>, 2> &&
+               uni20::RankedDeviceTensorView<LhsTensor, 2> && uni20::RankedDeviceTensorView<RhsTensor, 2> &&
+               requires(OutputStorage& storage, detail::matrix_product_extents const& shape,
+                        uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
+auto try_make_kernel_task(CublasBackend backend, assign_product_op const&, OutputStorage& output_storage,
+                          Scalar const& alpha, LhsTensor& lhs, RhsTensor& rhs) -> KernelTaskAttempt<async::CudaTask>
+{
+  if (output_storage.constructed())
+    return try_make_kernel_task(backend, assign_product_op{}, *output_storage, alpha, lhs, rhs);
+
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  auto const lhs_device = detail::cublas_backend::tensor_device(lhs);
+  if (detail::cublas_backend::tensor_device(rhs) != lhs_device)
+    return KernelTaskAttempt<async::CudaTask>{KernelAttempt::unsupported_instance};
+
+  auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
+  Scalar const beta{};
+  auto attempt = try_make_kernel_task(backend, gemm_op{}, output, alpha, lhs, rhs, beta);
+  CHECK(kernel_attempt_succeeded(attempt.attempt()));
+  return attempt;
+}
+
 } // namespace uni20::linalg

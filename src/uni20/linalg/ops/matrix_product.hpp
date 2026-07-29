@@ -7,6 +7,7 @@
  */
 
 #include <uni20/common/trace.hpp>
+#include <uni20/linalg/matrix_product_shape.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/output.hpp>
@@ -20,8 +21,6 @@ namespace uni20::linalg
 {
 namespace detail
 {
-using matrix_product_extents = stdex::dextents<uni20::index_type, 2>;
-
 template <class OutputTensor, class InputTensor>
 [[nodiscard]] constexpr bool is_obvious_tensor_alias(OutputTensor& output, InputTensor const& input) noexcept
 {
@@ -38,14 +37,6 @@ void validate_matrix_product_aliasing(OutputTensor& output, LhsTensor const& lhs
 {
   ERROR_IF(is_obvious_tensor_alias(output, lhs) || is_obvious_tensor_alias(output, rhs),
            "matrix product output must not alias an input tensor");
-}
-
-template <uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-[[nodiscard]] matrix_product_extents matrix_product_shape(LhsTensor const& lhs, RhsTensor const& rhs)
-{
-  ERROR_IF(lhs.extent(1) != rhs.extent(0), "matrix product inner extents do not agree", lhs.extent(1), rhs.extent(0));
-  return matrix_product_extents{static_cast<uni20::index_type>(lhs.extent(0)),
-                                static_cast<uni20::index_type>(rhs.extent(1))};
 }
 
 template <class OutputTensor, class LhsTensor, class RhsTensor>
@@ -68,7 +59,7 @@ void add_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor co
 {
   detail::validate_matrix_product_aliasing(output, lhs, rhs);
   auto const shape = detail::matrix_product_shape(lhs, rhs);
-  uni20::require_shape(output, shape);
+  uni20::require_output(output, shape);
   gemm(std::forward<BackendSelector>(selector), std::forward<OutputTensor>(output), alpha, lhs, rhs,
        uni20::tensor_element_t<OutputTensor>{1});
 }
@@ -82,7 +73,7 @@ void add_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& r
 {
   detail::validate_matrix_product_aliasing(output, lhs, rhs);
   auto const shape = detail::matrix_product_shape(lhs, rhs);
-  uni20::require_shape(output, shape);
+  uni20::require_output(output, shape);
   auto selector = select_backend(gemm_op{}, output, lhs, rhs);
   gemm(selector, std::forward<OutputTensor>(output), alpha, lhs, rhs, uni20::tensor_element_t<OutputTensor>{1});
 }
@@ -100,10 +91,7 @@ void assign_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
   detail::validate_matrix_product_aliasing(output, lhs, rhs);
-  auto const shape = detail::matrix_product_shape(lhs, rhs);
-  uni20::ensure_shape(output, shape);
-  gemm(std::forward<BackendSelector>(selector), std::forward<OutputTensor>(output), alpha, lhs, rhs,
-       uni20::tensor_element_t<OutputTensor>{});
+  dispatch_kernel(std::forward<BackendSelector>(selector), assign_product_op{}, output, alpha, lhs, rhs);
 }
 
 /// \brief Overwrite a Tensor with a matrix product using its default backend selector.
@@ -114,10 +102,8 @@ void assign_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
   detail::validate_matrix_product_aliasing(output, lhs, rhs);
-  auto const shape = detail::matrix_product_shape(lhs, rhs);
-  uni20::ensure_shape(output, shape);
-  auto selector = select_backend(gemm_op{}, output, lhs, rhs);
-  gemm(selector, std::forward<OutputTensor>(output), alpha, lhs, rhs, uni20::tensor_element_t<OutputTensor>{});
+  auto selector = select_backend(assign_product_op{}, output, lhs, rhs);
+  dispatch_kernel(selector, assign_product_op{}, output, alpha, lhs, rhs);
 }
 
 } // namespace uni20::linalg

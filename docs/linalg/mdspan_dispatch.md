@@ -98,7 +98,6 @@ The final layering should look like this:
 
 1. **Tensor/linalg front end**
    - Accepts Uni20 tensors, tensor refs, matrix adaptors, or explicit mdspans.
-   - Prepares outputs with `ensure_shape(...)` when the output is resizable.
    - Derives or receives a backend selector.
 2. **Kernel dispatch**
    - Walks an ordered backend list for an operation tag.
@@ -106,6 +105,8 @@ The final layering should look like this:
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
    - Passes tensor operands as `TensorView` or `DeviceTensorView` refinements.
 3. **Backend lowering**
+   - Completes every backend-specific check that may produce a clean decline,
+     then commits and prepares replaceable outputs with `prepare_output(...)`.
    - Interprets or acquires the tensor views in the backend's execution domain.
    - Produces resolved mdspan-like views or provider descriptors.
 4. **Linalg leaf kernel**
@@ -834,14 +835,17 @@ The Tensor front-end checkpoints now:
 - lower those operands through `mdspan()`; the generic CPU path does not
   require stridedness, while BLAS lowering does.
 - use the same operation tag and backend-list walk as explicit mdspan calls.
-- distinguish fixed `gemm`/`gemv` and `add_product` updates from resizable
-  `assign_product` overwrites.
+- distinguish fixed `gemm_op`/`gemv` and `add_product` updates from
+  replaceable-output `assign_product_op` overwrites. `gemm_op` remains fixed
+  even when `beta` is numerically zero; overwrite permission is carried by the
+  operation type rather than inferred from a scalar value.
 - provide lazy read-only `conj(tensor)` views and explicit eager `copy` and
   `make_tensor` operations. `make_tensor(conj(input))` allocates first and then
   dispatches `copy_op`.
 
-Shape-changing operations call `ensure_shape(...)` before resolving the
-writable mdspan. That policy does not belong in fixed-output GEMM or GEMV.
+Replaceable-output backend adapters call `prepare_output(...)` before resolving
+the writable mdspan, but only after the adapter can no longer return a clean
+decline. Fixed-output GEMM and GEMV only validate their existing outputs.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan

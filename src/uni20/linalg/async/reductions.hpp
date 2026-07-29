@@ -39,7 +39,7 @@ template <AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t In
   auto const required = reduction_output_extents(input, axes);
   if (storage.constructed())
   {
-    ensure_shape(*storage, required);
+    prepare_output(*storage, required);
     return *storage;
   }
 
@@ -66,7 +66,7 @@ async::AsyncTask co_sum(BackendSelector const selector, async::WriteBuffer<Outpu
     auto awaited = co_await async::all(output_descriptor, input);
     auto mutable_output = std::get<0>(awaited);
     auto const& input_value = std::get<1>(awaited);
-    ensure_shape(mutable_output, reduction_output_extents(input_value, axes));
+    prepare_output(mutable_output, reduction_output_extents(input_value, axes));
     dispatch_sum(selector, mutable_output.mdspan(), input_value.mdspan(), std::move(axes));
   }
   else

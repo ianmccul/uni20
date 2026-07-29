@@ -116,7 +116,7 @@ void assign_transform(BackendSelector&& selector, OutputTensor&& output, Functio
                       FirstInputTensor const& first_input, RestInputTensors const&... rest_inputs)
 {
   detail::require_transform_extents(first_input, rest_inputs...);
-  ensure_shape(output, first_input.extents());
+  prepare_output(output, first_input.extents());
   auto operation = linalg::transform_op{std::forward<Function>(function)};
   detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output, first_input,
                              rest_inputs...);
@@ -131,7 +131,7 @@ void assign_transform(OutputTensor&& output, Function&& function, FirstInputTens
   auto operation = linalg::transform_op{std::forward<Function>(function)};
   auto selector = linalg::select_backend(operation, output, first_input, rest_inputs...);
   detail::require_transform_extents(first_input, rest_inputs...);
-  ensure_shape(output, first_input.extents());
+  prepare_output(output, first_input.extents());
   detail::dispatch_transform(selector, std::move(operation), output, first_input, rest_inputs...);
 }
 

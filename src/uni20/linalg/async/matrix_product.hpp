@@ -16,7 +16,6 @@
 
 #if UNI20_BACKEND_CUBLAS
 #include <uni20/linalg/backends/cublas/gemm_task.hpp>
-#include <uni20/storage/cuda_storage.hpp>
 #endif
 
 #include <concepts>
@@ -47,46 +46,6 @@ void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& ou
            "async matrix product output must not share an epoch queue with an input");
 }
 
-#if UNI20_BACKEND_CUBLAS
-template <class OutputTensor, class LhsTensor>
-concept CudaMatrixProductOutput =
-    std::same_as<uni20::detail::tensor_storage_policy_t<OutputTensor>, uni20::CudaStorage> &&
-    std::same_as<uni20::detail::tensor_storage_policy_t<LhsTensor>, uni20::CudaStorage>;
-
-template <uni20::DeviceTensorView Tensor>
-[[nodiscard]] uni20::cuda::DeviceResources& cuda_tensor_resources(Tensor const& tensor)
-{
-  return tensor.storage().resources();
-}
-
-#endif
-
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> LhsTensor>
-[[nodiscard]] OutputTensor& prepare_async_assign_product_output(async::shared_storage<OutputTensor>& storage,
-                                                                matrix_product_extents const& shape,
-                                                                LhsTensor const& lhs)
-{
-  if (storage.constructed()) return *storage;
-
-  using extents_type = uni20::tensor_extents_t<OutputTensor>;
-  auto const extents = uni20::detail::convert_tensor_extents<extents_type>(shape);
-#if UNI20_BACKEND_CUBLAS
-  if constexpr (CudaMatrixProductOutput<OutputTensor, LhsTensor> &&
-                std::constructible_from<OutputTensor, uni20::cuda::DeviceResources&, extents_type const&>)
-  {
-    return storage.emplace(cuda_tensor_resources(lhs), extents);
-  }
-#endif
-  if constexpr (std::constructible_from<OutputTensor, extents_type const&>)
-  {
-    return storage.emplace(extents);
-  }
-  else
-  {
-    throw async::buffer_write_uninitialized{};
-  }
-}
-
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor,
           uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor, class AlphaAwaiter>
 async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
@@ -100,13 +59,9 @@ async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteB
   auto const& rhs_value = std::get<2>(awaited);
   auto const& alpha_value = std::get<3>(awaited);
 
-  auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  auto& output_value = prepare_async_assign_product_output<OutputTensor>(storage, shape, lhs_value);
-  uni20::ensure_shape(output_value, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
-  scalar_type const beta_scalar{};
-  co_await co_dispatch_kernel(selector, gemm_op{}, output_value, alpha_scalar, lhs_value, rhs_value, beta_scalar);
+  co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_value, rhs_value);
   co_return;
 }
 
@@ -127,7 +82,7 @@ async::AsyncTask co_gemm(BackendSelector const selector, async::WriteBuffer<Outp
 
   if (!storage.constructed()) throw async::buffer_write_uninitialized{};
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  uni20::require_shape(*storage, shape);
+  uni20::require_output(*storage, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
   scalar_type const beta_scalar = static_cast<scalar_type>(beta_value);
@@ -223,7 +178,7 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDev
 void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
-  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(gemm_op{});
+  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(assign_product_op{});
   detail::schedule_async_assign_product(std::move(selector), output, lhs, rhs, async::read(std::forward<Alpha>(alpha)));
 }
 

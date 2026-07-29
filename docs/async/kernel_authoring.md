@@ -170,14 +170,21 @@ for `Async<Tensor>`.
 - `alpha` and `beta` may independently be immediate or async scalar operands.
 - The output's existing values participate according to `beta`; `gemm` never
   constructs or resizes the output.
+- Its backend dispatch uses `gemm_op`; a numerically zero `beta` does not change
+  the fixed-output contract.
 
 `assign_product` is an overwrite operation:
 
-- If the async output already contains a Tensor, the synchronous operation may
-  retain or resize it according to `ensure_shape`.
-- If the output is unconstructed and its Tensor type can be constructed from
-  its extents type, the coroutine constructs it at the required product shape.
-- Otherwise, unconstructed output is an error.
+- Its backend dispatch uses `assign_product_op`, which has no `beta` argument.
+- The async front end passes the output's `shared_storage<Tensor>` to dispatch,
+  so an unconstructed output remains representable at the backend boundary.
+- The selected backend determines the required shape and any storage placement
+  requirement, then retains, resizes, constructs, or replaces the output when
+  its Tensor type supports that preparation.
+- CUDA placement requirements are expressed as `cuda::Device`; `CudaStorage`
+  resolves that device to its canonical allocation resources.
+- A backend may lower the accepted operation to its GEMM provider using a zero
+  value represented in the form that provider requires.
 
 `add_product` is an update operation:
 

@@ -81,7 +81,7 @@ async::AsyncTask co_assign_transform(BackendSelector const selector, async::Writ
     AsyncAliasWriteDescriptorAwaiter output_descriptor(output);
     auto awaited = co_await async::all(output_descriptor, inputs...);
     auto mutable_output = std::get<0>(awaited);
-    require_shape(mutable_output, std::get<1>(awaited).extents());
+    require_output(mutable_output, std::get<1>(awaited).extents());
     invoke_async_assign_transform(selector, operation, mutable_output, awaited,
                                   std::index_sequence_for<InputTensors...>{});
   }

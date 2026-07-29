@@ -245,23 +245,27 @@ There are two broad output modes.
 Both use the implemented shape helpers:
 
 ```cpp
-require_shape(out, shape); // fixed update
-ensure_shape(out, shape);  // overwrite may resize
+require_output(out, shape); // fixed update
+prepare_output(out, shape); // overwrite may resize
 ```
 
-For an owning/resizable `Tensor`, `ensure_shape` retains matching storage and
+For an owning/resizable `Tensor`, `prepare_output` retains matching storage and
 otherwise calls `reset_shape`, which rebuilds the tensor using its default
 mapping. For a
 non-reallocatable output such as `TensorRef`, a block view, or a resolved
-mdspan-like output, `ensure_shape` validates that the current shape already
+mdspan-like output, `prepare_output` validates that the current shape already
 matches and otherwise throws/asserts. For an adaptor such as
 `as_tensor(std::vector<T>&)`, the adaptor decides: it may resize the vector, or
 it may expose fixed/write-through semantics. This lets front-end kernels use one
 output-preparation step while the output type controls whether resizing is legal.
 
-`ensure_shape` must run before materializing the output write view. For a
+`prepare_output` must run before materializing the output write view. For a
 resizable tensor it may reallocate and invalidate any previous mdspan-like
-object referring to the old storage.
+object referring to the old storage. When a backend candidate owns preparation,
+it must first complete every check that could produce a clean decline; calling
+`prepare_output` commits that candidate to the operation. A front end may
+prepare before dispatch only when output mutation is unconditional regardless
+of which backend subsequently executes the operation.
 
 ### Fixed Output
 
@@ -269,7 +273,7 @@ A fixed output cannot reallocate parent storage. It validates shape and then
 produces a mutable view:
 
 ```cpp
-require_shape(C, shape);            // validate only
+require_output(C, shape);            // validate only
 gemm(C, alpha, A, B, beta);         // fixed-output BLAS form
 add_product(C, A, B);               // reads and updates existing C
 ```
@@ -309,12 +313,12 @@ C = same_concrete_tensor;
 Needed behavior:
 
 - infer the right-hand-side shape
-- call `ensure_shape(C, shape)`
+- call `prepare_output(C, shape)`
 - evaluate into `tensor_write_view(C)`
 
 Concept pressure:
 
-- `ResizableTensorOutput<C>` for `ensure_shape` plus writable view
+- `ResizableTensorOutput<C>` for `prepare_output` plus writable view
 
 ### Value-Producing Operation
 
@@ -325,7 +329,7 @@ assign_product(C, A, B); // C may be resized
 Needed behavior:
 
 - `A` and `B` provide synchronous metadata and read views
-- `C` provides `ensure_shape` and a write view
+- `C` provides `prepare_output` and a write view
 - backend selector is computed from all participating tensor operands
 
 Concept pressure:
@@ -385,7 +389,7 @@ Needed behavior:
 - `X` is an unnamed concept-modeling adaptor
 - `tensor_view(X)` returns a rank-1 mdspan-like view
 - `tensor_backend_selector(X)` defaults to a CPU/host selector unless overridden
-- `ensure_shape(X, shape)` may resize the vector because this adaptor explicitly
+- `prepare_output(X, shape)` may resize the vector because this adaptor explicitly
   owns that policy
 
 Concept pressure:
@@ -405,7 +409,7 @@ Needed behavior:
 
 - `S` is a non-owning fixed output
 - assignment writes through
-- `ensure_shape(S, shape)` validates only
+- `prepare_output(S, shape)` validates only
 - `tensor_write_view(S)` exposes a resolved mdspan-like view
 
 Concept pressure:
@@ -491,7 +495,7 @@ template <class T, size_t Rank>
 concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
 ```
 
-`ResizableTensorOutput` detects `reset_shape(extents)`. `ensure_shape` uses it
+`ResizableTensorOutput` detects `reset_shape(extents)`. `prepare_output` uses it
 for overwrite operations; it is not part of fixed-output GEMM, where allocation
 policy has already been decided by the caller.
 
@@ -541,14 +545,14 @@ tensor_descriptor(x);
 tensor_backend_selector(x);
 tensor_storage_domain(x);
 tensor_read_view(x);
-ensure_shape(out, shape);
+prepare_output(out, shape);
 tensor_write_view(out);
 make_temporary_tensor(selector, domain, descriptor);
 ```
 
 Whether an output is fixed or resizable may be a separate semantic trait, for
 example `tensor_can_resize_v<T>`, rather than a separate concept. Most front-end
-kernels can simply call `ensure_shape`; APIs that specifically forbid
+kernels can simply call `prepare_output`; APIs that specifically forbid
 reallocation can constrain on the fixed-output trait or pass a fixed view/ref.
 
 Then a value-producing operation can be structured as:
@@ -560,7 +564,7 @@ void matmul(C& c, A const& a, B const& b)
   auto selector = select_backend(matmul_op{}, a, b, c);
   auto shape = matmul_shape(tensor_descriptor(a), tensor_descriptor(b));
 
-  ensure_shape(c, shape);
+  prepare_output(c, shape);
   dispatch_kernel(backend_list_t<decltype(selector)>{}, matmul_op{}, c, a, b);
 }
 ```
@@ -906,10 +910,10 @@ Uni20 tensor.
 The adaptor's concrete type can encode semantics specific to the wrapped object,
 and user code normally does not need to name that type. For example,
 `as_tensor(std::vector<T>&)` can expose the existing vector storage as a rank-1
-host tensor and also allow `ensure_shape` to resize the vector. A slice adaptor
+host tensor and also allow `prepare_output` to resize the vector. A slice adaptor
 or block-view adaptor would instead validate shape and write through fixed
 storage. Both can satisfy the same `TensorOutput` concept because the behavior is
-owned by the adaptor's `ensure_shape` and assignment operations.
+owned by the adaptor's `prepare_output` and assignment operations.
 
 ## Async And Block Tensor Notes
 
@@ -967,9 +971,9 @@ being raw mdspan descriptors.
 7. Should the dispatch customization layer be implemented as named CPO objects,
    ADL free functions, or a small trait class that forwards to members?
 8. Should fixed/resizable output be represented as separate concepts, or as one
-    `TensorOutput` concept plus a trait controlling `ensure_shape` behavior?
+    `TensorOutput` concept plus a trait controlling `prepare_output` behavior?
 9. Which explicit adaptors should expose resizable behavior through
-    `ensure_shape`? `as_tensor(std::vector<T>&)` is a plausible resizable
+    `prepare_output`? `as_tensor(std::vector<T>&)` is a plausible resizable
     adaptor, while slices and block views should remain fixed/write-through.
 10. What is the exact storage-domain/factory API for temporaries? Current
     candidates are `tensor_storage_domain(x)`,

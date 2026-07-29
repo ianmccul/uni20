@@ -165,10 +165,22 @@ struct CudaStorage
     }
 
     template <class ElementType>
+    [[nodiscard]] static auto make_storage(cuda::Device device, std::size_t size) -> storage_t<ElementType>
+    {
+      return storage_t<ElementType>{cuda::device_resources(device.ordinal()), size};
+    }
+
+    template <class ElementType>
     [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage,
                                                 std::size_t size) -> storage_t<ElementType>
     {
       return storage_t<ElementType>{storage.resources(), size};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static bool storage_is_compatible(storage_t<ElementType> const& storage, cuda::Device device)
+    {
+      return storage.device() == device;
     }
 
     template <class ElementType>

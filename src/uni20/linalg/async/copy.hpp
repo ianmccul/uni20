@@ -51,7 +51,7 @@ template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
     return storage.emplace(cuda_copy_resources(input), extents);
   }
 
-  ensure_shape(*storage, input.extents());
+  prepare_output(*storage, input.extents());
   return *storage;
 }
 

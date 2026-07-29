@@ -40,11 +40,11 @@ template <
   std::size_t const left_cols = options.left == SvdVectorExtent::Full ? rows : rank;
   std::size_t const right_rows = options.right == SvdVectorExtent::Full ? cols : rank;
 
-  uni20::ensure_shape(singular_values, svd_value_extents{static_cast<uni20::index_type>(rank)});
-  uni20::ensure_shape(left_singular_vectors, svd_matrix_extents{static_cast<uni20::index_type>(rows),
-                                                                static_cast<uni20::index_type>(left_cols)});
-  uni20::ensure_shape(right_singular_vectors_adjoint, svd_matrix_extents{static_cast<uni20::index_type>(right_rows),
-                                                                         static_cast<uni20::index_type>(cols)});
+  uni20::prepare_output(singular_values, svd_value_extents{static_cast<uni20::index_type>(rank)});
+  uni20::prepare_output(left_singular_vectors, svd_matrix_extents{static_cast<uni20::index_type>(rows),
+                                                                  static_cast<uni20::index_type>(left_cols)});
+  uni20::prepare_output(right_singular_vectors_adjoint, svd_matrix_extents{static_cast<uni20::index_type>(right_rows),
+                                                                           static_cast<uni20::index_type>(cols)});
   return {.left = options.left, .right = options.right};
 }
 

@@ -163,7 +163,7 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
   requires detail::CopyTensors<OutputTensor, InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
-  ensure_shape(output, input.extents());
+  prepare_output(output, input.extents());
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output, input);
 }
 
@@ -172,7 +172,7 @@ template <class OutputTensor, class InputTensor>
   requires detail::CopyTensors<OutputTensor, InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
-  ensure_shape(output, input.extents());
+  prepare_output(output, input.extents());
 #if UNI20_BACKEND_CUDA
   if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
   {

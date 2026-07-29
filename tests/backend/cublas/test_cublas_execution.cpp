@@ -444,7 +444,9 @@ TEST_F(CublasExecutionTest, AsyncTensorAssignAndAddProductUseCudaTaskLowering)
 {
   using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
-  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  auto runtime =
+      uni20::cuda::initialize({.device_ordinals = {device_}, .default_device = device_, .streams_per_device = 2});
+  auto& resources = runtime.device_resources(device_);
   matrix_type lhs_value(resources, 2, 3);
   matrix_type rhs_value(resources, 3, 2);
   matrix_type output_value(resources, 2, 2);
@@ -513,7 +515,9 @@ TEST_F(CublasExecutionTest, AsyncEmptyOutputDoesNotWaitForCublasExecutionResourc
 {
   using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
-  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  auto runtime =
+      uni20::cuda::initialize({.device_ordinals = {device_}, .default_device = device_, .streams_per_device = 1});
+  auto& resources = runtime.device_resources(device_);
   matrix_type lhs_value(resources, 0, 3);
   matrix_type rhs_value(resources, 3, 2);
 
@@ -550,7 +554,8 @@ TEST_F(CublasExecutionTest, AsyncTensorProductMigratesToOperandDevice)
 
   using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
-  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(1), .stream_count = 1});
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .default_device = 0, .streams_per_device = 1});
+  auto& resources = runtime.device_resources(1);
   matrix_type lhs_value(resources, 1, 1);
   matrix_type rhs_value(resources, 1, 1);
   std::array<double, 1> const lhs_values{6};
@@ -569,6 +574,75 @@ TEST_F(CublasExecutionTest, AsyncTensorProductMigratesToOperandDevice)
   auto const& result = output.get_wait(scheduler);
   EXPECT_EQ(result.storage().device().ordinal(), 1);
   EXPECT_EQ(download_tensor(result), (std::vector<double>{42}));
+}
+
+TEST_F(CublasExecutionTest, TensorProductMigratesConcreteOutputToOperandDevice)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
+
+  using matrix_type = uni20::CudaMatrix<double>;
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .default_device = 0, .streams_per_device = 2});
+  auto& output_resources = runtime.device_resources(0);
+  auto& input_resources = runtime.device_resources(1);
+  matrix_type lhs(input_resources, 1, 1);
+  matrix_type rhs(input_resources, 1, 1);
+  matrix_type output(output_resources, 2, 2);
+  std::array<double, 1> const lhs_values{6};
+  std::array<double, 1> const rhs_values{7};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+
+  EXPECT_EQ(output.rows(), 1);
+  EXPECT_EQ(output.cols(), 1);
+  EXPECT_EQ(output.storage().device().ordinal(), 1);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{42}));
+}
+
+TEST_F(CublasExecutionTest, TensorProductResizePreservesCompatibleDeviceResources)
+{
+  using matrix_type = uni20::CudaMatrix<double>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(resources, 1, 1);
+  matrix_type rhs(resources, 1, 1);
+  matrix_type output(resources, 2, 2);
+  std::array<double, 1> const lhs_values{6};
+  std::array<double, 1> const rhs_values{7};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+
+  EXPECT_EQ(&output.storage().resources(), &resources);
+  EXPECT_EQ(output.rows(), 1);
+  EXPECT_EQ(output.cols(), 1);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{42}));
+}
+
+TEST_F(CublasExecutionTest, TensorProductDeviceMismatchDeclinesBeforeReplacingOutput)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
+
+  using matrix_type = uni20::CudaMatrix<double>;
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .default_device = 0, .streams_per_device = 2});
+  auto& device_zero_resources = runtime.device_resources(0);
+  auto& device_one_resources = runtime.device_resources(1);
+  matrix_type lhs(device_one_resources, 1, 1);
+  matrix_type rhs(device_zero_resources, 1, 1);
+  matrix_type output(device_zero_resources, 1, 1);
+  std::array<double, 1> const lhs_values{6};
+  std::array<double, 1> const rhs_values{7};
+  std::array<double, 1> const output_values{5};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+  upload_tensor(output, std::span<double const>{output_values});
+
+  EXPECT_THROW(uni20::linalg::assign_product(uni20::linalg::CublasBackend{}, output, lhs, rhs),
+               uni20::linalg::KernelDispatchError);
+
+  EXPECT_EQ(output.storage().device().ordinal(), 0);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{5}));
 }
 
 TEST_F(CublasExecutionTest, ComputesColumnMajorRealGemm)

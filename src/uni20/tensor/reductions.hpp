@@ -192,7 +192,7 @@ void sum(BackendSelector&& selector, OutputTensor&& output, InputTensor const& i
 {
   constexpr std::size_t input_rank = device_tensor_mdspan_t<InputTensor>::rank();
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
-  ensure_shape(output, detail::reduction_output_extents(input, axes));
+  prepare_output(output, detail::reduction_output_extents(input, axes));
   detail::dispatch_sum(std::forward<BackendSelector>(selector), output, input, std::move(axes));
 }
 
@@ -210,7 +210,7 @@ void sum(OutputTensor&& output, InputTensor const& input, FirstAxis first_axis, 
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   auto operation = linalg::sum_reduction_op<input_rank, 1 + sizeof...(RestAxes)>{.axes = axes};
   auto selector = linalg::select_backend(operation, output, input);
-  ensure_shape(output, detail::reduction_output_extents(input, axes));
+  prepare_output(output, detail::reduction_output_extents(input, axes));
   detail::dispatch_sum(selector, output, input, std::move(axes));
 }
 
