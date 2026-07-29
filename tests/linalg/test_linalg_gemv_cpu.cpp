@@ -1,3 +1,4 @@
+#include <uni20/linalg/cpu/gemv.hpp>
 #include <uni20/linalg/ops/gemv.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -53,8 +54,7 @@ TEST(CpuGemvBackendTest, SkipsProductReadsWhenAlphaIsZero)
   stdex::mdspan<double, extents_1d, stdex::layout_left> input(input_storage.data(), 2);
   stdex::mdspan<double, extents_1d, stdex::layout_left> output(output_storage.data(), 2);
 
-  uni20::linalg::dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output, 0.0, matrix,
-                                 input, 2.0);
+  uni20::linalg::cpu::gemv(output, 0.0, matrix, input, 2.0);
   EXPECT_DOUBLE_EQ(output[0], 4.0);
   EXPECT_DOUBLE_EQ(output[1], -6.0);
 }

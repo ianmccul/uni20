@@ -60,7 +60,8 @@ ordering have been handled by higher layers.
 Operation-tag `kernel_accepts_types(...)` and `try_kernel(...)` overloads are
 backend adapters and therefore accept tensor views, not resolved mdspans. A
 backend calls an ordinary lower-level function such as `cpu::gemm` or
-`blas::try_gemm` after acquiring the required execution-domain leases.
+`cpu::gemv`, or a provider adapter such as `blas::try_gemm` or
+`blas::try_gemv`, after acquiring the required execution-domain leases.
 
 ### Type Roles
 

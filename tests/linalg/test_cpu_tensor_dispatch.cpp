@@ -11,8 +11,10 @@
 namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
+using extents_1d = stdex::dextents<uni20::index_type, 1>;
 using backend_selector_type = uni20::linalg::backend_list<uni20::linalg::CpuReferenceBackend>;
 using dense_mdspan = stdex::mdspan<double, extents_2d, stdex::layout_left>;
+using dense_vector_mdspan = stdex::mdspan<double, extents_1d, stdex::layout_left>;
 
 template <class Backend, class Span>
 concept HasDirectGemmTryKernel = requires(Backend backend, Span& output, Span& lhs, Span& rhs, double scalar) {
@@ -20,6 +22,14 @@ concept HasDirectGemmTryKernel = requires(Backend backend, Span& output, Span& l
 };
 
 static_assert(!HasDirectGemmTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan>);
+
+template <class Backend, class MatrixSpan, class VectorSpan>
+concept HasDirectGemvTryKernel =
+    requires(Backend backend, VectorSpan& output, MatrixSpan& matrix, VectorSpan& input, double scalar) {
+      uni20::linalg::try_kernel(backend, uni20::linalg::gemv_op{}, output, scalar, matrix, input, scalar);
+    };
+
+static_assert(!HasDirectGemvTryKernel<uni20::linalg::CpuReferenceBackend, dense_mdspan, dense_vector_mdspan>);
 
 struct NonConvertibleReference
 {
@@ -124,21 +134,29 @@ TEST(CpuGemmDispatchTest, TensorProbeRejectsIncompatibleResolvedMdspan)
   EXPECT_EQ(tensor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
 }
 
-TEST(CpuGemvDispatchTest, TensorProbeUsesResolvedMdspanAcceptance)
+TEST(CpuGemvDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+{
+  uni20::Tensor<double, 1> output(2);
+  uni20::DenseMatrix<double> matrix(2, 2);
+  uni20::Tensor<double, 1> input(2);
+  auto output_span = output.mdspan();
+  auto matrix_span = matrix.mdspan();
+  auto input_span = input.mdspan();
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{},
+                                                 output_span, 1.0, matrix_span, input_span, 0.0),
+            uni20::linalg::KernelTypeAcceptance::no);
+}
+
+TEST(CpuGemvDispatchTest, TensorProbeRejectsIncompatibleResolvedMdspan)
 {
   uni20::Tensor<double, 1> output(2);
   uni20::DenseMatrix<double> matrix(2, 2);
   std::array<double, 2> input_storage{};
   NonConvertibleReadVectorView input(input_storage.data(), 2);
 
-  auto output_span = output.mdspan();
-  auto matrix_span = matrix.mdspan();
-  auto input_span = input.mdspan();
-  auto const mdspan_acceptance = uni20::linalg::probe_dispatch_kernel(
-      uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output_span, 1.0, matrix_span, input_span, 0.0);
   auto const tensor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output, 1.0, matrix, input, 0.0);
 
-  EXPECT_EQ(mdspan_acceptance, uni20::linalg::KernelTypeAcceptance::no);
-  EXPECT_EQ(tensor_acceptance, mdspan_acceptance);
+  EXPECT_EQ(tensor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
 }

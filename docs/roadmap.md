@@ -345,8 +345,8 @@ below are addressed:
    documented.
 2. The Tensor front end chooses allocating, overwrite, update, consuming, or
    in-place semantics deliberately.
-3. Resolved mdspan operands use operation-tag dispatch and structured clean
-   decline.
+3. Tensor-view operands use operation-tag dispatch and structured clean
+   decline; the selected backend lowers them to resolved mdspan leaf kernels.
 4. At least one deterministic implementation exists, with an independent test
    oracle where practical.
 5. Provider-specific paths have scalar, layout, workspace, and provider-error

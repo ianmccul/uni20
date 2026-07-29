@@ -382,10 +382,10 @@ dispatch_kernel(BlasBackend{}, gemm_op{}, c, alpha, a, b, beta);
 dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c, alpha, a, b, beta);
 ```
 
-Here `c`, `a`, and `b` model the appropriate tensor-view concepts. A
-bare-mdspan convenience overload first wraps its operands in lightweight tensor
-views. Direct calls such as `blas::try_gemm(...)` operate below dispatch on the
-resolved mdspans.
+Here `c`, `a`, and `b` model the appropriate tensor-view concepts. Any future
+bare-mdspan convenience overload must first wrap its operands in lightweight
+tensor views. Direct calls such as `blas::try_gemm(...)` operate below dispatch
+on the resolved mdspans.
 
 The first LAPACK wrapper can then use the same pattern with richer operand
 rules:

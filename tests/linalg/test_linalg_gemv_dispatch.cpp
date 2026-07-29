@@ -2,6 +2,8 @@
 #include <uni20/linalg/ops/gemv.hpp>
 #include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/mdspan/mdspan.hpp>
+#include <uni20/mdspan/transform_view.hpp>
+#include <uni20/tensor/conjugate.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
@@ -15,19 +17,37 @@ namespace
 using extents_1d = stdex::dextents<uni20::index_type, 1>;
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
 
-template <class Scalar> struct ValueTransformAccessor
+struct DoubleValue
 {
-    using element_type = Scalar;
-    using data_handle_type = Scalar*;
-    using reference = Scalar;
-    using offset_policy = ValueTransformAccessor;
-
-    constexpr data_handle_type offset(data_handle_type ptr, std::size_t offset) const { return ptr + offset; }
-    constexpr reference access(data_handle_type ptr, std::size_t offset) const { return Scalar{2} * ptr[offset]; }
+    template <class Scalar> constexpr auto operator()(Scalar value) const { return Scalar{2} * value; }
 };
 
-template <class Scalar>
-using transformed_matrix = stdex::mdspan<Scalar, extents_2d, stdex::layout_left, ValueTransformAccessor<Scalar>>;
+using host_backend_selector =
+    uni20::linalg::backend_list<uni20::linalg::BlasBackend, uni20::linalg::CpuReferenceBackend>;
+
+template <class Scalar> class ValueTransformMatrixView {
+  public:
+    using value_type = std::remove_cv_t<Scalar>;
+    using extents_type = extents_2d;
+    using index_type = typename extents_type::index_type;
+    using base_mdspan_type = stdex::mdspan<value_type const, extents_type, stdex::layout_left>;
+    using mdspan_type = decltype(uni20::transform_view(DoubleValue{}, std::declval<base_mdspan_type const&>()));
+
+    ValueTransformMatrixView(value_type const* data, index_type rows, index_type cols)
+        : span_(uni20::transform_view(DoubleValue{}, base_mdspan_type{data, rows, cols}))
+    {}
+
+    [[nodiscard]] auto mdspan() const noexcept -> mdspan_type { return span_; }
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> host_backend_selector
+    {
+      return host_backend_selector{uni20::linalg::BlasBackend{}, uni20::linalg::CpuReferenceBackend{}};
+    }
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return span_.extents(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept -> index_type { return span_.extent(axis); }
+
+  private:
+    mdspan_type span_;
+};
 
 template <class Matrix>
 void fill_matrix(Matrix&& matrix, std::initializer_list<typename std::remove_reference_t<Matrix>::value_type> values)
@@ -58,12 +78,9 @@ void fill_vector(Vector&& vector, std::initializer_list<typename std::remove_ref
 TEST(LinalgGemvDispatchTest, TypeProbeSeparatesDirectBlasAndAccessorRespectingCpu)
 {
   std::vector<double> matrix_storage(4);
-  std::vector<double> input_storage(2);
-  std::vector<double> output_storage(2);
-
-  transformed_matrix<double> matrix(matrix_storage.data(), 2, 2);
-  stdex::mdspan<double, extents_1d, stdex::layout_left> input(input_storage.data(), 2);
-  stdex::mdspan<double, extents_1d, stdex::layout_left> output(output_storage.data(), 2);
+  ValueTransformMatrixView<double> matrix(matrix_storage.data(), 2, 2);
+  uni20::Tensor<double, 1> input(2);
+  uni20::Tensor<double, 1> output(2);
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::gemv_op{}, output, 1.0,
                                                  matrix, input, 0.0),
@@ -76,18 +93,17 @@ TEST(LinalgGemvDispatchTest, TypeProbeSeparatesDirectBlasAndAccessorRespectingCp
 TEST(LinalgGemvDispatchTest, FallsBackForConjugatingInputVector)
 {
   using Scalar = uni20::complex<double>;
-  std::vector<Scalar> matrix_storage(4);
-  std::vector<Scalar> input_storage{Scalar{1.0, 1.0}, Scalar{2.0, -1.0}};
-  std::vector<Scalar> output_storage(2, Scalar{7.0, 0.0});
-
-  stdex::mdspan<Scalar, extents_2d, stdex::layout_left> matrix(matrix_storage.data(), 2, 2);
-  stdex::mdspan<Scalar, extents_1d, stdex::layout_left> input(input_storage.data(), 2);
-  stdex::mdspan<Scalar, extents_1d, stdex::layout_left> output(output_storage.data(), 2);
+  uni20::Tensor<Scalar, 2> matrix(typename uni20::Tensor<Scalar, 2>::extents_type{2, 2});
+  uni20::Tensor<Scalar, 1> input(typename uni20::Tensor<Scalar, 1>::extents_type{2});
+  uni20::Tensor<Scalar, 1> output(typename uni20::Tensor<Scalar, 1>::extents_type{2});
   fill_matrix(matrix, {Scalar{1.0, 1.0}, Scalar{2.0, 0.0}, Scalar{3.0, 0.0}, Scalar{4.0, -1.0}});
+  fill_vector(input, {Scalar{1.0, 1.0}, Scalar{2.0, -1.0}});
+  fill_vector(output, {Scalar{7.0, 0.0}, Scalar{7.0, 0.0}});
 
   auto selector = uni20::linalg::backend_list{uni20::linalg::BlasBackend{}, uni20::linalg::CpuReferenceBackend{}};
+  auto conjugated_input = uni20::conj(input);
   EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, uni20::linalg::gemv_op{}, output, Scalar{1.0}, matrix,
-                                                 uni20::conj(input), Scalar{}));
+                                                 conjugated_input, Scalar{}));
   EXPECT_EQ(output[0], (Scalar{6.0, 2.0}));
   EXPECT_EQ(output[1], (Scalar{12.0, -1.0}));
 }
@@ -95,18 +111,33 @@ TEST(LinalgGemvDispatchTest, FallsBackForConjugatingInputVector)
 TEST(LinalgGemvDispatchTest, BlasOnlyDeclinePreservesOutput)
 {
   using Scalar = uni20::complex<double>;
-  std::vector<Scalar> matrix_storage(4, Scalar{1.0});
-  std::vector<Scalar> input_storage(2, Scalar{1.0, 1.0});
-  std::vector<Scalar> output_storage(2, Scalar{7.0});
+  uni20::Tensor<Scalar, 2> matrix(typename uni20::Tensor<Scalar, 2>::extents_type{2, 2});
+  uni20::Tensor<Scalar, 1> input(typename uni20::Tensor<Scalar, 1>::extents_type{2});
+  uni20::Tensor<Scalar, 1> output(typename uni20::Tensor<Scalar, 1>::extents_type{2});
+  fill_matrix(matrix, {Scalar{1.0}, Scalar{1.0}, Scalar{1.0}, Scalar{1.0}});
+  fill_vector(input, {Scalar{1.0, 1.0}, Scalar{1.0, 1.0}});
+  fill_vector(output, {Scalar{7.0}, Scalar{7.0}});
 
-  stdex::mdspan<Scalar, extents_2d, stdex::layout_left> matrix(matrix_storage.data(), 2, 2);
-  stdex::mdspan<Scalar, extents_1d, stdex::layout_left> input(input_storage.data(), 2);
-  stdex::mdspan<Scalar, extents_1d, stdex::layout_left> output(output_storage.data(), 2);
-
+  auto conjugated_input = uni20::conj(input);
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::gemv_op{}, output,
-                                                  Scalar{1.0}, matrix, uni20::conj(input), Scalar{}));
+                                                  Scalar{1.0}, matrix, conjugated_input, Scalar{}));
   EXPECT_EQ(output[0], Scalar{7.0});
   EXPECT_EQ(output[1], Scalar{7.0});
+}
+
+TEST(LinalgGemvDispatchTest, RawMdspansAreNotKernelDispatchOperands)
+{
+  std::vector<double> matrix_storage(4);
+  std::vector<double> vector_storage(2);
+  stdex::mdspan<double, extents_2d, stdex::layout_left> matrix(matrix_storage.data(), 2, 2);
+  stdex::mdspan<double, extents_1d, stdex::layout_left> vector(vector_storage.data(), 2);
+  auto selector = host_backend_selector{uni20::linalg::BlasBackend{}, uni20::linalg::CpuReferenceBackend{}};
+
+  auto candidates =
+      uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemv_op{}, vector, 1.0, matrix, vector, 0.0);
+  static_assert(std::same_as<decltype(candidates), uni20::linalg::backend_list<>>);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(selector, uni20::linalg::gemv_op{}, vector, 1.0, matrix, vector, 0.0),
+            uni20::linalg::KernelTypeAcceptance::no);
 }
 
 TEST(LinalgGemvDispatchTest, TensorOperandsUseStorageDefaultSelector)

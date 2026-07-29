@@ -89,18 +89,21 @@ The first operation-tag dispatch slice adds:
   - `KernelTypeAcceptance`, `backend_list`, selector normalization, type
     acceptance detection, and the runtime backend walk.
 - `ops/gemm.hpp`
-  - fixed-output Tensor `gemm(...)`; bare-mdspan convenience overloads adapt
-    their operands to tensor views before generic dispatch.
+  - fixed-output tensor-view `gemm(...)`.
 - `ops/gemv.hpp`
-  - fixed-output Tensor `gemv(...)` with rank-1 output/input and a rank-2 matrix.
+  - fixed-output tensor-view `gemv(...)` with rank-1 output/input and a rank-2
+    matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
 - `backends/blas/gemv.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemv_op, ...)`.
 - `backends/cpu/gemm.hpp`
-  - `CpuReferenceBackend` and the accessor-respecting fallback GEMM oracle.
+  - `CpuReferenceBackend` tensor-view adapter for reference GEMM.
 - `backends/cpu/gemv.hpp`
-  - `CpuReferenceBackend` and the accessor-respecting fallback GEMV oracle.
+  - `CpuReferenceBackend` tensor-view adapter for reference GEMV.
+- `cpu/gemm.hpp` and `cpu/gemv.hpp`
+  - accessor-respecting lower-level reference kernels over resolved host
+    mdspans.
 
 LAPACK operation adapters live under `src/uni20/linalg/backends/lapack/`;
 currently this includes tridiagonal and nonsymmetric eigensystems, Schur and
@@ -567,10 +570,9 @@ scratch storage.
 The direct GEMM and GEMV wrappers are wired below tensor-view backend
 implementations. Operation-tag dispatch receives tensor operands as `TensorView`
 or `DeviceTensorView` refinements; the selected backend lowers them to the direct
-mdspan wrappers. Bare-mdspan convenience overloads use an explicit selector and
-adapt their operands to tensor views before dispatch. Fixed-output Tensor
-overloads derive the default selector from tensor storage. The remaining axes of
-progress are:
+mdspan wrappers. Fixed-output tensor overloads derive the default selector from
+tensor storage. A future bare-mdspan convenience overload must adapt its operands
+to lightweight tensor views before dispatch. The remaining axes of progress are:
 
 1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
    descriptors.
@@ -580,11 +582,9 @@ progress are:
 The implemented GEMM/GEMV slices prove the dispatcher, backend selector, type
 acceptance CPO, runtime decline path, matrix/vector descriptors, and CPU
 fallback shape without mixing in LAPACK workspace or overwrite semantics.
-Bare-mdspan convenience calls use explicit selectors such as
-`backend_list{BlasBackend{}, CpuReferenceBackend{}}`; storage-derived default
-backend lists are implemented in the tensor front end. The mdspan implementation
-functions themselves are lower-level Uni20 module APIs rather than operation-tag
-dispatch customization points.
+Storage-derived default backend lists are implemented in the tensor front end.
+The mdspan implementation functions themselves are lower-level Uni20 module APIs
+rather than operation-tag dispatch customization points.
 
 The direct wrapper layer still exposes functions that are easy to test:
 
