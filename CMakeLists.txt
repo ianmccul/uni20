@@ -291,7 +291,12 @@ function(relax_warnings target)
   endif()
 endfunction()
 
-add_compile_options(${UNI20_WARN_FLAGS_INTERNAL})
+foreach(_uni20_warning_flag IN LISTS UNI20_WARN_FLAGS_INTERNAL)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${_uni20_warning_flag}>)
+  if(NOT _uni20_warning_flag MATCHES "^-pedantic")
+    add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${_uni20_warning_flag}>)
+  endif()
+endforeach()
 
 if(UNI20_SANITIZE)
   message(STATUS "Enabling sanitizers: ${UNI20_SANITIZE}")

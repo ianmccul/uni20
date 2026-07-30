@@ -6,6 +6,7 @@
  * \brief Lazy read-only elementwise transform views over mdspan-like inputs.
  */
 
+#include <uni20/core/compiler_attributes.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/mdspan.hpp>
@@ -30,7 +31,7 @@ template <class Function, MdspanLike Span> class unary_transform_accessor {
     using data_handle_type = typename span_type::data_handle_type;
     using offset_type = span_offset_t<wrapped_accessor_type>;
     using reference = std::invoke_result_t<function_type const&, typename span_type::reference>;
-    using element_type = remove_proxy_reference_t<reference> const;
+    using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = unary_transform_accessor;
 
     template <class FwdFunction>
@@ -38,15 +39,16 @@ template <class Function, MdspanLike Span> class unary_transform_accessor {
         : function_(std::forward<FwdFunction>(function)), accessor_(span.accessor())
     {}
 
-    [[nodiscard]] constexpr auto offset(data_handle_type const& handle,
-                                        offset_type const& offset) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset(data_handle_type const& handle,
+                                                          offset_type const& offset) const -> data_handle_type
     {
       return accessor_.offset(handle, offset);
     }
 
-    [[nodiscard]] constexpr auto access(data_handle_type const& handle, offset_type const& offset) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access(data_handle_type const& handle,
+                                                          offset_type const& offset) const -> reference
     {
-      return std::invoke(function_, accessor_.access(handle, offset));
+      return function_(accessor_.access(handle, offset));
     }
 
   private:
@@ -63,7 +65,7 @@ template <class Function, MdspanLike... Spans> class transform_accessor {
     using data_handle_type = std::tuple<typename Spans::data_handle_type...>;
     using offset_type = std::tuple<span_offset_t<typename Spans::accessor_type>...>;
     using reference = std::invoke_result_t<function_type const&, typename Spans::reference...>;
-    using element_type = remove_proxy_reference_t<reference> const;
+    using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = transform_accessor;
 
     template <class FwdFunction>
@@ -71,31 +73,33 @@ template <class Function, MdspanLike... Spans> class transform_accessor {
         : function_(std::forward<FwdFunction>(function)), accessors_(spans.accessor()...)
     {}
 
-    [[nodiscard]] constexpr auto offset(data_handle_type const& handles,
-                                        offset_type const& offsets) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset(data_handle_type const& handles,
+                                                          offset_type const& offsets) const -> data_handle_type
     {
       return offset_impl(handles, offsets, std::index_sequence_for<Spans...>{});
     }
 
-    [[nodiscard]] constexpr auto access(data_handle_type const& handles, offset_type const& offsets) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access(data_handle_type const& handles,
+                                                          offset_type const& offsets) const -> reference
     {
       return access_impl(handles, offsets, std::index_sequence_for<Spans...>{});
     }
 
   private:
     template <std::size_t... Index>
-    [[nodiscard]] constexpr auto offset_impl(data_handle_type const& handles, offset_type const& offsets,
-                                             std::index_sequence<Index...>) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset_impl(data_handle_type const& handles,
+                                                               offset_type const& offsets,
+                                                               std::index_sequence<Index...>) const -> data_handle_type
     {
       return {std::get<Index>(accessors_).offset(std::get<Index>(handles), std::get<Index>(offsets))...};
     }
 
     template <std::size_t... Index>
-    [[nodiscard]] constexpr auto access_impl(data_handle_type const& handles, offset_type const& offsets,
-                                             std::index_sequence<Index...>) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access_impl(data_handle_type const& handles,
+                                                               offset_type const& offsets,
+                                                               std::index_sequence<Index...>) const -> reference
     {
-      return std::invoke(function_,
-                         std::get<Index>(accessors_).access(std::get<Index>(handles), std::get<Index>(offsets))...);
+      return function_(std::get<Index>(accessors_).access(std::get<Index>(handles), std::get<Index>(offsets))...);
     }
 
     [[no_unique_address]] function_type function_;

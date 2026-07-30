@@ -28,7 +28,7 @@ template <class Scalar> async::CudaTask co_copy_submission(CopyPlan<Scalar> plan
 /// \brief Lower CUDA mdspans into a deferred non-blocking copy submission.
 template <class OutputMdspan, class InputMdspan>
   requires(SupportedCopyMdspans<OutputMdspan, InputMdspan> && is_raw_cuda_mdspan<OutputMdspan> &&
-           is_raw_cuda_mdspan<InputMdspan>)
+           is_supported_cuda_mdspan<InputMdspan>)
 auto try_make_copy_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {
   auto preparation = prepare_copy(output, input);

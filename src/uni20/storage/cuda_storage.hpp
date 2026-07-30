@@ -9,6 +9,7 @@
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/linalg/backend_selector.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/storage/cuda_accessor.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -74,38 +75,10 @@ template <class ElementType> class CudaBufferView {
     template <class> friend class CudaBufferView;
 };
 
-/// \brief Accessor for a CUDA mdspan whose device pointer has been leased.
-/// \details Indexed access applies the mapped offset and returns an element
-///          reference. The accessor must be evaluated only in an execution
-///          domain where the leased CUDA pointer is directly accessible.
-template <class ElementType> struct CudaPointerAccessor
-{
-    using element_type = ElementType;
-    using data_handle_type = element_type*;
-    using reference = element_type&;
-    using offset_policy = CudaPointerAccessor;
-    using offset_type = std::size_t;
-
-    [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const noexcept
-    {
-      return handle[offset];
-    }
-
-    [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, offset_type offset) const noexcept
-    {
-      if (offset == 0) return handle;
-      return handle + offset;
-    }
-};
-
 } // namespace uni20::cuda
 
 namespace uni20
 {
-
-/// \brief CUDA pointer accessors are valid only in the CUDA execution domain.
-template <class ElementType>
-inline constexpr bool enable_accessor_in_domain<cuda::CudaPointerAccessor<ElementType>, cuda_access_domain> = true;
 
 namespace detail
 {

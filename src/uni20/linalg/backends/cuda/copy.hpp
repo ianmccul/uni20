@@ -9,6 +9,7 @@
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/core/math.hpp>
+#include <uni20/linalg/backends/cuda/elementwise_copy.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -36,6 +37,12 @@ enum class CopyDirection
   host_to_device,
   device_to_host,
   device_to_device
+};
+
+enum class CopyExecution
+{
+  runtime_copy,
+  elementwise_kernel
 };
 
 template <class Accessor> struct IsRawCudaAccessor : std::false_type
@@ -98,6 +105,8 @@ template <class Scalar> struct CopyPlan
 {
     KernelAttempt attempt = KernelAttempt::unsupported_instance;
     CopyDirection direction = CopyDirection::device_to_device;
+    CopyExecution execution = CopyExecution::runtime_copy;
+    ElementwiseCopyTransform transform = ElementwiseCopyTransform::identity;
     uni20::cuda::CudaBuffer<Scalar>* output_buffer = nullptr;
     uni20::cuda::CudaBuffer<Scalar> const* input_buffer = nullptr;
     Scalar* output_host = nullptr;
@@ -220,10 +229,21 @@ template <class OutputMdspan, class InputMdspan>
   {
     if (plan.direction == CopyDirection::device_to_device)
     {
-      plan.attempt = KernelAttempt::unsupported_transform;
-      return plan;
+      if constexpr (supports_elementwise_copy<scalar_type>)
+      {
+        plan.execution = CopyExecution::elementwise_kernel;
+        plan.transform = ElementwiseCopyTransform::conjugate;
+      }
+      else
+      {
+        plan.attempt = KernelAttempt::unsupported_transform;
+        return plan;
+      }
     }
-    plan.conjugate_host_output = true;
+    else
+    {
+      plan.conjugate_host_output = true;
+    }
   }
   else if constexpr (is_conjugated_host_mdspan<InputMdspan>)
   {
@@ -238,14 +258,21 @@ template <class OutputMdspan, class InputMdspan>
   {
     if (plan.output_buffer == plan.input_buffer)
     {
-      if (plan.output_offset == plan.input_offset)
+      if (plan.output_offset == plan.input_offset && plan.execution == CopyExecution::runtime_copy)
       {
-        // Reaching this point proves that the supported accessors observe the
-        // same values. Semantic transforms such as conjugation decline above.
+        // Runtime-copy eligibility proves that both accessors observe the same
+        // values, so identical storage and offset require no work.
         plan.attempt = KernelAttempt::success;
         return plan;
       }
       plan.attempt = KernelAttempt::unsupported_instance;
+      return plan;
+    }
+
+    if (plan.execution == CopyExecution::elementwise_kernel &&
+        plan.output_buffer->device().ordinal() != plan.input_buffer->device().ordinal())
+    {
+      plan.attempt = KernelAttempt::incompatible_devices;
       return plan;
     }
   }
@@ -269,6 +296,21 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
   int const output_device = plan.output_buffer->device().ordinal();
   int const input_device = plan.input_buffer->device().ordinal();
   uni20::cuda::ScopedDevice guard(output_device);
+
+  if (plan.execution == CopyExecution::elementwise_kernel)
+  {
+    CHECK_EQUAL(output_device, input_device);
+    if constexpr (supports_elementwise_copy<Scalar>)
+    {
+      enqueue_elementwise_copy(output_data, input_data, plan.element_count, plan.transform, stream.native_handle(),
+                               output_device);
+      return;
+    }
+    else
+    {
+      PANIC("unsupported scalar reached CUDA reference elementwise copy");
+    }
+  }
 
   if (output_device == input_device)
   {

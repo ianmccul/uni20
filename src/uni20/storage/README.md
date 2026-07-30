@@ -10,9 +10,10 @@ backend tags without owning tensor mathematics.
   mapping and a CPU default backend tag.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
+- `cuda_accessor.hpp`: CUDA-device-callable pointer accessors, complex
+  execution-value proxies, and named CUDA transformations.
 - `cuda_storage.hpp`: CUDA device-storage policy with deferred
-  `CudaBufferView` descriptors, eventual pointer accessors, and a
-  storage-selected cuBLAS backend.
+  `CudaBufferView` descriptors and a storage-selected cuBLAS backend.
 
 ## Notes
 

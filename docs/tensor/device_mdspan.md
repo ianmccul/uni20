@@ -303,6 +303,12 @@ descriptor-backed `DeviceMdspanLike` metadata targeting that domain.
 conjugation, and elementwise transform accessors preserve the domains supported
 by their wrapped accessors.
 
+Domain registration is a semantic contract, not reflection over every
+expression in `access(...)`. A function object evaluated by a CUDA accessor
+must make the invoked call operator device-callable with
+`UNI20_HOST_DEVICE`. Missing annotations are diagnosed when an actual CUDA
+kernel instantiates the accessor.
+
 Custom accessors opt in through:
 
 ```cpp
@@ -474,10 +480,13 @@ descriptor and checks the accessor independently.
 (CudaBufferView descriptor, tensor mapping, CudaPointerAccessor)
 ```
 
-Its accessor declares the eventual `T*` or `T const*` data-handle type and
-returns `T&` or `T const&` from indexed access. The unresolved object contains
-no pointer and provides no indexed access. CUDA acquisition resolves the
-descriptor through `CudaBuffer` access state:
+Its accessor declares the eventual `T*` or `T const*` data-handle type. Ordinary
+real scalars resolve to `T&` or `T const&`. Persistent
+`uni20::complex<Real>` storage resolves through a mutable proxy or a
+`cuda::std::complex<Real>` execution value so device code never treats the
+standard and CUDA complex class types as alias-compatible objects. The
+unresolved object contains no pointer and provides no indexed access. CUDA
+acquisition resolves the descriptor through `CudaBuffer` access state:
 
 ```cpp
 auto stream = co_await uni20::cuda::acquire_stream(
@@ -525,6 +534,13 @@ the operands to CUDA `device_mdspan()` descriptors, and pass those descriptors
 through `dispatch_kernel` or `co_dispatch_kernel`. CPU reference GEMM uses the
 host descriptor lease interface. The cuBLAS synchronous path blocks for stream
 and provider resources, while its async path awaits them.
+
+Raw contiguous CUDA copies retain the `cudaMemcpyAsync` fast path. A
+same-device conjugating copy is lowered to the CUDA reference backend's typed
+elementwise kernel after buffer acceptance. The kernel evaluates the lowered
+CUDA accessors and publishes read/write completion through the same stream
+ordered leases. Transformed copies that alias one buffer still decline until
+the backend can resolve both operands under one mutable access state.
 
 ## Data Descriptor Boundary
 

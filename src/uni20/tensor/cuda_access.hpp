@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 #include <uni20/tensor/access.hpp>
 
@@ -18,6 +19,18 @@ namespace uni20
 {
 namespace detail
 {
+
+template <class Accessor> [[nodiscard]] constexpr auto lower_cuda_accessor(Accessor const& accessor)
+{
+  return accessor;
+}
+
+template <class Real>
+[[nodiscard]] constexpr auto
+lower_cuda_accessor(conjugated_accessor<cuda::CudaPointerAccessor<uni20::complex<Real> const>> const&)
+{
+  return cuda::CudaConjugatingPointerAccessor<Real>{};
+}
 
 template <class Pointer> [[nodiscard]] Pointer offset_cuda_pointer(Pointer pointer, std::size_t offset) noexcept
 {
@@ -42,9 +55,12 @@ template <class DeviceSpan, class Pointer>
 [[nodiscard]] auto resolve_cuda_mdspan(DeviceSpan const& span, Pointer pointer)
 {
   using span_type = std::remove_cvref_t<DeviceSpan>;
-  using mdspan_type = stdex::mdspan<typename span_type::element_type, typename span_type::extents_type,
-                                    typename span_type::layout_type, typename span_type::accessor_type>;
-  return mdspan_type{pointer, span.mapping(), span.accessor()};
+  auto accessor = lower_cuda_accessor(span.accessor());
+  using accessor_type = decltype(accessor);
+  static_assert(std::same_as<typename accessor_type::element_type, typename span_type::element_type>);
+  using mdspan_type = stdex::mdspan<typename accessor_type::element_type, typename span_type::extents_type,
+                                    typename span_type::layout_type, accessor_type>;
+  return mdspan_type{pointer, span.mapping(), std::move(accessor)};
 }
 
 template <class DeviceSpan, class AccessState>

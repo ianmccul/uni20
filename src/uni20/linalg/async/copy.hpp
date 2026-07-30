@@ -29,20 +29,24 @@ namespace detail
 template <class Tensor>
 concept OwningCudaTensor = OwningTensor<Tensor> && std::same_as<tensor_storage_policy_t<Tensor>, CudaStorage>;
 
+template <class Tensor>
+concept CudaCopyInputTensor = DeviceTensorView<Tensor> && CudaBufferDeviceMdspan<device_tensor_mdspan_t<Tensor>>;
+
 template <class OutputTensor, class InputTensor>
 concept AsyncCudaCopyTensors =
-    OwningCudaTensor<OutputTensor> && OwningCudaTensor<InputTensor> &&
+    OwningCudaTensor<OutputTensor> && CudaCopyInputTensor<InputTensor> &&
     (device_tensor_mdspan_t<OutputTensor>::rank() == device_tensor_mdspan_t<InputTensor>::rank()) &&
     std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>;
 
-template <OwningCudaTensor Tensor> [[nodiscard]] cuda::DeviceResources& cuda_copy_resources(Tensor const& tensor)
+template <CudaBufferDeviceMdspan InputMdspan>
+[[nodiscard]] cuda::DeviceResources& cuda_copy_resources(InputMdspan const& input)
 {
-  return tensor.storage().resources();
+  return input.data_descriptor().buffer().resources();
 }
 
-template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
+template <OwningCudaTensor OutputTensor, CudaBufferDeviceMdspan InputMdspan>
 [[nodiscard]] OutputTensor& prepare_async_copy_output(async::shared_storage<OutputTensor>& storage,
-                                                      InputTensor const& input)
+                                                      InputMdspan const& input)
 {
   if (!storage.constructed())
   {
@@ -55,7 +59,7 @@ template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
   return *storage;
 }
 
-template <class BackendSelector, OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
+template <class BackendSelector, OwningCudaTensor OutputTensor, CudaCopyInputTensor InputTensor>
 async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
                               async::ReadBuffer<InputTensor> input)
 {
@@ -63,14 +67,14 @@ async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer
   auto awaited = co_await async::all(output_storage, input);
   auto& storage = std::get<0>(awaited);
   auto const& input_value = std::get<1>(awaited);
-  auto& output_value = prepare_async_copy_output(storage, input_value);
-  auto output_span = device_mdspan_of(output_value);
   auto input_span = device_mdspan_of(input_value);
+  auto& output_value = prepare_async_copy_output(storage, input_span);
+  auto output_span = device_mdspan_of(output_value);
   co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_span, input_span);
   co_return;
 }
 
-template <class BackendSelector, OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
+template <class BackendSelector, OwningCudaTensor OutputTensor, CudaCopyInputTensor InputTensor>
 void schedule_async_cuda_copy(BackendSelector selector, async::Async<OutputTensor>& output,
                               async::Async<InputTensor> const& input)
 {

@@ -2,6 +2,7 @@
 #include <uni20/backend/cuda/runtime.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/async.hpp>
+#include <uni20/tensor/async.hpp>
 #include <uni20/tensor/copy.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -23,11 +24,21 @@ using cuda_matrix_type = uni20::CudaTensor<double, 2>;
 using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
 using complex_type = uni20::complex<double>;
 using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
+using complex_cuda_matrix_type = uni20::CudaTensor<complex_type, 2>;
+using complex_cuda_conjugated_view = uni20::ConjugatedTensorView<complex_cuda_matrix_type>;
 using cuda_extents_type = stdex::dextents<uni20::index_type, 2>;
 using resolved_cuda_output_mdspan =
     stdex::mdspan<double, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<double>>;
 using resolved_cuda_input_mdspan =
     stdex::mdspan<double const, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<double const>>;
+using resolved_complex_cuda_output_mdspan =
+    stdex::mdspan<complex_type, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<complex_type>>;
+using resolved_complex_cuda_input_mdspan = stdex::mdspan<complex_type const, cuda_extents_type, stdex::layout_left,
+                                                         uni20::cuda::CudaPointerAccessor<complex_type const>>;
+using conjugated_cuda_descriptor = decltype(std::declval<complex_cuda_conjugated_view const&>().device_mdspan());
+using conjugated_cuda_lease =
+    decltype(uni20::acquire_cuda_read_access_sync(std::declval<conjugated_cuda_descriptor const&>()));
+using resolved_conjugated_cuda_mdspan = std::remove_cvref_t<decltype(std::declval<conjugated_cuda_lease&>().mdspan())>;
 
 using namespace std::chrono_literals;
 
@@ -64,6 +75,14 @@ static_assert(uni20::CudaAccessibleAccessor<uni20::cuda::CudaPointerAccessor<dou
 static_assert(!uni20::HostAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
 static_assert(uni20::CudaAccessibleMdspan<resolved_cuda_output_mdspan>);
 static_assert(uni20::CudaAccessibleMdspan<resolved_cuda_input_mdspan>);
+static_assert(uni20::MutableMdspanLike<resolved_complex_cuda_output_mdspan>);
+static_assert(uni20::CudaAccessibleMdspan<resolved_complex_cuda_input_mdspan>);
+static_assert(std::same_as<uni20::remove_proxy_reference_t<typename resolved_complex_cuda_output_mdspan::reference>,
+                           complex_type>);
+static_assert(
+    std::same_as<uni20::logical_value_t<typename resolved_complex_cuda_input_mdspan::reference>, complex_type>);
+static_assert(std::same_as<typename resolved_conjugated_cuda_mdspan::accessor_type,
+                           uni20::cuda::CudaConjugatingPointerAccessor<double>>);
 static_assert(!uni20::detail::CudaBufferDeviceMdspan<resolved_cuda_output_mdspan>);
 static_assert(!uni20::linalg::detail::cuda_reference::SupportedCopyMdspans<resolved_cuda_output_mdspan,
                                                                            resolved_cuda_input_mdspan>);
@@ -208,6 +227,33 @@ TEST_F(CudaCopyTest, DeviceToHostCopyObservesConjugatingAccessor)
   EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
 }
 
+TEST_F(CudaCopyTest, DeviceToDeviceCopyExecutesConjugatingAccessorKernel)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  complex_host_matrix_type source(2, 2);
+  source[0, 0] = complex_type{1.0, 2.0};
+  source[1, 0] = complex_type{-3.0, 4.0};
+  source[0, 1] = complex_type{5.0, -6.0};
+  source[1, 1] = complex_type{-7.0, -8.0};
+
+  auto device_source = uni20::to_device(source, 0);
+  complex_cuda_matrix_type device_output(runtime.device_resources(0), 2, 2);
+  auto conjugated = uni20::conj(device_source);
+  auto output_span = device_output.device_mdspan();
+  auto input_span = conjugated.device_mdspan();
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(output_span, input_span);
+  ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  EXPECT_EQ(preparation.execution, uni20::linalg::detail::cuda_reference::CopyExecution::elementwise_kernel);
+
+  uni20::copy(device_output, conjugated);
+
+  auto result = uni20::to_host(device_output);
+  EXPECT_EQ((result[0, 0]), (complex_type{1.0, -2.0}));
+  EXPECT_EQ((result[1, 0]), (complex_type{-3.0, -4.0}));
+  EXPECT_EQ((result[0, 1]), (complex_type{5.0, 6.0}));
+  EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
+}
+
 TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
@@ -223,7 +269,7 @@ TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
   auto input_span = conjugated.device_mdspan();
 
   EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output_span, input_span),
-            uni20::linalg::KernelAttempt::unsupported_transform);
+            uni20::linalg::KernelAttempt::unsupported_instance);
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
                                                   output_span, input_span));
   auto same_input_span = uni20::device_mdspan_of(std::as_const(device));
@@ -413,6 +459,29 @@ TEST_F(CudaCopyTest, AsyncCopyConstructsOutputAndCarriesDeviceCompletion)
 
   auto const& device_result = output.get_wait(scheduler);
   expect_matrix(uni20::to_host(device_result));
+}
+
+TEST_F(CudaCopyTest, AsyncConjugatingCopyRunsElementwiseKernel)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  complex_host_matrix_type source(2, 2);
+  source[0, 0] = complex_type{1.0, 2.0};
+  source[1, 0] = complex_type{-3.0, 4.0};
+  source[0, 1] = complex_type{5.0, -6.0};
+  source[1, 1] = complex_type{-7.0, -8.0};
+  uni20::async::Async<complex_cuda_matrix_type> input = uni20::to_device(source, 0);
+  auto conjugated = uni20::async::conj(input);
+  uni20::async::Async<complex_cuda_matrix_type> output;
+
+  uni20::copy(output, conjugated);
+
+  auto result = uni20::to_host(output.get_wait(scheduler));
+  EXPECT_EQ((result[0, 0]), (complex_type{1.0, -2.0}));
+  EXPECT_EQ((result[1, 0]), (complex_type{-3.0, -4.0}));
+  EXPECT_EQ((result[0, 1]), (complex_type{5.0, 6.0}));
+  EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
 }
 
 TEST_F(CudaCopyTest, AsyncPeerCopyRunsOnDestinationDevice)

@@ -68,8 +68,11 @@ small helpers used by dense kernels and layout-aware algorithms.
   follows the C++26 `std::linalg::conjugated_accessor` direction while keeping
   Uni20's value-level `conj` behavior for real scalar types.
 - `uni20::transform_view(function, spans...)` constructs a read-only expression
-  descriptor. Eager overwrite and update use the dispatched tensor operations
-  `assign_transform` and `transform_inplace`.
+  descriptor. A function evaluated through a CUDA-accessible transform accessor
+  must make its invoked call operator device-callable with
+  `UNI20_HOST_DEVICE`; CUDA kernel compilation validates that contract. Eager
+  overwrite and update use the dispatched tensor operations `assign_transform`
+  and `transform_inplace`.
 
 ## Related Documentation
 

@@ -18,7 +18,7 @@ namespace uni20::async
 /// \details The result retains the parent tensor storage and shares its exact
 ///          epoch queue. Awaiting the alias therefore observes the same causal
 ///          timeline as awaiting the parent.
-template <uni20::TensorView Tensor>
+template <uni20::DeviceTensorView Tensor>
   requires uni20::Complex<uni20::tensor_element_t<Tensor>>
 [[nodiscard]] auto conj(Async<Tensor> const& tensor)
 {
@@ -27,7 +27,7 @@ template <uni20::TensorView Tensor>
 }
 
 /// \brief Return a lazy read-only identity alias of an async real tensor.
-template <uni20::TensorView Tensor>
+template <uni20::DeviceTensorView Tensor>
   requires(!uni20::Complex<uni20::tensor_element_t<Tensor>>)
 [[nodiscard]] auto conj(Async<Tensor> const& tensor)
 {

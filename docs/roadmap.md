@@ -117,6 +117,10 @@ See the [Async Documentation Index](async/) and
   uses generic `co_dispatch_kernel`; its optional cuBLAS `try_make_kernel_task`
   implementation suspends while the same execution resources are unavailable.
   Both paths share operand preparation and provider execution.
+- `CudaReferenceBackend` has a compiled elementwise copy kernel for
+  same-device semantic copies. Raw contiguous storage retains the
+  `cudaMemcpyAsync` path; conjugated complex storage is evaluated through
+  device-callable accessors and CUDA execution-value proxies.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and
