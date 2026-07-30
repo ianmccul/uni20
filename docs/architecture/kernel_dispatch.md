@@ -383,8 +383,10 @@ walks candidates in selector order and returns:
 - `false` when every eligible backend cleanly declines.
 
 A `yes` candidate must succeed and therefore terminates the walk.
-For an operation-declared replaceable output, `false` may leave that output
-provisionally constructed, resized, or replaced. Its element values are unspecified.
+On `false`, inputs and fixed outputs are preserved; replaceable outputs remain valid
+but may contain provisional backend preparation. This postcondition does not require
+restoring a replaceable output's previous allocation. Its element values are
+unspecified.
 
 ### `dispatch_kernel`
 

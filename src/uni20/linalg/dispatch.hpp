@@ -330,8 +330,11 @@ void dispatch_backend_list(backend_list<Backends...> const& backends, Op const& 
 ///          visible result. An operation that declares an output replaceable
 ///          may permit provisional output preparation before a decline; later
 ///          backends receive and may reuse or replace that prepared output.
-///          Tensor operands are TensorView or DeviceTensorView models; selected
-///          backends perform execution-domain acquisition and mdspan lowering.
+///          Fixed tensor operands are normalized device-mdspan descriptors;
+///          selected backends perform execution-domain acquisition and mdspan
+///          lowering.
+/// \post On `false`, inputs and fixed outputs are preserved; replaceable outputs
+///       remain valid but may contain provisional backend preparation.
 template <class BackendSelector, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
 bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
