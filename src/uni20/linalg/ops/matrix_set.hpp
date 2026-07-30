@@ -21,7 +21,8 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixT
 void set_matrix(BackendSelector&& selector, MatrixTensor&& matrix, Scalar diagonal, Scalar off_diagonal,
                 MatrixRegion region = MatrixRegion::All)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_set_op{.region = region}, matrix, diagonal,
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix);
+  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_set_op{.region = region}, matrix_descriptor, diagonal,
                   off_diagonal);
 }
 

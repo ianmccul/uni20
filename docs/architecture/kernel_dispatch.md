@@ -50,13 +50,15 @@ provider adapters.
 
 Each operation tag defines its operand boundary. Fixed existing operands no
 longer need tensor policy after the frontend has selected a backend list.
-`copy_op{}`, fixed-output `gemm_op{}`, and `gemv_op{}` therefore enter
-`probe_dispatch_kernel`, `kernel_type_candidates`, `try_dispatch_kernel`,
-`dispatch_kernel`, or `co_dispatch_kernel` as `DeviceMdspanLike` operands, with
-the applicable mutable and ranked refinements. Their `kernel_accepts_types`,
-`try_kernel`, and `try_make_kernel_task` customizations use the same descriptor
-types. Scalar coefficients, axes, and other non-tensor parameters remain
-ordinary values.
+Copy, fixed-output matrix products, elementwise transforms, reductions, matrix
+initialization and exponentiation, and fixed-output LAPACK decompositions
+therefore enter `probe_dispatch_kernel`, `kernel_type_candidates`,
+`try_dispatch_kernel`, `dispatch_kernel`, or `co_dispatch_kernel` as
+`DeviceMdspanLike` operands, with the applicable mutable and ranked
+refinements. Their `kernel_accepts_types`, `try_kernel`, and
+`try_make_kernel_task` customizations use the same descriptor types. Scalar
+coefficients, axes, host `std::span` work arrays, and other non-tensor
+parameters remain ordinary values.
 
 The tensor frontend must select the backend while storage and execution policy
 are still available, then normalize each fixed operand exactly once. A readable
@@ -74,6 +76,14 @@ storage. A descriptor may be borrowed, so its source storage must remain alive
 through every backend attempt and any work whose access lease refers to it.
 Async frontends retain the applicable epoch storage while descriptor values are
 held in the coroutine or kernel-task frame.
+
+Normalization preserves the mathematical object and every resource identity
+needed by a selected backend. A descriptor for a future block-sparse,
+distributed, file-backed, or remotely staged tensor may therefore carry
+symmetry sectors, distribution metadata, communicators, file mappings, or
+storage-placement identities in addition to extents, mapping, and accessor
+state. Normalization never means dense projection, host materialization, or
+storage transfer.
 
 A replaceable output is not a fixed multidimensional descriptor.
 `assign_product_op{}` therefore has a heterogeneous dispatch signature. Its
@@ -471,6 +481,11 @@ scalar parameters. The backend may inspect their mappings, accessors, and data
 descriptors before accepting an instance. Once selected, it obtains any
 required domain-specific leases and resolves the operands to mdspans whose
 handles and accessors are usable by its implementation.
+
+Type probing and runtime invocation receive the same normalized descriptor
+types. The dispatcher does not acquire leases. The backend that accepts the
+execution domain owns acquisition and passes resolved mdspans directly to an
+ordinary leaf routine rather than to another operation-tag customization.
 
 Replaceable-output tags retain their tensor or output-storage operand until the
 selected backend has supplied the missing shape and placement policy. That

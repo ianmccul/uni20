@@ -356,6 +356,23 @@ constexpr decltype(auto) const_access(Span const& span, Index... indices)
   return accessor.access(span.data_handle(), span.mapping()(static_cast<index_type>(std::move(indices))...));
 }
 
+/// \brief Build a read-only mdspan descriptor over the same storage and mapping.
+/// \details The accessor is adapted with `const_accessor`, preserving its state
+///          and execution-domain classifications without copying or transferring
+///          the underlying elements.
+/// \tparam Span Immediate mdspan-like descriptor type.
+/// \param span Descriptor whose handle, mapping, and accessor are retained.
+/// \return A read-only mdspan descriptor over the same elements.
+template <MdspanLike Span> [[nodiscard]] constexpr auto make_const_mdspan(Span const& span)
+{
+  auto accessor = const_accessor(span.accessor());
+  using accessor_type = decltype(accessor);
+  using span_type = std::remove_cvref_t<Span>;
+  using const_mdspan_type = stdex::mdspan<typename accessor_type::element_type, typename span_type::extents_type,
+                                          typename span_type::layout_type, accessor_type>;
+  return const_mdspan_type{span.data_handle(), span.mapping(), std::move(accessor)};
+}
+
 /// \concept MutableMdspanLike
 /// \brief MdspanLike types whose accessor supports indexed assignment.
 /// \tparam S The type being evaluated for mutable access.

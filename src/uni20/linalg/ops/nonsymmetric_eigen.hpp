@@ -23,9 +23,11 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixT
 void nonsymmetric_eigen(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
                         RightEigenvectorTensor&& right_eigenvectors, bool compute_right_vectors)
 {
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  auto right_eigenvector_descriptor = uni20::device_mdspan_of(right_eigenvectors);
   dispatch_kernel(std::forward<BackendSelector>(selector),
-                  nonsymmetric_eigen_op{.compute_right_vectors = compute_right_vectors}, matrix_work, eigenvalues,
-                  right_eigenvectors);
+                  nonsymmetric_eigen_op{.compute_right_vectors = compute_right_vectors}, matrix_descriptor, eigenvalues,
+                  right_eigenvector_descriptor);
 }
 
 /// \brief Compute a nonsymmetric eigensystem using tensor storage policy.

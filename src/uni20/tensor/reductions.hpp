@@ -118,8 +118,10 @@ template <linalg::KernelBackendSelector BackendSelector, MutableRankedMdspanLike
 void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
 {
   using input_type = std::remove_cvref_t<InputSpan>;
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), std::forward<OutputSpan>(output),
-                       std::forward<InputSpan>(input), linalg::all_reduction_axes<input_type::rank()>());
+  auto output_descriptor = std::forward<OutputSpan>(output);
+  auto input_descriptor = make_const_mdspan(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output_descriptor, input_descriptor,
+                       linalg::all_reduction_axes<input_type::rank()>());
 }
 
 /// \brief Sum selected mdspan axes into an existing lower-rank output.
@@ -137,8 +139,9 @@ void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input, Fir
 {
   using input_type = std::remove_cvref_t<InputSpan>;
   auto axes = linalg::make_reduction_axes<input_type::rank()>(first_axis, rest_axes...);
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), std::forward<OutputSpan>(output),
-                       std::forward<InputSpan>(input), std::move(axes));
+  auto output_descriptor = std::forward<OutputSpan>(output);
+  auto input_descriptor = make_const_mdspan(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output_descriptor, input_descriptor, std::move(axes));
 }
 
 /// \brief Return the full mdspan sum as a host C++ scalar.
@@ -150,7 +153,8 @@ template <linalg::KernelBackendSelector BackendSelector, MdspanLike InputSpan>
   using input_type = std::remove_cvref_t<InputSpan>;
   using result_type = typename input_type::value_type;
   result_type result{};
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, std::forward<InputSpan>(input),
+  auto input_descriptor = make_const_mdspan(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, input_descriptor,
                        linalg::all_reduction_axes<input_type::rank()>());
   return result;
 }
@@ -163,7 +167,9 @@ template <linalg::KernelBackendSelector BackendSelector, MutableScalarDeviceTens
 void sum(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
   constexpr std::size_t input_rank = device_tensor_mdspan_t<InputTensor>::rank();
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), output, input,
+  auto output_descriptor = device_mdspan_of(output);
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output_descriptor, input_descriptor,
                        linalg::all_reduction_axes<input_rank>());
 }
 
@@ -176,7 +182,9 @@ void sum(OutputTensor&& output, InputTensor const& input)
   constexpr std::size_t input_rank = device_tensor_mdspan_t<InputTensor>::rank();
   auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
   auto selector = linalg::select_backend(operation, output, input);
-  detail::dispatch_sum(selector, output, input, operation.axes);
+  auto output_descriptor = device_mdspan_of(output);
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(selector, output_descriptor, input_descriptor, operation.axes);
 }
 
 /// \brief Sum selected device tensor axes into an existing lower-rank tensor.
@@ -193,7 +201,9 @@ void sum(BackendSelector&& selector, OutputTensor&& output, InputTensor const& i
   constexpr std::size_t input_rank = device_tensor_mdspan_t<InputTensor>::rank();
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   prepare_output(output, detail::reduction_output_extents(input, axes));
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), output, input, std::move(axes));
+  auto output_descriptor = device_mdspan_of(output);
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output_descriptor, input_descriptor, std::move(axes));
 }
 
 /// \brief Sum selected device tensor axes into an existing output using storage policy.
@@ -211,7 +221,9 @@ void sum(OutputTensor&& output, InputTensor const& input, FirstAxis first_axis, 
   auto operation = linalg::sum_reduction_op<input_rank, 1 + sizeof...(RestAxes)>{.axes = axes};
   auto selector = linalg::select_backend(operation, output, input);
   prepare_output(output, detail::reduction_output_extents(input, axes));
-  detail::dispatch_sum(selector, output, input, std::move(axes));
+  auto output_descriptor = device_mdspan_of(output);
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(selector, output_descriptor, input_descriptor, std::move(axes));
 }
 
 /// \brief Return a storage-preserving full Tensor sum.
@@ -252,7 +264,9 @@ template <linalg::KernelBackendSelector BackendSelector, DeviceTensorView InputT
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   using result_type = detail::sum_reduction_result_t<InputTensor, reduced_rank>;
   result_type result(detail::reduction_output_extents(input, axes));
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, input, std::move(axes));
+  auto output_descriptor = device_mdspan_of(result);
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output_descriptor, input_descriptor, std::move(axes));
   return result;
 }
 
@@ -278,7 +292,8 @@ template <linalg::KernelBackendSelector BackendSelector, DeviceTensorView InputT
   using result_type = tensor_element_t<InputTensor>;
   constexpr std::size_t input_rank = device_tensor_mdspan_t<InputTensor>::rank();
   result_type result{};
-  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, input,
+  auto input_descriptor = device_mdspan_of(input);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, input_descriptor,
                        linalg::all_reduction_axes<input_rank>());
   return result;
 }
@@ -303,8 +318,11 @@ template <class BackendSelector, MutableRankedMdspanLike<0> OutputSpan, class Lh
                         typename std::remove_cvref_t<LhsSpan>::value_type>
 void inner_product(BackendSelector&& selector, OutputSpan&& output, LhsSpan&& lhs, RhsSpan&& rhs)
 {
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{},
-                          std::forward<OutputSpan>(output), std::forward<LhsSpan>(lhs), std::forward<RhsSpan>(rhs));
+  auto output_descriptor = std::forward<OutputSpan>(output);
+  auto lhs_descriptor = make_const_mdspan(lhs);
+  auto rhs_descriptor = make_const_mdspan(rhs);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, output_descriptor,
+                          lhs_descriptor, rhs_descriptor);
 }
 
 /// \brief Return an mdspan inner product as a host C++ scalar.
@@ -317,8 +335,10 @@ template <class BackendSelector, class LhsSpan, class RhsSpan>
 {
   using result_type = typename std::remove_cvref_t<LhsSpan>::value_type;
   result_type result{};
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, result,
-                          std::forward<LhsSpan>(lhs), std::forward<RhsSpan>(rhs));
+  auto lhs_descriptor = make_const_mdspan(lhs);
+  auto rhs_descriptor = make_const_mdspan(rhs);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, result, lhs_descriptor,
+                          rhs_descriptor);
   return result;
 }
 
@@ -329,7 +349,11 @@ template <class BackendSelector, MutableScalarDeviceTensorView OutputTensor, cla
 void inner_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs)
 {
   detail::require_reduction_extents(lhs, rhs);
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, output, lhs, rhs);
+  auto output_descriptor = device_mdspan_of(output);
+  auto lhs_descriptor = device_mdspan_of(lhs);
+  auto rhs_descriptor = device_mdspan_of(rhs);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, output_descriptor,
+                          lhs_descriptor, rhs_descriptor);
 }
 
 /// \brief Compute a device tensor view inner product into an existing scalar tensor using storage policy.
@@ -376,7 +400,10 @@ template <class BackendSelector, class LhsTensor, class RhsTensor>
   detail::require_reduction_extents(lhs, rhs);
   using result_type = tensor_element_t<LhsTensor>;
   result_type result{};
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, result, lhs, rhs);
+  auto lhs_descriptor = device_mdspan_of(lhs);
+  auto rhs_descriptor = device_mdspan_of(rhs);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::inner_product_op{}, result, lhs_descriptor,
+                          rhs_descriptor);
   return result;
 }
 
@@ -397,8 +424,10 @@ template <class BackendSelector, MutableRankedMdspanLike<0> OutputSpan, MdspanLi
                         make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>>
 void norm(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
 {
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, std::forward<OutputSpan>(output),
-                          std::forward<InputSpan>(input));
+  auto output_descriptor = std::forward<OutputSpan>(output);
+  auto input_descriptor = make_const_mdspan(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, output_descriptor,
+                          input_descriptor);
 }
 
 /// \brief Return an mdspan Euclidean norm as a host C++ scalar.
@@ -409,8 +438,8 @@ template <class BackendSelector, MdspanLike InputSpan>
 {
   using result_type = make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>;
   result_type result{};
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, result,
-                          std::forward<InputSpan>(input));
+  auto input_descriptor = make_const_mdspan(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, result, input_descriptor);
   return result;
 }
 
@@ -420,7 +449,10 @@ template <class BackendSelector, MutableScalarDeviceTensorView OutputTensor, Dev
            std::same_as<tensor_element_t<OutputTensor>, make_real_t<tensor_element_t<InputTensor>>>
 void norm(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, output, input);
+  auto output_descriptor = device_mdspan_of(output);
+  auto input_descriptor = device_mdspan_of(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, output_descriptor,
+                          input_descriptor);
 }
 
 /// \brief Compute a device tensor view Euclidean norm into an existing real scalar tensor using storage policy.
@@ -464,7 +496,8 @@ template <class BackendSelector, DeviceTensorView InputTensor>
 {
   using result_type = make_real_t<tensor_element_t<InputTensor>>;
   result_type result{};
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, result, input);
+  auto input_descriptor = device_mdspan_of(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::norm_op{}, result, input_descriptor);
   return result;
 }
 

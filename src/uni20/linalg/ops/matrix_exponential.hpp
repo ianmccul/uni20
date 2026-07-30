@@ -21,7 +21,10 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
           uni20::RankedDeviceTensorView<2> InputTensor, class TimeScalar>
 void matrix_exponential(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input, TimeScalar time)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_exponential_op{}, output, input, time);
+  auto output_descriptor = uni20::device_mdspan_of(output);
+  auto input_descriptor = uni20::device_mdspan_of(input);
+  dispatch_kernel(std::forward<BackendSelector>(selector), matrix_exponential_op{}, output_descriptor, input_descriptor,
+                  time);
 }
 
 /// \brief Compute a fixed-output matrix exponential using tensor storage policy.

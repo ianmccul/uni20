@@ -54,11 +54,12 @@ matrix_exponential(DenseMatrix<Scalar> const& matrix, uni20::complex<uni20::make
 
 namespace uni20::linalg
 {
+namespace detail::cpu_reference
+{
 
-/// \brief Report compile-time eligibility for the CPU matrix exponential.
+/// \brief Report compile-time eligibility for the resolved CPU matrix exponential.
 template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::RankedMdspanLike<2> InputMdspan, class TimeScalar>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
-                                    InputMdspan&, TimeScalar const&)
+consteval auto matrix_exponential_acceptance()
 {
   using input_scalar = std::remove_cv_t<typename InputMdspan::element_type>;
   using input_matrix = backends::cpu::DenseMatrix<input_scalar>;
@@ -91,8 +92,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponenti
 
 /// \brief Compute a matrix exponential through the existing CPU implementation.
 template <class OutputMdspan, class InputMdspan, class TimeScalar>
-KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan&& output, InputMdspan&& input,
-                         TimeScalar time)
+KernelAttempt matrix_exponential(OutputMdspan& output, InputMdspan& input, TimeScalar time)
 {
   using input_type = std::remove_cvref_t<InputMdspan>;
   using input_scalar = std::remove_cv_t<typename input_type::element_type>;
@@ -125,36 +125,37 @@ KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, Outp
   }
   return KernelAttempt::success;
 }
+} // namespace detail::cpu_reference
 
-/// \brief Report eligibility for host DeviceTensorView matrix exponentiation.
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> InputTensor,
+/// \brief Report eligibility for host-accessible device-mdspan matrix exponentiation.
+template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, uni20::RankedDeviceMdspanLike<2> InputMdspan,
           class TimeScalar>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputTensor&,
-                                    InputTensor&, TimeScalar const&)
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
+                                    InputMdspan&, TimeScalar const&)
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  using input_span = uni20::detail::host_read_tensor_mdspan_t<InputTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, matrix_exponential_op, output_span&,
-                                                              input_span&, TimeScalar const&>();
+  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  constexpr auto acceptance =
+      detail::cpu_reference::matrix_exponential_acceptance<output_span, input_span, TimeScalar>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Resolve host tensor access and compute a matrix exponential.
-template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> InputTensor,
+/// \brief Resolve host access and compute a matrix exponential.
+template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, uni20::RankedDeviceMdspanLike<2> InputMdspan,
           class TimeScalar>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && uni20::detail::HostReadableTensor<InputTensor>
-KernelAttempt try_kernel(CpuReferenceBackend backend, matrix_exponential_op const& operation, OutputTensor& output,
-                         InputTensor const& input, TimeScalar time)
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan& output, InputMdspan& input,
+                         TimeScalar time)
 {
   auto output_access = acquire_host_write_access(output);
   auto input_access = acquire_host_read_access(input);
   auto output_span = output_access.mdspan();
   auto input_span = input_access.mdspan();
-  return try_kernel(backend, operation, output_span, input_span, time);
+  return detail::cpu_reference::matrix_exponential(output_span, input_span, time);
 }
 
 } // namespace uni20::linalg

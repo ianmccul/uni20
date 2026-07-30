@@ -24,11 +24,12 @@
 
 namespace uni20::linalg
 {
+namespace lapack_detail
+{
 
-/// \brief Report compile-time eligibility for LAPACK tridiagonal eigensystem dispatch.
+/// \brief Report compile-time eligibility for resolved LAPACK tridiagonal eigensystem dispatch.
 template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspanLike<2> EigenvectorMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
-                                    std::span<Scalar>&, EigenvectorMdspan&)
+consteval auto tridiagonal_eigen_acceptance()
 {
   using vector_scalar = std::remove_cv_t<typename EigenvectorMdspan::element_type>;
   if constexpr (std::same_as<vector_scalar, Scalar> && uni20::DefaultAccessorMdspanLike<EigenvectorMdspan>)
@@ -43,8 +44,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_
 
 /// \brief Compute a real symmetric tridiagonal eigensystem through `sterf` or `steqr`.
 template <class Scalar, uni20::MutableRankedStridedMdspanLike<2> EigenvectorMdspan>
-KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& op, std::span<Scalar> diagonal,
-                         std::span<Scalar> subdiagonal, EigenvectorMdspan&& eigenvectors)
+KernelAttempt try_tridiagonal_eigen(symmetric_tridiagonal_eigen_op const& op, std::span<Scalar> diagonal,
+                                    std::span<Scalar> subdiagonal, EigenvectorMdspan& eigenvectors)
 {
   std::size_t const n = diagonal.size();
   CHECK(subdiagonal.size() + 1 == n || (n == 0 && subdiagonal.empty()));
@@ -87,31 +88,31 @@ KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& op
   uni20::lapack::steqr('I', order, diagonal.data(), e, matrix->data, matrix->leading_dimension, work.data());
   return KernelAttempt::success;
 }
+} // namespace lapack_detail
 
-/// \brief Report eligibility for a host DeviceTensorView tridiagonal eigensystem.
-template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
-  requires uni20::detail::HostWritableTensor<EigenvectorTensor>
+/// \brief Report eligibility for a host-accessible device-mdspan tridiagonal eigensystem.
+template <uni20::LapackReal Scalar, uni20::MutableRankedStridedDeviceMdspanLike<2> EigenvectorMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<EigenvectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
-                                    std::span<Scalar>&, EigenvectorTensor&)
+                                    std::span<Scalar>&, EigenvectorMdspan&)
 {
-  using vector_span = uni20::detail::host_write_tensor_mdspan_t<EigenvectorTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, symmetric_tridiagonal_eigen_op,
-                                                              std::span<Scalar>&, std::span<Scalar>&, vector_span&>();
+  using vector_span = uni20::detail::host_write_mdspan_t<EigenvectorMdspan>;
+  constexpr auto acceptance = lapack_detail::tridiagonal_eigen_acceptance<Scalar, vector_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
   else
     return kernel_types_maybe;
 }
 
-/// \brief Resolve host tensor access and run LAPACK tridiagonal eigenanalysis.
-template <uni20::LapackReal Scalar, uni20::MutableRankedDeviceTensorView<2> EigenvectorTensor>
-  requires uni20::detail::HostWritableTensor<EigenvectorTensor>
-KernelAttempt try_kernel(LapackBackend backend, symmetric_tridiagonal_eigen_op const& operation,
-                         std::span<Scalar> diagonal, std::span<Scalar> subdiagonal, EigenvectorTensor& eigenvectors)
+/// \brief Resolve host access and run LAPACK tridiagonal eigenanalysis.
+template <uni20::LapackReal Scalar, uni20::MutableRankedStridedDeviceMdspanLike<2> EigenvectorMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<EigenvectorMdspan>
+KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& operation, std::span<Scalar> diagonal,
+                         std::span<Scalar> subdiagonal, EigenvectorMdspan& eigenvectors)
 {
   auto access = acquire_host_write_access(eigenvectors);
   auto span = access.mdspan();
-  return try_kernel(backend, operation, diagonal, subdiagonal, span);
+  return lapack_detail::try_tridiagonal_eigen(operation, diagonal, subdiagonal, span);
 }
 
 } // namespace uni20::linalg

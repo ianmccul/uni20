@@ -139,7 +139,7 @@ TEST(TensorTransformTest, TypeProbeRequiresConstCallable)
 {
   uni20::Tensor<double, 1> input(2);
   uni20::Tensor<double, 1> output(2);
-  auto input_span = input.mdspan();
+  auto input_span = std::as_const(input).mdspan();
   auto output_span = output.mdspan();
 
   auto const_callable = [](double value) { return value + 1.0; };

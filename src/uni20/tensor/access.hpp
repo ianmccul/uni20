@@ -731,16 +731,16 @@ concept HostWritableTensor = MutableDeviceTensorView<Tensor> && requires(Tensor&
 };
 
 /// \brief Invoke a callable with host-writable mdspans under simultaneous leases.
-template <class Function, HostWritableTensor... Tensors>
-decltype(auto) with_host_write_tensor_mdspans(Function&& function, Tensors&... tensors)
+template <class Function, HostWritableDeviceMdspan... Mdspans>
+decltype(auto) with_host_write_mdspans(Function&& function, Mdspans&... mdspans)
 {
-  auto accesses = std::tuple{acquire_host_write_access(tensors)...};
+  auto accesses = std::tuple{acquire_host_write_access(mdspans)...};
   return std::apply(
       [&](auto&... access) -> decltype(auto) {
-        auto mdspans = std::tuple{access.mdspan()...};
+        auto resolved_mdspans = std::tuple{access.mdspan()...};
         return std::apply(
             [&](auto&... mdspan) -> decltype(auto) { return std::invoke(std::forward<Function>(function), mdspan...); },
-            mdspans);
+            resolved_mdspans);
       },
       accesses);
 }

@@ -31,7 +31,8 @@ void conjugate_inplace(BackendSelector&& selector, Mdspan&& span)
 template <class BackendSelector, MutableDeviceTensorView Tensor>
 void conjugate_inplace(BackendSelector&& selector, Tensor&& tensor)
 {
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::conjugate_inplace_op{}, tensor);
+  auto descriptor = device_mdspan_of(tensor);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::conjugate_inplace_op{}, descriptor);
 }
 
 /// \brief Conjugate a mutable device tensor view using its storage policy's backend selector.

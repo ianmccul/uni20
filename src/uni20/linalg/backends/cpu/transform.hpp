@@ -170,110 +170,70 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
 
 } // namespace detail
 
-/// \brief Report compile-time eligibility for reference CPU overwrite transforms.
-template <class Function, uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike... InputMdspans>
+/// \brief Report eligibility for host-accessible device-mdspan overwrite transforms.
+template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
+           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
-  if constexpr (detail::overwrite_transform_is_supported<OutputMdspan, Function, InputMdspans...>())
+  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  if constexpr (detail::overwrite_transform_is_supported<output_span, Function,
+                                                         uni20::detail::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Apply a generic accessor-respecting elementwise overwrite transform.
-/// \pre Output and inputs have equal extents and output does not overlap an input.
-template <class Function, class OutputMdspan, class... InputMdspans>
-KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan&& output,
-                         InputMdspans&&... inputs)
-{
-  detail::check_transform_extents(output, inputs...);
-  detail::reference_transform<false>(operation, output, inputs...);
-  return KernelAttempt::success;
-}
-
-/// \brief Report compile-time eligibility for reference CPU update transforms.
-template <class Function, uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike... InputMdspans>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspan&,
-                                    InputMdspans&...)
-{
-  if constexpr (detail::update_transform_is_supported<OutputMdspan, Function, InputMdspans...>())
-    return kernel_types_yes;
-  else
-    return kernel_types_no;
-}
-
-/// \brief Apply a generic accessor-respecting elementwise update transform.
-/// \pre Output and inputs have equal extents and output does not overlap an input.
-template <class Function, class OutputMdspan, class... InputMdspans>
-KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan&& output,
-                         InputMdspans&&... inputs)
-{
-  detail::check_transform_extents(output, inputs...);
-  detail::reference_transform<true>(operation, output, inputs...);
-  return KernelAttempt::success;
-}
-
-/// \brief Report eligibility for host DeviceTensorView overwrite transforms.
-template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputTensor&,
-                                    InputTensors&...)
-{
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  constexpr auto acceptance =
-      detail::backend_type_acceptance<CpuReferenceBackend, transform_op<Function>, output_span&,
-                                      uni20::detail::host_read_tensor_mdspan_t<InputTensors>&...>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
-    return kernel_types_yes;
-  else
-    return kernel_types_no;
-}
-
-/// \brief Resolve host tensor access and apply an overwrite transform.
-template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
-KernelAttempt try_kernel(CpuReferenceBackend backend, transform_op<Function> const& operation, OutputTensor& output,
-                         InputTensors const&... inputs)
+/// \brief Resolve host access and apply an overwrite transform.
+template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
+           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan& output,
+                         InputMdspans&... inputs)
 {
   auto output_access = acquire_host_write_access(output);
   auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();
-        return try_kernel(backend, operation, output_span, input_access.mdspan()...);
+        detail::check_transform_extents(output_span, input_access.mdspan()...);
+        detail::reference_transform<false>(operation, output_span, input_access.mdspan()...);
+        return KernelAttempt::success;
       },
       input_accesses);
 }
 
-/// \brief Report eligibility for host DeviceTensorView update transforms.
-template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputTensor&,
-                                    InputTensors&...)
+/// \brief Report eligibility for host-accessible device-mdspan update transforms.
+template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
+           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspan&,
+                                    InputMdspans&...)
 {
-  using output_span = uni20::detail::host_write_tensor_mdspan_t<OutputTensor>;
-  constexpr auto acceptance =
-      detail::backend_type_acceptance<CpuReferenceBackend, transform_inplace_op<Function>, output_span&,
-                                      uni20::detail::host_read_tensor_mdspan_t<InputTensors>&...>();
-  if constexpr (acceptance == KernelTypeAcceptance::yes)
+  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  if constexpr (detail::update_transform_is_supported<output_span, Function,
+                                                      uni20::detail::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Resolve host tensor access and apply an update transform.
-template <class Function, uni20::MutableDeviceTensorView OutputTensor, uni20::DeviceTensorView... InputTensors>
-  requires uni20::detail::HostWritableTensor<OutputTensor> && (uni20::detail::HostReadableTensor<InputTensors> && ...)
-KernelAttempt try_kernel(CpuReferenceBackend backend, transform_inplace_op<Function> const& operation,
-                         OutputTensor& output, InputTensors const&... inputs)
+/// \brief Resolve host access and apply an update transform.
+template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
+  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
+           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan& output,
+                         InputMdspans&... inputs)
 {
   auto output_access = acquire_host_write_access(output);
   auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();
-        return try_kernel(backend, operation, output_span, input_access.mdspan()...);
+        detail::check_transform_extents(output_span, input_access.mdspan()...);
+        detail::reference_transform<true>(operation, output_span, input_access.mdspan()...);
+        return KernelAttempt::success;
       },
       input_accesses);
 }

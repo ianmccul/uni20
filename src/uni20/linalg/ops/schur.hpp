@@ -23,8 +23,10 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixT
 void schur(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
            SchurVectorTensor&& schur_vectors, bool compute_vectors)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), schur_op{.compute_vectors = compute_vectors}, matrix_work,
-                  eigenvalues, schur_vectors);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
+  dispatch_kernel(std::forward<BackendSelector>(selector), schur_op{.compute_vectors = compute_vectors},
+                  matrix_descriptor, eigenvalues, vector_descriptor);
 }
 
 /// \brief Compute a Schur decomposition using tensor storage policy.
@@ -45,8 +47,10 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixT
 void hessenberg_schur(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
                       SchurVectorTensor&& schur_vectors, bool compute_vectors)
 {
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
   dispatch_kernel(std::forward<BackendSelector>(selector), hessenberg_schur_op{.compute_vectors = compute_vectors},
-                  matrix_work, eigenvalues, schur_vectors);
+                  matrix_descriptor, eigenvalues, vector_descriptor);
 }
 
 /// \brief Compute a real Hessenberg Schur decomposition using tensor storage policy.
@@ -67,9 +71,11 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> SchurFo
 void reorder_schur(BackendSelector&& selector, SchurFormTensor&& schur_form, SchurVectorTensor&& schur_vectors,
                    std::size_t from, std::size_t to, bool update_vectors)
 {
+  auto form_descriptor = uni20::device_mdspan_of(schur_form);
+  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
   dispatch_kernel(std::forward<BackendSelector>(selector),
-                  schur_reorder_op{.from = from, .to = to, .update_vectors = update_vectors}, schur_form,
-                  schur_vectors);
+                  schur_reorder_op{.from = from, .to = to, .update_vectors = update_vectors}, form_descriptor,
+                  vector_descriptor);
 }
 
 /// \brief Move one Schur block or entry using tensor storage policy.

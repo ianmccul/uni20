@@ -56,8 +56,12 @@ void dispatch_svd(BackendSelector&& selector, svd_op operation, SingularValueTen
                   LeftTensor& left_singular_vectors, RightAdjointTensor& right_singular_vectors_adjoint,
                   MatrixTensor& matrix_work)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_values, left_singular_vectors,
-                  right_singular_vectors_adjoint, matrix_work);
+  auto value_descriptor = uni20::device_mdspan_of(singular_values);
+  auto left_descriptor = uni20::device_mdspan_of(left_singular_vectors);
+  auto right_descriptor = uni20::device_mdspan_of(right_singular_vectors_adjoint);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, left_descriptor,
+                  right_descriptor, matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> SingularValueTensor,
@@ -65,7 +69,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> Singula
 void dispatch_singular_values(BackendSelector&& selector, SingularValueTensor& singular_values,
                               MatrixTensor& matrix_work)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), singular_values_op{}, singular_values, matrix_work);
+  auto value_descriptor = uni20::device_mdspan_of(singular_values);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), singular_values_op{}, value_descriptor, matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> SingularValueTensor,
@@ -73,8 +79,11 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> Singula
 void dispatch_svd_left(BackendSelector&& selector, svd_left_op operation, SingularValueTensor& singular_values,
                        LeftTensor& left_singular_vectors, MatrixTensor& matrix_work)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_values, left_singular_vectors,
-                  matrix_work);
+  auto value_descriptor = uni20::device_mdspan_of(singular_values);
+  auto left_descriptor = uni20::device_mdspan_of(left_singular_vectors);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, left_descriptor,
+                  matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> SingularValueTensor,
@@ -83,8 +92,11 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> Singula
 void dispatch_svd_right(BackendSelector&& selector, svd_right_op operation, SingularValueTensor& singular_values,
                         RightAdjointTensor& right_singular_vectors_adjoint, MatrixTensor& matrix_work)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_values, right_singular_vectors_adjoint,
-                  matrix_work);
+  auto value_descriptor = uni20::device_mdspan_of(singular_values);
+  auto right_descriptor = uni20::device_mdspan_of(right_singular_vectors_adjoint);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, right_descriptor,
+                  matrix_descriptor);
 }
 } // namespace detail
 

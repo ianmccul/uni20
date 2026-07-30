@@ -26,12 +26,13 @@
 
 namespace uni20::linalg
 {
+namespace lapack_detail
+{
 
-/// \brief Report compile-time eligibility for LAPACK nonsymmetric eigenanalysis.
+/// \brief Report compile-time eligibility for resolved LAPACK nonsymmetric eigenanalysis.
 template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
           uni20::MutableRankedMdspanLike<2> RightEigenvectorMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixMdspan&,
-                                    std::span<EigenScalar>&, RightEigenvectorMdspan&)
+consteval auto nonsymmetric_eigen_acceptance()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using real_type = uni20::make_real_t<matrix_scalar>;
@@ -52,8 +53,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op 
 /// \brief Compute eigenvalues and optional right eigenvectors through LAPACK `geev`.
 template <uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan, class EigenScalar,
           uni20::MutableRankedMdspanLike<2> RightEigenvectorMdspan>
-KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& op, MatrixMdspan&& matrix_work,
-                         std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan&& right_eigenvectors)
+KernelAttempt try_nonsymmetric_eigen(nonsymmetric_eigen_op const& op, MatrixMdspan& matrix_work,
+                                     std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan& right_eigenvectors)
 {
   using matrix_type = std::remove_cvref_t<MatrixMdspan>;
   using matrix_scalar = std::remove_cv_t<typename matrix_type::element_type>;
@@ -185,34 +186,36 @@ KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& op, MatrixM
 
   return KernelAttempt::success;
 }
+} // namespace lapack_detail
 
-/// \brief Report eligibility for host DeviceTensorView nonsymmetric eigenanalysis.
-template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
-  requires uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<RightEigenvectorTensor>
-consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixTensor&,
-                                    std::span<EigenScalar>&, RightEigenvectorTensor&)
+/// \brief Report eligibility for host-accessible device-mdspan nonsymmetric eigenanalysis.
+template <uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedDeviceMdspanLike<2> RightEigenvectorMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
+           uni20::detail::HostWritableDeviceMdspan<RightEigenvectorMdspan>
+consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixMdspan&,
+                                    std::span<EigenScalar>&, RightEigenvectorMdspan&)
 {
-  using matrix_span = uni20::detail::host_write_tensor_mdspan_t<MatrixTensor>;
-  using vector_span = uni20::detail::host_write_tensor_mdspan_t<RightEigenvectorTensor>;
-  constexpr auto acceptance = detail::backend_type_acceptance<LapackBackend, nonsymmetric_eigen_op, matrix_span&,
-                                                              std::span<EigenScalar>&, vector_span&>();
+  using matrix_span = uni20::detail::host_write_mdspan_t<MatrixMdspan>;
+  using vector_span = uni20::detail::host_write_mdspan_t<RightEigenvectorMdspan>;
+  constexpr auto acceptance = lapack_detail::nonsymmetric_eigen_acceptance<matrix_span, EigenScalar, vector_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
   else
     return kernel_types_maybe;
 }
 
-/// \brief Resolve host tensor access and run LAPACK nonsymmetric eigenanalysis.
-template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
-  requires uni20::detail::HostWritableTensor<MatrixTensor> && uni20::detail::HostWritableTensor<RightEigenvectorTensor>
-KernelAttempt try_kernel(LapackBackend backend, nonsymmetric_eigen_op const& operation, MatrixTensor& matrix_work,
-                         std::span<EigenScalar> eigenvalues, RightEigenvectorTensor& right_eigenvectors)
+/// \brief Resolve host access and run LAPACK nonsymmetric eigenanalysis.
+template <uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedDeviceMdspanLike<2> RightEigenvectorMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
+           uni20::detail::HostWritableDeviceMdspan<RightEigenvectorMdspan>
+KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& operation, MatrixMdspan& matrix_work,
+                         std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan& right_eigenvectors)
 {
-  return uni20::detail::with_host_write_tensor_mdspans(
+  return uni20::detail::with_host_write_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
-        return try_kernel(backend, operation, matrix_span, eigenvalues, vector_span);
+        return lapack_detail::try_nonsymmetric_eigen(operation, matrix_span, eigenvalues, vector_span);
       },
       matrix_work, right_eigenvectors);
 }

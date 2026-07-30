@@ -64,15 +64,6 @@ template <DeviceMdspanLike Output, DeviceMdspanLike Input>
   }
 }
 
-template <MdspanLike Span> [[nodiscard]] auto make_const_copy_mdspan(Span const& span)
-{
-  auto accessor = const_accessor(span.accessor());
-  using accessor_type = decltype(accessor);
-  using span_type = std::remove_cvref_t<Span>;
-  using const_mdspan_type = stdex::mdspan<typename accessor_type::element_type, typename span_type::extents_type,
-                                          typename span_type::layout_type, accessor_type>;
-  return const_mdspan_type{span.data_handle(), span.mapping(), std::move(accessor)};
-}
 } // namespace detail
 
 /// \brief Copy between fixed-shape mdspan-like operands through an explicit selector.
@@ -87,7 +78,7 @@ void copy(BackendSelector&& selector, OutputMdspan&& output, InputMdspan&& input
 {
   ERROR_IF(!detail::copy_extents_match(output, input), "copy output shape does not match input shape");
   auto output_span = std::forward<OutputMdspan>(output);
-  auto input_span = detail::make_const_copy_mdspan(input);
+  auto input_span = make_const_mdspan(input);
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_span, input_span);
 }
 

@@ -112,13 +112,22 @@ The final layering should look like this:
    - May provisionally prepare an operation-declared replaceable output with
      `prepare_output(...)`; a later backend may reuse or replace it after a
      decline.
-   - Completes all checks before writing result elements or submitting work.
+   - Completes all clean-decline checks before writing result elements or
+     submitting work. An operation-declared replaceable output may be
+     provisionally prepared earlier.
    - Interprets or acquires normalized descriptors in the backend's execution
      domain.
    - Produces resolved mdspan-like views or provider descriptors.
 4. **Linalg leaf kernel**
    - Converts extents, strides, storage orientation, view-derived readable
      transforms, and triangle flags to the vendor wrapper call.
+   - Does not participate in operation-tag redispatch.
+
+Descriptor normalization preserves rather than projects the operand. Future
+symmetry-aware, distributed, file-backed, and remote-storage descriptors must
+retain their sector metadata, distribution, communicator, file mapping, or
+resource identity through dispatch. Extracting a descriptor never implies a
+dense conversion, host transfer, or data acquisition.
 
 Public bare-mdspan convenience calls may require an explicit backend selector
 because they cannot derive a default Uni20 backend stack. They pass a
@@ -333,11 +342,14 @@ metadata such as conjugation.
 ## Kernel Dispatch Interface
 
 The mdspan linalg layer supplies lower-level implementations used by the
-operation-tag model. The explicit-selector GEMM and GEMV vertical slices select
-from tensor policy, normalize fixed operands, dispatch those descriptors to
-`BlasBackend`, and fall back to `CpuReferenceBackend`. Each selected backend
-then acquires host access and calls its direct mdspan implementation. GEMV adds
-rank-one BLAS increments before LAPACK workspace policy enters the picture.
+operation-tag model. The fixed-operand operation families select from tensor
+policy, normalize each fixed operand once, and dispatch those descriptors to
+the candidate backends. This includes copy, GEMM, GEMV, elementwise transforms,
+reductions, matrix initialization and exponentiation, and the fixed-output
+LAPACK eigensystem, Schur, and SVD operations. Each selected host backend
+acquires access and calls its ordinary mdspan implementation. GEMV additionally
+lowers rank-one BLAS increments before LAPACK workspace policy enters the
+picture.
 
 Backend CPOs put the backend value first, then the operation tag, then ordinary
 reference parameters matching the public call order. A separate

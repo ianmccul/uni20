@@ -43,7 +43,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> Eigenva
 void dispatch_self_adjoint_eigh(BackendSelector&& selector, self_adjoint_eigh_op operation,
                                 EigenvalueTensor& eigenvalues, MatrixTensor& matrix_work)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, eigenvalues, matrix_work);
+  auto eigenvalue_descriptor = uni20::device_mdspan_of(eigenvalues);
+  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, eigenvalue_descriptor, matrix_descriptor);
 }
 } // namespace detail
 

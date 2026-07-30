@@ -41,12 +41,11 @@ inline char lapack_triangle(MatrixTriangle triangle)
   }
   PANIC("invalid MatrixTriangle", std::to_underlying(triangle));
 }
-} // namespace lapack_detail
 
-/// \brief Report compile-time eligibility for LAPACK self-adjoint eigenanalysis.
+/// \brief Report compile-time eligibility for resolved LAPACK self-adjoint eigenanalysis.
 template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
           uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueMdspan&, MatrixMdspan&)
+consteval auto self_adjoint_eigh_acceptance()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using eigenvalue_scalar = std::remove_cv_t<typename EigenvalueMdspan::element_type>;
@@ -67,8 +66,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op c
 ///          its columns contain normalized eigenvectors on return.
 template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
           uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, EigenvalueMdspan&& eigenvalues,
-                         MatrixMdspan&& matrix_work)
+KernelAttempt try_self_adjoint_eigh(self_adjoint_eigh_op const& op, EigenvalueMdspan& eigenvalues,
+                                    MatrixMdspan& matrix_work)
 {
   using matrix_type = std::remove_cvref_t<MatrixMdspan>;
   using matrix_scalar = std::remove_cv_t<typename matrix_type::element_type>;
@@ -129,33 +128,35 @@ KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, Eigenval
 
   return KernelAttempt::success;
 }
+} // namespace lapack_detail
 
-/// \brief Report eligibility for host DeviceTensorView self-adjoint eigenanalysis.
-template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
-          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
-  requires uni20::detail::HostWritableTensor<EigenvalueTensor> && uni20::detail::HostWritableTensor<MatrixTensor>
-consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueTensor&, MatrixTensor&)
+/// \brief Report eligibility for host-accessible device-mdspan self-adjoint eigenanalysis.
+template <uni20::MutableRankedStridedDeviceMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<EigenvalueMdspan> &&
+           uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueMdspan&, MatrixMdspan&)
 {
-  using eigenvalue_span = uni20::detail::host_write_tensor_mdspan_t<EigenvalueTensor>;
-  using matrix_span = uni20::detail::host_write_tensor_mdspan_t<MatrixTensor>;
-  constexpr auto acceptance =
-      detail::backend_type_acceptance<LapackBackend, self_adjoint_eigh_op, eigenvalue_span&, matrix_span&>();
+  using eigenvalue_span = uni20::detail::host_write_mdspan_t<EigenvalueMdspan>;
+  using matrix_span = uni20::detail::host_write_mdspan_t<MatrixMdspan>;
+  constexpr auto acceptance = lapack_detail::self_adjoint_eigh_acceptance<eigenvalue_span, matrix_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
   else
     return kernel_types_maybe;
 }
 
-/// \brief Resolve host tensor access and run LAPACK self-adjoint eigenanalysis.
-template <uni20::MutableRankedDeviceTensorView<1> EigenvalueTensor,
-          uni20::MutableRankedDeviceTensorView<2> MatrixTensor>
-  requires uni20::detail::HostWritableTensor<EigenvalueTensor> && uni20::detail::HostWritableTensor<MatrixTensor>
-KernelAttempt try_kernel(LapackBackend backend, self_adjoint_eigh_op const& operation, EigenvalueTensor& eigenvalues,
-                         MatrixTensor& matrix_work)
+/// \brief Resolve host access and run LAPACK self-adjoint eigenanalysis.
+template <uni20::MutableRankedStridedDeviceMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan>
+  requires uni20::detail::HostWritableDeviceMdspan<EigenvalueMdspan> &&
+           uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& operation, EigenvalueMdspan& eigenvalues,
+                         MatrixMdspan& matrix_work)
 {
-  return uni20::detail::with_host_write_tensor_mdspans(
+  return uni20::detail::with_host_write_mdspans(
       [&](auto& eigenvalue_span, auto& matrix_span) {
-        return try_kernel(backend, operation, eigenvalue_span, matrix_span);
+        return lapack_detail::try_self_adjoint_eigh(operation, eigenvalue_span, matrix_span);
       },
       eigenvalues, matrix_work);
 }
