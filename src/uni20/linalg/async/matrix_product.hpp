@@ -61,7 +61,9 @@ async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteB
 
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
-  co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_value, rhs_value);
+  auto lhs_descriptor = uni20::device_mdspan_of(lhs_value);
+  auto rhs_descriptor = uni20::device_mdspan_of(rhs_value);
+  co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_descriptor, rhs_descriptor);
   co_return;
 }
 
@@ -86,9 +88,9 @@ async::AsyncTask co_gemm(BackendSelector const selector, async::WriteBuffer<Outp
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
   scalar_type const beta_scalar = static_cast<scalar_type>(beta_value);
-  auto output_span = uni20::detail::tensor_device_mdspan(*storage);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs_value);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs_value);
+  auto output_span = uni20::device_mdspan_of(*storage);
+  auto lhs_span = uni20::device_mdspan_of(lhs_value);
+  auto rhs_span = uni20::device_mdspan_of(rhs_value);
   co_await co_dispatch_kernel(selector, gemm_op{}, output_span, alpha_scalar, lhs_span, rhs_span, beta_scalar);
   co_return;
 }

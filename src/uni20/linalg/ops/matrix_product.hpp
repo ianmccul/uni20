@@ -91,7 +91,10 @@ void assign_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
   detail::validate_matrix_product_aliasing(output, lhs, rhs);
-  dispatch_kernel(std::forward<BackendSelector>(selector), assign_product_op{}, output, alpha, lhs, rhs);
+  auto lhs_descriptor = uni20::device_mdspan_of(lhs);
+  auto rhs_descriptor = uni20::device_mdspan_of(rhs);
+  dispatch_kernel(std::forward<BackendSelector>(selector), assign_product_op{}, output, alpha, lhs_descriptor,
+                  rhs_descriptor);
 }
 
 /// \brief Overwrite a Tensor with a matrix product using its default backend selector.
@@ -101,9 +104,8 @@ template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDev
 void assign_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs,
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
-  detail::validate_matrix_product_aliasing(output, lhs, rhs);
   auto selector = select_backend(assign_product_op{}, output, lhs, rhs);
-  dispatch_kernel(selector, assign_product_op{}, output, alpha, lhs, rhs);
+  assign_product(selector, std::forward<OutputTensor>(output), lhs, rhs, alpha);
 }
 
 } // namespace uni20::linalg

@@ -125,8 +125,10 @@ kernels operate on resolved mdspans.
   buffers.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. `TensorView`
   and `DeviceTensorView` expose `.mdspan()` or `.device_mdspan()` for that
-  purpose, and the concepts explicitly reject objects that directly model the
-  corresponding mdspan representation. Fixed-output operation frontends select
+  purpose. `device_mdspan_of(tensor)` selects the latter when available and
+  otherwise returns the immediate mdspan unchanged. The concepts explicitly
+  reject objects that directly model the corresponding mdspan representation.
+  Fixed-output operation frontends select
   a backend list from tensor policy, then dispatch normalized
   `DeviceMdspanLike` operands. Blocking backends acquire mdspan leases before
   entering an existing mdspan implementation; descriptor-native backends may

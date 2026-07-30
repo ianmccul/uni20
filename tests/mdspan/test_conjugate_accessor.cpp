@@ -26,6 +26,8 @@ TEST(MdspanConjugateAccessor, ComplexConjViewConjugatesValues)
   static_assert(std::is_const_v<typename decltype(conjugated)::element_type>);
   static_assert(uni20::accessor_applies_conjugation_v<typename decltype(conjugated)::accessor_type>);
   static_assert(uni20::mdspan_needs_conjugation_v<decltype(conjugated)>);
+  static_assert(uni20::HostAccessibleAccessor<typename decltype(conjugated)::accessor_type>);
+  static_assert(!uni20::CudaAccessibleAccessor<typename decltype(conjugated)::accessor_type>);
 
   EXPECT_EQ(conjugated.data_handle(), static_cast<complex_type const*>(storage.data()));
   EXPECT_EQ((conjugated[0, 0]), complex_type(1.0, -2.0));

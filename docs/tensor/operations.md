@@ -403,11 +403,12 @@ explicit.
 `assign_product` and `gemm` use distinct dispatch operations:
 
 ```cpp
-dispatch_kernel(selector, assign_product_op{}, output, alpha, lhs, rhs);
+auto lhs_span = device_mdspan_of(std::as_const(lhs));
+auto rhs_span = device_mdspan_of(std::as_const(rhs));
+dispatch_kernel(
+    selector, assign_product_op{}, output, alpha, lhs_span, rhs_span);
 
-auto output_span = tensor_device_mdspan(output);
-auto lhs_span = tensor_device_mdspan(std::as_const(lhs));
-auto rhs_span = tensor_device_mdspan(std::as_const(rhs));
+auto output_span = device_mdspan_of(output);
 dispatch_kernel(
     selector, gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 ```
@@ -427,12 +428,13 @@ has enough information to state its storage requirements. The synchronous form
 receives a concrete Tensor output. The async form receives the output's
 potentially unconstructed `shared_storage<Tensor>`.
 
-The fixed-output frontend selects its backend list while tensor policy is still
-available, then normalizes the existing output and inputs exactly once before
-dispatch. `gemm_op` backend customizations therefore accept
+The frontends select their backend lists while tensor policy is still
+available, then normalize fixed operands exactly once before dispatch.
+`gemm_op` backend customizations therefore accept
 `MutableDeviceMdspanLike` and `DeviceMdspanLike` refinements, not tensor views.
-`assign_product_op` remains tensor-level because its output may not exist until
-the selected backend supplies placement and storage requirements.
+`assign_product_op` receives normalized readable inputs but retains its
+tensor-level output because that output may not exist until the selected
+backend supplies placement and storage requirements.
 
 Host backends require only the product shape. The cuBLAS backend also requires
 the output to use the operands' CUDA device, after first rejecting operands that
@@ -455,10 +457,10 @@ The cuBLAS `assign_product_op` adapter uses the provisional-preparation
 contract instead: it may prepare the actual CUDA output and then decline an
 unsupported layout or transform. A later CUDA backend receives that prepared
 output and may reuse or replace it. Within one cuBLAS attempt, the readable
-inputs are normalized once before preparation and the writable output is
-normalized once afterward. The adapter then invokes the private cuBLAS mdspan
-implementation directly rather than redispatching those operands as
-`gemm_op`.
+input descriptors have already been normalized by the frontend and the writable
+output is normalized once after preparation. The adapter then invokes the
+private cuBLAS mdspan implementation directly rather than redispatching those
+operands as `gemm_op`.
 
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's

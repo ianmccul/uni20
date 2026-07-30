@@ -133,13 +133,29 @@ TEST(CpuGemmDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
   NonConvertibleReadMatrixView lhs(lhs_storage.data(), 2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
 
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
-  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
   auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0, lhs_span, rhs_span, 0.0);
 
   EXPECT_EQ(descriptor_acceptance, uni20::linalg::KernelTypeAcceptance::no);
+}
+
+TEST(CpuAssignProductDispatchTest, RetainsTensorOutputAndNormalizesFixedInputs)
+{
+  uni20::DenseMatrix<double> output(2, 2);
+  uni20::DenseMatrix<double> lhs(2, 2);
+  uni20::DenseMatrix<double> rhs(2, 2);
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{},
+                                                 uni20::linalg::assign_product_op{}, output, 1.0, lhs_span, rhs_span),
+            uni20::linalg::KernelTypeAcceptance::yes);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{},
+                                                 uni20::linalg::assign_product_op{}, output, 1.0, lhs, rhs),
+            uni20::linalg::KernelTypeAcceptance::no);
 }
 
 TEST(CpuGemvDispatchTest, NormalizedMdspansAreKernelDispatchOperands)
@@ -163,9 +179,9 @@ TEST(CpuGemvDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
   std::array<double, 2> input_storage{};
   NonConvertibleReadVectorView input(input_storage.data(), 2);
 
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto matrix_span = uni20::detail::tensor_device_mdspan(std::as_const(matrix));
-  auto input_span = uni20::detail::tensor_device_mdspan(std::as_const(input));
+  auto output_span = uni20::device_mdspan_of(output);
+  auto matrix_span = uni20::device_mdspan_of(std::as_const(matrix));
+  auto input_span = uni20::device_mdspan_of(std::as_const(input));
   auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output_span, 1.0, matrix_span, input_span, 0.0);
 

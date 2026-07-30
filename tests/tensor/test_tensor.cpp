@@ -298,10 +298,19 @@ static_assert(RankedDeviceTensorView<MismatchedMutableRankTensorView, 2>);
 static_assert(!MutableRankedTensorView<MismatchedMutableRankTensorView, 2>);
 static_assert(!MutableRankedDeviceTensorView<MismatchedMutableRankTensorView, 2>);
 static_assert(std::same_as<device_tensor_mdspan_t<StorageFreeTensorView>, StorageFreeTensorView::const_mdspan_type>);
+static_assert(std::same_as<decltype(device_mdspan_of(std::declval<StorageFreeTensorView const&>())),
+                           StorageFreeTensorView::const_mdspan_type>);
+static_assert(std::same_as<decltype(device_mdspan_of(std::declval<DeferredStridedTensorView const&>())),
+                           decltype(std::declval<DeferredStridedTensorView const&>().device_mdspan())>);
+static_assert(
+    std::same_as<std::remove_cvref_t<decltype(device_mdspan_of(std::declval<DeferredStridedTensorView const&>()))>,
+                 DeferredStridedTensorView::mdspan_type>);
 static_assert(immediate_and_descriptor_tensor::immediately_readable);
 static_assert(immediate_and_descriptor_tensor::immediately_writable);
 static_assert(immediate_and_descriptor_tensor::deferred_readable);
 static_assert(immediate_and_descriptor_tensor::deferred_writable);
+static_assert(std::same_as<decltype(device_mdspan_of(std::declval<immediate_and_descriptor_tensor const&>())),
+                           immediate_and_descriptor_tensor::const_mdspan_type>);
 static_assert(std::same_as<decltype(std::declval<immediate_and_descriptor_tensor&>().device_mdspan()),
                            immediate_and_descriptor_tensor::mdspan_type>);
 static_assert(std::same_as<decltype(std::declval<immediate_and_descriptor_tensor const&>().device_mdspan()),

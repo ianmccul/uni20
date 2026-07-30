@@ -23,6 +23,11 @@ using cuda_matrix_type = uni20::CudaTensor<double, 2>;
 using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
 using complex_type = uni20::complex<double>;
 using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
+using cuda_extents_type = stdex::dextents<uni20::index_type, 2>;
+using resolved_cuda_output_mdspan =
+    stdex::mdspan<double, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<double>>;
+using resolved_cuda_input_mdspan =
+    stdex::mdspan<double const, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<double const>>;
 
 using namespace std::chrono_literals;
 
@@ -55,6 +60,13 @@ class CudaDescriptorMatrixView {
 
 static_assert(uni20::DeviceTensorView<CudaDescriptorMatrixView>);
 static_assert(!std::same_as<typename CudaDescriptorMatrixView::storage_policy, uni20::CudaStorage>);
+static_assert(uni20::CudaAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
+static_assert(!uni20::HostAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
+static_assert(uni20::CudaAccessibleMdspan<resolved_cuda_output_mdspan>);
+static_assert(uni20::CudaAccessibleMdspan<resolved_cuda_input_mdspan>);
+static_assert(!uni20::detail::CudaBufferDeviceMdspan<resolved_cuda_output_mdspan>);
+static_assert(!uni20::linalg::detail::cuda_reference::SupportedCopyMdspans<resolved_cuda_output_mdspan,
+                                                                           resolved_cuda_input_mdspan>);
 
 struct CopyGate
 {
@@ -214,7 +226,7 @@ TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
             uni20::linalg::KernelAttempt::unsupported_transform);
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
                                                   output_span, input_span));
-  auto same_input_span = uni20::detail::tensor_device_mdspan(std::as_const(device));
+  auto same_input_span = uni20::device_mdspan_of(std::as_const(device));
   EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
                                                  output_span, same_input_span));
 

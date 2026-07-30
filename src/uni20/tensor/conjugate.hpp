@@ -51,9 +51,9 @@ template <DeviceTensorView Tensor> class ConstTensorView {
 
     /// \brief Return the underlying tensor's read-only immediate or deferred metadata.
     [[nodiscard]] constexpr decltype(auto) device_mdspan() const
-        noexcept(noexcept(detail::tensor_device_mdspan(std::declval<tensor_type const&>())))
+        noexcept(noexcept(device_mdspan_of(std::declval<tensor_type const&>())))
     {
-      return detail::tensor_device_mdspan(this->base());
+      return device_mdspan_of(this->base());
     }
 
     /// \brief Return the underlying tensor extents.
@@ -113,9 +113,9 @@ template <DeviceTensorView Tensor> class ConjugatedTensorView {
 
     /// \brief Return conjugated immediate or deferred multidimensional metadata.
     [[nodiscard]] constexpr auto device_mdspan() const
-        noexcept(noexcept(uni20::conj(detail::tensor_device_mdspan(std::declval<tensor_type const&>()))))
+        noexcept(noexcept(uni20::conj(device_mdspan_of(std::declval<tensor_type const&>()))))
     {
-      return uni20::conj(detail::tensor_device_mdspan(this->base()));
+      return uni20::conj(device_mdspan_of(this->base()));
     }
 
     /// \brief Return the underlying tensor extents.

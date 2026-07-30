@@ -51,30 +51,26 @@ KernelAttempt try_kernel(CublasBackend, gemm_op const&, OutputMdspan& output, Sc
 
 /// \brief Report cuBLAS eligibility for replaceable-output matrix products.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
 consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op const&, OutputTensor&, Scalar const&,
-                                    LhsTensor&, RhsTensor&)
+                                    LhsMdspan&, RhsMdspan&)
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
-  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
-  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, lhs_span, rhs_span>())
+  using output_span = std::remove_cvref_t<decltype(uni20::device_mdspan_of(std::declval<OutputTensor&>()))>;
+  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, LhsMdspan, RhsMdspan>())
     return kernel_types_maybe;
   else
     return kernel_types_no;
 }
 
-/// \brief Prepare a replaceable output and lower the operands once for cuBLAS GEMM.
+/// \brief Prepare a replaceable output and lower normalized operands for cuBLAS GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-KernelAttempt try_kernel(CublasBackend, assign_product_op const&, OutputTensor& output, Scalar alpha,
-                         LhsTensor const& lhs, RhsTensor const& rhs)
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+KernelAttempt try_kernel(CublasBackend, assign_product_op const&, OutputTensor& output, Scalar alpha, LhsMdspan& lhs,
+                         RhsMdspan& rhs)
 {
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  auto const shape = detail::matrix_product_shape(lhs_span, rhs_span);
-  auto const lhs_device = detail::cublas_backend::span_device(lhs_span);
-  if (detail::cublas_backend::span_device(rhs_span) != lhs_device) return KernelAttempt::incompatible_devices;
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  auto const lhs_device = detail::cublas_backend::span_device(lhs);
+  if (detail::cublas_backend::span_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
 
   if constexpr (requires { uni20::prepare_output(output, shape, lhs_device); })
   {
@@ -85,23 +81,21 @@ KernelAttempt try_kernel(CublasBackend, assign_product_op const&, OutputTensor& 
     return KernelAttempt::unsupported_shape;
   }
 
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto output_span = uni20::device_mdspan_of(output);
   if (detail::cublas_backend::span_device(output_span) != lhs_device) return KernelAttempt::incompatible_devices;
-  return detail::cublas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, Scalar{});
+  return detail::cublas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
 }
 
 /// \brief Report cuBLAS eligibility for a deferred Tensor matrix-product output.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
   requires requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
                     uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
 consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op const&,
-                                    async::shared_storage<OutputTensor>&, Scalar const&, LhsTensor&, RhsTensor&)
+                                    async::shared_storage<OutputTensor>&, Scalar const&, LhsMdspan&, RhsMdspan&)
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
-  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
-  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, lhs_span, rhs_span>())
+  using output_span = std::remove_cvref_t<decltype(uni20::device_mdspan_of(std::declval<OutputTensor&>()))>;
+  if constexpr (detail::cublas_backend::accepts_gemm_types<Scalar, output_span, LhsMdspan, RhsMdspan>())
     return kernel_types_maybe;
   else
     return kernel_types_no;
@@ -109,21 +103,19 @@ consteval auto kernel_accepts_types(CublasBackend const&, assign_product_op cons
 
 /// \brief Construct or relocate a deferred CUDA output and run blocking cuBLAS GEMM.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
   requires requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
                     uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
 KernelAttempt try_kernel(CublasBackend, assign_product_op const&, async::shared_storage<OutputTensor>& output_storage,
-                         Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs)
+                         Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs)
 {
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  auto const shape = detail::matrix_product_shape(lhs_span, rhs_span);
-  auto const lhs_device = detail::cublas_backend::span_device(lhs_span);
-  if (detail::cublas_backend::span_device(rhs_span) != lhs_device) return KernelAttempt::incompatible_devices;
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  auto const lhs_device = detail::cublas_backend::span_device(lhs);
+  if (detail::cublas_backend::span_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  return detail::cublas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, Scalar{});
+  auto output_span = uni20::device_mdspan_of(output);
+  return detail::cublas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
 }
 
 } // namespace uni20::linalg

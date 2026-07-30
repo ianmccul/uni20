@@ -28,6 +28,14 @@ using read_access_type = decltype(uni20::acquire_cuda_read_access(std::declval<t
                                                                   std::declval<uni20::cuda::Stream const&>()));
 using write_access_type = decltype(uni20::acquire_cuda_write_access(std::declval<tensor_type&>(),
                                                                     std::declval<uni20::cuda::Stream const&>()));
+using descriptor_read_lease_type =
+    decltype(uni20::acquire_cuda_read_access_sync(std::declval<const_device_span_type const&>()));
+using descriptor_write_lease_type =
+    decltype(uni20::acquire_cuda_write_access_sync(std::declval<mutable_device_span_type&>()));
+using descriptor_read_access_type = decltype(uni20::acquire_cuda_read_access(
+    std::declval<const_device_span_type const&>(), std::declval<uni20::cuda::Stream const&>()));
+using descriptor_write_access_type = decltype(uni20::acquire_cuda_write_access(
+    std::declval<mutable_device_span_type&>(), std::declval<uni20::cuda::Stream const&>()));
 
 template <class Tensor>
 concept HasMutableMdspan = requires(Tensor& tensor) { tensor.mdspan(); };
@@ -138,6 +146,12 @@ static_assert(uni20::ReadTensorLease<read_lease_type>);
 static_assert(uni20::WriteTensorLease<write_lease_type>);
 static_assert(uni20::CudaReadTensorLease<read_lease_type>);
 static_assert(uni20::CudaWriteTensorLease<write_lease_type>);
+static_assert(uni20::CudaReadMdspanLease<descriptor_read_lease_type>);
+static_assert(uni20::CudaWriteMdspanLease<descriptor_write_lease_type>);
+static_assert(!uni20::TensorView<descriptor_read_lease_type>);
+static_assert(!uni20::TensorView<descriptor_write_lease_type>);
+static_assert(!HasStorageObserver<descriptor_read_lease_type>);
+static_assert(!HasStorageObserver<descriptor_write_lease_type>);
 static_assert(!uni20::HostReadTensorLease<read_lease_type>);
 static_assert(!uni20::HostWriteTensorLease<write_lease_type>);
 static_assert(!CanAcquireHostRead<tensor_type>);
@@ -154,6 +168,8 @@ static_assert(
 static_assert(!HasStorageObserver<write_lease_type>);
 static_assert(uni20::async::TaskAwaitable<read_access_type>);
 static_assert(uni20::async::TaskAwaitable<write_access_type>);
+static_assert(uni20::async::TaskAwaitable<descriptor_read_access_type>);
+static_assert(uni20::async::TaskAwaitable<descriptor_write_access_type>);
 static_assert(uni20::ReadTensorLease<owning_read_lease_type>);
 static_assert(uni20::async::TaskAwaitable<owning_read_access_type>);
 static_assert(CanSynchronizedCudaReadRvalue<tensor_type>);
@@ -282,6 +298,34 @@ TEST_F(CudaTensorTest, SynchronizedCudaAccessResolvesPointerMdspans)
   EXPECT_EQ(output, input);
 }
 
+TEST_F(CudaTensorTest, DescriptorAcquisitionResolvesPolicyFreePointerMdspans)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  tensor_type tensor(resources, 2, 3);
+  std::array<double, 6> const input{1, 2, 3, 4, 5, 6};
+  std::array<double, 6> output{};
+
+  auto write_descriptor = tensor.device_mdspan();
+  {
+    auto lease = uni20::acquire_cuda_write_access_sync(write_descriptor);
+    static_assert(uni20::CudaWriteMdspanLease<decltype(lease)>);
+    uni20::cuda::ScopedDevice guard(resources.device().ordinal());
+    uni20::cuda::check(cudaMemcpy(lease.mdspan().data_handle(), input.data(), sizeof(input), cudaMemcpyHostToDevice),
+                       "cudaMemcpy descriptor upload", resources.device().ordinal());
+  }
+
+  auto read_descriptor = std::as_const(tensor).device_mdspan();
+  {
+    auto lease = uni20::acquire_cuda_read_access_sync(read_descriptor);
+    static_assert(uni20::CudaReadMdspanLease<decltype(lease)>);
+    uni20::cuda::ScopedDevice guard(resources.device().ordinal());
+    uni20::cuda::check(cudaMemcpy(output.data(), lease.mdspan().data_handle(), sizeof(output), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy descriptor download", resources.device().ordinal());
+  }
+
+  EXPECT_EQ(output, input);
+}
+
 TEST_F(CudaTensorTest, StreamOrderedAccessCanBeCoAwaitedAsTensorView)
 {
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
@@ -315,6 +359,32 @@ TEST_F(CudaTensorTest, StreamOrderedAccessCanBeCoAwaitedAsTensorView)
                        "cudaMemcpy tensor lease verification", resources.device().ordinal());
   }
   EXPECT_EQ(output, (std::array<double, 6>{}));
+}
+
+TEST_F(CudaTensorTest, StreamOrderedDescriptorAccessCanBeCoAwaitedAsMdspanLease)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::async::DebugCudaScheduler scheduler(resources.device());
+  tensor_type tensor(resources, 2, 3);
+  bool submitted = false;
+
+  auto task = [](tensor_type& value, bool& observed) static -> uni20::async::CudaTask {
+    auto stream = co_await uni20::cuda::acquire_stream(value.storage().resources().streams());
+    auto descriptor = value.device_mdspan();
+    auto lease = co_await uni20::acquire_cuda_write_access(descriptor, stream);
+    static_assert(uni20::CudaWriteMdspanLease<decltype(lease)>);
+    auto const size_bytes =
+        static_cast<std::size_t>(lease.mdspan().mapping().required_span_size()) * sizeof(tensor_type::element_type);
+    uni20::cuda::check(cudaMemsetAsync(lease.mdspan().data_handle(), 0, size_bytes, stream.native_handle()),
+                       "cudaMemsetAsync descriptor lease", stream.device());
+    observed = true;
+    co_return;
+  }(tensor, submitted);
+
+  scheduler.schedule(std::move(task), resources.device().ordinal());
+  scheduler.run_all();
+  EXPECT_TRUE(submitted);
+  tensor.storage().synchronize();
 }
 
 TEST_F(CudaTensorTest, DeferredAcquisitionCapturesEachDeviceSpanOnce)

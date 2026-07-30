@@ -99,8 +99,8 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
   prepare_output(output, input.extents());
-  auto output_span = detail::tensor_device_mdspan(output);
-  auto input_span = detail::tensor_device_mdspan(input);
+  auto output_span = device_mdspan_of(output);
+  auto input_span = device_mdspan_of(input);
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_span, input_span);
 }
 
@@ -109,7 +109,6 @@ template <class OutputTensor, class InputTensor>
   requires detail::CopyTensors<OutputTensor, InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
-  prepare_output(output, input.extents());
 #if UNI20_BACKEND_CUDA
   if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
   {

@@ -31,9 +31,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputT
 [[nodiscard]] auto probe_normalized_gemv(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                          MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto matrix_span = uni20::detail::tensor_device_mdspan(matrix);
-  auto input_span = uni20::detail::tensor_device_mdspan(input);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto matrix_span = uni20::device_mdspan_of(matrix);
+  auto input_span = uni20::device_mdspan_of(input);
   return uni20::linalg::probe_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemv_op{},
                                               output_span, alpha, matrix_span, input_span, beta);
 }
@@ -43,9 +43,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputT
 [[nodiscard]] bool try_normalized_gemv(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                        MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto matrix_span = uni20::detail::tensor_device_mdspan(matrix);
-  auto input_span = uni20::detail::tensor_device_mdspan(input);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto matrix_span = uni20::device_mdspan_of(matrix);
+  auto input_span = uni20::device_mdspan_of(input);
   return uni20::linalg::try_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemv_op{},
                                             output_span, alpha, matrix_span, input_span, beta);
 }

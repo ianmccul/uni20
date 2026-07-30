@@ -94,6 +94,18 @@ template <class Accessor, class Domain>
 concept AccessorInDomain = AccessorPolicy<std::remove_cvref_t<Accessor>> &&
                            enable_accessor_in_domain<std::remove_cvref_t<Accessor>, std::remove_cvref_t<Domain>>;
 
+/// \concept HostAccessibleAccessor
+/// \brief Accessor policy that may be evaluated directly by host code.
+/// \tparam Accessor Accessor policy being tested.
+template <class Accessor>
+concept HostAccessibleAccessor = AccessorInDomain<Accessor, host_access_domain>;
+
+/// \concept CudaAccessibleAccessor
+/// \brief Accessor policy that may be evaluated directly by CUDA device code.
+/// \tparam Accessor Accessor policy being tested.
+template <class Accessor>
+concept CudaAccessibleAccessor = AccessorInDomain<Accessor, cuda_access_domain>;
+
 /// \brief Adaptor that exposes a mutable lvalue accessor as read-only.
 /// \details Example: to turn a mutable accessor returning \c T& into a read-only
 ///          accessor returning \c T const&, use
@@ -288,29 +300,27 @@ concept DeviceMdspanLike = MdspanLike<S> || (detail::DeviceSpanDescriptor<S> &&
 /// \brief Mdspan whose accessor may be evaluated directly by host code.
 /// \tparam S Mdspan-like type being tested.
 template <class S>
-concept HostAccessibleMdspan =
-    MdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, host_access_domain>;
+concept HostAccessibleMdspan = MdspanLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 /// \concept CudaAccessibleMdspan
 /// \brief Mdspan whose accessor may be evaluated directly by CUDA device code.
 /// \tparam S Mdspan-like type being tested.
 template <class S>
-concept CudaAccessibleMdspan =
-    MdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, cuda_access_domain>;
+concept CudaAccessibleMdspan = MdspanLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 /// \concept HostAccessibleDeviceMdspan
 /// \brief Immediate or descriptor-backed mdspan metadata targeting host access.
 /// \tparam S Device-mdspan-like type being tested.
 template <class S>
 concept HostAccessibleDeviceMdspan =
-    DeviceMdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, host_access_domain>;
+    DeviceMdspanLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 /// \concept CudaAccessibleDeviceMdspan
 /// \brief Immediate or descriptor-backed mdspan metadata targeting CUDA access.
 /// \tparam S Device-mdspan-like type being tested.
 template <class S>
 concept CudaAccessibleDeviceMdspan =
-    DeviceMdspanLike<S> && AccessorInDomain<typename detail::span_type_t<S>::accessor_type, cuda_access_domain>;
+    DeviceMdspanLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 namespace detail
 {

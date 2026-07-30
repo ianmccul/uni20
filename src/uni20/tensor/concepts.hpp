@@ -35,27 +35,42 @@ template <class Tensor> using tensor_storage_policy_t = typename TensorStoragePo
 template <class T> using tensor_const_mdspan_t = decltype(std::declval<tensor_type_t<T> const&>().mdspan());
 
 template <class T> using tensor_mutable_mdspan_t = decltype(std::declval<tensor_type_t<T>&>().mdspan());
+} // namespace detail
 
+/// \brief Return a tensor's immediate or descriptor-backed multidimensional metadata.
+/// \details This operation prefers `device_mdspan()` when the tensor exposes it
+///          and otherwise returns `mdspan()`. It does not acquire, copy, or
+///          transform tensor data.
+/// \param tensor Tensor-level object whose multidimensional metadata is requested.
+/// \return The result of `tensor.device_mdspan()`.
 template <class Tensor>
   requires requires(Tensor& tensor) { tensor.device_mdspan(); }
-[[nodiscard]] decltype(auto) tensor_device_mdspan(Tensor& tensor)
+[[nodiscard]] constexpr decltype(auto) device_mdspan_of(Tensor& tensor) noexcept(noexcept(tensor.device_mdspan()))
 {
   return tensor.device_mdspan();
 }
 
+/// \brief Return an immediate tensor's mdspan as its device-mdspan representation.
+/// \details This fallback applies when the tensor does not expose
+///          `device_mdspan()`. An ordinary `MdspanLike` is already the immediate
+///          case of `DeviceMdspanLike`, so no wrapper is introduced.
+/// \param tensor Tensor-level object whose multidimensional metadata is requested.
+/// \return The result of `tensor.mdspan()`.
 template <class Tensor>
   requires(
       !requires(Tensor& tensor) { tensor.device_mdspan(); } && requires(Tensor& tensor) { tensor.mdspan(); })
-[[nodiscard]] decltype(auto) tensor_device_mdspan(Tensor& tensor)
+[[nodiscard]] constexpr decltype(auto) device_mdspan_of(Tensor& tensor) noexcept(noexcept(tensor.mdspan()))
 {
   return tensor.mdspan();
 }
 
+namespace detail
+{
 template <class T>
-using normalized_const_device_mdspan_t = decltype(tensor_device_mdspan(std::declval<tensor_type_t<T> const&>()));
+using normalized_const_device_mdspan_t = decltype(device_mdspan_of(std::declval<tensor_type_t<T> const&>()));
 
 template <class T>
-using normalized_mutable_device_mdspan_t = decltype(tensor_device_mdspan(std::declval<tensor_type_t<T>&>()));
+using normalized_mutable_device_mdspan_t = decltype(device_mdspan_of(std::declval<tensor_type_t<T>&>()));
 } // namespace detail
 
 /// \brief Tensor-level object that exposes a readable mdspan and backend selector.
@@ -87,7 +102,7 @@ template <class T>
 concept DeviceTensorView = (!DeviceMdspanLike<T>) && requires(std::remove_reference_t<T> const& tensor) {
   typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::extents_type;
   tensor.backend_selector();
-  detail::tensor_device_mdspan(tensor);
+  device_mdspan_of(tensor);
   {
     tensor.extents()
   } -> std::convertible_to<typename std::remove_cvref_t<detail::normalized_const_device_mdspan_t<T>>::extents_type>;
@@ -132,7 +147,7 @@ concept MutableTensorView =
 /// \brief DeviceTensorView whose normalized non-const device mdspan supports writes.
 template <class T>
 concept MutableDeviceTensorView = DeviceTensorView<T> && requires(std::remove_reference_t<T>& tensor) {
-  detail::tensor_device_mdspan(tensor);
+  device_mdspan_of(tensor);
 } && MutableDeviceMdspanLike<detail::normalized_mutable_device_mdspan_t<T>>;
 
 /// \brief DeviceTensorView whose normalized readable device mdspan has a specified static rank.
@@ -222,7 +237,7 @@ concept MutableRankedStridedTensorView = MutableRankedTensorView<T, Rank> && Mut
 /// \return A std::array containing the strides for each rank.
 template <StridedDeviceTensorView T> [[nodiscard]] auto strides(T const& tensor)
 {
-  return strides(detail::tensor_device_mdspan(tensor));
+  return strides(device_mdspan_of(tensor));
 }
 
 /// \brief Assign tensor values through a mutable tensor alias descriptor.

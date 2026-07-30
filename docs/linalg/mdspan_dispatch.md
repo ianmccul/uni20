@@ -383,9 +383,9 @@ The tensor frontend normalizes fixed operands before calling the generic
 dispatcher:
 
 ```cpp
-auto c_span = tensor_device_mdspan(c);
-auto a_span = tensor_device_mdspan(std::as_const(a));
-auto b_span = tensor_device_mdspan(std::as_const(b));
+auto c_span = device_mdspan_of(c);
+auto a_span = device_mdspan_of(std::as_const(a));
+auto b_span = device_mdspan_of(std::as_const(b));
 
 dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}},
                 gemm_op{}, c_span, alpha, a_span, b_span, beta);

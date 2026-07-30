@@ -38,12 +38,6 @@ enum class CopyDirection
   device_to_device
 };
 
-template <class Accessor> struct IsCudaAccessor : std::false_type
-{};
-
-template <class ElementType> struct IsCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type
-{};
-
 template <class Accessor> struct IsRawCudaAccessor : std::false_type
 {};
 
@@ -65,24 +59,7 @@ struct IsConjugatedHostAccessor<uni20::conjugated_accessor<Accessor>>
     : std::bool_constant<uni20::is_default_accessor_v<Accessor>>
 {};
 
-template <class Descriptor> struct IsCudaBufferView : std::false_type
-{};
-
-template <class ElementType> struct IsCudaBufferView<uni20::cuda::CudaBufferView<ElementType>> : std::true_type
-{};
-
-template <class Mdspan, class = void> struct HasCudaBufferDescriptor : std::false_type
-{};
-
-template <class Mdspan>
-struct HasCudaBufferDescriptor<Mdspan, std::void_t<typename std::remove_cvref_t<Mdspan>::data_descriptor_type>>
-    : IsCudaBufferView<typename std::remove_cvref_t<Mdspan>::data_descriptor_type>
-{};
-
-template <class Mdspan>
-inline constexpr bool is_cuda_mdspan =
-    (uni20::MdspanLike<Mdspan> && IsCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value) ||
-    HasCudaBufferDescriptor<Mdspan>::value;
+template <class Mdspan> inline constexpr bool is_cuda_mdspan = uni20::detail::CudaBufferDeviceMdspan<Mdspan>;
 
 template <class Mdspan>
 inline constexpr bool is_raw_cuda_mdspan =
@@ -154,12 +131,9 @@ void validate_cuda_range(uni20::cuda::CudaBuffer<Scalar> const& buffer, std::siz
   CHECK(offset <= buffer.size() && count <= buffer.size() - offset, offset, count, buffer.size());
 }
 
-template <class Mdspan> [[nodiscard]] auto cuda_buffer_view(Mdspan& span)
+template <uni20::detail::CudaBufferDeviceMdspan Mdspan> [[nodiscard]] auto cuda_buffer_view(Mdspan& span)
 {
-  if constexpr (requires { span.data_descriptor(); })
-    return span.data_descriptor();
-  else
-    return span.data_handle();
+  return span.data_descriptor();
 }
 
 template <class OutputMdspan, class InputMdspan>

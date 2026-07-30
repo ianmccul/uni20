@@ -250,9 +250,9 @@ class CudaGemmPlatform {
     [[nodiscard]] auto kernel_type_candidates(Selector const& selector, OutputTensor& output, Scalar alpha,
                                               LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
     {
-      auto output_span = uni20::detail::tensor_device_mdspan(output);
-      auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-      auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+      auto output_span = uni20::device_mdspan_of(output);
+      auto lhs_span = uni20::device_mdspan_of(lhs);
+      auto rhs_span = uni20::device_mdspan_of(rhs);
       return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output_span, alpha, lhs_span,
                                                    rhs_span, beta);
     }
@@ -709,9 +709,11 @@ TEST_F(CublasExecutionTest, TensorProductDeviceMismatchDeclinesBeforeReplacingOu
   upload_tensor(lhs, std::span<double const>{lhs_values});
   upload_tensor(rhs, std::span<double const>{rhs_values});
   upload_tensor(output, std::span<double const>{output_values});
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
-                                      lhs, rhs),
+                                      lhs_span, rhs_span),
             uni20::linalg::KernelAttempt::incompatible_devices);
 
   EXPECT_EQ(output.storage().device().ordinal(), 0);
@@ -791,14 +793,20 @@ TEST_F(CublasExecutionTest, OperationDispatchAcceptsNormalizedDeviceMdspansRathe
   matrix_type rhs(resources, 3, 2);
   matrix_type output(resources, 2, 2);
   auto output_span = output.device_mdspan();
-  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
-  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output_span,
                                                  1.0, lhs_span, rhs_span, 0.0),
             uni20::linalg::KernelTypeAcceptance::maybe);
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output, 1.0,
                                                  lhs, rhs, 0.0),
+            uni20::linalg::KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{},
+                                                 output, 1.0, lhs_span, rhs_span),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{},
+                                                 output, 1.0, lhs, rhs),
             uni20::linalg::KernelTypeAcceptance::no);
 }
 
@@ -914,8 +922,11 @@ TEST_F(CublasExecutionTest, AssignProductFallbackReceivesProvisionallyPreparedOu
   bool fallback_observed_prepared_output = false;
   auto selector = uni20::linalg::backend_list{uni20::linalg::CublasBackend{},
                                               PreparedOutputObserverBackend{&fallback_observed_prepared_output}};
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
 
-  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, uni20::linalg::assign_product_op{}, output, 1.0, lhs, rhs));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, uni20::linalg::assign_product_op{}, output, 1.0, lhs_span,
+                                                 rhs_span));
   EXPECT_TRUE(fallback_observed_prepared_output);
   EXPECT_EQ(output.rows(), 2);
   EXPECT_EQ(output.cols(), 2);
@@ -931,10 +942,12 @@ TEST_F(CublasExecutionTest, AssignProductDeclineMayConstructDeferredOutput)
   CudaMatrixView lhs(lhs_storage, 0, 2, 2, {2, 5});
   matrix_type rhs(resources, 2, 2);
   double const alpha = 1.0;
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
 
   auto blocking_output = uni20::async::make_unconstructed_shared_storage<matrix_type>();
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{},
-                                      blocking_output, alpha, lhs, rhs),
+                                      blocking_output, alpha, lhs_span, rhs_span),
             uni20::linalg::KernelAttempt::unsupported_layout);
   ASSERT_TRUE(blocking_output.constructed());
   EXPECT_EQ(blocking_output->rows(), 2);
@@ -942,7 +955,7 @@ TEST_F(CublasExecutionTest, AssignProductDeclineMayConstructDeferredOutput)
 
   auto task_output = uni20::async::make_unconstructed_shared_storage<matrix_type>();
   auto task_attempt = uni20::linalg::try_make_kernel_task(
-      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, task_output, alpha, lhs, rhs);
+      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, task_output, alpha, lhs_span, rhs_span);
   EXPECT_EQ(task_attempt.attempt(), uni20::linalg::KernelAttempt::unsupported_layout);
   EXPECT_FALSE(task_attempt.has_task());
   ASSERT_TRUE(task_output.constructed());
@@ -950,7 +963,7 @@ TEST_F(CublasExecutionTest, AssignProductDeclineMayConstructDeferredOutput)
   EXPECT_EQ(task_output->cols(), 2);
 }
 
-TEST_F(CublasExecutionTest, AssignProductLowersEachOperandOnceAfterPreparingOutput)
+TEST_F(CublasExecutionTest, AssignProductConsumesNormalizedInputsAndLowersPreparedOutputOnce)
 {
   using matrix_type = uni20::CudaMatrix<double>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
@@ -968,9 +981,11 @@ TEST_F(CublasExecutionTest, AssignProductLowersEachOperandOnceAfterPreparingOutp
   DescriptorCountingCudaTensorView output_view(output, output_descriptor_count);
   DescriptorCountingCudaTensorView lhs_view(lhs, lhs_descriptor_count);
   DescriptorCountingCudaTensorView rhs_view(rhs, rhs_descriptor_count);
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs_view));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs_view));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output_view,
-                                      1.0, lhs_view, rhs_view),
+                                      1.0, lhs_span, rhs_span),
             uni20::linalg::KernelAttempt::success);
   EXPECT_EQ(output_descriptor_count, 1);
   EXPECT_EQ(lhs_descriptor_count, 1);
@@ -981,9 +996,12 @@ TEST_F(CublasExecutionTest, AssignProductLowersEachOperandOnceAfterPreparingOutp
   output_descriptor_count = 0;
   lhs_descriptor_count = 0;
   rhs_descriptor_count = 0;
+  auto task_lhs_span = uni20::device_mdspan_of(std::as_const(lhs_view));
+  auto task_rhs_span = uni20::device_mdspan_of(std::as_const(rhs_view));
 
-  auto task_attempt = uni20::linalg::try_make_kernel_task(
-      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output_view, 1.0, lhs_view, rhs_view);
+  auto task_attempt =
+      uni20::linalg::try_make_kernel_task(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{},
+                                          output_view, 1.0, task_lhs_span, task_rhs_span);
   ASSERT_EQ(task_attempt.attempt(), uni20::linalg::KernelAttempt::success);
   ASSERT_TRUE(task_attempt.has_task());
   EXPECT_EQ(output_descriptor_count, 1);
@@ -1033,9 +1051,9 @@ TEST_F(CublasExecutionTest, TensorGemmDeclinesCrossDeviceOperands)
   uni20::CudaMatrix<double> output(device0, 2, 2);
   uni20::CudaMatrix<double> lhs(device0, 2, 2);
   uni20::CudaMatrix<double> rhs(device1, 2, 2);
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(std::as_const(lhs));
-  auto rhs_span = uni20::detail::tensor_device_mdspan(std::as_const(rhs));
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
+  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0,
                                       lhs_span, rhs_span, 0.0),

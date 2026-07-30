@@ -64,8 +64,8 @@ async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer
   auto& storage = std::get<0>(awaited);
   auto const& input_value = std::get<1>(awaited);
   auto& output_value = prepare_async_copy_output(storage, input_value);
-  auto output_span = tensor_device_mdspan(output_value);
-  auto input_span = tensor_device_mdspan(input_value);
+  auto output_span = device_mdspan_of(output_value);
+  auto input_span = device_mdspan_of(input_value);
   co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_span, input_span);
   co_return;
 }

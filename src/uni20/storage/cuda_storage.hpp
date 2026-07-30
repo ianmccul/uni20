@@ -107,6 +107,23 @@ namespace uni20
 template <class ElementType>
 inline constexpr bool enable_accessor_in_domain<cuda::CudaPointerAccessor<ElementType>, cuda_access_domain> = true;
 
+namespace detail
+{
+
+template <class Descriptor> struct IsCudaBufferView : std::false_type
+{};
+
+template <class ElementType> struct IsCudaBufferView<cuda::CudaBufferView<ElementType>> : std::true_type
+{};
+
+/// \brief CUDA-accessible device mdspan backed by a `CudaBufferView` descriptor.
+template <class Span>
+concept CudaBufferDeviceMdspan = CudaAccessibleDeviceMdspan<Span> && requires {
+  typename std::remove_cvref_t<Span>::data_descriptor_type;
+} && IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
+
+} // namespace detail
+
 } // namespace uni20
 
 namespace uni20::cuda

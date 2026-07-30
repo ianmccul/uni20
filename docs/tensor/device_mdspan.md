@@ -216,12 +216,16 @@ must retain an immediately usable handle.
 
 `DeviceTensorView<T>` is the tensor-level counterpart. A model exposes:
 
-- a normalized device mdspan that uses `device_mdspan()` when supplied and
-  otherwise uses `mdspan()`;
+- multidimensional metadata obtainable through `device_mdspan_of(tensor)`;
 - `backend_selector()`;
 - tensor extents and extent observers.
 
-The normalized result must model `DeviceMdspanLike`.
+`device_mdspan_of(tensor)` calls `tensor.device_mdspan()` when that member is
+available and otherwise calls `tensor.mdspan()`. It does not acquire, copy, or
+transform data. The fallback result is the actual mdspan, not a wrapper:
+`MdspanLike` is already the immediate case of `DeviceMdspanLike`.
+
+The returned result must model `DeviceMdspanLike`.
 `MutableDeviceTensorView<T>` applies the corresponding mutable device-mdspan
 requirement. This gives the direct refinement relationships:
 
@@ -232,8 +236,9 @@ MdspanLike   is an immediate DeviceMdspanLike
 
 The object categories remain distinct: `TensorView` does not itself model
 `MdspanLike`, and `DeviceTensorView` does not itself model
-`DeviceMdspanLike`. The tensor-level object exposes the corresponding
-descriptor through `.mdspan()` or `.device_mdspan()`.
+`DeviceMdspanLike`. `device_mdspan_of(tensor)` retrieves the corresponding
+descriptor without requiring every immediate tensor view to add a redundant
+`device_mdspan()` member.
 
 Rank, stride, and mutability use the same Cartesian naming for immediate and
 device tensor views. Rank-zero convenience concepts are
@@ -280,6 +285,9 @@ In particular, a CUDA device pointer and a host pointer may both be spelled
 The mdspan concepts are:
 
 ```cpp
+uni20::HostAccessibleAccessor<Accessor>
+uni20::CudaAccessibleAccessor<Accessor>
+
 uni20::HostAccessibleMdspan<Span>
 uni20::CudaAccessibleMdspan<Span>
 
@@ -287,7 +295,8 @@ uni20::HostAccessibleDeviceMdspan<Span>
 uni20::CudaAccessibleDeviceMdspan<Span>
 ```
 
-The first pair requires a resolved `MdspanLike`. The second pair also accepts
+The accessor concepts classify accessor policies directly. The first mdspan
+pair requires a resolved `MdspanLike`; the second mdspan pair also accepts
 descriptor-backed `DeviceMdspanLike` metadata targeting that domain.
 `stdex::default_accessor<T>` is host-accessible.
 `uni20::cuda::CudaPointerAccessor<T>` is CUDA-accessible. Const adaptation,
@@ -304,7 +313,9 @@ inline constexpr bool
 ```
 
 This is a semantic declaration about where the accessor may be evaluated. It
-must not be inferred from the handle type.
+must not be inferred from the handle type. An accessor for unified or mapped
+memory may opt into both domains; its adapted forms then inherit both
+registrations.
 
 ### Access-State Lifetime Contract
 
@@ -342,6 +353,10 @@ auto cuda_read =
     co_await uni20::acquire_cuda_read_access(cuda_tensor, stream);
 auto cuda_write =
     co_await uni20::acquire_cuda_write_access(cuda_tensor, stream);
+
+auto descriptor = cuda_tensor.device_mdspan();
+auto cuda_descriptor_write =
+    co_await uni20::acquire_cuda_write_access(descriptor, stream);
 ```
 
 These are constrained overloads, not required members of the data descriptor.
@@ -384,6 +399,23 @@ also accepts an owning tensor rvalue for read acquisition: it captures the
 device-mdspan metadata, moves the `CudaBuffer` into a distinct owning access
 state, and resolves the mdspan against that owned buffer. Non-owning deferred
 views remain lvalue-only.
+
+CUDA buffer descriptors also support direct acquisition. These overloads return
+policy-free `CudaReadMdspanLease` or `CudaWriteMdspanLease` models rather than
+tensor leases:
+
+```cpp
+auto descriptor = std::as_const(tensor).device_mdspan();
+auto lease = uni20::acquire_cuda_read_access_sync(descriptor);
+
+static_assert(uni20::CudaReadMdspanLease<decltype(lease)>);
+static_assert(!uni20::TensorView<decltype(lease)>);
+```
+
+The descriptor and its access state refer to the original `CudaBuffer`; they do
+not take ownership of it. The buffer owner must outlive the descriptor lease.
+The tensor overloads remain useful when the caller needs a lease that models
+`TensorView`, retains backend selection, or consumes an owning tensor rvalue.
 
 ### Host Backend Lowering
 
@@ -509,6 +541,13 @@ Owning a data descriptor does not necessarily own the underlying storage. A
 descriptor-backed view remains subject to the lifetime contract of its
 descriptor implementation.
 
+Operation frontends copy fixed descriptor values before dispatch. That value
+copy retains the mapping, accessor, allocation identity, and element offset
+needed by a backend, but it does not by itself extend storage lifetime. A
+synchronous tensor call keeps its operands alive through the backend walk. An
+async tensor call must retain the applicable epoch storage for as long as a
+copied descriptor or acquired access state refers to it.
+
 Prefetch is likewise descriptor- or storage-specific. It can improve later
 acquisition without changing the `device_mdspan` structural contract.
 
@@ -535,9 +574,12 @@ automatically change its type, state, or constness.
 - `DeviceTensorView` and the lease concepts are structural and do not require
   Uni20's concrete materializations.
 - Ordinary `MdspanLike` values satisfy `DeviceMdspanLike`.
-- A read or write lease models `TensorView`, retains backend selection and the
-  state controlling handle validity through RAII. Read-only storage inspection
-  is optional for read leases; write leases expose no storage observer.
+- Tensor read and write leases model `TensorView`, retain backend selection,
+  and control handle validity through RAII. Read-only storage inspection is
+  optional for tensor read leases; tensor write leases expose no storage
+  observer.
+- Mdspan read and write leases are policy-free and do not model `TensorView`.
+  They expose only the resolved mdspan and the RAII access lifetime.
 - Lease and access-state release is idempotent, and moves transfer the active
   access lifetime while leaving the source inactive.
 - Construction and metadata observation perform no handle acquisition.

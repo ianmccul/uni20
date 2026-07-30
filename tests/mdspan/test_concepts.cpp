@@ -78,6 +78,11 @@ static_assert(std::is_same_v<const_accessor_t<ExpectedConstAccessor>, ExpectedCo
 static_assert(is_default_accessor_v<stdex::default_accessor<int>>);
 static_assert(is_default_accessor_v<stdex::default_accessor<int const>>);
 static_assert(!is_default_accessor_v<MutableAccessor>);
+static_assert(HostAccessibleAccessor<stdex::default_accessor<int>>);
+static_assert(HostAccessibleAccessor<stdex::default_accessor<int const>>);
+static_assert(!CudaAccessibleAccessor<stdex::default_accessor<int>>);
+static_assert(!HostAccessibleAccessor<MutableAccessor>);
+static_assert(!CudaAccessibleAccessor<MutableAccessor>);
 
 TEST(MdspanConcepts, ConstAccessorAdaptorYieldsConstReference)
 {

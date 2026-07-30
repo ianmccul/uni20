@@ -24,19 +24,15 @@ namespace detail::blas_backend
 {
 
 template <class OutputTensor>
-using output_device_mdspan_t =
-    std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
+using output_device_mdspan_t = std::remove_cvref_t<decltype(uni20::device_mdspan_of(std::declval<OutputTensor&>()))>;
 
 template <class OutputTensor>
 using output_mdspan_t = uni20::detail::host_write_mdspan_t<output_device_mdspan_t<OutputTensor>>;
 
-template <class OutputTensor, class LhsTensor, class RhsTensor>
-concept HostGemmTensorAccess =
+template <class OutputTensor, class LhsMdspan, class RhsMdspan>
+concept HostAssignProductAccess =
     uni20::detail::HostWritableDeviceMdspan<output_device_mdspan_t<OutputTensor>> &&
-    uni20::detail::HostReadableDeviceMdspan<
-        std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>> &&
-    uni20::detail::HostReadableDeviceMdspan<
-        std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>>;
+    uni20::detail::HostReadableDeviceMdspan<LhsMdspan> && uni20::detail::HostReadableDeviceMdspan<RhsMdspan>;
 
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
 consteval bool gemm_mdspan_types_compatible()
@@ -49,12 +45,11 @@ consteval bool gemm_mdspan_types_compatible()
   };
 }
 
-template <class OutputTensor, class Scalar, class LhsTensor, class RhsTensor> consteval bool gemm_types_compatible()
+template <class OutputTensor, class Scalar, class LhsMdspan, class RhsMdspan>
+consteval bool assign_product_types_compatible()
 {
-  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
-  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
-  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
-  return gemm_mdspan_types_compatible<output_span, Scalar, lhs_span, rhs_span>();
+  using output_span = std::remove_cvref_t<decltype(uni20::device_mdspan_of(std::declval<OutputTensor&>()))>;
+  return gemm_mdspan_types_compatible<output_span, Scalar, LhsMdspan, RhsMdspan>();
 }
 
 template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, class Scalar,
@@ -163,12 +158,12 @@ KernelAttempt try_kernel(BlasBackend, gemm_op const&, OutputMdspan& output, Scal
 
 /// \brief Report BLAS eligibility for replaceable-output tensor matrix products.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::blas_backend::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+  requires detail::blas_backend::HostAssignProductAccess<OutputTensor, LhsMdspan, RhsMdspan>
 consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&, OutputTensor&, Scalar const&,
-                                    LhsTensor&, RhsTensor&)
+                                    LhsMdspan&, RhsMdspan&)
 {
-  if constexpr (detail::blas_backend::gemm_types_compatible<OutputTensor, Scalar, LhsTensor, RhsTensor>())
+  if constexpr (detail::blas_backend::assign_product_types_compatible<OutputTensor, Scalar, LhsMdspan, RhsMdspan>())
     return kernel_types_maybe;
   else
     return kernel_types_no;
@@ -179,18 +174,16 @@ consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&
 ///          during the BLAS runtime probe. The real output is prepared only
 ///          after every instance, layout, and transform check succeeds.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::blas_backend::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
-KernelAttempt try_kernel(BlasBackend, assign_product_op const&, OutputTensor& output, Scalar alpha,
-                         LhsTensor const& lhs, RhsTensor const& rhs)
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+  requires detail::blas_backend::HostAssignProductAccess<OutputTensor, LhsMdspan, RhsMdspan>
+KernelAttempt try_kernel(BlasBackend, assign_product_op const&, OutputTensor& output, Scalar alpha, LhsMdspan& lhs,
+                         RhsMdspan& rhs)
 {
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  auto const shape = detail::matrix_product_shape(lhs_span, rhs_span);
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
   if (uni20::detail::tensor_extents_equal(output.extents(), shape))
   {
-    auto output_span = uni20::detail::tensor_device_mdspan(output);
-    return detail::blas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, Scalar{});
+    auto output_span = uni20::device_mdspan_of(output);
+    return detail::blas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
   }
 
   if constexpr (!uni20::ResizableTensorOutput<OutputTensor>)
@@ -198,25 +191,24 @@ KernelAttempt try_kernel(BlasBackend, assign_product_op const&, OutputTensor& ou
     return KernelAttempt::unsupported_shape;
   }
 
-  KernelAttempt const probe =
-      detail::blas_backend::probe_assign_product<OutputTensor, Scalar>(shape, lhs_span, rhs_span);
+  KernelAttempt const probe = detail::blas_backend::probe_assign_product<OutputTensor, Scalar>(shape, lhs, rhs);
   if (!kernel_attempt_succeeded(probe)) return probe;
 
   uni20::prepare_output(output, shape);
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  KernelAttempt const attempt = detail::blas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, Scalar{});
+  auto output_span = uni20::device_mdspan_of(output);
+  KernelAttempt const attempt = detail::blas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
   CHECK(kernel_attempt_succeeded(attempt));
   return attempt;
 }
 
 /// \brief Report BLAS eligibility for a deferred Tensor matrix-product output.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::blas_backend::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor>
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+  requires detail::blas_backend::HostAssignProductAccess<OutputTensor, LhsMdspan, RhsMdspan>
 consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&, async::shared_storage<OutputTensor>&,
-                                    Scalar const&, LhsTensor&, RhsTensor&)
+                                    Scalar const&, LhsMdspan&, RhsMdspan&)
 {
-  if constexpr (detail::blas_backend::gemm_types_compatible<OutputTensor, Scalar, LhsTensor, RhsTensor>())
+  if constexpr (detail::blas_backend::assign_product_types_compatible<OutputTensor, Scalar, LhsMdspan, RhsMdspan>())
     return kernel_types_maybe;
   else
     return kernel_types_no;
@@ -224,27 +216,24 @@ consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&
 
 /// \brief Probe BLAS GEMM before constructing or resizing a deferred host output.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
-  requires detail::blas_backend::HostGemmTensorAccess<OutputTensor, LhsTensor, RhsTensor> &&
+          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+  requires detail::blas_backend::HostAssignProductAccess<OutputTensor, LhsMdspan, RhsMdspan> &&
            requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape) {
              uni20::prepare_output(storage, shape);
            }
 KernelAttempt try_kernel(BlasBackend backend, assign_product_op const&,
-                         async::shared_storage<OutputTensor>& output_storage, Scalar alpha, LhsTensor const& lhs,
-                         RhsTensor const& rhs)
+                         async::shared_storage<OutputTensor>& output_storage, Scalar alpha, LhsMdspan& lhs,
+                         RhsMdspan& rhs)
 {
   if (output_storage.constructed()) return try_kernel(backend, assign_product_op{}, *output_storage, alpha, lhs, rhs);
 
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
-  auto const shape = detail::matrix_product_shape(lhs_span, rhs_span);
-  KernelAttempt const probe =
-      detail::blas_backend::probe_assign_product<OutputTensor, Scalar>(shape, lhs_span, rhs_span);
+  auto const shape = detail::matrix_product_shape(lhs, rhs);
+  KernelAttempt const probe = detail::blas_backend::probe_assign_product<OutputTensor, Scalar>(shape, lhs, rhs);
   if (!kernel_attempt_succeeded(probe)) return probe;
 
   auto& output = uni20::prepare_output(output_storage, shape);
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  KernelAttempt const attempt = detail::blas_backend::try_gemm(output_span, alpha, lhs_span, rhs_span, Scalar{});
+  auto output_span = uni20::device_mdspan_of(output);
+  KernelAttempt const attempt = detail::blas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
   CHECK(kernel_attempt_succeeded(attempt));
   return attempt;
 }

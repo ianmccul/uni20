@@ -29,9 +29,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 void gemm(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs,
           Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(lhs);
+  auto rhs_span = uni20::device_mdspan_of(rhs);
   dispatch_kernel(std::forward<BackendSelector>(selector), gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 }
 

@@ -41,9 +41,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 [[nodiscard]] auto normalized_gemm_candidates(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                               LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(lhs);
+  auto rhs_span = uni20::device_mdspan_of(rhs);
   return uni20::linalg::kernel_type_candidates(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                                output_span, alpha, lhs_span, rhs_span, beta);
 }
@@ -53,9 +53,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 [[nodiscard]] auto probe_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                          LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(lhs);
+  auto rhs_span = uni20::device_mdspan_of(rhs);
   return uni20::linalg::probe_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                               output_span, alpha, lhs_span, rhs_span, beta);
 }
@@ -65,9 +65,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 [[nodiscard]] bool try_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                        LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(lhs);
+  auto rhs_span = uni20::device_mdspan_of(rhs);
   return uni20::linalg::try_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                             output_span, alpha, lhs_span, rhs_span, beta);
 }
@@ -77,9 +77,9 @@ template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputT
 void dispatch_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
                               RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::detail::tensor_device_mdspan(output);
-  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
-  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  auto output_span = uni20::device_mdspan_of(output);
+  auto lhs_span = uni20::device_mdspan_of(lhs);
+  auto rhs_span = uni20::device_mdspan_of(rhs);
   uni20::linalg::dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{}, output_span, alpha,
                                  lhs_span, rhs_span, beta);
 }

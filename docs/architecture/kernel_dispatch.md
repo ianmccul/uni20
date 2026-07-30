@@ -67,20 +67,28 @@ mdspan; a deferred `DeviceTensorView` produces descriptor-backed
 same normalized descriptor boundary and does not need a temporary tensor
 facade.
 
+The frontend materializes each fixed descriptor as a local value before the
+backend walk. This copies the mapping, accessor, and data descriptor; it does
+not acquire a handle, migrate data, or extend the lifetime of underlying
+storage. A descriptor may be borrowed, so its source storage must remain alive
+through every backend attempt and any work whose access lease refers to it.
+Async frontends retain the applicable epoch storage while descriptor values are
+held in the coroutine or kernel-task frame.
+
 A replaceable output is not a fixed multidimensional descriptor.
-`assign_product_op{}` therefore remains tensor-level: its synchronous form
-receives a mutable tensor object and its async form may receive an unconstructed
-`shared_storage<Tensor>`. The selected backend chooses and prepares the output,
-then normalizes the resulting fixed descriptor. Its readable tensor inputs may
-also be normalized at the start of that backend attempt.
+`assign_product_op{}` therefore has a heterogeneous dispatch signature. Its
+synchronous output is a mutable tensor object and its async output may be an
+unconstructed `shared_storage<Tensor>`, while its readable fixed inputs are
+normalized before the backend walk. The selected backend chooses and prepares
+the output, then normalizes the resulting fixed descriptor.
 
 Functions that operate directly on resolved mdspans sit below operation dispatch.
 They are provider/library API calls or lower-level Uni20 module interfaces, not
 `xxxx_op{}` dispatch customization points. This separation keeps acquisition,
 execution-domain validation, and accessor lowering inside the selected backend.
 
-Within a replaceable-output backend attempt, normalize each readable input once
-and retain that descriptor. Prepare the output before retaining its writable
+Within a replaceable-output backend attempt, retain the readable descriptors
+received from dispatch. Prepare the output before retaining its writable
 descriptor because preparation may invalidate an earlier descriptor. After
 lowering, invoke the backend's private descriptor or provider implementation
 directly; do not redispatch the resolved operands through another operation-tag

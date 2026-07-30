@@ -555,6 +555,15 @@ template <class Lease>
 concept HostWriteMdspanLease =
     WriteMdspanLease<Lease> && HostAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
 
+/// \brief Read mdspan lease whose resolved accessor is valid in CUDA code.
+template <class Lease>
+concept CudaReadMdspanLease = ReadMdspanLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
+/// \brief Write mdspan lease whose resolved accessor is valid in CUDA code.
+template <class Lease>
+concept CudaWriteMdspanLease =
+    WriteMdspanLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
+
 /// \brief TensorView that owns a move-only read access lifetime.
 /// \details `release()` must be `noexcept` and idempotent. Moving an active
 ///          lease transfers its access lifetime and leaves the source inactive.
@@ -586,17 +595,17 @@ template <class Lease>
 concept CudaWriteTensorLease =
     WriteTensorLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
 
-/// \brief Always-ready awaitable that transfers one tensor access lease.
-template <class Lease> class ready_tensor_access {
+/// \brief Always-ready awaitable that transfers one access lease.
+template <class Lease> class ready_access {
   public:
     using lease_type = Lease;
 
-    explicit ready_tensor_access(lease_type lease) : lease_(std::move(lease)) {}
+    explicit ready_access(lease_type lease) : lease_(std::move(lease)) {}
 
-    ready_tensor_access(ready_tensor_access const&) = delete;
-    ready_tensor_access& operator=(ready_tensor_access const&) = delete;
-    ready_tensor_access(ready_tensor_access&&) = default;
-    ready_tensor_access& operator=(ready_tensor_access&&) = default;
+    ready_access(ready_access const&) = delete;
+    ready_access& operator=(ready_access const&) = delete;
+    ready_access(ready_access&&) = default;
+    ready_access& operator=(ready_access&&) = default;
 
     [[nodiscard]] bool await_ready() const noexcept { return true; }
 
@@ -651,7 +660,7 @@ template <TensorView Tensor>
   requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_read_access_async(Tensor& tensor)
 {
-  return ready_tensor_access{acquire_host_read_access(tensor)};
+  return ready_access{acquire_host_read_access(tensor)};
 }
 
 /// \brief Return an immediately-ready host write acquisition.
@@ -659,7 +668,7 @@ template <MutableTensorView Tensor>
   requires HostAccessibleMdspan<mutable_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_write_access_async(Tensor& tensor)
 {
-  return ready_tensor_access{acquire_host_write_access(tensor)};
+  return ready_access{acquire_host_write_access(tensor)};
 }
 
 namespace detail
