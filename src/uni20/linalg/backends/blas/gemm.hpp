@@ -120,12 +120,8 @@ KernelAttempt probe_assign_product(matrix_product_extents const& shape, LhsMdspa
   }
   else
   {
-    auto lhs_access = acquire_host_read_access(lhs);
-    auto rhs_access = acquire_host_read_access(rhs);
     auto output_span = prepared_output_probe<OutputTensor>(shape);
-    auto lhs_span = lhs_access.mdspan();
-    auto rhs_span = rhs_access.mdspan();
-    return uni20::linalg::blas::probe_gemm<Scalar>(output_span, lhs_span, rhs_span);
+    return uni20::linalg::blas::probe_gemm<Scalar>(output_span, lhs, rhs);
   }
 }
 
@@ -171,8 +167,9 @@ consteval auto kernel_accepts_types(BlasBackend const&, assign_product_op const&
 
 /// \brief Probe and lower a replaceable-output tensor matrix product to BLAS GEMM.
 /// \details A mismatched output is represented by prospective mdspan metadata
-///          during the BLAS runtime probe. The real output is prepared only
-///          after every instance, layout, and transform check succeeds.
+///          during the BLAS runtime probe. Input mappings and accessor state are
+///          inspected without acquiring host access. The real output is prepared
+///          only after every instance, layout, and transform check succeeds.
 template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
           uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
   requires detail::blas_backend::HostAssignProductAccess<OutputTensor, LhsMdspan, RhsMdspan>

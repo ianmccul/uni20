@@ -19,6 +19,17 @@
 namespace uni20::linalg::blas
 {
 
+/// \brief Handle-independent matrix metadata used for BLAS eligibility checks.
+struct MdspanMatrixMetadata
+{
+    blas_int extent0 = 0;
+    blas_int extent1 = 0;
+    /// \brief Mdspan stride orthogonal to the unit-stride axis.
+    blas_int nonunit_stride = 0;
+    int unit_stride_axis = 0;
+    bool needs_conjugation = false;
+};
+
 /// \brief Logical mdspan matrix layout before provider-specific BLAS lowering.
 template <class Scalar, class Handle> struct MdspanMatrixStage
 {
@@ -83,14 +94,10 @@ concept lapack_writable_mdspan =
     uni20::DefaultAccessorMdspanLike<Mdspan>;
 } // namespace detail
 
-/// \brief Build a matrix staging descriptor when direct provider lowering is possible.
+/// \brief Inspect matrix layout and accessor semantics without resolving a data handle.
 template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
-auto try_mdspan_matrix_stage(Mdspan const& span)
-    -> std::optional<MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>>
+auto try_mdspan_matrix_metadata(Mdspan const& span) -> std::optional<MdspanMatrixMetadata>
 {
-  using scalar_type = std::remove_cv_t<typename Mdspan::element_type>;
-  using handle_type = detail::span_data_t<Mdspan>;
-
   auto const& mapping = span.mapping();
   if (!mapping.is_unique())
   {
@@ -137,12 +144,45 @@ auto try_mdspan_matrix_stage(Mdspan const& span)
     return std::nullopt;
   }
 
+  return MdspanMatrixMetadata{.extent0 = extent0,
+                              .extent1 = extent1,
+                              .nonunit_stride = *normalized_stride,
+                              .unit_stride_axis = unit_stride_axis,
+                              .needs_conjugation = mdspan_needs_conjugation_v<Mdspan>};
+}
+
+namespace detail
+{
+/// \brief Attach a matrix data handle or descriptor after metadata validation.
+template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
+auto make_mdspan_matrix_stage(Mdspan const& span, MdspanMatrixMetadata const& metadata)
+    -> MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>
+{
+  using scalar_type = std::remove_cv_t<typename Mdspan::element_type>;
+  using handle_type = detail::span_data_t<Mdspan>;
   return MdspanMatrixStage<scalar_type, handle_type>{.data = detail::span_data(span),
-                                                     .extent0 = extent0,
-                                                     .extent1 = extent1,
-                                                     .nonunit_stride = *normalized_stride,
-                                                     .unit_stride_axis = unit_stride_axis,
-                                                     .needs_conjugation = mdspan_needs_conjugation_v<Mdspan>};
+                                                     .extent0 = metadata.extent0,
+                                                     .extent1 = metadata.extent1,
+                                                     .nonunit_stride = metadata.nonunit_stride,
+                                                     .unit_stride_axis = metadata.unit_stride_axis,
+                                                     .needs_conjugation = metadata.needs_conjugation};
+}
+} // namespace detail
+
+/// \brief Build a matrix staging descriptor when direct provider lowering is possible.
+template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
+auto try_mdspan_matrix_stage(Mdspan const& span)
+    -> std::optional<MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>>
+{
+  auto metadata = try_mdspan_matrix_metadata(span);
+  if (!metadata) return std::nullopt;
+  return detail::make_mdspan_matrix_stage(span, *metadata);
+}
+
+/// \brief Transform from the provider matrix shape to the logical mdspan shape.
+constexpr MatrixTransform storage_transform(MdspanMatrixMetadata const& metadata)
+{
+  return metadata.unit_stride_axis == 0 ? MatrixTransform::normal : MatrixTransform::transpose;
 }
 
 /// \brief Transform from the provider matrix shape to the logical mdspan shape.

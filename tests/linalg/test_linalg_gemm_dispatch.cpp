@@ -947,6 +947,60 @@ TEST(LinalgGemmDispatchTest, CpuReferenceAcquiresHostTensorAccess)
   EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
 }
 
+TEST(LinalgGemmDispatchTest, BlasAssignProductDeclineDoesNotAcquireInputAccess)
+{
+  using host_gemm_test::AccessCounts;
+  using host_gemm_test::DeferredMatrix;
+  using tensor_type = DeferredMatrix::tensor_type;
+
+  tensor_type lhs(2, 0);
+  tensor_type rhs(0, 2);
+  tensor_type output(1, 1);
+  AccessCounts lhs_access;
+  AccessCounts rhs_access;
+  DeferredMatrix deferred_lhs(lhs, lhs_access);
+  DeferredMatrix deferred_rhs(rhs, rhs_access);
+  auto lhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_lhs));
+  auto rhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0, lhs_descriptor,
+                                      rhs_descriptor),
+            KernelAttempt::unsupported_instance);
+  EXPECT_EQ(lhs_access.reads, 0);
+  EXPECT_EQ(rhs_access.reads, 0);
+}
+
+TEST(LinalgGemmDispatchTest, BlasAssignProductAcquiresInputsOnceAfterSuccessfulProbe)
+{
+  using host_gemm_test::AccessCounts;
+  using host_gemm_test::DeferredMatrix;
+  using tensor_type = DeferredMatrix::tensor_type;
+
+  tensor_type lhs(2, 2);
+  tensor_type rhs(2, 2);
+  tensor_type output(1, 1);
+  AccessCounts lhs_access;
+  AccessCounts rhs_access;
+  DeferredMatrix deferred_lhs(lhs, lhs_access);
+  DeferredMatrix deferred_rhs(rhs, rhs_access);
+  fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(rhs, {5.0, 6.0, 7.0, 8.0});
+  auto lhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_lhs));
+  auto rhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0, lhs_descriptor,
+                                      rhs_descriptor),
+            KernelAttempt::success);
+  EXPECT_EQ(lhs_access.reads, 1);
+  EXPECT_EQ(rhs_access.reads, 1);
+  EXPECT_EQ(output.rows(), 2);
+  EXPECT_EQ(output.cols(), 2);
+  EXPECT_DOUBLE_EQ((output[0, 0]), 19.0);
+  EXPECT_DOUBLE_EQ((output[0, 1]), 22.0);
+  EXPECT_DOUBLE_EQ((output[1, 0]), 43.0);
+  EXPECT_DOUBLE_EQ((output[1, 1]), 50.0);
+}
+
 TEST(LinalgGemmDispatchTest, TensorOperandsUseGlobalStoragePolicyOverride)
 {
   using selector_customization_test::Backend;
