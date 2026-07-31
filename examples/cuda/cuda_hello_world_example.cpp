@@ -123,7 +123,7 @@ void append_package_table(presentation::report_builder& report)
       .row("runtime errors", "available", "structured diagnostics through the presentation layer")
       .row("device registry", "available", "validated identities and cached immutable capabilities")
       .row("runtime resources", "available", "scoped global lifetime and canonical per-device resources")
-      .row("Tensor CUDA storage", "available", "opaque device mdspans and cuBLAS GEMM lowering")
+      .row("Tensor CUDA storage", "available", "opaque mdspecs and cuBLAS GEMM lowering")
       .row("CUDA task scheduler", "available", "unified debug and oneTBB host/multi-device schedulers")
       .row("async CUDA GEMM", "planned", "non-blocking resource admission is not yet wired to Tensor GEMM");
 }

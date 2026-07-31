@@ -40,17 +40,17 @@ The corresponding concepts describe rank-zero tensor-level objects:
 
 ```cpp
 template <class T>
+concept ScalarImmediateTensorView = RankedImmediateTensorView<T, 0>;
+
+template <class T>
+concept MutableScalarImmediateTensorView = MutableRankedImmediateTensorView<T, 0>;
+
+template <class T>
 concept ScalarTensorView = RankedTensorView<T, 0>;
 
 template <class T>
-concept MutableScalarTensorView = MutableRankedTensorView<T, 0>;
-
-template <class T>
-concept ScalarDeviceTensorView = RankedDeviceTensorView<T, 0>;
-
-template <class T>
-concept MutableScalarDeviceTensorView =
-    MutableRankedDeviceTensorView<T, 0>;
+concept MutableScalarTensorView =
+    MutableRankedTensorView<T, 0>;
 ```
 
 The `Device` forms also accept descriptor-backed rank-zero tensors whose handle

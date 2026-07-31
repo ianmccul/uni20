@@ -40,8 +40,8 @@ class ErrorModeGuard {
     bool previous_;
 };
 
-static_assert(uni20::TensorView<FixedTensorView>);
-static_assert(uni20::MutableTensorView<FixedTensorView>);
+static_assert(uni20::ImmediateTensorView<FixedTensorView>);
+static_assert(uni20::MutableImmediateTensorView<FixedTensorView>);
 static_assert(!uni20::ResizableTensorOutput<FixedTensorView>);
 static_assert(uni20::ResizableTensorOutput<uni20::DenseMatrix<double>>);
 static_assert(std::same_as<uni20::tensor_element_t<uni20::DenseMatrix<double>>, double>);

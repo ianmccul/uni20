@@ -18,21 +18,21 @@ namespace uni20::linalg
 {
 
 /// \brief Compute a nonsymmetric eigensystem through an explicit selector.
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> RightEigenvectorTensor>
 void nonsymmetric_eigen(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
                         RightEigenvectorTensor&& right_eigenvectors, bool compute_right_vectors)
 {
-  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
-  auto right_eigenvector_descriptor = uni20::device_mdspan_of(right_eigenvectors);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  auto right_eigenvector_descriptor = uni20::mdspec_of(right_eigenvectors);
   dispatch_kernel(std::forward<BackendSelector>(selector),
                   nonsymmetric_eigen_op{.compute_right_vectors = compute_right_vectors}, matrix_descriptor, eigenvalues,
                   right_eigenvector_descriptor);
 }
 
 /// \brief Compute a nonsymmetric eigensystem using tensor storage policy.
-template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> RightEigenvectorTensor>
+template <uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> RightEigenvectorTensor>
 void nonsymmetric_eigen(MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
                         RightEigenvectorTensor&& right_eigenvectors, bool compute_right_vectors)
 {

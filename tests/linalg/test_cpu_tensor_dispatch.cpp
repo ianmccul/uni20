@@ -105,11 +105,11 @@ class NonConvertibleReadVectorView {
     mdspan_type span_;
 };
 
-static_assert(uni20::TensorView<NonConvertibleReadMatrixView>);
-static_assert(uni20::RankedDeviceTensorView<NonConvertibleReadMatrixView, 2>);
+static_assert(uni20::ImmediateTensorView<NonConvertibleReadMatrixView>);
+static_assert(uni20::RankedTensorView<NonConvertibleReadMatrixView, 2>);
 static_assert(std::same_as<uni20::tensor_element_t<NonConvertibleReadMatrixView>, double>);
-static_assert(uni20::TensorView<NonConvertibleReadVectorView>);
-static_assert(uni20::RankedDeviceTensorView<NonConvertibleReadVectorView, 1>);
+static_assert(uni20::ImmediateTensorView<NonConvertibleReadVectorView>);
+static_assert(uni20::RankedTensorView<NonConvertibleReadVectorView, 1>);
 } // namespace
 
 TEST(CpuGemmDispatchTest, NormalizedMdspansAreKernelDispatchOperands)
@@ -133,9 +133,9 @@ TEST(CpuGemmDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
   NonConvertibleReadMatrixView lhs(lhs_storage.data(), 2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
 
-  auto output_span = uni20::device_mdspan_of(output);
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto output_span = uni20::mdspec_of(output);
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
   auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemm_op{}, output_span, 1.0, lhs_span, rhs_span, 0.0);
 
@@ -147,8 +147,8 @@ TEST(CpuAssignProductDispatchTest, RetainsTensorOutputAndNormalizesFixedInputs)
   uni20::DenseMatrix<double> output(2, 2);
   uni20::DenseMatrix<double> lhs(2, 2);
   uni20::DenseMatrix<double> rhs(2, 2);
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{},
                                                  uni20::linalg::assign_product_op{}, output, 1.0, lhs_span, rhs_span),
@@ -179,9 +179,9 @@ TEST(CpuGemvDispatchTest, DescriptorProbeRejectsIncompatibleResolvedMdspan)
   std::array<double, 2> input_storage{};
   NonConvertibleReadVectorView input(input_storage.data(), 2);
 
-  auto output_span = uni20::device_mdspan_of(output);
-  auto matrix_span = uni20::device_mdspan_of(std::as_const(matrix));
-  auto input_span = uni20::device_mdspan_of(std::as_const(input));
+  auto output_span = uni20::mdspec_of(output);
+  auto matrix_span = uni20::mdspec_of(std::as_const(matrix));
+  auto input_span = uni20::mdspec_of(std::as_const(input));
   auto const descriptor_acceptance = uni20::linalg::probe_dispatch_kernel(
       uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output_span, 1.0, matrix_span, input_span, 0.0);
 

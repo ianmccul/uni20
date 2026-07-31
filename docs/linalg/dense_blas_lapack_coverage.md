@@ -18,7 +18,7 @@ backends.
 CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM` has a
 checked provider wrapper and a Tensor-facing `CublasBackend`. Ordinary
 async `gemm`, `assign_product`, and `add_product` resolve `CudaTensor` operands
-through their deferred `device_mdspan()` descriptors. Their `CudaTask` awaits a
+through their deferred `mdspec()` descriptors. Their `CudaTask` awaits a
 provider-handle/stream execution lease from the device resource set before
 invoking the prepared provider leaf. Ordinary direct Tensor GEMM stages the
 same BLAS-compatible layouts and blocks for resource admission. Both paths open

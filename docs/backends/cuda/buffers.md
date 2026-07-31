@@ -59,7 +59,7 @@ uni20::CudaTensor<float, 2> matrix(32, 48);
 ```
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
-metadata. Its unresolved device mdspan contains a non-owning
+metadata. Its unresolved mdspec contains a non-owning
 `cuda::CudaBufferView<float>` descriptor with buffer identity and an element
 offset; it provides no indexed access. A CUDA operation must lower the view
 through `read_synchronized_with(stream)` or

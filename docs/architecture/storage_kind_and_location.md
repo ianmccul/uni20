@@ -51,7 +51,7 @@ So: kind is a type, location is a value.
   `CudaStorage` is the current device-resident policy. Other memory kinds
   should use the same type-level mechanism rather than becoming runtime tags.
 - **CUDA Tensor placement is implemented for owning dense tensors.**
-  `CudaStorage` owns a typed `CudaBuffer`, while `CudaTensor::device_mdspan()`
+  `CudaStorage` owns a typed `CudaBuffer`, while `CudaTensor::mdspec()`
   carries a `CudaBufferView` descriptor, mapping, and eventual pointer accessor.
   The descriptor identifies the buffer and element offset without exposing a
   usable data handle. The buffer resolves its device through the

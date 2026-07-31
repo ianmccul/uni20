@@ -9,7 +9,7 @@
 #include <uni20/core/compiler_attributes.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/mdspan/concepts.hpp>
-#include <uni20/mdspan/device_mdspan.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -124,7 +124,7 @@ template <MdspanLike Span>
 }
 
 /// \brief Return a read-only deferred view that presents conjugated complex values.
-template <DeviceMdspanLike Span>
+template <MdspecLike Span>
   requires(!MdspanLike<Span> && uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
            !accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
 [[nodiscard]] constexpr auto conj(Span const& span)
@@ -136,7 +136,7 @@ template <DeviceMdspanLike Span>
   using element_type = typename accessor_type::element_type;
   using descriptor_type = typename Span::data_descriptor_type;
 
-  return device_mdspan<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
       span.data_descriptor(), span.mapping(), std::move(accessor)};
 }
 
@@ -157,7 +157,7 @@ template <MdspanLike Span>
 }
 
 /// \brief Cancel conjugation on a deferred multidimensional view.
-template <DeviceMdspanLike Span>
+template <MdspecLike Span>
   requires(!MdspanLike<Span> && uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
            accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
 [[nodiscard]] constexpr auto conj(Span const& span)
@@ -169,7 +169,7 @@ template <DeviceMdspanLike Span>
   using element_type = typename accessor_type::element_type;
   using descriptor_type = typename Span::data_descriptor_type;
 
-  return device_mdspan<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
       span.data_descriptor(), span.mapping(), std::move(accessor)};
 }
 
@@ -189,7 +189,7 @@ template <MdspanLike Span>
 }
 
 /// \brief Return a read-only identity view for a non-complex deferred view.
-template <DeviceMdspanLike Span>
+template <MdspecLike Span>
   requires(!MdspanLike<Span> && !uni20::Complex<std::remove_cv_t<typename Span::element_type>>)
 [[nodiscard]] constexpr auto conj(Span const& span)
 {
@@ -200,7 +200,7 @@ template <DeviceMdspanLike Span>
   using element_type = typename accessor_type::element_type;
   using descriptor_type = typename Span::data_descriptor_type;
 
-  return device_mdspan<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
       span.data_descriptor(), span.mapping(), std::move(accessor)};
 }
 

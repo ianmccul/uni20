@@ -32,8 +32,8 @@ concept CopySpans = MutableMdspanLike<Output> && MdspanLike<Input> &&
                     (std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Input>::rank());
 
 template <class Output, class Input>
-concept CopyTensors = MutableDeviceTensorView<Output> && DeviceTensorView<Input> &&
-                      (device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Input>::rank());
+concept CopyTensors = MutableTensorView<Output> && TensorView<Input> &&
+                      (tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Input>::rank());
 
 #if UNI20_BACKEND_CUDA
 template <class Output, class Input>
@@ -43,7 +43,7 @@ inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_p
                                                    std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
 #endif
 
-template <DeviceMdspanLike Output, DeviceMdspanLike Input>
+template <MdspecLike Output, MdspecLike Input>
 [[nodiscard]] constexpr bool copy_extents_match(Output const& output, Input const& input) noexcept
 {
   if constexpr (std::remove_cvref_t<Output>::rank() != std::remove_cvref_t<Input>::rank())
@@ -90,8 +90,8 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
   prepare_output(output, input.extents());
-  auto output_span = device_mdspan_of(output);
-  auto input_span = device_mdspan_of(input);
+  auto output_span = mdspec_of(output);
+  auto input_span = mdspec_of(input);
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_span, input_span);
 }
 
@@ -116,8 +116,8 @@ void copy(OutputTensor&& output, InputTensor const& input)
 /// \brief Assign tensor values through a mutable tensor alias descriptor.
 /// \details Async alias assignment discovers this function through ADL. The
 ///          descriptor itself remains unchanged while `copy` writes its values.
-template <MutableDeviceTensorView Output, DeviceTensorView Input>
-  requires(device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Input>::rank())
+template <MutableTensorView Output, TensorView Input>
+  requires(tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Input>::rank())
 void assign_through(Output& output, Input const& input)
 {
   copy(output, input);

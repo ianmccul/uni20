@@ -149,8 +149,8 @@ TEST(MatrixProductTest, BlasLayoutDeclineLeavesWrongShapedOutputForCpuFallback)
   fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(rhs, {1.0, 0.0, 0.0, 1.0});
   output[0, 0] = -7.0;
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
                                       lhs_span, rhs_span),
@@ -175,8 +175,8 @@ TEST(MatrixProductTest, BlasLayoutDeclineLeavesDeferredOutputUnconstructed)
   strided_matrix lhs(strided_matrix::extents_type{2, 2}, std::array<uni20::index_type, 2>{2, 5});
   output_matrix rhs(2, 2);
   auto output = uni20::async::make_unconstructed_shared_storage<output_matrix>();
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
                                       lhs_span, rhs_span),
@@ -190,8 +190,8 @@ TEST(MatrixProductTest, BlasEmptyInnerDeclineLeavesWrongShapedOutputUntouched)
   uni20::DenseMatrix<double> rhs(0, 3);
   uni20::DenseMatrix<double> output(1, 1);
   output[0, 0] = -7.0;
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(lhs));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
                                       lhs_span, rhs_span),
@@ -211,8 +211,8 @@ TEST(MatrixProductTest, BlasTransformDeclineLeavesWrongShapedOutputUntouched)
   rhs[0, 0] = scalar_type{3.0, 1.0};
   fill_matrix(output, {scalar_type{-7.0}, scalar_type{-7.0}, scalar_type{-7.0}, scalar_type{-7.0}});
   auto conjugated = uni20::conj(lhs);
-  auto lhs_span = uni20::device_mdspan_of(std::as_const(conjugated));
-  auto rhs_span = uni20::device_mdspan_of(std::as_const(rhs));
+  auto lhs_span = uni20::mdspec_of(std::as_const(conjugated));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output,
                                       scalar_type{1.0}, lhs_span, rhs_span),

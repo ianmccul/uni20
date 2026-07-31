@@ -95,12 +95,12 @@ template <class Mdspan> KernelAttempt conjugate(Mdspan& span)
 }
 } // namespace detail::cpu_reference
 
-/// \brief Report eligibility for host-accessible device-mdspan in-place conjugation.
-template <uni20::MutableDeviceMdspanLike Mdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<Mdspan>
+/// \brief Report eligibility for host-accessible mdspec in-place conjugation.
+template <uni20::MutableMdspecLike Mdspan>
+  requires uni20::HostWritableMdspec<Mdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplace_op const&, Mdspan&)
 {
-  using span_type = uni20::detail::host_write_mdspan_t<Mdspan>;
+  using span_type = uni20::host_write_mdspan_t<Mdspan>;
   constexpr auto acceptance = detail::cpu_reference::conjugate_acceptance<span_type>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -109,8 +109,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, conjugate_inplac
 }
 
 /// \brief Resolve host access and conjugate every element.
-template <uni20::MutableDeviceMdspanLike Mdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<Mdspan>
+template <uni20::MutableMdspecLike Mdspan>
+  requires uni20::HostWritableMdspec<Mdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, conjugate_inplace_op const&, Mdspan& mdspan)
 {
   auto access = acquire_host_write_access(mdspan);

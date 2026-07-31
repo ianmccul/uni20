@@ -269,14 +269,15 @@ distributed-or-replicated", not `is_distributed` on every operand.
 
 **Async is a layer, not a storage kind.** An `Async<T>` operation wraps a value:
 it submits a coroutine to a scheduler, `co_await`s the data being ready, and
-forwards the operation to the synchronous `T`. A `TensorView` has no async-ness —
-async dense data is `Async<TensorView>` or similar — so whether per-block data
-sits behind async handles is the container policy's decision (the `AsyncArray`
-facet in `../architecture/kernel_dispatch.md`). The CUDA and MPI paths likewise decide for
-themselves whether to use a scheduler: the expected CUDA path goes through a
-dedicated CUDA scheduler, but a basically-synchronous default-stream CUDA backend
-is also legitimate, and the two can coexist as separate backends over the same
-layer-1 kernels.
+forwards the operation to the synchronous `T`. A `TensorView` has no
+async-ness: async dense data is an `Async<Tensor>` or a similar owner-level
+composition. Whether per-block data sits behind async handles is the container
+policy's decision (the `AsyncArray` facet in
+`../architecture/kernel_dispatch.md`). The CUDA and MPI paths likewise decide
+for themselves whether to use a scheduler: the expected CUDA path goes through
+a dedicated CUDA scheduler, but a basically-synchronous default-stream CUDA
+backend is also legitimate, and the two can coexist as separate backends over
+the same layer-1 kernels.
 
 Distribution is never a *leaf* storage kind: a dense tensor striped over MPI ranks
 is conceivable but off-roadmap — dense blocks are sized to be resident on one node.

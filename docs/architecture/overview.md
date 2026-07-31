@@ -92,7 +92,7 @@ operations share one kernel path:
 Tensor front end
   -> output shape, ownership, and storage policy
   -> backend selector
-  -> fixed-operand DeviceMdspanLike normalization
+  -> fixed-operand MdspecLike normalization
   -> operation-tag dispatch over normalized descriptors
   -> selected CPU, BLAS, LAPACK, or CUDA backend
   -> execution-domain mdspan lowering
@@ -109,7 +109,7 @@ than a private dense backend.
 
 ## Important Boundaries
 
-- Fixed-output operation-tag dispatch receives normalized device mdspans. The
+- Fixed-output operation-tag dispatch receives normalized mdspecs. The
   selected backend owns execution-domain acquisition and resolved-mdspan
   lowering. Replaceable outputs remain tensor or shared-storage objects until
   a backend prepares them.

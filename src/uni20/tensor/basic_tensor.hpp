@@ -10,8 +10,8 @@
 #include "layout.hpp"
 
 #include <uni20/common/trace.hpp>
-#include <uni20/mdspan/device_mdspan.hpp>
 #include <uni20/mdspan/mdspan.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/copy_into.hpp>
 
@@ -194,10 +194,10 @@ class Tensor {
     ///          through the ordinary backend-dispatch path.
     /// \tparam InputTensor Readable tensor-level source with matching static rank.
     /// \param input Source tensor view whose values are materialized.
-    template <DeviceTensorView InputTensor>
-      requires(device_tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
+    template <TensorView InputTensor>
+      requires(tensor_mdspec_t<InputTensor>::rank() == extents_type::rank() &&
                std::default_initializable<accessor_factory_type> && detail::DefaultTensorStorage<storage_type>)
-    explicit Tensor(InputTensor const& input) : Tensor(detail::convert_tensor_extents<extents_type>(input.extents()))
+    explicit Tensor(InputTensor const& input) : Tensor(convert_tensor_extents<extents_type>(input.extents()))
     {
       copy(*this, input);
     }
@@ -433,8 +433,8 @@ class Tensor {
 
     /// \brief Return mutable mdspan metadata for explicit data-handle acquisition.
     /// \details Immediate storage returns the ordinary mdspan. Descriptor-backed
-    ///          storage returns `device_mdspan` without acquiring its handle.
-    [[nodiscard]] auto device_mdspan() noexcept
+    ///          storage returns `mdspec` without acquiring its handle.
+    [[nodiscard]] auto mdspec() noexcept
       requires(immediately_writable || deferred_writable)
     {
       if constexpr (immediately_writable)
@@ -445,15 +445,15 @@ class Tensor {
       {
         using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
         using span_type =
-            uni20::device_mdspan<element_type, extents_type, layout_policy, device_accessor_type, descriptor_type>;
+            uni20::mdspec<element_type, extents_type, layout_policy, device_accessor_type, descriptor_type>;
         return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
       }
     }
 
     /// \brief Return read-only mdspan metadata for explicit data-handle acquisition.
     /// \details Immediate storage returns the ordinary const mdspan. Descriptor-backed
-    ///          storage returns `device_mdspan` without acquiring its handle.
-    [[nodiscard]] auto device_mdspan() const noexcept
+    ///          storage returns `mdspec` without acquiring its handle.
+    [[nodiscard]] auto mdspec() const noexcept
       requires(immediately_readable || deferred_readable)
     {
       if constexpr (immediately_readable)
@@ -463,8 +463,8 @@ class Tensor {
       else
       {
         using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
-        using span_type = uni20::device_mdspan<element_type const, extents_type, layout_policy,
-                                               const_device_accessor_type, descriptor_type>;
+        using span_type =
+            uni20::mdspec<element_type const, extents_type, layout_policy, const_device_accessor_type, descriptor_type>;
         return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
       }
     }
@@ -512,7 +512,7 @@ class Tensor {
       return accessor_factory_.template make_accessor<element_type const>(data_);
     }
 
-    /// \brief Construct the accessor stored in a mutable device mdspan.
+    /// \brief Construct the accessor stored in a mutable mdspec.
     [[nodiscard]] auto device_accessor() noexcept -> device_accessor_type
     {
       if constexpr (requires { accessor_factory_.template make_device_accessor<element_type>(data_); })
@@ -521,7 +521,7 @@ class Tensor {
         return this->accessor();
     }
 
-    /// \brief Construct the accessor stored in a read-only device mdspan.
+    /// \brief Construct the accessor stored in a read-only mdspec.
     [[nodiscard]] auto device_accessor() const noexcept -> const_device_accessor_type
     {
       if constexpr (requires { accessor_factory_.template make_device_accessor<element_type const>(data_); })
@@ -738,10 +738,10 @@ inline constexpr bool
 /// \brief Deduce a runtime-extents host tensor that materializes a tensor view.
 /// \details Canonical source layout is preserved. Sources without canonical
 ///          physical layout deduce the default column-major layout.
-template <DeviceTensorView InputTensor>
+template <TensorView InputTensor>
 Tensor(InputTensor const&)
-    -> Tensor<tensor_element_t<InputTensor>, device_tensor_mdspan_t<InputTensor>::rank(), VectorStorage,
-              detail::materialized_layout_t<void, device_tensor_mdspan_t<InputTensor>>, DefaultAccessorFactory>;
+    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspec_t<InputTensor>::rank(), VectorStorage,
+              detail::materialized_layout_t<void, tensor_mdspec_t<InputTensor>>, DefaultAccessorFactory>;
 
 /// \brief Configurable owning tensor with an explicit mdspan extents type.
 /// \ingroup tensor

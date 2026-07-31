@@ -71,14 +71,14 @@ inline constexpr bool is_cuda_buffer_view_for = IsCudaBufferViewFor<std::remove_
 
 template <class Mdspan, class Scalar>
 concept readable_cuda_mdspan_for =
-    uni20::RankedStridedDeviceMdspanLike<Mdspan, 2> &&
+    uni20::RankedStridedMdspecLike<Mdspan, 2> &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>, Scalar> &&
     cuda_accessor_for<typename std::remove_cvref_t<Mdspan>::accessor_type, Scalar> &&
     is_cuda_buffer_view_for<blas::detail::span_data_t<Mdspan>, Scalar>;
 
 template <class Mdspan, class Scalar>
 concept writable_cuda_mdspan_for =
-    uni20::MutableRankedStridedDeviceMdspanLike<Mdspan, 2> &&
+    uni20::MutableRankedStridedMdspecLike<Mdspan, 2> &&
     std::same_as<typename std::remove_cvref_t<Mdspan>::element_type, Scalar> &&
     std::same_as<typename std::remove_cvref_t<Mdspan>::accessor_type, uni20::cuda::CudaPointerAccessor<Scalar>> &&
     is_cuda_buffer_view_for<blas::detail::span_data_t<Mdspan>, Scalar>;

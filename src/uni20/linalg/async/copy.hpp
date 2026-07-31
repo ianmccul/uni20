@@ -30,21 +30,20 @@ template <class Tensor>
 concept OwningCudaTensor = OwningTensor<Tensor> && std::same_as<tensor_storage_policy_t<Tensor>, CudaStorage>;
 
 template <class Tensor>
-concept CudaCopyInputTensor = DeviceTensorView<Tensor> && CudaBufferDeviceMdspan<device_tensor_mdspan_t<Tensor>>;
+concept CudaCopyInputTensor = TensorView<Tensor> && cuda::BufferMdspec<tensor_mdspec_t<Tensor>>;
 
 template <class OutputTensor, class InputTensor>
-concept AsyncCudaCopyTensors =
-    OwningCudaTensor<OutputTensor> && CudaCopyInputTensor<InputTensor> &&
-    (device_tensor_mdspan_t<OutputTensor>::rank() == device_tensor_mdspan_t<InputTensor>::rank()) &&
-    std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>;
+concept AsyncCudaCopyTensors = OwningCudaTensor<OutputTensor> && CudaCopyInputTensor<InputTensor> &&
+                               (tensor_mdspec_t<OutputTensor>::rank() == tensor_mdspec_t<InputTensor>::rank()) &&
+                               std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>;
 
-template <CudaBufferDeviceMdspan InputMdspan>
+template <cuda::BufferMdspec InputMdspan>
 [[nodiscard]] cuda::DeviceResources& cuda_copy_resources(InputMdspan const& input)
 {
   return input.data_descriptor().buffer().resources();
 }
 
-template <OwningCudaTensor OutputTensor, CudaBufferDeviceMdspan InputMdspan>
+template <OwningCudaTensor OutputTensor, cuda::BufferMdspec InputMdspan>
 [[nodiscard]] OutputTensor& prepare_async_copy_output(async::shared_storage<OutputTensor>& storage,
                                                       InputMdspan const& input)
 {
@@ -67,9 +66,9 @@ async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer
   auto awaited = co_await async::all(output_storage, input);
   auto& storage = std::get<0>(awaited);
   auto const& input_value = std::get<1>(awaited);
-  auto input_span = device_mdspan_of(input_value);
+  auto input_span = mdspec_of(input_value);
   auto& output_value = prepare_async_copy_output(storage, input_span);
-  auto output_span = device_mdspan_of(output_value);
+  auto output_span = mdspec_of(output_value);
   co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_span, input_span);
   co_return;
 }

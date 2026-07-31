@@ -38,21 +38,21 @@ void fill_complex_matrix(uni20::DenseMatrix<complex_type, uni20::RowMajor>& matr
   matrix[1, 1] = complex_type{7.0, 8.0};
 }
 
-struct DeviceMdspanOnlyCopyBackend
+struct MdspecOnlyCopyBackend
 {
-    static constexpr std::string_view name = "device_mdspan_only_copy";
+    static constexpr std::string_view name = "mdspec_only_copy";
     bool* called;
 };
 
-template <uni20::MutableDeviceMdspanLike Output, uni20::DeviceMdspanLike Input>
-consteval auto kernel_accepts_types(DeviceMdspanOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
+template <uni20::MutableMdspecLike Output, uni20::MdspecLike Input>
+consteval auto kernel_accepts_types(MdspecOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
 {
   return uni20::linalg::kernel_types_yes;
 }
 
-template <uni20::MutableDeviceMdspanLike Output, uni20::DeviceMdspanLike Input>
-uni20::linalg::KernelAttempt try_kernel(DeviceMdspanOnlyCopyBackend const& backend, uni20::linalg::copy_op const&,
-                                        Output&, Input&)
+template <uni20::MutableMdspecLike Output, uni20::MdspecLike Input>
+uni20::linalg::KernelAttempt try_kernel(MdspecOnlyCopyBackend const& backend, uni20::linalg::copy_op const&, Output&,
+                                        Input&)
 {
   *backend.called = true;
   return uni20::linalg::KernelAttempt::success;
@@ -131,7 +131,7 @@ TEST(TensorCopyTest, MakeTensorAcceptsExplicitLayoutAndBareMdspanSelector)
   EXPECT_EQ(result.mapping().stride(1), 2);
 }
 
-TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedDeviceMdspans)
+TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedMdspecs)
 {
   uni20::Tensor<double, 1> input(3);
   uni20::Tensor<double, 1> output(3);
@@ -143,7 +143,7 @@ TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedDeviceMdspans)
                                                  output_span, input_span),
             uni20::linalg::KernelTypeAcceptance::no);
 
-  uni20::copy(DeviceMdspanOnlyCopyBackend{.called = &called}, output_span, input_span);
+  uni20::copy(MdspecOnlyCopyBackend{.called = &called}, output_span, input_span);
 
   EXPECT_TRUE(called);
 }

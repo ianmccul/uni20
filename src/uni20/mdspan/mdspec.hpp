@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * \file device_mdspan.hpp
+ * \file mdspec.hpp
  * \ingroup mdspan_ext
  * \brief Mdspan-shaped metadata for storage whose data handle requires acquisition.
  */
@@ -28,7 +28,7 @@ namespace uni20
 /// \tparam DataDescriptor Descriptor identifying the region from which a handle can be acquired.
 template <class ElementType, class Extents, class LayoutPolicy, AccessorPolicy Accessor, class DataDescriptor>
   requires std::same_as<ElementType, typename Accessor::element_type>
-class device_mdspan {
+class mdspec {
   public:
     using element_type = ElementType;
     using value_type = std::remove_cv_t<element_type>;
@@ -47,7 +47,7 @@ class device_mdspan {
     /// \param descriptor Descriptor used by later access acquisition.
     /// \param mapping Mapping installed in the eventual mdspan.
     /// \param accessor Accessor installed in the eventual mdspan.
-    constexpr explicit device_mdspan(data_descriptor_type descriptor, mapping_type mapping, accessor_type accessor)
+    constexpr explicit mdspec(data_descriptor_type descriptor, mapping_type mapping, accessor_type accessor)
         : descriptor_(std::move(descriptor)), mapping_(std::move(mapping)), accessor_(std::move(accessor))
     {}
 

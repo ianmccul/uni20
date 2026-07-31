@@ -296,17 +296,16 @@ KernelAttempt try_schur_reorder(schur_reorder_op const& op, SchurFormMdspan& sch
 }
 } // namespace lapack_detail
 
-/// \brief Report eligibility for host-accessible device-mdspan Schur decomposition.
-template <class Operation, uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedStridedDeviceMdspanLike<2> SchurVectorMdspan>
+/// \brief Report eligibility for host-accessible mdspec Schur decomposition.
+template <class Operation, uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspecLike<2> SchurVectorMdspan>
   requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
-          uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
-          uni20::detail::HostWritableDeviceMdspan<SchurVectorMdspan>
+          uni20::HostWritableMdspec<MatrixMdspan> && uni20::HostWritableMdspec<SchurVectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, MatrixMdspan&, std::span<EigenScalar>&,
                                     SchurVectorMdspan&)
 {
-  using matrix_span = uni20::detail::host_write_mdspan_t<MatrixMdspan>;
-  using vector_span = uni20::detail::host_write_mdspan_t<SchurVectorMdspan>;
+  using matrix_span = uni20::host_write_mdspan_t<MatrixMdspan>;
+  using vector_span = uni20::host_write_mdspan_t<SchurVectorMdspan>;
   constexpr auto acceptance = [] {
     if constexpr (std::same_as<Operation, schur_op>)
       return lapack_detail::schur_acceptance<matrix_span, EigenScalar, vector_span>();
@@ -320,15 +319,14 @@ consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Matr
 }
 
 /// \brief Resolve host access and run a LAPACK Schur decomposition.
-template <class Operation, uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedStridedDeviceMdspanLike<2> SchurVectorMdspan>
+template <class Operation, uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedStridedMdspecLike<2> SchurVectorMdspan>
   requires(std::same_as<Operation, schur_op> || std::same_as<Operation, hessenberg_schur_op>) &&
-          uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
-          uni20::detail::HostWritableDeviceMdspan<SchurVectorMdspan>
+          uni20::HostWritableMdspec<MatrixMdspan> && uni20::HostWritableMdspec<SchurVectorMdspan>
 KernelAttempt try_kernel(LapackBackend, Operation const& operation, MatrixMdspan& matrix_work,
                          std::span<EigenScalar> eigenvalues, SchurVectorMdspan& schur_vectors)
 {
-  return uni20::detail::with_host_write_mdspans(
+  return uni20::with_host_write_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         if constexpr (std::same_as<Operation, schur_op>)
           return lapack_detail::try_schur(operation, matrix_span, eigenvalues, vector_span);
@@ -338,15 +336,14 @@ KernelAttempt try_kernel(LapackBackend, Operation const& operation, MatrixMdspan
       matrix_work, schur_vectors);
 }
 
-/// \brief Report eligibility for host-accessible device-mdspan Schur reordering.
-template <uni20::MutableRankedStridedDeviceMdspanLike<2> SchurFormMdspan,
-          uni20::MutableRankedStridedDeviceMdspanLike<2> SchurVectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SchurFormMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<SchurVectorMdspan>
+/// \brief Report eligibility for host-accessible mdspec Schur reordering.
+template <uni20::MutableRankedStridedMdspecLike<2> SchurFormMdspan,
+          uni20::MutableRankedStridedMdspecLike<2> SchurVectorMdspan>
+  requires uni20::HostWritableMdspec<SchurFormMdspan> && uni20::HostWritableMdspec<SchurVectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const&, SchurFormMdspan&, SchurVectorMdspan&)
 {
-  using form_span = uni20::detail::host_write_mdspan_t<SchurFormMdspan>;
-  using vector_span = uni20::detail::host_write_mdspan_t<SchurVectorMdspan>;
+  using form_span = uni20::host_write_mdspan_t<SchurFormMdspan>;
+  using vector_span = uni20::host_write_mdspan_t<SchurVectorMdspan>;
   constexpr auto acceptance = lapack_detail::schur_reorder_acceptance<form_span, vector_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
@@ -355,14 +352,13 @@ consteval auto kernel_accepts_types(LapackBackend const&, schur_reorder_op const
 }
 
 /// \brief Resolve host access and run LAPACK Schur reordering.
-template <uni20::MutableRankedStridedDeviceMdspanLike<2> SchurFormMdspan,
-          uni20::MutableRankedStridedDeviceMdspanLike<2> SchurVectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SchurFormMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<SchurVectorMdspan>
+template <uni20::MutableRankedStridedMdspecLike<2> SchurFormMdspan,
+          uni20::MutableRankedStridedMdspecLike<2> SchurVectorMdspan>
+  requires uni20::HostWritableMdspec<SchurFormMdspan> && uni20::HostWritableMdspec<SchurVectorMdspan>
 KernelAttempt try_kernel(LapackBackend, schur_reorder_op const& operation, SchurFormMdspan& schur_form,
                          SchurVectorMdspan& schur_vectors)
 {
-  return uni20::detail::with_host_write_mdspans(
+  return uni20::with_host_write_mdspans(
       [&](auto& form_span, auto& vector_span) {
         return lapack_detail::try_schur_reorder(operation, form_span, vector_span);
       },

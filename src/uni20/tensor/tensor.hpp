@@ -61,7 +61,7 @@ using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
 /// \brief Owning runtime-extents Tensor in CUDA device storage.
 /// \details Ordinary construction uses the installed CUDA runtime's default
 ///          device. Passing an explicit `cuda::DeviceResources` selects a
-///          particular resource set. `device_mdspan()` exposes a
+///          particular resource set. `mdspec()` exposes a
 ///          `cuda::CudaBufferView` descriptor, mapping, and eventual pointer
 ///          accessor. It does not resolve a usable data handle or perform
 ///          host/device transfer.

@@ -95,7 +95,7 @@ concept lapack_writable_mdspan =
 } // namespace detail
 
 /// \brief Inspect matrix layout and accessor semantics without resolving a data handle.
-template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
+template <uni20::RankedStridedMdspecLike<2> Mdspan>
 auto try_mdspan_matrix_metadata(Mdspan const& span) -> std::optional<MdspanMatrixMetadata>
 {
   auto const& mapping = span.mapping();
@@ -154,7 +154,7 @@ auto try_mdspan_matrix_metadata(Mdspan const& span) -> std::optional<MdspanMatri
 namespace detail
 {
 /// \brief Attach a matrix data handle or descriptor after metadata validation.
-template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
+template <uni20::RankedStridedMdspecLike<2> Mdspan>
 auto make_mdspan_matrix_stage(Mdspan const& span, MdspanMatrixMetadata const& metadata)
     -> MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>
 {
@@ -170,7 +170,7 @@ auto make_mdspan_matrix_stage(Mdspan const& span, MdspanMatrixMetadata const& me
 } // namespace detail
 
 /// \brief Build a matrix staging descriptor when direct provider lowering is possible.
-template <uni20::RankedStridedDeviceMdspanLike<2> Mdspan>
+template <uni20::RankedStridedMdspecLike<2> Mdspan>
 auto try_mdspan_matrix_stage(Mdspan const& span)
     -> std::optional<MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>>
 {
@@ -194,8 +194,8 @@ constexpr MatrixTransform storage_transform(MdspanMatrixStage<Scalar, Handle> co
 
 /// \brief Return the provider-ready writable operand for a staged mdspan matrix.
 template <class Scalar, class Handle>
-constexpr auto
-blas_writable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasWritableMatrix<Scalar, Handle>
+constexpr auto blas_writable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage)
+    -> BlasWritableMatrix<Scalar, Handle>
 {
   if (stage.unit_stride_axis == 0)
   {
@@ -207,8 +207,8 @@ blas_writable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasWrit
 
 /// \brief Return the provider-ready readable operand for a staged mdspan matrix.
 template <class Scalar, class Handle>
-constexpr auto
-blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasReadableMatrix<Scalar, Handle>
+constexpr auto blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage)
+    -> BlasReadableMatrix<Scalar, Handle>
 {
   MatrixTransform transform = storage_transform(stage);
   if (stage.needs_conjugation)
@@ -227,9 +227,8 @@ blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasRead
 /// \brief Try to lower a mutable mdspan directly to a writable provider operand.
 template <class Mdspan>
   requires detail::blas_writable_mdspan<Mdspan, 2>
-auto try_blas_writable_matrix(Mdspan const& span)
-    -> std::optional<
-        BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
+auto try_blas_writable_matrix(Mdspan const& span) -> std::optional<
+    BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
 {
   auto stage = try_mdspan_matrix_stage(span);
   if (!stage)
@@ -242,9 +241,8 @@ auto try_blas_writable_matrix(Mdspan const& span)
 /// \brief Try to lower an mdspan directly to a readable provider operand.
 template <class Mdspan>
   requires detail::blas_readable_mdspan<Mdspan, 2>
-auto try_blas_readable_matrix(Mdspan const& span)
-    -> std::optional<
-        BlasReadableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
+auto try_blas_readable_matrix(Mdspan const& span) -> std::optional<
+    BlasReadableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
 {
   auto stage = try_mdspan_matrix_stage(span);
   if (!stage)
@@ -256,9 +254,8 @@ auto try_blas_readable_matrix(Mdspan const& span)
 
 /// \brief Try to lower an mdspan to the strict column-major shape expected by LAPACK.
 template <detail::lapack_writable_mdspan Mdspan>
-auto try_lapack_writable_matrix(Mdspan const& span)
-    -> std::optional<
-        BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
+auto try_lapack_writable_matrix(Mdspan const& span) -> std::optional<
+    BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
 {
   auto stage = try_mdspan_matrix_stage(span);
   if (!stage || stage->unit_stride_axis != 0 || stage->needs_conjugation)

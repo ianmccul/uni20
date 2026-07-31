@@ -18,9 +18,9 @@ The C++ `full` factory puts the fill value first so its scalar type can be
 inferred; Python bindings may provide Python-specific argument ordering
 independently.
 
-These objects model `TensorView`, but their accessors return generated values
+These objects model `ImmediateTensorView`, but their accessors return generated values
 rather than references into a dense element allocation. Consequently they do
-not model `MutableTensorView`, `StridedTensorView`, or reusable dense
+not model `MutableImmediateTensorView`, `StridedImmediateTensorView`, or reusable dense
 `OwningTensor`. Their `GeneratedLayout` maps logical indices to synthetic
 accessor offsets; it does not claim a row-major or column-major physical order.
 
@@ -109,13 +109,14 @@ Repeated tensor-level reshapes preserve order through the result's static
 including when an intermediate shape contains singleton extents.
 
 For asynchronous tensors, `async::reshape_view(parent, ...)` returns an
-owner-retaining `Async<TensorView>` alias on the parent's exact epoch queue.
-The alias may be created while the parent value is still pending. It resolves
-and validates its reshaped mdspan only after the parent epoch becomes readable,
-and a parent failure propagates through the alias. Mutable aliases support
-write-through assignment; aliases of a const parent are read-only. The async
-API also provides `reshape_view_left` and `reshape_view_right` for strided
-parents whose order must be selected explicitly.
+owner-retaining `Async<View>` whose `View` models `ImmediateTensorView`, on the
+parent's exact epoch queue. The alias may be created while the parent value is
+still pending. It resolves and validates its reshaped mdspan only after the
+parent epoch becomes readable, and a parent failure propagates through the
+alias. Mutable aliases support write-through assignment; aliases of a const
+parent are read-only. The async API also provides `reshape_view_left` and
+`reshape_view_right` for strided parents whose order must be selected
+explicitly.
 
 ### `reshape_inplace`
 

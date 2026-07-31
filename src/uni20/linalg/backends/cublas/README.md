@@ -1,9 +1,9 @@
 # src/uni20/linalg/backends/cublas
 
-This directory adapts normalized CUDA device-mdspan operands to cuBLAS
+This directory adapts normalized CUDA mdspec operands to cuBLAS
 operation tags. Tensor frontends select the backend while storage policy is
 available, then lower fixed operands before dispatch. `CublasBackend` validates
-their device-mdspan metadata, blocks for an execution lease, opens synchronized
+their mdspec metadata, blocks for an execution lease, opens synchronized
 CUDA buffer access, and calls the provider-ready leaf.
 
 The current first operation is GEMM. Direct Tensor dispatch uses the blocking

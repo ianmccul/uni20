@@ -43,7 +43,7 @@ class HostAccessState {
 template <class Element, class Extents, class Layout, class Accessor, class Storage>
   requires std::is_const_v<Element>
 [[nodiscard]] auto
-acquire_host_read_access(device_mdspan<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>> const& span)
+acquire_host_read_access(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>> const& span)
 {
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   using lease_type = read_mdspan_lease<mdspan_type, HostAccessState>;
@@ -56,7 +56,7 @@ acquire_host_read_access(device_mdspan<Element, Extents, Layout, Accessor, HostS
 template <class Element, class Extents, class Layout, class Accessor, class Storage>
   requires(!std::is_const_v<Element>)
 [[nodiscard]] auto
-acquire_host_write_access(device_mdspan<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>>& span)
+acquire_host_write_access(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>>& span)
 {
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   using lease_type = write_mdspan_lease<mdspan_type, HostAccessState>;
@@ -80,10 +80,10 @@ template <class Element, std::size_t Rank, class Layout = stdex::layout_left> cl
     using const_accessor_type = stdex::default_accessor<element_type const>;
     using mutable_descriptor_type = HostStorageDescriptor<storage_type>;
     using const_descriptor_type = HostStorageDescriptor<storage_type const>;
-    using mutable_device_mdspan_type =
-        uni20::device_mdspan<element_type, extents_type, layout_type, mutable_accessor_type, mutable_descriptor_type>;
-    using const_device_mdspan_type =
-        uni20::device_mdspan<element_type const, extents_type, layout_type, const_accessor_type, const_descriptor_type>;
+    using mutable_mdspec_type =
+        uni20::mdspec<element_type, extents_type, layout_type, mutable_accessor_type, mutable_descriptor_type>;
+    using const_mdspec_type =
+        uni20::mdspec<element_type const, extents_type, layout_type, const_accessor_type, const_descriptor_type>;
     using mutable_mdspan_type = stdex::mdspan<element_type, extents_type, layout_type, mutable_accessor_type>;
     using const_mdspan_type = stdex::mdspan<element_type const, extents_type, layout_type, const_accessor_type>;
 
@@ -101,14 +101,14 @@ template <class Element, std::size_t Rank, class Layout = stdex::layout_left> cl
       return backend_selector_type{linalg::CpuReferenceBackend{}};
     }
 
-    [[nodiscard]] auto device_mdspan() noexcept -> mutable_device_mdspan_type
+    [[nodiscard]] auto mdspec() noexcept -> mutable_mdspec_type
     {
-      return mutable_device_mdspan_type{mutable_descriptor_type{&storage_}, mapping_, mutable_accessor_type{}};
+      return mutable_mdspec_type{mutable_descriptor_type{&storage_}, mapping_, mutable_accessor_type{}};
     }
 
-    [[nodiscard]] auto device_mdspan() const noexcept -> const_device_mdspan_type
+    [[nodiscard]] auto mdspec() const noexcept -> const_mdspec_type
     {
-      return const_device_mdspan_type{const_descriptor_type{&storage_}, mapping_, const_accessor_type{}};
+      return const_mdspec_type{const_descriptor_type{&storage_}, mapping_, const_accessor_type{}};
     }
 
     [[nodiscard]] auto extents() const noexcept -> extents_type const& { return mapping_.extents(); }
@@ -155,12 +155,12 @@ template <class Element, std::size_t Rank, class Layout>
                     tensor.backend_selector()};
 }
 
-static_assert(DeviceTensorView<DeferredHostTensor<double, 2>>);
-static_assert(MutableDeviceTensorView<DeferredHostTensor<double, 2>>);
-static_assert(!TensorView<DeferredHostTensor<double, 2>>);
-static_assert(detail::HostReadableDeviceMdspan<typename DeferredHostTensor<double, 2>::const_device_mdspan_type>);
-static_assert(detail::HostWritableDeviceMdspan<typename DeferredHostTensor<double, 2>::mutable_device_mdspan_type>);
-static_assert(detail::HostReadableTensor<DeferredHostTensor<double, 2>>);
-static_assert(detail::HostWritableTensor<DeferredHostTensor<double, 2>>);
+static_assert(TensorView<DeferredHostTensor<double, 2>>);
+static_assert(MutableTensorView<DeferredHostTensor<double, 2>>);
+static_assert(!ImmediateTensorView<DeferredHostTensor<double, 2>>);
+static_assert(HostReadableMdspec<typename DeferredHostTensor<double, 2>::const_mdspec_type>);
+static_assert(HostWritableMdspec<typename DeferredHostTensor<double, 2>::mutable_mdspec_type>);
+static_assert(HostReadableTensor<DeferredHostTensor<double, 2>>);
+static_assert(HostWritableTensor<DeferredHostTensor<double, 2>>);
 
 } // namespace uni20::test

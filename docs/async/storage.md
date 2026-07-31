@@ -115,10 +115,10 @@ classification and the operations that the payload actually supports:
 | mutable reshape or slice descriptor | retain alias identity and invoke an ADL-visible `assign_through(target, source)` |
 | const or conjugating descriptor | ill-formed because no matching `assign_through` exists |
 
-Tensor aliases obtain write-through capability from `MutableTensorView`.
+Tensor aliases obtain write-through capability from `MutableImmediateTensorView`.
 `uni20::assign_through` delegates to the ordinary backend-dispatched tensor
 `copy` operation. A read-only tensor descriptor resolves a const-element mdspan,
-does not satisfy `MutableTensorView`, and therefore has no tensor
+does not satisfy `MutableImmediateTensorView`, and therefore has no tensor
 `assign_through` overload.
 
 ### Exact Async sources

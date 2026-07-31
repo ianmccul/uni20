@@ -22,7 +22,7 @@ This directory contains LAPACK operation-tag backend adapters.
 
 - Each operation should provide `kernel_accepts_types(LapackBackend, ...)` and
   `try_kernel(LapackBackend, ...)` over normalized writable
-  `DeviceMdspanLike` operands. The backend acquires simultaneous host leases,
+  `MdspecLike` operands. The backend acquires simultaneous host leases,
   then calls an ordinary operation-specific mdspan leaf and the raw wrappers
   under [the LAPACK provider layer](../../../backend/lapack/). Resolved mdspans
   are not redispatched through an operation tag.

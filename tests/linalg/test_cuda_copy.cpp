@@ -35,7 +35,7 @@ using resolved_complex_cuda_output_mdspan =
     stdex::mdspan<complex_type, cuda_extents_type, stdex::layout_left, uni20::cuda::CudaPointerAccessor<complex_type>>;
 using resolved_complex_cuda_input_mdspan = stdex::mdspan<complex_type const, cuda_extents_type, stdex::layout_left,
                                                          uni20::cuda::CudaPointerAccessor<complex_type const>>;
-using conjugated_cuda_descriptor = decltype(std::declval<complex_cuda_conjugated_view const&>().device_mdspan());
+using conjugated_cuda_descriptor = decltype(std::declval<complex_cuda_conjugated_view const&>().mdspec());
 using conjugated_cuda_lease =
     decltype(uni20::acquire_cuda_read_access_sync(std::declval<conjugated_cuda_descriptor const&>()));
 using resolved_conjugated_cuda_mdspan = std::remove_cvref_t<decltype(std::declval<conjugated_cuda_lease&>().mdspan())>;
@@ -57,7 +57,7 @@ class CudaDescriptorMatrixView {
 
     explicit CudaDescriptorMatrixView(cuda_matrix_type const& tensor) : tensor_(&tensor) {}
 
-    [[nodiscard]] auto device_mdspan() const { return tensor_->device_mdspan(); }
+    [[nodiscard]] auto mdspec() const { return tensor_->mdspec(); }
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
 
@@ -69,8 +69,9 @@ class CudaDescriptorMatrixView {
     cuda_matrix_type const* tensor_;
 };
 
-static_assert(uni20::DeviceTensorView<CudaDescriptorMatrixView>);
+static_assert(uni20::TensorView<CudaDescriptorMatrixView>);
 static_assert(!std::same_as<typename CudaDescriptorMatrixView::storage_policy, uni20::CudaStorage>);
+static_assert(uni20::cuda::BufferMdspec<uni20::tensor_mdspec_t<CudaDescriptorMatrixView>>);
 static_assert(uni20::CudaAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
 static_assert(!uni20::HostAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
 static_assert(uni20::CudaAccessibleMdspan<resolved_cuda_output_mdspan>);
@@ -83,7 +84,7 @@ static_assert(
     std::same_as<uni20::logical_value_t<typename resolved_complex_cuda_input_mdspan::reference>, complex_type>);
 static_assert(std::same_as<typename resolved_conjugated_cuda_mdspan::accessor_type,
                            uni20::cuda::CudaConjugatingPointerAccessor<double>>);
-static_assert(!uni20::detail::CudaBufferDeviceMdspan<resolved_cuda_output_mdspan>);
+static_assert(!uni20::cuda::BufferMdspec<resolved_cuda_output_mdspan>);
 static_assert(!uni20::linalg::detail::cuda_reference::SupportedCopyMdspans<resolved_cuda_output_mdspan,
                                                                            resolved_cuda_input_mdspan>);
 
@@ -239,8 +240,8 @@ TEST_F(CudaCopyTest, DeviceToDeviceCopyExecutesConjugatingAccessorKernel)
   auto device_source = uni20::to_device(source, 0);
   complex_cuda_matrix_type device_output(runtime.device_resources(0), 2, 2);
   auto conjugated = uni20::conj(device_source);
-  auto output_span = device_output.device_mdspan();
-  auto input_span = conjugated.device_mdspan();
+  auto output_span = device_output.mdspec();
+  auto input_span = conjugated.mdspec();
   auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(output_span, input_span);
   ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
   EXPECT_EQ(preparation.execution, uni20::linalg::detail::cuda_reference::CopyExecution::elementwise_kernel);
@@ -265,14 +266,14 @@ TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
 
   auto device = uni20::to_device(source, 0);
   auto conjugated = uni20::conj(device);
-  auto output_span = device.device_mdspan();
-  auto input_span = conjugated.device_mdspan();
+  auto output_span = device.mdspec();
+  auto input_span = conjugated.mdspec();
 
   EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output_span, input_span),
             uni20::linalg::KernelAttempt::unsupported_instance);
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
                                                   output_span, input_span));
-  auto same_input_span = uni20::device_mdspan_of(std::as_const(device));
+  auto same_input_span = uni20::mdspec_of(std::as_const(device));
   EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(uni20::linalg::CudaReferenceBackend{}, uni20::linalg::copy_op{},
                                                  output_span, same_input_span));
 

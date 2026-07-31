@@ -17,14 +17,14 @@
 
 namespace uni20
 {
-namespace detail
-{
+/// \brief Extents-like shape accepted by tensor output preparation.
 template <class Extents>
 concept TensorExtentsLike = requires(Extents const& extents) {
   { std::remove_cvref_t<Extents>::rank() } -> std::convertible_to<std::size_t>;
   extents.extent(std::size_t{});
 };
 
+/// \brief Compare two tensor extent objects by rank and per-axis extent.
 template <TensorExtentsLike LhsExtents, TensorExtentsLike RhsExtents>
 [[nodiscard]] constexpr bool tensor_extents_equal(LhsExtents const& lhs, RhsExtents const& rhs) noexcept
 {
@@ -42,8 +42,10 @@ template <TensorExtentsLike LhsExtents, TensorExtentsLike RhsExtents>
   }
 }
 
+namespace detail
+{
 template <class TargetExtents, TensorExtentsLike SourceExtents, std::size_t... Axis>
-[[nodiscard]] TargetExtents convert_tensor_extents(SourceExtents const& source, std::index_sequence<Axis...>)
+[[nodiscard]] TargetExtents convert_tensor_extents_impl(SourceExtents const& source, std::index_sequence<Axis...>)
 {
   for (std::size_t axis = 0; axis < TargetExtents::rank(); ++axis)
   {
@@ -54,33 +56,34 @@ template <class TargetExtents, TensorExtentsLike SourceExtents, std::size_t... A
   using index_type = typename TargetExtents::index_type;
   return TargetExtents(static_cast<index_type>(source.extent(Axis))...);
 }
+} // namespace detail
 
+/// \brief Convert tensor extents while validating the target's static extents.
 template <class TargetExtents, TensorExtentsLike SourceExtents>
 [[nodiscard]] TargetExtents convert_tensor_extents(SourceExtents const& source)
 {
   static_assert(TargetExtents::rank() == std::remove_cvref_t<SourceExtents>::rank(),
                 "tensor output rank does not match the required shape");
-  return convert_tensor_extents<TargetExtents>(source, std::make_index_sequence<TargetExtents::rank()>{});
+  return detail::convert_tensor_extents_impl<TargetExtents>(source, std::make_index_sequence<TargetExtents::rank()>{});
 }
-} // namespace detail
 
 /// \brief Mutable tensor output that can replace its shape and storage.
 /// \details A resizable output provides `reset_shape(extents)`, whose contract
 ///          discards old values and leaves the object with the requested shape.
 template <class T>
 concept ResizableTensorOutput =
-    MutableDeviceTensorView<T> &&
+    MutableTensorView<T> &&
     requires(std::remove_reference_t<T>& output, tensor_extents_t<T> const& extents) { output.reset_shape(extents); };
 
 /// \brief Require an existing tensor output to have the specified shape.
 /// \details This operation validates only and never modifies the output,
 ///          including when the output owns replaceable storage.
-template <DeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
+template <TensorView Output, TensorExtentsLike RequiredExtents>
 void require_output(Output const& output, RequiredExtents const& required)
 {
   static_assert(tensor_extents_t<Output>::rank() == std::remove_cvref_t<RequiredExtents>::rank(),
                 "tensor output rank does not match the required shape");
-  ERROR_IF(!detail::tensor_extents_equal(output.extents(), required),
+  ERROR_IF(!tensor_extents_equal(output.extents(), required),
            "tensor output shape does not match the required extents");
 }
 
@@ -94,18 +97,18 @@ void require_output(Output const& output, RequiredExtents const& required)
 ///          acceptance checks. If that backend later declines, subsequent
 ///          backends may reuse or replace the prepared output.
 /// \return Reference to the prepared output.
-template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
+template <MutableTensorView Output, TensorExtentsLike RequiredExtents>
 Output& prepare_output(Output& output, RequiredExtents const& required)
 {
   static_assert(tensor_extents_t<Output>::rank() == std::remove_cvref_t<RequiredExtents>::rank(),
                 "tensor output rank does not match the required shape");
-  if (detail::tensor_extents_equal(output.extents(), required)) return output;
+  if (tensor_extents_equal(output.extents(), required)) return output;
 
   if constexpr (ResizableTensorOutput<Output>)
   {
-    auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
+    auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
     output.reset_shape(converted);
-    CHECK(detail::tensor_extents_equal(output.extents(), required));
+    CHECK(tensor_extents_equal(output.extents(), required));
   }
   else
   {
@@ -124,7 +127,7 @@ Output& prepare_output(Output& output, RequiredExtents const& required)
 ///          backends may reuse or replace the prepared output.
 /// \tparam Placement Storage-policy placement requirement.
 /// \return Reference to the prepared output.
-template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents, class Placement>
+template <MutableTensorView Output, TensorExtentsLike RequiredExtents, class Placement>
   requires requires(Output& output, tensor_extents_t<Output> const& extents, Placement const& placement) {
     { output.storage_is_compatible(placement) } -> std::convertible_to<bool>;
     output.reset_shape(extents);
@@ -134,16 +137,15 @@ Output& prepare_output(Output& output, RequiredExtents const& required, Placemen
 {
   static_assert(tensor_extents_t<Output>::rank() == std::remove_cvref_t<RequiredExtents>::rank(),
                 "tensor output rank does not match the required shape");
-  if (detail::tensor_extents_equal(output.extents(), required) && output.storage_is_compatible(placement))
-    return output;
+  if (tensor_extents_equal(output.extents(), required) && output.storage_is_compatible(placement)) return output;
 
-  auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
+  auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
   if (output.storage_is_compatible(placement))
     output.reset_shape(converted);
   else
     output.replace(converted, placement);
 
-  CHECK(detail::tensor_extents_equal(output.extents(), required));
+  CHECK(tensor_extents_equal(output.extents(), required));
   CHECK(output.storage_is_compatible(placement));
   return output;
 }
@@ -155,13 +157,13 @@ Output& prepare_output(Output& output, RequiredExtents const& required, Placemen
 ///          acceptance checks. If that backend later declines, subsequent
 ///          backends may reuse or replace the prepared output.
 /// \return Reference to the prepared output value.
-template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
+template <MutableTensorView Output, TensorExtentsLike RequiredExtents>
   requires std::constructible_from<Output, tensor_extents_t<Output> const&>
 Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents const& required)
 {
   if (storage.constructed()) return prepare_output(*storage, required);
 
-  auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
+  auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
   return storage.emplace(converted);
 }
 
@@ -173,7 +175,7 @@ Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents c
 ///          backends may reuse or replace the prepared output.
 /// \tparam Placement Storage-policy placement requirement.
 /// \return Reference to the prepared output value.
-template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents, class Placement>
+template <MutableTensorView Output, TensorExtentsLike RequiredExtents, class Placement>
   requires std::constructible_from<Output, Placement const&, tensor_extents_t<Output> const&> &&
            requires(Output& output, tensor_extents_t<Output> const& extents, Placement const& placement) {
              prepare_output(output, extents, placement);
@@ -183,7 +185,7 @@ Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents c
 {
   if (storage.constructed()) return prepare_output(*storage, required, placement);
 
-  auto const converted = detail::convert_tensor_extents<tensor_extents_t<Output>>(required);
+  auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
   return storage.emplace(placement, converted);
 }
 

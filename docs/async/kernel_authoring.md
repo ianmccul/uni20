@@ -21,14 +21,15 @@ Async<Tensor> handles
   -> ReadBuffer / WriteBuffer enrollment
   -> scheduled coroutine
   -> await stored Tensor values and async scalars
-  -> operation-specific output preparation and mdspan resolution
-  -> co_dispatch_kernel and backend kernel
+  -> operation-specific output preparation and mdspec normalization
+  -> co_dispatch_kernel
+  -> backend-specific acquisition and resolved mdspan kernel
 ```
 
 Backends and leaf kernels remain unaware of `Async<T>`, epoch queues, and
 schedulers. The async wrapper resolves the storage policy's static selector,
-owns any output preparation, resolves stable mdspans, and then enters
-`co_dispatch_kernel`.
+owns any frontend output preparation, normalizes fixed operands to stable
+mdspecs, and then enters `co_dispatch_kernel`.
 
 Do not add async overloads directly to a backend or make `Async<Tensor>` model
 `TensorView`.
@@ -90,7 +91,7 @@ The coroutine then:
 1. Awaits the Tensor buffers and any async scalar buffers together.
 2. Resolves references to the stored Tensor values.
 3. Prepares an unconstructed overwrite output when supported.
-4. Normalizes fixed operands to stable device mdspans and calls
+4. Normalizes fixed operands to stable mdspecs and calls
    `co_dispatch_kernel` with the operation tag and resolved selector. A
    replaceable output remains shared storage until the backend prepares it.
 

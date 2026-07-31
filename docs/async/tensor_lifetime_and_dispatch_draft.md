@@ -77,9 +77,9 @@ a descriptor table. Each element handle adds an element/block epoch token.
 
 ## Async Aliases
 
-Dense aliases use ordinary `Async<View>` types. The view models `TensorView`,
-not mdspan, and therefore retains synchronous tensor metadata and exposes
-`backend_selector()` plus `mdspan()`:
+Dense aliases use ordinary `Async<View>` types. The stored view models
+`TensorView`, not mdspec or mdspan, and therefore retains synchronous tensor
+metadata and a backend selector:
 
 ```cpp
 Async<Tensor<complex<double>, 2>> parent;
@@ -208,8 +208,9 @@ The task is a named free coroutine, or equivalently a captureless `static`
 lambda whose buffers are parameters. It never retains references to the
 caller-owned `Async<T>` handles.
 
-This is deliberately different from asking `Async<Tensor>` to satisfy the same
-immediate `TensorView` concept as `Tensor`. A synchronous tensor can
+This is deliberately different from asking `Async<Tensor>` to satisfy the
+`ImmediateTensorView` concept implemented by an immediately accessible
+`Tensor`. A synchronous tensor can
 produce an immediate read view. An async tensor produces a read handle that must
 be awaited.
 
@@ -419,8 +420,8 @@ Expected behavior:
   owner token, epoch/hazard token, and backend/domain metadata.
 - A raw resolved mdspan is not a safe async tensor value. It is a
   leaf-kernel argument materialized after await.
-- `Async<Tensor>` should not be forced to satisfy the immediate synchronous
-  `TensorView` concept. The first operation wrappers use exact `Async<T>`
+- `Async<Tensor>` should not be forced to satisfy the synchronous `TensorView`
+  concept. The first operation wrappers use exact `Async<T>`
   signatures rather than a broader async operand concept.
 - `AsyncArray::block(i)` should return the same kind of async tensor alias
   handle, backed by shared allocation lifetime and per-block hazard state.

@@ -29,29 +29,31 @@ The implemented dense GEMM and GEMV paths use a strict layer split:
    need storage policy, output policy, synchronous metadata, async/block
    structure, and a default backend selector.
 2. **Backend dispatch** selects a backend from an operation tag plus a backend
-   selector derived from tensor storage policy.
-3. **Backend lowering** acquires or interprets those tensor views in the selected
-   execution domain and produces resolved mdspan-like views.
+   selector derived from tensor storage policy, then normalizes fixed operands
+   to `MdspecLike` descriptors.
+3. **Backend lowering** acquires or interprets those descriptors in the
+   selected execution domain and produces resolved mdspan-like views.
 4. **Leaf kernels** are provider calls or lower-level Uni20 module functions.
    They run on handles, extents, strides, accessors, or provider descriptors and
    do not participate in the operation-tag dispatch walk.
 
-A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a lower-level
-kernel but is not an operation-dispatch operand. It does not carry the tensor-level
-acquisition and backend-selection contract.
+A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a
+lower-level kernel and is also the immediate case of `MdspecLike`. It does not
+carry tensor-level backend-selection policy, so a bare-mdspan frontend requires
+an explicit selector.
 
-For local dense tensors, the tensor-level concepts are intentionally not
-mdspan-like:
+The tensor-level concepts are intentionally not mdspan-like:
 
 ```cpp
-TensorView        = backend selector + readable mdspan() result
-MutableTensorView = TensorView + writable mdspan() result
+TensorView          = backend selector + readable MdspecLike result
+MutableTensorView   = TensorView + writable MdspecLike result
+ImmediateTensorView = TensorView + readable mdspan() result
 ```
 
-The tensor object itself does not model `MdspanLike`. This keeps policy selection
-at the tensor layer and makes the lowering boundary explicit. A public
-bare-mdspan convenience overload may take an explicit selector, but it adapts the
-mdspan to a tensor view before operation dispatch.
+The tensor object itself does not model `MdspecLike`. This keeps policy
+selection at the tensor layer and makes the normalization boundary explicit. A
+public bare-mdspan convenience overload takes an explicit selector and uses the
+mdspan directly as its immediate mdspec representation.
 
 ## Type Roles
 
@@ -60,8 +62,9 @@ The current semantic split is:
 ```cpp
 BasicTensor      // configurable owner parameterized by an mdspan extents type
 Tensor           // ordinary owner with runtime extents and a static rank
-TensorView       // readable tensor-level concept, not an mdspan-like type
-MutableTensorView // writable refinement of TensorView
+TensorView        // readable policy-bearing tensor-level concept
+ImmediateTensorView // TensorView whose mdspec is already an mdspan
+mdspec            // metadata with a data descriptor in place of a data handle
 mdspan           // resolved leaf-kernel operand
 TensorRef        // future non-owning tensor lvalue proxy
 ```
@@ -106,9 +109,8 @@ v = tensor_view(B); // rebind v's descriptor; no element assignment
 ```
 
 `TensorView` is a concept, not a central base class. There is currently no
-general concrete non-owning tensor adaptor. Leaf kernels receive the mdspan
-resolved by an owning tensor or a future adaptor with explicit storage-policy
-and lifetime semantics.
+general concrete non-owning tensor adaptor. Fixed operands normalize to
+mdspecs; leaf kernels receive mdspans resolved by the selected backend.
 
 For dense CUDA data, the tensor/adaptor object must carry enough dispatch
 information to identify device memory. At minimum that means a storage/backend
@@ -467,8 +469,8 @@ Concept pressure:
 
 ## Implemented Dense Concepts
 
-The dense checkpoint distinguishes tensor dispatch participation from
-mdspan-like leaf views directly:
+The dense checkpoint distinguishes policy-bearing tensor views, normalized
+mdspecs, and resolved mdspan leaf views:
 
 ```cpp
 template <class T>
@@ -476,23 +478,29 @@ concept TensorView = requires(T const& tensor) {
   tensor.backend_selector();
   tensor.extents();
   tensor.extent(size_t{});
-  { tensor.mdspan() } -> MdspanLike;
-};
+  { mdspec_of(tensor) };
+} && MdspecLike<
+       decltype(mdspec_of(std::declval<T const&>()))>;
 
 template <class T>
 concept MutableTensorView = TensorView<T> &&
-  MutableMdspanLike<decltype(std::declval<T&>().mdspan())>;
+  MutableMdspecLike<
+    decltype(mdspec_of(std::declval<T&>()))>;
+
+template <class T>
+concept ImmediateTensorView = TensorView<T> &&
+  requires(T const& tensor) {
+    { tensor.mdspan() };
+  } &&
+  MdspanLike<decltype(std::declval<T const&>().mdspan())>;
 
 template <class T>
 concept StridedTensorView = TensorView<T> &&
-  StridedMdspanLike<decltype(std::declval<T const&>().mdspan())>;
+  StridedMdspecLike<tensor_mdspec_t<T>>;
 
 template <class T, size_t Rank>
 concept RankedTensorView = TensorView<T> &&
-  RankedMdspanLike<decltype(std::declval<T const&>().mdspan()), Rank>;
-
-template <class T, size_t Rank>
-concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
+  RankedMdspecLike<tensor_mdspec_t<T>, Rank>;
 ```
 
 `ResizableTensorOutput` detects `reset_shape(extents)`. `prepare_output` uses it
@@ -536,7 +544,7 @@ tensor_descriptor(x);        // may call x.descriptor()
 ```
 
 The important point is that top-level dispatch is written against the concept,
-not against inheritance from `TensorView`.
+not against inheritance from `ImmediateTensorView`.
 
 Possible CPO shape:
 
@@ -565,25 +573,29 @@ void matmul(C& c, A const& a, B const& b)
   auto shape = matmul_shape(tensor_descriptor(a), tensor_descriptor(b));
 
   prepare_output(c, shape);
-  dispatch_kernel(backend_list_t<decltype(selector)>{}, matmul_op{}, c, a, b);
+  auto cv = mdspec_of(c);
+  auto av = mdspec_of(a);
+  auto bv = mdspec_of(b);
+  dispatch_kernel(std::move(selector), matmul_op{}, cv, av, bv);
 }
 ```
 
-The selected backend eventually lowers operands to views:
+The selected backend acquires the execution-domain views:
 
 ```cpp
-auto av = tensor_read_view(a);
-auto bv = tensor_read_view(b);
-auto cv = tensor_write_view(c);
-try_kernel(Backend{}, matmul_op{}, cv, av, bv);
+auto av = acquire_host_read_access(a);
+auto bv = acquire_host_read_access(b);
+auto cv = acquire_host_write_access(c);
+return cpu_reference::gemm(cv.mdspan(), av.mdspan(), bv.mdspan());
 ```
 
-This keeps `MdspanLike` at the leaf-kernel level and keeps backend selection at
-the tensor/storage level.
+This keeps `MdspanLike` at the leaf-kernel level, `MdspecLike` at the
+operation-tag backend boundary, and backend selection at the tensor/storage
+level.
 
-For local dense tensors, `TensorView` remains backend selector plus synchronous
-metadata plus a readable `mdspan()` result. `Tensor` itself deliberately does
-not satisfy `MdspanLike`; the resolved result of `mdspan()` does.
+For local dense tensors, `ImmediateTensorView` is the refinement whose
+normalized representation is already an mdspan. `Tensor` itself deliberately
+does not satisfy `MdspanLike`; the result of `mdspan()` does.
 
 ## Temporaries
 
@@ -683,11 +695,12 @@ Backend selection belongs to tensor/storage operands:
 - Block/MPI tensor: likely a container-level backend such as `[Mpi]`, which
   recurses into local dense backends per block or coalesced group.
 
-For dense local tensors, `TensorView` requires a backend selector and a readable
-mdspan result; `MutableTensorView` additionally requires a writable mdspan
-result. The tensor object is not `MdspanLike`. Memory kind and runtime device
-placement are properties of the returned mdspan's accessor-defined data handle,
-not of the default selector.
+For dense local tensors, `TensorView` requires a backend selector and a
+readable mdspec result; `MutableTensorView` additionally requires an eventually
+writable result. `ImmediateTensorView` is the subset whose result is already an
+mdspan. The tensor object is not `MdspecLike`. Memory kind and runtime placement
+are properties of the normalized descriptor and its accessor, not of the
+default selector.
 
 Storage and backend selection should remain separate concepts. A storage policy
 owns or describes how bytes are stored, and one of its traits is the default
@@ -997,11 +1010,12 @@ being raw mdspan descriptors.
 
 ## Tentative Conclusions
 
-- Operation-tag dispatch requires tensor-level operands. Bare-mdspan convenience
-  overloads use an explicit selector and adapt their operands to tensor views
-  before dispatch.
+- Frontends select from tensor-level operands, then operation-tag dispatch uses
+  normalized `MdspecLike` fixed operands. Bare-mdspan convenience overloads use
+  an explicit selector and dispatch those mdspans as immediate mdspecs.
 - `TensorView` and `MutableTensorView` are tensor-level concepts. Their objects
-  deliberately do not model `MdspanLike`; they produce resolved mdspans.
+  deliberately do not model `MdspecLike`; `mdspec_of()` produces the normalized
+  representation. `ImmediateTensorView` is the already-resolved refinement.
 - Provider APIs and lower-level Uni20 module kernels may operate directly on
   resolved mdspan-like views; they are below operation-tag dispatch.
 - Storage policy and backend selector should be split: storage provides a

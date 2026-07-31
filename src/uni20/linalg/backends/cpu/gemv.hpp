@@ -18,23 +18,22 @@ namespace uni20::linalg
 namespace detail
 {
 template <class OutputMdspan, class MatrixMdspan, class InputMdspan>
-concept HostGemvMdspanAccess =
-    uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<MatrixMdspan> &&
-    uni20::detail::HostReadableDeviceMdspan<InputMdspan>;
+concept HostGemvMdspanAccess = uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<MatrixMdspan> &&
+                               uni20::HostReadableMdspec<InputMdspan>;
 
 template <class OutputMdspan, class Scalar, class MatrixMdspan, class InputMdspan>
 consteval bool cpu_gemv_types_compatible()
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
-  using matrix_span = uni20::detail::host_read_mdspan_t<MatrixMdspan>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using matrix_span = uni20::host_read_mdspan_t<MatrixMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   return uni20::linalg::cpu::GemvCompatible<output_span, Scalar, matrix_span, input_span>;
 }
 } // namespace detail
 
-/// \brief Report eligibility for host-accessible device-mdspan CPU GEMV.
-template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, uni20::Scalar Scalar,
-          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
+/// \brief Report eligibility for host-accessible mdspec CPU GEMV.
+template <uni20::MutableRankedMdspecLike<1> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspecLike<2> MatrixMdspan,
+          uni20::RankedMdspecLike<1> InputMdspan>
   requires detail::HostGemvMdspanAccess<OutputMdspan, MatrixMdspan, InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputMdspan&, Scalar const&,
                                     MatrixMdspan&, InputMdspan&, Scalar const&)
@@ -46,8 +45,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, 
 }
 
 /// \brief Resolve host access and run reference GEMV.
-template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, uni20::Scalar Scalar,
-          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
+template <uni20::MutableRankedMdspecLike<1> OutputMdspan, uni20::Scalar Scalar, uni20::RankedMdspecLike<2> MatrixMdspan,
+          uni20::RankedMdspecLike<1> InputMdspan>
   requires detail::HostGemvMdspanAccess<OutputMdspan, MatrixMdspan, InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, gemv_op const&, OutputMdspan& output, Scalar alpha, MatrixMdspan& matrix,
                          InputMdspan& input, Scalar beta)

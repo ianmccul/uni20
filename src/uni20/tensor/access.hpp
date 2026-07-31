@@ -19,10 +19,6 @@
 
 namespace uni20
 {
-namespace detail
-{
-
-/// \concept TensorAccessState
 /// \brief Movable state retaining one acquired tensor data-handle lifetime.
 /// \details `release()` must be idempotent: its first call ends active access,
 ///          and later calls have no effect. Moving an active state transfers
@@ -34,13 +30,16 @@ concept TensorAccessState = std::move_constructible<State> && requires(State& st
   { state.release() } noexcept;
 };
 
+namespace detail
+{
+
 struct immediate_mdspan_access_state
 {
     void release() noexcept {}
 };
 
 /// \brief Pointer-only read lease for an immediately accessible tensor view.
-template <TensorView Tensor> class borrowed_read_tensor_lease {
+template <ImmediateTensorView Tensor> class borrowed_read_tensor_lease {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using mdspan_type = std::remove_cvref_t<decltype(std::declval<tensor_type const&>().mdspan())>;
@@ -102,7 +101,7 @@ template <TensorView Tensor> class borrowed_read_tensor_lease {
 };
 
 /// \brief Pointer-only write lease for an immediately accessible tensor view.
-template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
+template <MutableImmediateTensorView Tensor> class borrowed_write_tensor_lease {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using mdspan_type = std::remove_cvref_t<decltype(std::declval<tensor_type&>().mdspan())>;
@@ -168,7 +167,7 @@ template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
 ///          mdspan so the mdspan is destroyed before access ends.
 /// \tparam Mdspan Read-only resolved mdspan type.
 /// \tparam AccessState RAII state retaining the acquired data handle.
-template <MdspanLike Mdspan, detail::TensorAccessState AccessState>
+template <MdspanLike Mdspan, TensorAccessState AccessState>
   requires std::is_const_v<typename Mdspan::element_type>
 class read_mdspan_lease {
   public:
@@ -243,7 +242,7 @@ class read_mdspan_lease {
 ///          mdspan so the mdspan is destroyed before access ends.
 /// \tparam Mdspan Writable resolved mdspan type.
 /// \tparam AccessState RAII state retaining the acquired data handle.
-template <MutableMdspanLike Mdspan, detail::TensorAccessState AccessState> class write_mdspan_lease {
+template <MutableMdspanLike Mdspan, TensorAccessState AccessState> class write_mdspan_lease {
   public:
     using mdspan_type = Mdspan;
     using access_state_type = AccessState;
@@ -310,7 +309,7 @@ template <MutableMdspanLike Mdspan, detail::TensorAccessState AccessState> class
     std::optional<mdspan_type> mdspan_;
 };
 
-/// \brief Move-only RAII lease exposing a read-only immediate TensorView.
+/// \brief Move-only RAII lease exposing a read-only ImmediateTensorView.
 /// \details The access state is stored before the mdspan so the mdspan is
 ///          destroyed before the state that makes its data handle usable.
 ///          Independent lease types may model `ReadTensorLease` without using
@@ -319,7 +318,7 @@ template <MutableMdspanLike Mdspan, detail::TensorAccessState AccessState> class
 /// \tparam AccessState RAII state retaining the acquired data handle.
 /// \tparam BackendSelector Backend list copied from the source tensor view.
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
-template <MdspanLike Mdspan, detail::TensorAccessState AccessState, class BackendSelector, class StoragePolicy>
+template <MdspanLike Mdspan, TensorAccessState AccessState, class BackendSelector, class StoragePolicy>
   requires std::is_const_v<typename Mdspan::element_type>
 class read_tensor_lease {
   public:
@@ -419,15 +418,15 @@ class read_tensor_lease {
 
 /// \brief Move-only RAII lease exposing mutable and const immediate TensorViews.
 /// \details A non-const lease resolves a writable mdspan. Its const interface
-///          resolves a distinct const-element mdspan, preserving TensorView
+///          resolves a distinct const-element mdspan, preserving ImmediateTensorView
 ///          shallow-const rules.
 /// \tparam MutableMdspan Writable resolved mdspan type.
 /// \tparam ConstMdspan Read-only resolved mdspan type.
 /// \tparam AccessState RAII state retaining exclusive access.
 /// \tparam BackendSelector Backend list copied from the source tensor view.
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
-template <MutableMdspanLike MutableMdspan, MdspanLike ConstMdspan, detail::TensorAccessState AccessState,
-          class BackendSelector, class StoragePolicy>
+template <MutableMdspanLike MutableMdspan, MdspanLike ConstMdspan, TensorAccessState AccessState, class BackendSelector,
+          class StoragePolicy>
   requires std::is_const_v<typename ConstMdspan::element_type>
 class write_tensor_lease {
   public:
@@ -564,18 +563,18 @@ template <class Lease>
 concept CudaWriteMdspanLease =
     WriteMdspanLease<Lease> && CudaAccessibleMdspan<decltype(std::declval<Lease&>().mdspan())>;
 
-/// \brief TensorView that owns a move-only read access lifetime.
+/// \brief ImmediateTensorView that owns a move-only read access lifetime.
 /// \details `release()` must be `noexcept` and idempotent. Moving an active
 ///          lease transfers its access lifetime and leaves the source inactive.
 template <class Lease>
-concept ReadTensorLease =
-    TensorView<Lease> && std::move_constructible<Lease> && (!std::copy_constructible<Lease>) && requires(Lease& lease) {
-      { lease.release() } noexcept;
-    };
+concept ReadTensorLease = ImmediateTensorView<Lease> && std::move_constructible<Lease> &&
+                          (!std::copy_constructible<Lease>) && requires(Lease& lease) {
+                            { lease.release() } noexcept;
+                          };
 
-/// \brief MutableTensorView that owns a move-only write access lifetime.
+/// \brief MutableImmediateTensorView that owns a move-only write access lifetime.
 template <class Lease>
-concept WriteTensorLease = ReadTensorLease<Lease> && MutableTensorView<Lease>;
+concept WriteTensorLease = ReadTensorLease<Lease> && MutableImmediateTensorView<Lease>;
 
 /// \brief Read lease whose resolved mdspan is directly host-accessible.
 template <class Lease>
@@ -638,8 +637,8 @@ template <MutableMdspanLike Mdspan>
 }
 
 /// \brief Acquire an immediately host-accessible tensor view for read-only use.
-template <TensorView Tensor>
-  requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
+template <ImmediateTensorView Tensor>
+  requires HostAccessibleMdspan<immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_read_access(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
@@ -647,8 +646,8 @@ template <TensorView Tensor>
 }
 
 /// \brief Acquire an immediately host-accessible mutable tensor view.
-template <MutableTensorView Tensor>
-  requires HostAccessibleMdspan<mutable_tensor_mdspan_t<Tensor>>
+template <MutableImmediateTensorView Tensor>
+  requires HostAccessibleMdspan<mutable_immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_write_access(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
@@ -656,16 +655,16 @@ template <MutableTensorView Tensor>
 }
 
 /// \brief Return an immediately-ready host read acquisition.
-template <TensorView Tensor>
-  requires HostAccessibleMdspan<tensor_mdspan_t<Tensor>>
+template <ImmediateTensorView Tensor>
+  requires HostAccessibleMdspan<immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_read_access_async(Tensor& tensor)
 {
   return ready_access{acquire_host_read_access(tensor)};
 }
 
 /// \brief Return an immediately-ready host write acquisition.
-template <MutableTensorView Tensor>
-  requires HostAccessibleMdspan<mutable_tensor_mdspan_t<Tensor>>
+template <MutableImmediateTensorView Tensor>
+  requires HostAccessibleMdspan<mutable_immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_write_access_async(Tensor& tensor)
 {
   return ready_access{acquire_host_write_access(tensor)};
@@ -673,65 +672,66 @@ template <MutableTensorView Tensor>
 
 namespace detail
 {
+template <class Mdspec>
+using host_read_mdspan_lease_t = decltype(acquire_host_read_access(std::declval<Mdspec const&>()));
 
-/// \brief Host read lease type obtained from device-mdspan metadata.
-template <class Mdspan>
-using host_read_mdspan_lease_t = decltype(acquire_host_read_access(std::declval<Mdspan const&>()));
-
-/// \brief Host write lease type obtained from mutable device-mdspan metadata.
-template <class Mdspan> using host_write_mdspan_lease_t = decltype(acquire_host_write_access(std::declval<Mdspan&>()));
+template <class Mdspec> using host_write_mdspan_lease_t = decltype(acquire_host_write_access(std::declval<Mdspec&>()));
+} // namespace detail
 
 /// \brief Read-only mdspan type resolved by host descriptor acquisition.
-template <class Mdspan>
-using host_read_mdspan_t = std::remove_cvref_t<decltype(std::declval<host_read_mdspan_lease_t<Mdspan>&>().mdspan())>;
+template <class Mdspec>
+using host_read_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<detail::host_read_mdspan_lease_t<Mdspec>&>().mdspan())>;
 
 /// \brief Writable mdspan type resolved by host descriptor acquisition.
-template <class Mdspan>
-using host_write_mdspan_t = std::remove_cvref_t<decltype(std::declval<host_write_mdspan_lease_t<Mdspan>&>().mdspan())>;
+template <class Mdspec>
+using host_write_mdspan_t =
+    std::remove_cvref_t<decltype(std::declval<detail::host_write_mdspan_lease_t<Mdspec>&>().mdspan())>;
 
-/// \brief Device-mdspan metadata supporting host read acquisition.
-template <class Mdspan>
-concept HostReadableDeviceMdspan = DeviceMdspanLike<Mdspan> && requires(Mdspan const& mdspan) {
-  { acquire_host_read_access(mdspan) } -> HostReadMdspanLease;
+/// \brief Mdspec metadata supporting host read acquisition.
+template <class Mdspec>
+concept HostReadableMdspec = MdspecLike<Mdspec> && requires(Mdspec const& mdspec) {
+  { acquire_host_read_access(mdspec) } -> HostReadMdspanLease;
 };
 
-/// \brief Mutable device-mdspan metadata supporting host write acquisition.
-template <class Mdspan>
-concept HostWritableDeviceMdspan = MutableDeviceMdspanLike<Mdspan> && requires(Mdspan& mdspan) {
-  { acquire_host_write_access(mdspan) } -> HostWriteMdspanLease;
+/// \brief Mutable mdspec metadata supporting host write acquisition.
+template <class Mdspec>
+concept HostWritableMdspec = MutableMdspecLike<Mdspec> && requires(Mdspec& mdspec) {
+  { acquire_host_write_access(mdspec) } -> HostWriteMdspanLease;
 };
 
-/// \brief Host read lease type obtained from a device tensor view.
+namespace detail
+{
 template <class Tensor>
 using host_read_tensor_lease_t = decltype(acquire_host_read_access(std::declval<Tensor const&>()));
 
-/// \brief Host write lease type obtained from a mutable device tensor view.
 template <class Tensor> using host_write_tensor_lease_t = decltype(acquire_host_write_access(std::declval<Tensor&>()));
+} // namespace detail
 
 /// \brief Read-only mdspan type resolved by host tensor acquisition.
 template <class Tensor>
 using host_read_tensor_mdspan_t =
-    std::remove_cvref_t<decltype(std::declval<host_read_tensor_lease_t<Tensor>&>().mdspan())>;
+    std::remove_cvref_t<decltype(std::declval<detail::host_read_tensor_lease_t<Tensor>&>().mdspan())>;
 
 /// \brief Writable mdspan type resolved by host tensor acquisition.
 template <class Tensor>
 using host_write_tensor_mdspan_t =
-    std::remove_cvref_t<decltype(std::declval<host_write_tensor_lease_t<Tensor>&>().mdspan())>;
+    std::remove_cvref_t<decltype(std::declval<detail::host_write_tensor_lease_t<Tensor>&>().mdspan())>;
 
-/// \brief Device tensor view supporting host read acquisition.
+/// \brief Tensor view supporting host read acquisition.
 template <class Tensor>
-concept HostReadableTensor = DeviceTensorView<Tensor> && requires(Tensor const& tensor) {
+concept HostReadableTensor = TensorView<Tensor> && requires(Tensor const& tensor) {
   { acquire_host_read_access(tensor) } -> HostReadTensorLease;
 };
 
-/// \brief Mutable device tensor view supporting host write acquisition.
+/// \brief Mutable tensor view supporting host write acquisition.
 template <class Tensor>
-concept HostWritableTensor = MutableDeviceTensorView<Tensor> && requires(Tensor& tensor) {
+concept HostWritableTensor = MutableTensorView<Tensor> && requires(Tensor& tensor) {
   { acquire_host_write_access(tensor) } -> HostWriteTensorLease;
 };
 
 /// \brief Invoke a callable with host-writable mdspans under simultaneous leases.
-template <class Function, HostWritableDeviceMdspan... Mdspans>
+template <class Function, HostWritableMdspec... Mdspans>
 decltype(auto) with_host_write_mdspans(Function&& function, Mdspans&... mdspans)
 {
   auto accesses = std::tuple{acquire_host_write_access(mdspans)...};
@@ -744,7 +744,5 @@ decltype(auto) with_host_write_mdspans(Function&& function, Mdspans&... mdspans)
       },
       accesses);
 }
-
-} // namespace detail
 
 } // namespace uni20

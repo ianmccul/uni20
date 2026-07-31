@@ -8,7 +8,7 @@ schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
 leaf. `CudaStorage` connects `Tensor` ownership to `CudaBuffer`, and async
 Tensor matrix products now lower through `CudaTask`, non-blocking resource
-admission, deferred `DeviceTensorView` metadata, and `CublasBackend`. General
+admission, descriptor-backed `TensorView` metadata, and `CublasBackend`. General
 CUDA Tensor operations remain incomplete; direct and `Async<CudaTensor>` GEMM
 paths are implemented.
 

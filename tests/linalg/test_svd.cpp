@@ -21,20 +21,20 @@ struct NormalOnlySvdBackend
     static constexpr std::string_view name = "normal_only_svd";
 };
 
-template <uni20::MutableRankedDeviceMdspanLike<1> SingularValueMdspan,
-          uni20::MutableRankedDeviceMdspanLike<2> LeftMdspan, uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SingularValueMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<LeftMdspan> && uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_left_op const&,
                                     SingularValueMdspan&, LeftMdspan&, MatrixMdspan&)
 {
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <uni20::MutableRankedDeviceMdspanLike<1> SingularValueMdspan,
-          uni20::MutableRankedDeviceMdspanLike<2> LeftMdspan, uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SingularValueMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<LeftMdspan> && uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_left_op const& operation,
                                         SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
                                         MatrixMdspan& matrix_work)
@@ -43,26 +43,20 @@ uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd
                                    matrix_work);
 }
 
-template <
-    uni20::MutableRankedDeviceMdspanLike<1> SingularValueMdspan, uni20::MutableRankedDeviceMdspanLike<2> LeftMdspan,
-    uni20::MutableRankedDeviceMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SingularValueMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<LeftMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<RightAdjointMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> RightAdjointMdspan, uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<RightAdjointMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_op const&, SingularValueMdspan&,
                                     LeftMdspan&, RightAdjointMdspan&, MatrixMdspan&)
 {
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <
-    uni20::MutableRankedDeviceMdspanLike<1> SingularValueMdspan, uni20::MutableRankedDeviceMdspanLike<2> LeftMdspan,
-    uni20::MutableRankedDeviceMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<SingularValueMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<LeftMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<RightAdjointMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> RightAdjointMdspan, uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<RightAdjointMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_op const& operation,
                                         SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
                                         RightAdjointMdspan& right_singular_vectors_adjoint, MatrixMdspan& matrix_work)

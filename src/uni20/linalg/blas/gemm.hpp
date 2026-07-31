@@ -21,12 +21,12 @@ namespace uni20::linalg::blas
 namespace detail
 {
 template <class Mdspan, class Scalar>
-concept readable_blas_device_mdspan_for =
-    blas_readable_device_mdspan<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar>;
+concept readable_blas_mdspec_for =
+    blas_readable_mdspec<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar>;
 
 template <class Mdspan, class Scalar>
-concept writable_blas_device_mdspan_for =
-    blas_writable_device_mdspan<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar>;
+concept writable_blas_mdspec_for =
+    blas_writable_mdspec<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar>;
 
 template <class Mdspan, class Scalar>
 concept readable_blas_mdspan_for =
@@ -49,8 +49,8 @@ constexpr blas_int logical_cols(blas_int rows, blas_int cols, MatrixTransform tr
 }
 
 template <class Scalar, class Handle>
-constexpr auto with_transform(BlasReadableMatrix<Scalar, Handle> matrix,
-                              MatrixTransform transform) -> BlasReadableMatrix<Scalar, Handle>
+constexpr auto with_transform(BlasReadableMatrix<Scalar, Handle> matrix, MatrixTransform transform)
+    -> BlasReadableMatrix<Scalar, Handle>
 {
   matrix.transform = compose(transform, matrix.transform);
   return matrix;
@@ -125,9 +125,9 @@ auto provider_readable_matrix(BlasReadableMatrix<Scalar, Handle> matrix) -> Blas
 }
 
 template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
-  requires writable_blas_device_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
-               readable_blas_device_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
-               readable_blas_device_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+  requires writable_blas_mdspec_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           readable_blas_mdspec_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           readable_blas_mdspec_for<std::remove_cvref_t<RhsMdspan>, Scalar>
 auto prepare_gemm_metadata(OutputMdspan&& output, LhsMdspan&& lhs, RhsMdspan&& rhs) -> GemmMetadataPreparation
 {
   CHECK_EQUAL(lhs.extent(1), rhs.extent(0));
@@ -235,9 +235,9 @@ template <uni20::BlasScalar Scalar> void execute_gemm(GemmPlan<Scalar> const& pl
 /// \return `success`, `unsupported_instance`, `unsupported_layout`, or
 ///         `unsupported_transform`.
 template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
-  requires detail::writable_blas_device_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
-           detail::readable_blas_device_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
-           detail::readable_blas_device_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+  requires detail::writable_blas_mdspec_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           detail::readable_blas_mdspec_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           detail::readable_blas_mdspec_for<std::remove_cvref_t<RhsMdspan>, Scalar>
 KernelAttempt probe_gemm(OutputMdspan&& output, LhsMdspan&& lhs, RhsMdspan&& rhs)
 {
   return detail::prepare_gemm_metadata<Scalar>(std::forward<OutputMdspan>(output), std::forward<LhsMdspan>(lhs),

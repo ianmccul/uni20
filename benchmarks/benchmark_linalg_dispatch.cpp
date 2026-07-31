@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -45,8 +46,8 @@ void CpuGemmTryKernel(benchmark::State& state)
 {
   GemmOperands operands(static_cast<std::size_t>(state.range(0)));
   auto output = operands.output.mdspan();
-  auto lhs = operands.lhs.mdspan();
-  auto rhs = operands.rhs.mdspan();
+  auto lhs = std::as_const(operands.lhs).mdspan();
+  auto rhs = std::as_const(operands.rhs).mdspan();
   auto* lhs_data = lhs.data_handle();
   auto* rhs_data = rhs.data_handle();
   uni20::linalg::dispatch_diagnostics::reset_sink();
@@ -68,8 +69,8 @@ void CpuGemmDispatch(benchmark::State& state)
 {
   GemmOperands operands(static_cast<std::size_t>(state.range(0)));
   auto output = operands.output.mdspan();
-  auto lhs = operands.lhs.mdspan();
-  auto rhs = operands.rhs.mdspan();
+  auto lhs = std::as_const(operands.lhs).mdspan();
+  auto rhs = std::as_const(operands.rhs).mdspan();
   auto* lhs_data = lhs.data_handle();
   auto* rhs_data = rhs.data_handle();
   uni20::linalg::dispatch_diagnostics::reset_sink();

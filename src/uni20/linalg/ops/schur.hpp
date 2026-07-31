@@ -18,20 +18,20 @@ namespace uni20::linalg
 {
 
 /// \brief Compute a Schur decomposition through an explicit backend selector.
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void schur(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
            SchurVectorTensor&& schur_vectors, bool compute_vectors)
 {
-  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
-  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  auto vector_descriptor = uni20::mdspec_of(schur_vectors);
   dispatch_kernel(std::forward<BackendSelector>(selector), schur_op{.compute_vectors = compute_vectors},
                   matrix_descriptor, eigenvalues, vector_descriptor);
 }
 
 /// \brief Compute a Schur decomposition using tensor storage policy.
-template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void schur(MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues, SchurVectorTensor&& schur_vectors,
            bool compute_vectors)
 {
@@ -42,20 +42,20 @@ void schur(MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues, Schur
 }
 
 /// \brief Compute a real Hessenberg Schur decomposition through an explicit selector.
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void hessenberg_schur(BackendSelector&& selector, MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues,
                       SchurVectorTensor&& schur_vectors, bool compute_vectors)
 {
-  auto matrix_descriptor = uni20::device_mdspan_of(matrix_work);
-  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  auto vector_descriptor = uni20::mdspec_of(schur_vectors);
   dispatch_kernel(std::forward<BackendSelector>(selector), hessenberg_schur_op{.compute_vectors = compute_vectors},
                   matrix_descriptor, eigenvalues, vector_descriptor);
 }
 
 /// \brief Compute a real Hessenberg Schur decomposition using tensor storage policy.
-template <uni20::MutableRankedDeviceTensorView<2> MatrixTensor, class EigenScalar,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <uni20::MutableRankedTensorView<2> MatrixTensor, class EigenScalar,
+          uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void hessenberg_schur(MatrixTensor&& matrix_work, std::span<EigenScalar> eigenvalues, SchurVectorTensor&& schur_vectors,
                       bool compute_vectors)
 {
@@ -66,21 +66,20 @@ void hessenberg_schur(MatrixTensor&& matrix_work, std::span<EigenScalar> eigenva
 }
 
 /// \brief Move one Schur block or entry through an explicit backend selector.
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> SchurFormTensor,
+          uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void reorder_schur(BackendSelector&& selector, SchurFormTensor&& schur_form, SchurVectorTensor&& schur_vectors,
                    std::size_t from, std::size_t to, bool update_vectors)
 {
-  auto form_descriptor = uni20::device_mdspan_of(schur_form);
-  auto vector_descriptor = uni20::device_mdspan_of(schur_vectors);
+  auto form_descriptor = uni20::mdspec_of(schur_form);
+  auto vector_descriptor = uni20::mdspec_of(schur_vectors);
   dispatch_kernel(std::forward<BackendSelector>(selector),
                   schur_reorder_op{.from = from, .to = to, .update_vectors = update_vectors}, form_descriptor,
                   vector_descriptor);
 }
 
 /// \brief Move one Schur block or entry using tensor storage policy.
-template <uni20::MutableRankedDeviceTensorView<2> SchurFormTensor,
-          uni20::MutableRankedDeviceTensorView<2> SchurVectorTensor>
+template <uni20::MutableRankedTensorView<2> SchurFormTensor, uni20::MutableRankedTensorView<2> SchurVectorTensor>
 void reorder_schur(SchurFormTensor&& schur_form, SchurVectorTensor&& schur_vectors, std::size_t from, std::size_t to,
                    bool update_vectors)
 {

@@ -8,7 +8,7 @@ small helpers used by dense kernels and layout-aware algorithms.
 
 - `mdspan.hpp`: configured gateway to the Kokkos reference implementation in
   namespace `stdex::`.
-- `device_mdspan.hpp`: mdspan-shaped mapping and accessor metadata paired with
+- `mdspec.hpp`: mdspan-shaped mapping and accessor metadata paired with
   a data descriptor for later handle acquisition.
 - `format.hpp`: `std::format` and `{fmt}` support for mdspan extents.
 - `concepts.hpp`: concepts for mdspan-like objects and related structural
@@ -34,19 +34,19 @@ small helpers used by dense kernels and layout-aware algorithms.
   descriptor aliases must agree, it exposes rank and extent observers, and its
   rank-dimensional `operator[]` returns the declared `reference` type.
   `MutableMdspanLike` additionally proves assignment through that indexed result.
-- `DeviceMdspanLike` is the broader structural protocol for mdspan metadata whose
+- `MdspecLike` is the broader structural protocol for mdspan metadata whose
   data handle is either immediately present or available through a data
-  descriptor. `device_mdspan` is the standard unresolved materialization, but
+  descriptor. `mdspec` is the standard unresolved materialization, but
   independent types may satisfy the concept directly. It preserves the actual
   mapping and accessor while intentionally exposing neither `data_handle()` nor
   element indexing.
-- `MutableDeviceMdspanLike` refines eventual write capability through an
+- `MutableMdspecLike` refines eventual write capability through an
   assignable accessor reference. It does not add indexing to an unresolved
   descriptor.
 - Immediate and descriptor-backed refinements use the same adjective order:
   mutable, ranked, strided, then the representation. For example,
   `MutableRankedStridedMdspanLike` requires an immediately usable mdspan, while
-  `MutableRankedStridedDeviceMdspanLike` also accepts descriptor-backed
+  `MutableRankedStridedMdspecLike` also accepts descriptor-backed
   metadata.
 - `StridedMdspanLike` refines `MdspanLike` by requiring an always-strided
   mapping and both mdspan and mapping stride observers. It includes
@@ -77,7 +77,7 @@ small helpers used by dense kernels and layout-aware algorithms.
 ## Related Documentation
 
 - [Source tree map](../)
-- [Device mdspan contract](../../../docs/tensor/device_mdspan.md)
+- [Mdspec contract](../../../docs/tensor/mdspec.md)
 - [Tensor dispatch and view semantics](../../../docs/tensor/dispatch_and_view_semantics_draft.md)
 - [BLAS/LAPACK mdspan wrappers](../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../docs/linalg/mdspan_dispatch.md)

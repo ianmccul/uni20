@@ -512,15 +512,15 @@ KernelAttempt try_svd(svd_op const& op, SingularValueMdspan& singular_values, Ot
 }
 } // namespace lapack_detail
 
-/// \brief Report eligibility for host-accessible device-mdspan SVD operands.
-template <lapack_detail::SvdOperation Operation, uni20::MutableStridedDeviceMdspanLike... Mdspans>
-  requires(uni20::detail::HostWritableDeviceMdspan<Mdspans> && ...) && requires {
-    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::detail::host_write_mdspan_t<Mdspans>>{}...);
+/// \brief Report eligibility for host-accessible mdspec SVD operands.
+template <lapack_detail::SvdOperation Operation, uni20::MutableStridedMdspecLike... Mdspans>
+  requires(uni20::HostWritableMdspec<Mdspans> && ...) && requires {
+    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
   }
 consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Mdspans&...)
 {
   constexpr auto acceptance =
-      lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::detail::host_write_mdspan_t<Mdspans>>{}...);
+      lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
   else
@@ -528,14 +528,14 @@ consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Mdsp
 }
 
 /// \brief Resolve host access and run a LAPACK SVD operation.
-template <lapack_detail::SvdOperation Operation, uni20::MutableStridedDeviceMdspanLike... Mdspans>
-  requires(uni20::detail::HostWritableDeviceMdspan<Mdspans> && ...) && requires {
-    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::detail::host_write_mdspan_t<Mdspans>>{}...);
+template <lapack_detail::SvdOperation Operation, uni20::MutableStridedMdspecLike... Mdspans>
+  requires(uni20::HostWritableMdspec<Mdspans> && ...) && requires {
+    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
   }
 KernelAttempt try_kernel(LapackBackend, Operation const& operation, Mdspans&... mdspans)
 {
-  return uni20::detail::with_host_write_mdspans(
-      [&](auto&... spans) { return lapack_detail::try_svd(operation, spans...); }, mdspans...);
+  return uni20::with_host_write_mdspans([&](auto&... spans) { return lapack_detail::try_svd(operation, spans...); },
+                                        mdspans...);
 }
 
 } // namespace uni20::linalg

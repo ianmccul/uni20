@@ -38,7 +38,7 @@ Tensor operations have three distinct layers:
 Tensor operation
   -> shape, ownership, and output policy
   -> storage-derived backend selector
-  -> fixed-operand DeviceMdspanLike normalization
+  -> fixed-operand MdspecLike normalization
   -> backend dispatch on normalized descriptors
   -> backend-specific execution-domain acquisition
   -> resolved mdspan leaf kernel
@@ -59,10 +59,11 @@ mdspan-like operands after ownership, storage domain, output policy, and async
 ordering have been handled by higher layers.
 
 Operation-tag `kernel_accepts_types(...)` and `try_kernel(...)` overloads are
-backend adapters and therefore accept tensor views, not resolved mdspans. A
-backend calls an ordinary lower-level function such as `cpu::gemm` or
-`cpu::gemv`, or a provider adapter such as `blas::try_gemm` or
-`blas::try_gemv`, after acquiring the required execution-domain leases.
+backend adapters and therefore accept normalized `MdspecLike` fixed operands,
+not tensor views or resolved mdspans. A backend calls an ordinary lower-level
+function such as `cpu::gemm` or `cpu::gemv`, or a provider adapter such as
+`blas::try_gemm` or `blas::try_gemv`, after acquiring the required
+execution-domain leases.
 
 ### Type Roles
 
@@ -76,15 +77,18 @@ backend calls an ordinary lower-level function such as `cpu::gemm` or
 | `CudaMatrix<Element, Layout>` | Rank-two `CudaTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
-| `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |
-| `MutableTensorView` | `TensorView` whose resolved mdspan permits writes. |
+| `TensorView` | Readable tensor-level object exposing extents, a normalized `MdspecLike` representation, and a backend selector. It is a concept, not a base class. |
+| `MutableTensorView` | `TensorView` whose normalized writable mdspec permits eventual element assignment. |
+| `ImmediateTensorView` | `TensorView` whose normalized mdspec is already an mdspan and which exposes `mdspan()` directly. |
+| `MutableImmediateTensorView` | `ImmediateTensorView` whose resolved mdspan permits writes. |
 | `OwningTensor` | Explicit opt-in classification whose move operation transfers the storage and lifetime exposed by `mdspan()`. |
-| `StridedTensorView` | Tensor view whose resolved mdspan has a strided mapping. Operations such as reshape may require this refinement. |
+| `StridedTensorView` | `TensorView` whose normalized mdspec has a strided mapping. |
+| `StridedImmediateTensorView` | Immediate tensor view whose resolved mdspan has a strided mapping. Operations such as reshape may require this refinement. |
 | Resolved mdspan | Short-lived leaf-kernel operand containing handle, mapping, extents, and accessor semantics. |
 
 Tensor objects deliberately do not model mdspan concepts. Front-end operations
-accept tensor concepts and resolve `.mdspan()` only after any shape-changing
-work is complete.
+accept tensor concepts, normalize fixed operands to mdspecs after backend
+selection, and acquire resolved mdspans inside the selected backend.
 
 ## Operation Vocabulary
 
@@ -191,6 +195,12 @@ uni20::require_output(output, required);            // validate only
 uni20::prepare_output(output, required);            // resize owner or validate fixed view
 uni20::prepare_output(output, required, placement); // shape plus backend storage requirement
 ```
+
+Operation and backend code share the public `TensorExtentsLike`,
+`tensor_extents_equal`, and `convert_tensor_extents` contracts when inspecting
+or converting a proposed output shape. These are tensor output-policy
+interfaces; callers should not depend on their implementation helpers in
+`uni20::detail`.
 
 An update operation uses `require_output` because old output values participate.
 An overwrite backend may use `prepare_output`. A resizable owner retains a
@@ -403,12 +413,12 @@ explicit.
 `assign_product` and `gemm` use distinct dispatch operations:
 
 ```cpp
-auto lhs_span = device_mdspan_of(std::as_const(lhs));
-auto rhs_span = device_mdspan_of(std::as_const(rhs));
+auto lhs_span = mdspec_of(std::as_const(lhs));
+auto rhs_span = mdspec_of(std::as_const(rhs));
 dispatch_kernel(
     selector, assign_product_op{}, output, alpha, lhs_span, rhs_span);
 
-auto output_span = device_mdspan_of(output);
+auto output_span = mdspec_of(output);
 dispatch_kernel(
     selector, gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 ```
@@ -431,7 +441,7 @@ potentially unconstructed `shared_storage<Tensor>`.
 The frontends select their backend lists while tensor policy is still
 available, then normalize fixed operands exactly once before dispatch.
 `gemm_op` backend customizations therefore accept
-`MutableDeviceMdspanLike` and `DeviceMdspanLike` refinements, not tensor views.
+`MutableMdspecLike` and `MdspecLike` refinements, not tensor views.
 `assign_product_op` receives normalized readable inputs but retains its
 tensor-level output because that output may not exist until the selected
 backend supplies placement and storage requirements.

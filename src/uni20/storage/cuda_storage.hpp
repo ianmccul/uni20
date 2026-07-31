@@ -77,7 +77,7 @@ template <class ElementType> class CudaBufferView {
 
 } // namespace uni20::cuda
 
-namespace uni20
+namespace uni20::cuda
 {
 
 namespace detail
@@ -86,18 +86,18 @@ namespace detail
 template <class Descriptor> struct IsCudaBufferView : std::false_type
 {};
 
-template <class ElementType> struct IsCudaBufferView<cuda::CudaBufferView<ElementType>> : std::true_type
+template <class ElementType> struct IsCudaBufferView<CudaBufferView<ElementType>> : std::true_type
 {};
-
-/// \brief CUDA-accessible device mdspan backed by a `CudaBufferView` descriptor.
-template <class Span>
-concept CudaBufferDeviceMdspan = CudaAccessibleDeviceMdspan<Span> && requires {
-  typename std::remove_cvref_t<Span>::data_descriptor_type;
-} && IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
 
 } // namespace detail
 
-} // namespace uni20
+/// \brief CUDA-accessible mdspec backed by a `CudaBufferView` descriptor.
+template <class Span>
+concept BufferMdspec = uni20::CudaAccessibleMdspec<Span> && requires {
+  typename std::remove_cvref_t<Span>::data_descriptor_type;
+} && detail::IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
+
+} // namespace uni20::cuda
 
 namespace uni20::cuda
 {
@@ -135,7 +135,7 @@ namespace uni20
 ///          remains operation-local. Direct Tensor operations may block during
 ///          admission. `Async<Tensor>` operations use coroutine-aware dispatch
 ///          when a backend provides it, while retaining the same storage and
-///          device-mdspan representation.
+///          mdspec representation.
 struct CudaStorage
 {
     using context_type = cuda::DeviceResources;
@@ -161,8 +161,8 @@ struct CudaStorage
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage,
-                                                std::size_t size) -> storage_t<ElementType>
+    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage, std::size_t size)
+        -> storage_t<ElementType>
     {
       return storage_t<ElementType>{storage.resources(), size};
     }
@@ -174,15 +174,15 @@ struct CudaStorage
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto
-    make_data_descriptor(storage_t<ElementType>& storage) noexcept -> cuda::CudaBufferView<ElementType>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType>& storage) noexcept
+        -> cuda::CudaBufferView<ElementType>
     {
       return cuda::CudaBufferView<ElementType>{storage};
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto
-    make_data_descriptor(storage_t<ElementType> const& storage) noexcept -> cuda::CudaBufferView<ElementType const>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType> const& storage) noexcept
+        -> cuda::CudaBufferView<ElementType const>
     {
       return cuda::CudaBufferView<ElementType const>{storage};
     }

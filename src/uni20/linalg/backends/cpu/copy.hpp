@@ -108,13 +108,13 @@ KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 }
 } // namespace detail::cpu_reference
 
-/// \brief Report eligibility for a host-accessible device-mdspan element copy.
-template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+/// \brief Report eligibility for a host-accessible mdspec element copy.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   constexpr auto acceptance = detail::cpu_reference::copy_acceptance<output_span, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -123,8 +123,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
 }
 
 /// \brief Resolve host access and copy through the resulting mdspans.
-template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
 {
   auto output_access = acquire_host_write_access(output);

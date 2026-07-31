@@ -4,7 +4,7 @@ add_test_module(mdspan
   SOURCES
     test_concepts.cpp
     test_conjugate_accessor.cpp
-    test_device_mdspan.cpp
+    test_mdspec.cpp
     test_iteration_plan.cpp
     test_strides.cpp
     test_transform_view.cpp

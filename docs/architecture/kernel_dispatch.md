@@ -54,7 +54,7 @@ Copy, fixed-output matrix products, elementwise transforms, reductions, matrix
 initialization and exponentiation, and fixed-output LAPACK decompositions
 therefore enter `probe_dispatch_kernel`, `kernel_type_candidates`,
 `try_dispatch_kernel`, `dispatch_kernel`, or `co_dispatch_kernel` as
-`DeviceMdspanLike` operands, with the applicable mutable and ranked
+`MdspecLike` operands, with the applicable mutable and ranked
 refinements. Their `kernel_accepts_types`, `try_kernel`, and
 `try_make_kernel_task` customizations use the same descriptor types. Scalar
 coefficients, axes, host `std::span` work arrays, and other non-tensor
@@ -63,9 +63,9 @@ parameters remain ordinary values.
 The tensor frontend must select the backend while storage and execution policy
 are still available, then normalize each fixed operand exactly once. A readable
 input is normalized through the tensor's const interface and a writable output
-through its mutable interface. An immediate `TensorView` produces an ordinary
-mdspan; a deferred `DeviceTensorView` produces descriptor-backed
-`device_mdspan` metadata. A bare mdspan convenience API directly supplies the
+through its mutable interface. An `ImmediateTensorView` produces an ordinary
+mdspan; a descriptor-backed `TensorView` produces concrete `mdspec` metadata.
+A bare mdspan convenience API directly supplies the
 same normalized descriptor boundary and does not need a temporary tensor
 facade.
 
@@ -455,7 +455,7 @@ The usual dense operation path has four layers:
 
 ```text
 Tensor operation wrapper
-    -> selector resolution and fixed-operand device-mdspan normalization
+    -> selector resolution and fixed-operand mdspec normalization
     -> operation-tag dispatch over normalized descriptors
     -> selected backend acquisition/lowering to execution-domain mdspans
     -> provider API or lower-level Uni20 module
@@ -478,7 +478,7 @@ existing shape-compatible output.
 
 ### Fixed-descriptor dispatch boundary
 
-A fixed-output operation-tag kernel receives normalized device mdspans and
+A fixed-output operation-tag kernel receives normalized mdspecs and
 scalar parameters. The backend may inspect their mappings, accessors, and data
 descriptors before accepting an instance. Once selected, it obtains any
 required domain-specific leases and resolves the operands to mdspans whose

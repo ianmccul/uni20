@@ -22,20 +22,20 @@ namespace detail::blas_backend
 template <class OutputMdspan, class Scalar, class MatrixMdspan, class InputMdspan>
 consteval bool gemv_types_compatible()
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
-  using matrix_span = uni20::detail::host_read_mdspan_t<MatrixMdspan>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using matrix_span = uni20::host_read_mdspan_t<MatrixMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   return requires(output_span& output, Scalar alpha, matrix_span& matrix, input_span& input) {
     { uni20::linalg::blas::try_gemv(output, alpha, matrix, input, alpha) } -> std::same_as<KernelAttempt>;
   };
 }
 } // namespace detail::blas_backend
 
-/// \brief Report eligibility for host-accessible device-mdspan BLAS GEMV.
-template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, class Scalar,
-          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           uni20::detail::HostReadableDeviceMdspan<MatrixMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+/// \brief Report eligibility for host-accessible mdspec BLAS GEMV.
+template <uni20::MutableRankedMdspecLike<1> OutputMdspan, class Scalar, uni20::RankedMdspecLike<2> MatrixMdspan,
+          uni20::RankedMdspecLike<1> InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<MatrixMdspan> &&
+           uni20::HostReadableMdspec<InputMdspan>
 consteval auto kernel_accepts_types(BlasBackend const&, gemv_op const&, OutputMdspan&, Scalar const&, MatrixMdspan&,
                                     InputMdspan&, Scalar const&)
 {
@@ -46,10 +46,10 @@ consteval auto kernel_accepts_types(BlasBackend const&, gemv_op const&, OutputMd
 }
 
 /// \brief Resolve host access and try BLAS GEMV.
-template <uni20::MutableRankedDeviceMdspanLike<1> OutputMdspan, class Scalar,
-          uni20::RankedDeviceMdspanLike<2> MatrixMdspan, uni20::RankedDeviceMdspanLike<1> InputMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           uni20::detail::HostReadableDeviceMdspan<MatrixMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+template <uni20::MutableRankedMdspecLike<1> OutputMdspan, class Scalar, uni20::RankedMdspecLike<2> MatrixMdspan,
+          uni20::RankedMdspecLike<1> InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<MatrixMdspan> &&
+           uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(BlasBackend, gemv_op const&, OutputMdspan& output, Scalar alpha, MatrixMdspan& matrix,
                          InputMdspan& input, Scalar beta)
 {

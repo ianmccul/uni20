@@ -127,15 +127,14 @@ KernelAttempt matrix_exponential(OutputMdspan& output, InputMdspan& input, TimeS
 }
 } // namespace detail::cpu_reference
 
-/// \brief Report eligibility for host-accessible device-mdspan matrix exponentiation.
-template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, uni20::RankedDeviceMdspanLike<2> InputMdspan,
-          class TimeScalar>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+/// \brief Report eligibility for host-accessible mdspec matrix exponentiation.
+template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::RankedMdspecLike<2> InputMdspan, class TimeScalar>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
                                     InputMdspan&, TimeScalar const&)
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   constexpr auto acceptance =
       detail::cpu_reference::matrix_exponential_acceptance<output_span, input_span, TimeScalar>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
@@ -145,9 +144,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponenti
 }
 
 /// \brief Resolve host access and compute a matrix exponential.
-template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, uni20::RankedDeviceMdspanLike<2> InputMdspan,
-          class TimeScalar>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::RankedMdspecLike<2> InputMdspan, class TimeScalar>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan& output, InputMdspan& input,
                          TimeScalar time)
 {

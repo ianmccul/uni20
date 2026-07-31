@@ -45,7 +45,11 @@ template <class Output, class Scalar, std::size_t Rank> consteval bool reduction
   }
   else if constexpr (Rank == 0)
   {
-    return std::same_as<output_type, Scalar> && requires(Output& output, Scalar value) { output = value; };
+    return std::same_as<output_type, Scalar>&&
+      requires(Output & output, Scalar value)
+    {
+      output = value;
+    };
   }
   else
   {
@@ -359,23 +363,23 @@ template <class Output, std::size_t InputRank, std::size_t ReducedRank, class In
 }
 
 template <class Output>
-concept HostReductionOutput = (!uni20::DeviceMdspanLike<Output>) || uni20::detail::HostWritableDeviceMdspan<Output>;
+concept HostReductionOutput = (!uni20::MdspecLike<Output>) || uni20::HostWritableMdspec<Output>;
 
-template <class Output, bool = uni20::DeviceMdspanLike<Output>> struct HostReductionOutputType
+template <class Output, bool = uni20::MdspecLike<Output>> struct HostReductionOutputType
 {
     using type = std::remove_cvref_t<Output>;
 };
 
 template <class Output> struct HostReductionOutputType<Output, true>
 {
-    using type = uni20::detail::host_write_mdspan_t<Output>;
+    using type = uni20::host_write_mdspan_t<Output>;
 };
 
 template <class Output> using host_reduction_output_t = typename HostReductionOutputType<Output>::type;
 
 template <class Output, class Function> KernelAttempt with_host_reduction_output(Output& output, Function&& function)
 {
-  if constexpr (uni20::DeviceMdspanLike<Output>)
+  if constexpr (uni20::MdspecLike<Output>)
   {
     auto output_access = acquire_host_write_access(output);
     auto output_span = output_access.mdspan();
@@ -389,16 +393,16 @@ template <class Output, class Function> KernelAttempt with_host_reduction_output
 
 } // namespace detail
 
-/// \brief Report eligibility for a host-accessible device-mdspan inner product.
-template <class Output, uni20::DeviceMdspanLike LhsMdspan, uni20::DeviceMdspanLike RhsMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<LhsMdspan> &&
-           uni20::detail::HostReadableDeviceMdspan<RhsMdspan>
+/// \brief Report eligibility for a host-accessible mdspec inner product.
+template <class Output, uni20::MdspecLike LhsMdspan, uni20::MdspecLike RhsMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<LhsMdspan> &&
+           uni20::HostReadableMdspec<RhsMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op const&, Output&, LhsMdspan&,
                                     RhsMdspan&)
 {
   using output_type = detail::host_reduction_output_t<Output>;
-  using lhs_span = uni20::detail::host_read_mdspan_t<LhsMdspan>;
-  using rhs_span = uni20::detail::host_read_mdspan_t<RhsMdspan>;
+  using lhs_span = uni20::host_read_mdspan_t<LhsMdspan>;
+  using rhs_span = uni20::host_read_mdspan_t<RhsMdspan>;
   constexpr auto acceptance = detail::inner_product_acceptance<output_type, lhs_span, rhs_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -407,9 +411,9 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op
 }
 
 /// \brief Resolve host access and compute an inner product.
-template <class Output, uni20::DeviceMdspanLike LhsMdspan, uni20::DeviceMdspanLike RhsMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<LhsMdspan> &&
-           uni20::detail::HostReadableDeviceMdspan<RhsMdspan>
+template <class Output, uni20::MdspecLike LhsMdspan, uni20::MdspecLike RhsMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<LhsMdspan> &&
+           uni20::HostReadableMdspec<RhsMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output& output, LhsMdspan& lhs, RhsMdspan& rhs)
 {
   auto lhs_access = acquire_host_read_access(lhs);
@@ -422,13 +426,13 @@ KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output& o
   });
 }
 
-/// \brief Report eligibility for a host-accessible device-mdspan norm.
-template <class Output, uni20::DeviceMdspanLike InputMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+/// \brief Report eligibility for a host-accessible mdspec norm.
+template <class Output, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, Output&, InputMdspan&)
 {
   using output_type = detail::host_reduction_output_t<Output>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   constexpr auto acceptance = detail::norm_acceptance<output_type, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -437,8 +441,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, 
 }
 
 /// \brief Resolve host access and compute a Euclidean norm.
-template <class Output, uni20::DeviceMdspanLike InputMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+template <class Output, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output& output, InputMdspan& input)
 {
   auto input_access = acquire_host_read_access(input);
@@ -449,14 +453,14 @@ KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output& output, In
   });
 }
 
-/// \brief Report eligibility for a host-accessible device-mdspan sum reduction.
-template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::DeviceMdspanLike InputMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+/// \brief Report eligibility for a host-accessible mdspec sum reduction.
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op<InputRank, ReducedRank> const&,
                                     Output&, InputMdspan&)
 {
   using output_type = detail::host_reduction_output_t<Output>;
-  using input_span = uni20::detail::host_read_mdspan_t<InputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
   constexpr auto acceptance = detail::sum_acceptance<output_type, InputRank, ReducedRank, input_span>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -465,8 +469,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op
 }
 
 /// \brief Resolve host access and sum selected axes.
-template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::DeviceMdspanLike InputMdspan>
-  requires detail::HostReductionOutput<Output> && uni20::detail::HostReadableDeviceMdspan<InputMdspan>
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, sum_reduction_op<InputRank, ReducedRank> const& operation, Output& output,
                          InputMdspan& input)
 {

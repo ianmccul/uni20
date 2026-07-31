@@ -37,13 +37,12 @@ concept UpdateTransformSpans = MutableMdspanLike<Output> && (MdspanLike<Inputs> 
 
 template <class Output, class... Inputs>
 concept OverwriteTransformTensors =
-    MutableDeviceTensorView<Output> && (sizeof...(Inputs) >= 1) && (DeviceTensorView<Inputs> && ...) &&
-    ((device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Inputs>::rank()) && ...);
+    MutableTensorView<Output> && (sizeof...(Inputs) >= 1) && (TensorView<Inputs> && ...) &&
+    ((tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
-concept UpdateTransformTensors =
-    MutableDeviceTensorView<Output> && (DeviceTensorView<Inputs> && ...) &&
-    ((device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Inputs>::rank()) && ...);
+concept UpdateTransformTensors = MutableTensorView<Output> && (TensorView<Inputs> && ...) &&
+                                 ((tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Inputs>::rank()) && ...);
 
 template <class Reference, class... Others>
 void require_transform_extents(Reference const& reference, Others const&... others)
@@ -51,8 +50,8 @@ void require_transform_extents(Reference const& reference, Others const&... othe
   if constexpr (sizeof...(Others) > 0)
   {
     constexpr std::size_t Rank = [] {
-      if constexpr (DeviceTensorView<Reference>)
-        return device_tensor_mdspan_t<Reference>::rank();
+      if constexpr (TensorView<Reference>)
+        return tensor_mdspec_t<Reference>::rank();
       else
         return std::remove_cvref_t<Reference>::rank();
     }();
@@ -131,8 +130,8 @@ void assign_transform(BackendSelector&& selector, OutputTensor&& output, Functio
   detail::require_transform_extents(first_input, rest_inputs...);
   prepare_output(output, first_input.extents());
   auto operation = linalg::transform_op{std::forward<Function>(function)};
-  auto output_descriptor = device_mdspan_of(output);
-  auto input_descriptors = std::tuple{device_mdspan_of(first_input), device_mdspan_of(rest_inputs)...};
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(first_input), mdspec_of(rest_inputs)...};
   std::apply(
       [&](auto&... inputs) {
         detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
@@ -151,8 +150,8 @@ void assign_transform(OutputTensor&& output, Function&& function, FirstInputTens
   auto selector = linalg::select_backend(operation, output, first_input, rest_inputs...);
   detail::require_transform_extents(first_input, rest_inputs...);
   prepare_output(output, first_input.extents());
-  auto output_descriptor = device_mdspan_of(output);
-  auto input_descriptors = std::tuple{device_mdspan_of(first_input), device_mdspan_of(rest_inputs)...};
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(first_input), mdspec_of(rest_inputs)...};
   std::apply(
       [&](auto&... inputs) {
         detail::dispatch_transform(selector, std::move(operation), output_descriptor, inputs...);
@@ -171,8 +170,8 @@ void transform_inplace(BackendSelector&& selector, OutputTensor&& output, Functi
 {
   detail::require_transform_extents(output, inputs...);
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
-  auto output_descriptor = device_mdspan_of(output);
-  auto input_descriptors = std::tuple{device_mdspan_of(inputs)...};
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(inputs)...};
   std::apply(
       [&](auto&... input_descriptors) {
         detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
@@ -189,8 +188,8 @@ void transform_inplace(OutputTensor&& output, Function&& function, InputTensors 
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
   auto selector = linalg::select_backend(operation, output, inputs...);
   detail::require_transform_extents(output, inputs...);
-  auto output_descriptor = device_mdspan_of(output);
-  auto input_descriptors = std::tuple{device_mdspan_of(inputs)...};
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(inputs)...};
   std::apply(
       [&](auto&... input_descriptors) {
         detail::dispatch_transform(selector, std::move(operation), output_descriptor, input_descriptors...);

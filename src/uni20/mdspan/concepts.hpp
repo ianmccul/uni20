@@ -264,7 +264,7 @@ concept SpanDescriptor = SpanMetadata<S> && requires(span_type_t<S> const& span)
 };
 
 template <class S>
-concept DeviceSpanDescriptor = SpanMetadata<S> && requires(span_type_t<S> const& span) {
+concept MdspecDescriptor = SpanMetadata<S> && requires(span_type_t<S> const& span) {
   typename span_type_t<S>::data_descriptor_type;
   { span.data_descriptor() } -> std::convertible_to<typename span_type_t<S>::data_descriptor_type const&>;
 };
@@ -283,18 +283,18 @@ template <class S>
 concept MdspanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
                      detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
 
-/// \concept DeviceMdspanLike
+/// \concept MdspecLike
 /// \brief Mdspan metadata whose data handle is immediate or available through a data descriptor.
 /// \details Ordinary `MdspanLike` values model this concept as the immediate case.
 ///          A deferred model instead exposes `data_descriptor_type` and
 ///          `data_descriptor()` while retaining the actual mapping and accessor
 ///          that will be used after handle acquisition. The concept does not
-///          require the concrete `device_mdspan` class.
-/// \tparam S The type being tested for device-mdspan requirements.
+///          require the concrete `mdspec` class.
+/// \tparam S The type being tested for mdspec requirements.
 /// \ingroup mdspan_ext
 template <class S>
-concept DeviceMdspanLike = MdspanLike<S> || (detail::DeviceSpanDescriptor<S> &&
-                                             AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
+concept MdspecLike =
+    MdspanLike<S> || (detail::MdspecDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
 
 /// \concept HostAccessibleMdspan
 /// \brief Mdspan whose accessor may be evaluated directly by host code.
@@ -308,19 +308,17 @@ concept HostAccessibleMdspan = MdspanLike<S> && HostAccessibleAccessor<typename 
 template <class S>
 concept CudaAccessibleMdspan = MdspanLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
-/// \concept HostAccessibleDeviceMdspan
+/// \concept HostAccessibleMdspec
 /// \brief Immediate or descriptor-backed mdspan metadata targeting host access.
-/// \tparam S Device-mdspan-like type being tested.
+/// \tparam S Mdspec-like type being tested.
 template <class S>
-concept HostAccessibleDeviceMdspan =
-    DeviceMdspanLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
+concept HostAccessibleMdspec = MdspecLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
-/// \concept CudaAccessibleDeviceMdspan
+/// \concept CudaAccessibleMdspec
 /// \brief Immediate or descriptor-backed mdspan metadata targeting CUDA access.
-/// \tparam S Device-mdspan-like type being tested.
+/// \tparam S Mdspec-like type being tested.
 template <class S>
-concept CudaAccessibleDeviceMdspan =
-    DeviceMdspanLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
+concept CudaAccessibleMdspec = MdspecLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 namespace detail
 {
@@ -382,15 +380,15 @@ concept MutableMdspanLike =
     MdspanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
     detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
 
-/// \concept MutableDeviceMdspanLike
-/// \brief DeviceMdspanLike types whose eventual storage supports writes.
+/// \concept MutableMdspecLike
+/// \brief MdspecLike types whose eventual storage supports writes.
 /// \details Immediate spans use `MutableMdspanLike`. Deferred spans use the same
 ///          accessor-reference assignment that will govern the resolved span.
-/// \tparam S The device-mdspan-like type being evaluated.
+/// \tparam S The mdspec-like type being evaluated.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableDeviceMdspanLike =
-    DeviceMdspanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+concept MutableMdspecLike =
+    MdspecLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
     (MutableMdspanLike<S> || detail::AccessorReferenceAssignable<typename detail::span_type_t<S>::accessor_type>);
 
 /// \brief An mdspan-like type whose mapping is always strided and exposes stride observers.
@@ -414,26 +412,24 @@ concept StridedMdspanLike = MdspanLike<MDS> && detail::span_type_t<MDS>::is_alwa
 template <class MDS>
 concept MutableStridedMdspanLike = MutableMdspanLike<MDS> && StridedMdspanLike<MDS>;
 
-/// \brief A device-mdspan-like type whose mapping exposes multidimensional strides.
-/// \tparam S The device-mdspan-like type under test.
+/// \brief An mdspec-like type whose mapping exposes multidimensional strides.
+/// \tparam S The mdspec-like type under test.
 /// \ingroup mdspan_ext
 template <class S>
-concept StridedDeviceMdspanLike = DeviceMdspanLike<S> && detail::span_type_t<S>::is_always_strided() &&
-                                  requires(detail::span_type_t<S> const& span, std::size_t axis) {
-                                    {
-                                      span.stride(axis)
-                                    } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
-                                    {
-                                      span.mapping().stride(axis)
-                                    } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
-                                  };
+concept StridedMdspecLike = MdspecLike<S> && detail::span_type_t<S>::is_always_strided() &&
+                            requires(detail::span_type_t<S> const& span, std::size_t axis) {
+                              { span.stride(axis) } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                              {
+                                span.mapping().stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                            };
 
-/// \concept MutableStridedDeviceMdspanLike
-/// \brief Mutable device-mdspan-like type whose mapping is always strided.
-/// \tparam S The device-mdspan-like type under test.
+/// \concept MutableStridedMdspecLike
+/// \brief Mutable mdspec-like type whose mapping is always strided.
+/// \tparam S The mdspec-like type under test.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableStridedDeviceMdspanLike = MutableDeviceMdspanLike<S> && StridedDeviceMdspanLike<S>;
+concept MutableStridedMdspecLike = MutableMdspecLike<S> && StridedMdspecLike<S>;
 
 /// \brief An mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
@@ -442,20 +438,20 @@ concept MutableStridedDeviceMdspanLike = MutableDeviceMdspanLike<S> && StridedDe
 template <class MDS, std::size_t Rank>
 concept RankedMdspanLike = MdspanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
 
-/// \brief A device-mdspan-like type with a specified static rank.
-/// \tparam S The device-mdspan-like type under test.
+/// \brief An mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept RankedDeviceMdspanLike = DeviceMdspanLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
+concept RankedMdspecLike = MdspecLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
 
-/// \concept MutableRankedDeviceMdspanLike
-/// \brief Mutable device-mdspan-like type with a specified static rank.
-/// \tparam S The device-mdspan-like type under test.
+/// \concept MutableRankedMdspecLike
+/// \brief Mutable mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept MutableRankedDeviceMdspanLike = MutableDeviceMdspanLike<S> && RankedDeviceMdspanLike<S, Rank>;
+concept MutableRankedMdspecLike = MutableMdspecLike<S> && RankedMdspecLike<S, Rank>;
 
 /// \brief A mutable mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
@@ -479,22 +475,21 @@ concept DefaultAccessorMdspanLike =
 template <class MDS, std::size_t Rank>
 concept RankedStridedMdspanLike = RankedMdspanLike<MDS, Rank> && StridedMdspanLike<std::remove_cvref_t<MDS>>;
 
-/// \brief A strided device-mdspan-like type with a specified static rank.
-/// \tparam S The device-mdspan-like type under test.
+/// \brief A strided mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept RankedStridedDeviceMdspanLike =
-    RankedDeviceMdspanLike<S, Rank> && StridedDeviceMdspanLike<std::remove_cvref_t<S>>;
+concept RankedStridedMdspecLike = RankedMdspecLike<S, Rank> && StridedMdspecLike<std::remove_cvref_t<S>>;
 
-/// \concept MutableRankedStridedDeviceMdspanLike
-/// \brief Mutable strided device-mdspan-like type with a specified static rank.
-/// \tparam S The device-mdspan-like type under test.
+/// \concept MutableRankedStridedMdspecLike
+/// \brief Mutable strided mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class S, std::size_t Rank>
-concept MutableRankedStridedDeviceMdspanLike =
-    MutableRankedDeviceMdspanLike<S, Rank> && MutableStridedDeviceMdspanLike<std::remove_cvref_t<S>>;
+concept MutableRankedStridedMdspecLike =
+    MutableRankedMdspecLike<S, Rank> && MutableStridedMdspecLike<std::remove_cvref_t<S>>;
 
 /// \brief A mutable strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
@@ -508,12 +503,12 @@ namespace detail
 {
 
 /// \brief Helper that materializes strides from the layout mapping.
-/// \tparam S The strided device-mdspan-like type.
+/// \tparam S The strided mdspec-like type.
 /// \tparam I Index sequence selecting the stride positions.
 /// \param s The multidimensional descriptor whose strides will be computed.
 /// \return An array containing strides for each dimension in \c S.
 /// \ingroup internal
-template <StridedDeviceMdspanLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
+template <StridedMdspecLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
 {
   using index_type = typename S::index_type;
   // fold the pack I... into an array by calling s.mapping().stride(I) for each I
@@ -522,12 +517,12 @@ template <StridedDeviceMdspanLike S, size_t... I> constexpr auto strides_impl(S 
 
 } // namespace detail
 
-/// \brief Retrieve the strides associated with a strided device-mdspan-like type.
-/// \tparam S The strided device-mdspan-like type.
+/// \brief Retrieve the strides associated with a strided mdspec-like type.
+/// \tparam S The strided mdspec-like type.
 /// \param s The multidimensional descriptor whose strides will be returned.
 /// \return A std::array containing the strides for each rank.
 /// \ingroup mdspan_ext
-template <StridedDeviceMdspanLike S> auto strides(S const& s)
+template <StridedMdspecLike S> auto strides(S const& s)
 {
   return detail::strides_impl(s, std::make_index_sequence<S::rank()>{});
 }

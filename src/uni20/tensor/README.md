@@ -8,8 +8,7 @@ kernels operate on resolved mdspans.
 
 - `basic_tensor.hpp`: concrete composition-based `Tensor` owner and the
   extents-first `BasicTensor` alias.
-- `access.hpp`: read/write TensorView leases plus blocking and awaitable
-  acquisition for immediately accessible tensors.
+- `access.hpp`: generic RAII mdspan and tensor leases plus host acquisition.
 - `cuda_access.hpp`: CUDA descriptor resolution through blocking or
   stream-ordered `CudaBuffer` access.
 - `tensor.hpp`: named
@@ -35,8 +34,8 @@ kernels operate on resolved mdspans.
 - `reductions.hpp`: storage-preserving full and partial sums, host-result sums,
   inner products, and stable Euclidean norms. All-async sum overloads live in
   [`linalg/async/`](../linalg/async/).
-- `concepts.hpp`: immediate and device tensor views plus mutable, owning,
-  strided, and rank-constrained refinements.
+- `concepts.hpp`: tensor views and their immediate, mutable, owning, strided,
+  and rank-constrained refinements.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.
 - `reshape.hpp`: explicit no-copy, in-place, and owning reshape operations.
 - `shape.hpp`: checked runtime-extents construction shared by tensor factories.
@@ -89,17 +88,18 @@ kernels operate on resolved mdspans.
   Materialization is an operation and must remain eligible for backend
   dispatch, including future BLAS matrix-copy extensions.
 - A tensor-level object exposes a storage-derived backend selector plus
-  synchronous extents metadata. An immediately accessible `TensorView` also
-  exposes `mdspan()`. A deferred `DeviceTensorView` instead exposes
-  `device_mdspan()` until an acquisition operation resolves its data handle.
+  synchronous extents metadata. Every `TensorView` exposes metadata through
+  `mdspec_of()`. An `ImmediateTensorView` also exposes `mdspan()` because its
+  data handle needs no acquisition. A descriptor-backed `TensorView` instead
+  exposes `mdspec()` until an acquisition operation resolves its data handle.
   Element and accessor semantics determine whether either representation is
   writable; owning tensors overload the available observer on constness.
-- `Tensor::device_mdspan()` prefers the corresponding immediate read or write
+- `Tensor::mdspec()` prefers the corresponding immediate read or write
   handle and returns an ordinary mdspan in that case. Descriptor metadata is
   selected only when no immediate handle is available. Readable and writable
   capabilities are independent.
-- `DeviceTensorView` extends this vocabulary to tensors whose usable data handle
-  requires acquisition. Domain-explicit operations such as
+- `TensorView` covers both immediately accessible and descriptor-backed
+  tensors. Domain-explicit operations such as
   `acquire_host_read_access` and `acquire_cuda_write_access` return RAII
   TensorViews whose mdspan accessor is valid in the named execution domain.
   Immediate host lvalue views use borrowed no-op leases and do not need a
@@ -108,35 +108,35 @@ kernels operate on resolved mdspans.
   transfers data between host and CUDA domains; `copy` is the explicit bridge.
   Lease and access-state release is idempotent; moving either transfers the
   active lifetime and leaves the source inactive. See
-  [Device Mdspan](../../../docs/tensor/device_mdspan.md).
+  [Mdspec](../../../docs/tensor/mdspec.md).
 - `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit
   `cuda::DeviceResources` selects another enrolled device or an isolated test
   resource set. Its storage is a move-only `CudaBuffer<T>`.
-  `device_mdspan()` exposes a `CudaBufferView` descriptor, the tensor mapping,
+  `mdspec()` exposes a `CudaBufferView` descriptor, the tensor mapping,
   and the actual pointer accessor without exposing a pointer. Tensor-level
   acquisition resolves this to a lease with a `T*` or `T const*` mdspan.
   An owning rvalue read moves its buffer into an owning access state; non-owning
   deferred views remain lvalue-only. Stream-ordered access installs predecessor
   waits and publishes completion when the lease ends. `CudaTensor` deliberately
-  does not expose `mdspan()` and therefore models `DeviceTensorView`, not
-  `TensorView`. Fixed CUDA GEMM dispatch receives normalized device-mdspan
+  does not expose `mdspan()` and therefore models `TensorView`, not
+  `ImmediateTensorView`. Fixed CUDA GEMM dispatch receives normalized mdspec
   descriptors; the cuBLAS backend validates them and acquires the referenced
   buffers.
-- Tensor objects deliberately do not model Uni20's mdspan concepts. `TensorView`
-  and `DeviceTensorView` expose `.mdspan()` or `.device_mdspan()` for that
-  purpose. `device_mdspan_of(tensor)` selects the latter when available and
-  otherwise returns the immediate mdspan unchanged. The concepts explicitly
+- Tensor objects deliberately do not model Uni20's mdspan concepts.
+  `mdspec_of(tensor)` selects `.mdspec()` when available and otherwise returns
+  `.mdspan()` unchanged. `ImmediateTensorView` explicitly requires the latter;
+  `TensorView` accepts either representation. The concepts explicitly
   reject objects that directly model the corresponding mdspan representation.
   Fixed-output operation frontends select
   a backend list from tensor policy, then dispatch normalized
-  `DeviceMdspanLike` operands. Blocking backends acquire mdspan leases before
+  `MdspecLike` operands. Blocking backends acquire mdspan leases before
   entering an existing mdspan implementation; descriptor-native backends may
   interpret unresolved metadata directly. Replaceable-output operation tags
   retain tensor or shared-storage outputs until the selected backend prepares
   them.
 - Generated tensors own compact generator state rather than an element buffer.
-  They model readable `TensorView` but not `StridedTensorView`; their synthetic
+  They model readable `ImmediateTensorView` but not `StridedImmediateTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is
   backend-neutral when an operation also has concrete storage operands.
 - `reshape_view` is the strict no-copy operation, `reshape_inplace` changes an

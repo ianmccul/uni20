@@ -45,10 +45,11 @@ template <class OutputMdspan, class Function, class... InputMdspans> consteval b
   else
   {
     return (transform_value_is_readable<InputMdspans>() && ...) &&
-           std::invocable<Function const&, typename std::remove_cvref_t<InputMdspans>::value_type...> &&
-           requires(typename output_type::reference output, Function const& function) {
-             output = std::invoke(function, std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
-           };
+           std::invocable<Function const&, typename std::remove_cvref_t<InputMdspans>::value_type...>&&
+             requires(typename output_type::reference output, Function const& function)
+    {
+      output = std::invoke(function, std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
+    };
   }
 }
 
@@ -65,11 +66,12 @@ template <class OutputMdspan, class Function, class... InputMdspans> consteval b
   {
     return transform_value_is_readable<OutputMdspan>() && (transform_value_is_readable<InputMdspans>() && ...) &&
            std::invocable<Function const&, typename output_type::value_type,
-                          typename std::remove_cvref_t<InputMdspans>::value_type...> &&
-           requires(typename output_type::reference output, Function const& function) {
-             output = std::invoke(function, std::declval<typename output_type::value_type>(),
-                                  std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
-           };
+                          typename std::remove_cvref_t<InputMdspans>::value_type...>&&
+             requires(typename output_type::reference output, Function const& function)
+    {
+      output = std::invoke(function, std::declval<typename output_type::value_type>(),
+                           std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
+    };
   }
 }
 
@@ -170,25 +172,23 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
 
 } // namespace detail
 
-/// \brief Report eligibility for host-accessible device-mdspan overwrite transforms.
-template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+/// \brief Report eligibility for host-accessible mdspec overwrite transforms.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
   if constexpr (detail::overwrite_transform_is_supported<output_span, Function,
-                                                         uni20::detail::host_read_mdspan_t<InputMdspans>...>())
+                                                         uni20::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
 /// \brief Resolve host access and apply an overwrite transform.
-template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan& output,
                          InputMdspans&... inputs)
 {
@@ -204,25 +204,23 @@ KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& oper
       input_accesses);
 }
 
-/// \brief Report eligibility for host-accessible device-mdspan update transforms.
-template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+/// \brief Report eligibility for host-accessible mdspec update transforms.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
-  using output_span = uni20::detail::host_write_mdspan_t<OutputMdspan>;
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
   if constexpr (detail::update_transform_is_supported<output_span, Function,
-                                                      uni20::detail::host_read_mdspan_t<InputMdspans>...>())
+                                                      uni20::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
 /// \brief Resolve host access and apply an update transform.
-template <class Function, uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike... InputMdspans>
-  requires uni20::detail::HostWritableDeviceMdspan<OutputMdspan> &&
-           (uni20::detail::HostReadableDeviceMdspan<InputMdspans> && ...)
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan& output,
                          InputMdspans&... inputs)
 {

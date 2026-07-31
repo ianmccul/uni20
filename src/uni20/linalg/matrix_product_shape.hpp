@@ -25,14 +25,14 @@ template <class Lhs, class Rhs>
 }
 
 /// \brief Validate matrix-product input extents and return the output shape.
-template <uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+template <uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
 [[nodiscard]] matrix_product_extents matrix_product_shape(LhsTensor const& lhs, RhsTensor const& rhs)
 {
   return matrix_product_shape_impl(lhs, rhs);
 }
 
-/// \brief Validate matrix-product device-mdspan extents and return the output shape.
-template <uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+/// \brief Validate matrix-product mdspec extents and return the output shape.
+template <uni20::RankedMdspecLike<2> LhsMdspan, uni20::RankedMdspecLike<2> RhsMdspan>
 [[nodiscard]] matrix_product_extents matrix_product_shape(LhsMdspan const& lhs, RhsMdspan const& rhs)
 {
   return matrix_product_shape_impl(lhs, rhs);

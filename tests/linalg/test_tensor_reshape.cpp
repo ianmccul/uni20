@@ -20,12 +20,12 @@ using strided_matrix = uni20::StridedTensor<double, 2>;
 using generated_matrix = decltype(uni20::ones<double>(2, 3));
 using const_strided_matrix = uni20::ConstTensorView<strided_matrix>;
 using metadata_extents = stdex::dextents<uni20::index_type, 2>;
-using metadata_span = uni20::device_mdspan<double const, metadata_extents, stdex::layout_stride,
-                                           stdex::default_accessor<double const>, std::size_t>;
+using metadata_span = uni20::mdspec<double const, metadata_extents, stdex::layout_stride,
+                                    stdex::default_accessor<double const>, std::size_t>;
 
-static_assert(uni20::MutableRankedTensorView<mutable_reshape, 2>);
-static_assert(uni20::RankedTensorView<const_reshape, 2>);
-static_assert(!uni20::MutableTensorView<const_reshape>);
+static_assert(uni20::MutableRankedImmediateTensorView<mutable_reshape, 2>);
+static_assert(uni20::RankedImmediateTensorView<const_reshape, 2>);
+static_assert(!uni20::MutableImmediateTensorView<const_reshape>);
 static_assert(!uni20::OwningTensor<mutable_reshape>);
 static_assert(std::same_as<typename mutable_reshape::layout_type, uni20::RowMajor>);
 

@@ -39,7 +39,7 @@ void validate_async_transform_aliasing(async::Async<OutputTensor> const& output,
   }
 }
 
-template <AsyncTensorOutput OutputTensor, TensorView FirstInputTensor>
+template <AsyncTensorOutput OutputTensor, ImmediateTensorView FirstInputTensor>
 [[nodiscard]] OutputTensor& prepare_async_assign_transform_output(async::shared_storage<OutputTensor>& storage,
                                                                   FirstInputTensor const& first_input)
 {
@@ -71,7 +71,7 @@ void invoke_async_transform_inplace(BackendSelector const& selector, linalg::tra
   uni20::transform_inplace(selector, output, std::move(operation.function), std::get<Input + 1>(awaited)...);
 }
 
-template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView... InputTensors>
 async::AsyncTask co_assign_transform(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
                                      linalg::transform_op<Function> operation,
                                      async::ReadBuffer<InputTensors>... inputs)
@@ -97,7 +97,7 @@ async::AsyncTask co_assign_transform(BackendSelector const selector, async::Writ
   co_return;
 }
 
-template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView... InputTensors>
 async::AsyncTask co_transform_inplace(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
                                       linalg::transform_inplace_op<Function> operation,
                                       async::ReadBuffer<InputTensors>... inputs)
@@ -121,7 +121,7 @@ async::AsyncTask co_transform_inplace(BackendSelector const selector, async::Wri
   co_return;
 }
 
-template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView... InputTensors>
 void schedule_async_assign_transform(BackendSelector selector, async::Async<OutputTensor>& output,
                                      linalg::transform_op<Function> operation,
                                      async::Async<InputTensors> const&... inputs)
@@ -132,7 +132,7 @@ void schedule_async_assign_transform(BackendSelector selector, async::Async<Outp
   async::schedule(std::move(task));
 }
 
-template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView... InputTensors>
 void schedule_async_transform_inplace(BackendSelector selector, async::Async<OutputTensor>& output,
                                       linalg::transform_inplace_op<Function> operation,
                                       async::Async<InputTensors> const&... inputs)
@@ -151,8 +151,8 @@ void schedule_async_transform_inplace(BackendSelector selector, async::Async<Out
 ///          An unconstructed output is initialized when its Tensor type can be
 ///          constructed from the first input's extents.
 /// \pre The output must not share an epoch queue with any input.
-template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Function, TensorView FirstInputTensor,
-          TensorView... RestInputTensors>
+template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Function,
+          ImmediateTensorView FirstInputTensor, ImmediateTensorView... RestInputTensors>
   requires detail::OverwriteTransformTensors<OutputTensor, FirstInputTensor, RestInputTensors...>
 void assign_transform(BackendSelector selector, async::Async<OutputTensor>& output, Function&& function,
                       async::Async<FirstInputTensor> const& first_input,
@@ -168,8 +168,8 @@ void assign_transform(BackendSelector selector, async::Async<OutputTensor>& outp
 ///          occurs before scheduling. Unhandled failures propagate to the
 ///          output epoch.
 /// \pre The output must not share an epoch queue with any input.
-template <detail::AsyncTensorOutput OutputTensor, class Function, TensorView FirstInputTensor,
-          TensorView... RestInputTensors>
+template <detail::AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView FirstInputTensor,
+          ImmediateTensorView... RestInputTensors>
   requires detail::OverwriteTransformTensors<OutputTensor, FirstInputTensor, RestInputTensors...>
 void assign_transform(async::Async<OutputTensor>& output, Function&& function,
                       async::Async<FirstInputTensor> const& first_input,
@@ -186,7 +186,8 @@ void assign_transform(async::Async<OutputTensor>& output, Function&& function,
 ///          supplied through the single output writer and precedes all input
 ///          values in the callable argument list.
 /// \pre The output must not share an epoch queue with any input.
-template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Function,
+          ImmediateTensorView... InputTensors>
   requires detail::UpdateTransformTensors<OutputTensor, InputTensors...>
 void transform_inplace(BackendSelector selector, async::Async<OutputTensor>& output, Function&& function,
                        async::Async<InputTensors> const&... inputs)
@@ -199,7 +200,7 @@ void transform_inplace(BackendSelector selector, async::Async<OutputTensor>& out
 /// \details Selector resolution occurs before scheduling. The output contributes
 ///          one writer and is never enrolled again as a read-only input.
 /// \pre The output must not share an epoch queue with any input.
-template <detail::AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
+template <detail::AsyncTensorOutput OutputTensor, class Function, ImmediateTensorView... InputTensors>
   requires detail::UpdateTransformTensors<OutputTensor, InputTensors...>
 void transform_inplace(async::Async<OutputTensor>& output, Function&& function,
                        async::Async<InputTensors> const&... inputs)

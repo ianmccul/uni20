@@ -196,7 +196,7 @@ Tensor operation may need to:
 
 Those permissions are operation semantics, while exact placement requirements
 may be backend-specific. For fixed existing operands, the Tensor wrapper first
-selects the backend list and then passes normalized `DeviceMdspanLike`
+selects the backend list and then passes normalized `MdspecLike`
 descriptors into the dispatcher. For a replaceable output, it instead passes
 the tensor or potentially unconstructed shared storage so the selected backend
 can prepare it. The backend then acquires or lowers fixed descriptors to

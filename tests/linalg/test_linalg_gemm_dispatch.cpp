@@ -36,50 +36,50 @@ template <class Scalar> using vector_mdspan = stdex::mdspan<Scalar, extents_1d, 
 using host_backend_selector =
     uni20::linalg::backend_list<uni20::linalg::BlasBackend, uni20::linalg::CpuReferenceBackend>;
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
 [[nodiscard]] auto normalized_gemm_candidates(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                               LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto lhs_span = uni20::device_mdspan_of(lhs);
-  auto rhs_span = uni20::device_mdspan_of(rhs);
+  auto output_span = uni20::mdspec_of(output);
+  auto lhs_span = uni20::mdspec_of(lhs);
+  auto rhs_span = uni20::mdspec_of(rhs);
   return uni20::linalg::kernel_type_candidates(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                                output_span, alpha, lhs_span, rhs_span, beta);
 }
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
 [[nodiscard]] auto probe_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                          LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto lhs_span = uni20::device_mdspan_of(lhs);
-  auto rhs_span = uni20::device_mdspan_of(rhs);
+  auto output_span = uni20::mdspec_of(output);
+  auto lhs_span = uni20::mdspec_of(lhs);
+  auto rhs_span = uni20::mdspec_of(rhs);
   return uni20::linalg::probe_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                               output_span, alpha, lhs_span, rhs_span, beta);
 }
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
 [[nodiscard]] bool try_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                        LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto lhs_span = uni20::device_mdspan_of(lhs);
-  auto rhs_span = uni20::device_mdspan_of(rhs);
+  auto output_span = uni20::mdspec_of(output);
+  auto lhs_span = uni20::mdspec_of(lhs);
+  auto rhs_span = uni20::mdspec_of(rhs);
   return uni20::linalg::try_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{},
                                             output_span, alpha, lhs_span, rhs_span, beta);
 }
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
 void dispatch_normalized_gemm(BackendSelector&& selector, OutputTensor& output, Scalar alpha, LhsTensor const& lhs,
                               RhsTensor const& rhs, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto lhs_span = uni20::device_mdspan_of(lhs);
-  auto rhs_span = uni20::device_mdspan_of(rhs);
+  auto output_span = uni20::mdspec_of(output);
+  auto lhs_span = uni20::mdspec_of(lhs);
+  auto rhs_span = uni20::mdspec_of(rhs);
   uni20::linalg::dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemm_op{}, output_span, alpha,
                                  lhs_span, rhs_span, beta);
 }
@@ -269,8 +269,8 @@ template <class... Args> consteval auto kernel_accepts_types(Backend const&, gem
   return kernel_types_yes;
 }
 
-template <uni20::MutableRankedDeviceMdspanLike<2> OutputMdspan, class Scalar,
-          uni20::RankedDeviceMdspanLike<2> LhsMdspan, uni20::RankedDeviceMdspanLike<2> RhsMdspan>
+template <uni20::MutableRankedMdspecLike<2> OutputMdspan, class Scalar, uni20::RankedMdspecLike<2> LhsMdspan,
+          uni20::RankedMdspecLike<2> RhsMdspan>
 KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan& output, Scalar alpha, LhsMdspan& lhs,
                          RhsMdspan& rhs, Scalar beta)
 {
@@ -314,23 +314,23 @@ class DeferredMatrix {
         AccessCounts* counts = nullptr;
     };
 
-    using mutable_device_span_type =
-        uni20::device_mdspan<double, extents_type, layout_type, stdex::default_accessor<double>, DataDescriptor>;
-    using const_device_span_type = uni20::device_mdspan<double const, extents_type, layout_type,
-                                                        stdex::default_accessor<double const>, DataDescriptor>;
+    using mutable_mdspec_type =
+        uni20::mdspec<double, extents_type, layout_type, stdex::default_accessor<double>, DataDescriptor>;
+    using const_mdspec_type =
+        uni20::mdspec<double const, extents_type, layout_type, stdex::default_accessor<double const>, DataDescriptor>;
 
     DeferredMatrix(tensor_type& tensor, AccessCounts& counts) noexcept : tensor_(&tensor), counts_(&counts) {}
 
-    [[nodiscard]] auto device_mdspan() -> mutable_device_span_type
+    [[nodiscard]] auto mdspec() -> mutable_mdspec_type
     {
-      return mutable_device_span_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
-                                      stdex::default_accessor<double>{}};
+      return mutable_mdspec_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
+                                 stdex::default_accessor<double>{}};
     }
 
-    [[nodiscard]] auto device_mdspan() const -> const_device_span_type
+    [[nodiscard]] auto mdspec() const -> const_mdspec_type
     {
-      return const_device_span_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
-                                    stdex::default_accessor<double const>{}};
+      return const_mdspec_type{DataDescriptor{tensor_, counts_}, mapping_type{tensor_->extents()},
+                               stdex::default_accessor<double const>{}};
     }
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept { return StoragePolicy::backend_selector(); }
@@ -348,14 +348,14 @@ class DeferredMatrix {
     AccessCounts* counts_;
 };
 
-static_assert(uni20::DeviceTensorView<DeferredMatrix>);
-static_assert(uni20::MutableDeviceTensorView<DeferredMatrix>);
-static_assert(!uni20::TensorView<DeferredMatrix>);
+static_assert(uni20::TensorView<DeferredMatrix>);
+static_assert(uni20::MutableTensorView<DeferredMatrix>);
+static_assert(!uni20::ImmediateTensorView<DeferredMatrix>);
 
 template <class Element, class Extents, class Layout, class Accessor>
   requires std::is_const_v<Element>
-[[nodiscard]] auto acquire_host_read_access(
-    uni20::device_mdspan<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor> const& span)
+[[nodiscard]] auto
+acquire_host_read_access(uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor> const& span)
 {
   ++span.data_descriptor().counts->reads;
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
@@ -365,8 +365,8 @@ template <class Element, class Extents, class Layout, class Accessor>
 
 template <class Element, class Extents, class Layout, class Accessor>
   requires(!std::is_const_v<Element>)
-[[nodiscard]] auto acquire_host_write_access(
-    uni20::device_mdspan<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor>& span)
+[[nodiscard]] auto
+acquire_host_write_access(uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor>& span)
 {
   ++span.data_descriptor().counts->writes;
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
@@ -497,21 +497,20 @@ static_assert(HasDynamicDispatchKernel<unavailable_backends, test_dispatch_op, i
 static_assert(uni20::RankedMdspanLike<NonStridedMdspan<double>, 2>);
 static_assert(uni20::MutableRankedMdspanLike<NonStridedMdspan<double>, 2>);
 static_assert(!uni20::StridedMdspanLike<NonStridedMdspan<double>>);
-static_assert(uni20::detail::HostWritableDeviceMdspan<NonStridedMdspan<double>>);
-static_assert(uni20::detail::HostReadableDeviceMdspan<NonStridedMdspan<double const>>);
+static_assert(uni20::HostWritableMdspec<NonStridedMdspan<double>>);
+static_assert(uni20::HostReadableMdspec<NonStridedMdspan<double const>>);
 static_assert(uni20::linalg::detail::cpu_gemm_mdspan_types_compatible<
               NonStridedMdspan<double>, double, NonStridedMdspan<double const>, NonStridedMdspan<double const>>());
 static_assert(!uni20::MdspanLike<NonStridedMatrixView<double>>);
-static_assert(uni20::TensorView<NonStridedMatrixView<double>>);
-static_assert(uni20::MutableTensorView<NonStridedMatrixView<double>>);
-static_assert(uni20::TensorView<ValueTransformMatrixView<double>>);
-static_assert(uni20::detail::HostReadableTensor<ValueTransformMatrixView<double>>);
-static_assert(
-    uni20::linalg::cpu::GemmCompatible<uni20::detail::host_write_tensor_mdspan_t<uni20::DenseMatrix<double>>, double,
-                                       uni20::detail::host_read_tensor_mdspan_t<ValueTransformMatrixView<double>>,
-                                       uni20::detail::host_read_tensor_mdspan_t<uni20::DenseMatrix<double>>>);
-static_assert(uni20::TensorView<selector_customization_test::TensorAdapter>);
-static_assert(uni20::MutableTensorView<selector_customization_test::TensorAdapter>);
+static_assert(uni20::ImmediateTensorView<NonStridedMatrixView<double>>);
+static_assert(uni20::MutableImmediateTensorView<NonStridedMatrixView<double>>);
+static_assert(uni20::ImmediateTensorView<ValueTransformMatrixView<double>>);
+static_assert(uni20::HostReadableTensor<ValueTransformMatrixView<double>>);
+static_assert(uni20::linalg::cpu::GemmCompatible<uni20::host_write_tensor_mdspan_t<uni20::DenseMatrix<double>>, double,
+                                                 uni20::host_read_tensor_mdspan_t<ValueTransformMatrixView<double>>,
+                                                 uni20::host_read_tensor_mdspan_t<uni20::DenseMatrix<double>>>);
+static_assert(uni20::ImmediateTensorView<selector_customization_test::TensorAdapter>);
+static_assert(uni20::MutableImmediateTensorView<selector_customization_test::TensorAdapter>);
 } // namespace
 
 template <>
@@ -960,8 +959,8 @@ TEST(LinalgGemmDispatchTest, BlasAssignProductDeclineDoesNotAcquireInputAccess)
   AccessCounts rhs_access;
   DeferredMatrix deferred_lhs(lhs, lhs_access);
   DeferredMatrix deferred_rhs(rhs, rhs_access);
-  auto lhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_lhs));
-  auto rhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_rhs));
+  auto lhs_descriptor = uni20::mdspec_of(std::as_const(deferred_lhs));
+  auto rhs_descriptor = uni20::mdspec_of(std::as_const(deferred_rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0, lhs_descriptor,
                                       rhs_descriptor),
@@ -985,8 +984,8 @@ TEST(LinalgGemmDispatchTest, BlasAssignProductAcquiresInputsOnceAfterSuccessfulP
   DeferredMatrix deferred_rhs(rhs, rhs_access);
   fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(rhs, {5.0, 6.0, 7.0, 8.0});
-  auto lhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_lhs));
-  auto rhs_descriptor = uni20::device_mdspan_of(std::as_const(deferred_rhs));
+  auto lhs_descriptor = uni20::mdspec_of(std::as_const(deferred_lhs));
+  auto rhs_descriptor = uni20::mdspec_of(std::as_const(deferred_rhs));
 
   EXPECT_EQ(uni20::linalg::try_kernel(BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0, lhs_descriptor,
                                       rhs_descriptor),

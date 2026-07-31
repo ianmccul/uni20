@@ -22,7 +22,7 @@ namespace uni20::detail
 ///          const bound descriptor that the coroutine copies before dispatch.
 template <class Tensor>
 concept AsyncTensorOutput =
-    MutableTensorView<Tensor> && (!async::is_async_alias_v<Tensor> || std::copy_constructible<Tensor>);
+    MutableImmediateTensorView<Tensor> && (!async::is_async_alias_v<Tensor> || std::copy_constructible<Tensor>);
 
 /// \brief Await a fixed async alias writer and expose its bound descriptor.
 /// \details The descriptor remains read-only in storage so the alias cannot be

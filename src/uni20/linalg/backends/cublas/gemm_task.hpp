@@ -36,8 +36,8 @@ async::CudaTask co_gemm_submission(GemmPlan<Scalar> plan, Scalar alpha, Scalar b
 ///          to another backend.
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
   requires GemmMdspans<Scalar, OutputMdspan, LhsMdspan, RhsMdspan>
-auto try_make_gemm_task(OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs, RhsMdspan& rhs,
-                        Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
+auto try_make_gemm_task(OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar const& beta)
+    -> KernelTaskAttempt<async::CudaTask>
 {
   auto preparation = prepare_gemm<Scalar>(output, lhs, rhs);
   if (!kernel_attempt_succeeded(preparation.attempt) || !preparation.plan.has_work)
@@ -52,10 +52,10 @@ auto try_make_gemm_task(OutputMdspan& output, Scalar const& alpha, LhsMdspan& lh
 }
 } // namespace detail::cublas_backend
 
-/// \brief Prepare asynchronous cuBLAS work from normalized device mdspans.
+/// \brief Prepare asynchronous cuBLAS work from normalized mdspecs.
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
-  requires uni20::MutableRankedDeviceMdspanLike<OutputMdspan, 2> && uni20::RankedDeviceMdspanLike<LhsMdspan, 2> &&
-               uni20::RankedDeviceMdspanLike<RhsMdspan, 2>
+  requires uni20::MutableRankedMdspecLike<OutputMdspan, 2> && uni20::RankedMdspecLike<LhsMdspan, 2> &&
+           uni20::RankedMdspecLike<RhsMdspan, 2>
 auto try_make_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs,
                           RhsMdspan& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
 {
@@ -64,8 +64,8 @@ auto try_make_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, S
 
 /// \brief Prepare a replaceable output and lower normalized operands for asynchronous cuBLAS work.
 template <uni20::cublas::CublasScalar Scalar, class OutputTensor, class LhsMdspan, class RhsMdspan>
-  requires uni20::MutableRankedDeviceTensorView<OutputTensor, 2> && uni20::RankedDeviceMdspanLike<LhsMdspan, 2> &&
-               uni20::RankedDeviceMdspanLike<RhsMdspan, 2>
+  requires uni20::MutableRankedTensorView<OutputTensor, 2> && uni20::RankedMdspecLike<LhsMdspan, 2> &&
+           uni20::RankedMdspecLike<RhsMdspan, 2>
 auto try_make_kernel_task(CublasBackend, assign_product_op const&, OutputTensor& output, Scalar const& alpha,
                           LhsMdspan& lhs, RhsMdspan& rhs) -> KernelTaskAttempt<async::CudaTask>
 {
@@ -78,23 +78,23 @@ auto try_make_kernel_task(CublasBackend, assign_product_op const&, OutputTensor&
   {
     uni20::prepare_output(output, shape, lhs_device);
   }
-  else if (!uni20::detail::tensor_extents_equal(output.extents(), shape))
+  else if (!uni20::tensor_extents_equal(output.extents(), shape))
   {
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::unsupported_shape};
   }
 
-  auto output_span = uni20::device_mdspan_of(output);
+  auto output_span = uni20::mdspec_of(output);
   if (detail::cublas_backend::span_device(output_span) != lhs_device)
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
   return detail::cublas_backend::try_make_gemm_task(output_span, alpha, lhs, rhs, Scalar{});
 }
 
 /// \brief Prepare asynchronous cuBLAS assignment into deferred Tensor storage.
-template <uni20::cublas::CublasScalar Scalar, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class LhsMdspan,
+template <uni20::cublas::CublasScalar Scalar, uni20::MutableRankedTensorView<2> OutputTensor, class LhsMdspan,
           class RhsMdspan>
-  requires uni20::RankedDeviceMdspanLike<LhsMdspan, 2> && uni20::RankedDeviceMdspanLike<RhsMdspan, 2> &&
-               requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
-                        uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
+  requires uni20::RankedMdspecLike<LhsMdspan, 2> && uni20::RankedMdspecLike<RhsMdspan, 2> &&
+           requires(async::shared_storage<OutputTensor>& storage, detail::matrix_product_extents const& shape,
+                    uni20::cuda::Device device) { uni20::prepare_output(storage, shape, device); }
 auto try_make_kernel_task(CublasBackend, assign_product_op const&, async::shared_storage<OutputTensor>& output_storage,
                           Scalar const& alpha, LhsMdspan& lhs, RhsMdspan& rhs) -> KernelTaskAttempt<async::CudaTask>
 {
@@ -104,7 +104,7 @@ auto try_make_kernel_task(CublasBackend, assign_product_op const&, async::shared
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
-  auto output_span = uni20::device_mdspan_of(output);
+  auto output_span = uni20::mdspec_of(output);
   return detail::cublas_backend::try_make_gemm_task(output_span, alpha, lhs, rhs, Scalar{});
 }
 

@@ -22,10 +22,10 @@ concept ConjugatesRvalueTensor = requires(Tensor&& tensor) { uni20::conj(std::mo
 template <class Tensor>
 concept HasStorageObserver = requires(Tensor& tensor) { tensor.storage(); };
 
-static_assert(uni20::TensorView<conjugated_matrix>);
+static_assert(uni20::ImmediateTensorView<conjugated_matrix>);
 static_assert(!uni20::OwningTensor<conjugated_matrix>);
 static_assert(!uni20::OwningTensor<uni20::ConstTensorView<complex_matrix>>);
-static_assert(!uni20::MutableTensorView<conjugated_matrix>);
+static_assert(!uni20::MutableImmediateTensorView<conjugated_matrix>);
 static_assert(std::same_as<typename conjugated_matrix::storage_policy, uni20::VectorStorage>);
 static_assert(!ConjugatesRvalueTensor<complex_matrix>);
 static_assert(uni20::ReadTensorLease<conjugated_read_lease>);
@@ -81,7 +81,7 @@ TEST(TensorConjugateTest, RealTensorReturnsConstIdentityView)
   decltype(auto) view = uni20::conj(matrix);
 
   static_assert(std::same_as<decltype(view), uni20::DenseMatrix<double> const&>);
-  static_assert(!uni20::MutableTensorView<decltype(view)>);
+  static_assert(!uni20::MutableImmediateTensorView<decltype(view)>);
   EXPECT_EQ(std::addressof(view), std::addressof(matrix));
   EXPECT_EQ((view[0, 0]), 3.5);
 }

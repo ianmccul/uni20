@@ -330,7 +330,7 @@ void dispatch_backend_list(backend_list<Backends...> const& backends, Op const& 
 ///          visible result. An operation that declares an output replaceable
 ///          may permit provisional output preparation before a decline; later
 ///          backends receive and may reuse or replace that prepared output.
-///          Fixed tensor operands are normalized device-mdspan descriptors;
+///          Fixed tensor operands are normalized mdspec descriptors;
 ///          selected backends perform execution-domain acquisition and mdspan
 ///          lowering.
 /// \post On `false`, inputs and fixed outputs are preserved; replaceable outputs

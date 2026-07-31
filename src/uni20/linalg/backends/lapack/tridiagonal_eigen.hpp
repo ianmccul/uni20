@@ -90,13 +90,13 @@ KernelAttempt try_tridiagonal_eigen(symmetric_tridiagonal_eigen_op const& op, st
 }
 } // namespace lapack_detail
 
-/// \brief Report eligibility for a host-accessible device-mdspan tridiagonal eigensystem.
-template <uni20::LapackReal Scalar, uni20::MutableRankedStridedDeviceMdspanLike<2> EigenvectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<EigenvectorMdspan>
+/// \brief Report eligibility for a host-accessible mdspec tridiagonal eigensystem.
+template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspecLike<2> EigenvectorMdspan>
+  requires uni20::HostWritableMdspec<EigenvectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_eigen_op const&, std::span<Scalar>&,
                                     std::span<Scalar>&, EigenvectorMdspan&)
 {
-  using vector_span = uni20::detail::host_write_mdspan_t<EigenvectorMdspan>;
+  using vector_span = uni20::host_write_mdspan_t<EigenvectorMdspan>;
   constexpr auto acceptance = lapack_detail::tridiagonal_eigen_acceptance<Scalar, vector_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
@@ -105,8 +105,8 @@ consteval auto kernel_accepts_types(LapackBackend const&, symmetric_tridiagonal_
 }
 
 /// \brief Resolve host access and run LAPACK tridiagonal eigenanalysis.
-template <uni20::LapackReal Scalar, uni20::MutableRankedStridedDeviceMdspanLike<2> EigenvectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<EigenvectorMdspan>
+template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspecLike<2> EigenvectorMdspan>
+  requires uni20::HostWritableMdspec<EigenvectorMdspan>
 KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& operation, std::span<Scalar> diagonal,
                          std::span<Scalar> subdiagonal, EigenvectorMdspan& eigenvectors)
 {

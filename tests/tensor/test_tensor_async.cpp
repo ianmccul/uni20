@@ -34,8 +34,8 @@ using async_explicit_left_reshape_type =
 struct AsyncReshapeFailure
 {};
 
-static_assert(uni20::TensorView<conjugated_view_type>);
-static_assert(!uni20::MutableTensorView<conjugated_view_type>);
+static_assert(uni20::ImmediateTensorView<conjugated_view_type>);
+static_assert(!uni20::MutableImmediateTensorView<conjugated_view_type>);
 static_assert(!std::default_initializable<async_view_type>);
 static_assert(!std::constructible_from<async_view_type, conjugated_view_type>);
 static_assert(std::same_as<decltype(uni20::async::conj(std::declval<uni20::async::Async<matrix_type> const&>())),
@@ -44,8 +44,8 @@ static_assert(std::same_as<decltype(uni20::async::conj(std::declval<async_view_t
                            async_double_conjugated_view_type>);
 static_assert(std::same_as<decltype(uni20::async::conj(std::declval<uni20::async::Async<real_matrix_type> const&>())),
                            async_const_real_view_type>);
-static_assert(uni20::TensorView<const_real_view_type>);
-static_assert(!uni20::MutableTensorView<const_real_view_type>);
+static_assert(uni20::ImmediateTensorView<const_real_view_type>);
+static_assert(!uni20::MutableImmediateTensorView<const_real_view_type>);
 static_assert(!uni20::async::is_async_alias_v<matrix_type>);
 static_assert(uni20::async::is_async_alias_v<conjugated_view_type>);
 static_assert(uni20::async::is_async_alias_v<const_real_view_type>);
@@ -68,14 +68,14 @@ static_assert(uni20::async::async_reader<async_view_type>);
 static_assert(!uni20::async::async_writer<async_view_type>);
 static_assert(uni20::async::async_reader<async_const_real_view_type>);
 static_assert(!uni20::async::async_writer<async_const_real_view_type>);
-static_assert(uni20::MutableTensorView<reshaped_view_type>);
-static_assert(std::is_const_v<typename uni20::tensor_mdspan_t<reshaped_view_type>::element_type>);
-static_assert(!std::is_const_v<typename uni20::mutable_tensor_mdspan_t<reshaped_view_type>::element_type>);
+static_assert(uni20::MutableImmediateTensorView<reshaped_view_type>);
+static_assert(std::is_const_v<typename uni20::immediate_tensor_mdspan_t<reshaped_view_type>::element_type>);
+static_assert(!std::is_const_v<typename uni20::mutable_immediate_tensor_mdspan_t<reshaped_view_type>::element_type>);
 static_assert(std::is_copy_assignable_v<async_reshaped_view_type>);
 static_assert(std::is_move_assignable_v<async_reshaped_view_type>);
 static_assert(std::is_assignable_v<async_reshaped_view_type&, uni20::async::Async<matrix_type> const&>);
 static_assert(!uni20::async::async_writer<async_reshaped_view_type>);
-static_assert(!uni20::MutableTensorView<const_reshaped_view_type>);
+static_assert(!uni20::MutableImmediateTensorView<const_reshaped_view_type>);
 static_assert(!std::is_copy_assignable_v<async_const_reshaped_view_type>);
 static_assert(!std::is_move_assignable_v<async_const_reshaped_view_type>);
 static_assert(std::same_as<typename uni20::async::async_value_t<async_explicit_left_reshape_type>::layout_type,

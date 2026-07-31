@@ -39,7 +39,7 @@ Related notes:
 
 The tensor/linalg frontend should accept tensor views rather than a Krylov-only
 matrix class or vendor-specific pointer API. Once it has selected a backend
-list, fixed-operation dispatch should use normalized device mdspans. The
+list, fixed-operation dispatch should use normalized mdspecs. The
 selected backend lowers those descriptors to execution-domain mdspans for its
 lower-level implementation.
 
@@ -104,7 +104,7 @@ The final layering should look like this:
    - Walks an ordered backend list for an operation tag.
    - Uses `kernel_accepts_types(...)` / detected `try_kernel(...)`.
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
-   - Passes fixed existing operands as normalized `DeviceMdspanLike`
+   - Passes fixed existing operands as normalized `MdspecLike`
      refinements.
    - Retains tensor or shared-storage objects only for operation-declared
      replaceable outputs.
@@ -132,7 +132,7 @@ dense conversion, host transfer, or data acquisition.
 Public bare-mdspan convenience calls may require an explicit backend selector
 because they cannot derive a default Uni20 backend stack. They pass a
 const-normalized input and mutable output directly through the same
-device-mdspan dispatch boundary. Resolved-mdspan functions below the backend
+mdspec dispatch boundary. Resolved-mdspan functions below the backend
 are lower-level Uni20 module or provider interfaces and do not participate in
 the operation-tag dispatch walk.
 
@@ -362,8 +362,8 @@ first pass.
 struct BlasBackend {};
 struct CpuReferenceBackend {};
 
-template <MutableRankedDeviceMdspanLike<2> C, class Alpha,
-          RankedDeviceMdspanLike<2> A, RankedDeviceMdspanLike<2> B, class Beta>
+template <MutableRankedMdspecLike<2> C, class Alpha,
+          RankedMdspecLike<2> A, RankedMdspecLike<2> B, class Beta>
 consteval auto
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
                      A&, B&, Beta const&)
@@ -375,8 +375,8 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
   }
 }
 
-template <MutableRankedDeviceMdspanLike<2> C, class Scalar,
-          RankedDeviceMdspanLike<2> A, RankedDeviceMdspanLike<2> B>
+template <MutableRankedMdspecLike<2> C, class Scalar,
+          RankedMdspecLike<2> A, RankedMdspecLike<2> B>
 KernelAttempt try_kernel(BlasBackend, gemm_op, C& c, Scalar alpha, A& a,
                          B& b, Scalar beta)
 {
@@ -395,16 +395,16 @@ The tensor frontend normalizes fixed operands before calling the generic
 dispatcher:
 
 ```cpp
-auto c_span = device_mdspan_of(c);
-auto a_span = device_mdspan_of(std::as_const(a));
-auto b_span = device_mdspan_of(std::as_const(b));
+auto c_span = mdspec_of(c);
+auto a_span = mdspec_of(std::as_const(a));
+auto b_span = mdspec_of(std::as_const(b));
 
 dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}},
                 gemm_op{}, c_span, alpha, a_span, b_span, beta);
 ```
 
 Here `c`, `a`, and `b` model the appropriate tensor-view concepts, while the
-operation-tag customization receives their normalized device mdspans. Direct
+operation-tag customization receives their normalized mdspecs. Direct
 calls such as `blas::try_gemm(...)` operate below dispatch on resolved mdspans.
 
 The first LAPACK wrapper can then use the same pattern with richer operand
@@ -856,7 +856,7 @@ The Tensor front-end checkpoints now:
 
 - derive a default backend selector from tensor storage policy.
 - enforce operation-specific ranked Tensor views.
-- lower fixed operands through `device_mdspan()` before dispatch; the generic
+- lower fixed operands through `mdspec()` before dispatch; the generic
   CPU path does not require stridedness, while BLAS lowering does.
 - use the same operation tag and backend-list walk as explicit mdspan calls.
 - distinguish fixed `gemm_op`/`gemv` and `add_product` updates from

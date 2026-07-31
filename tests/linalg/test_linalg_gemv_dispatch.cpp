@@ -26,26 +26,26 @@ struct DoubleValue
 using host_backend_selector =
     uni20::linalg::backend_list<uni20::linalg::BlasBackend, uni20::linalg::CpuReferenceBackend>;
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<1> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> MatrixTensor, uni20::RankedTensorView<1> InputTensor>
 [[nodiscard]] auto probe_normalized_gemv(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                          MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto matrix_span = uni20::device_mdspan_of(matrix);
-  auto input_span = uni20::device_mdspan_of(input);
+  auto output_span = uni20::mdspec_of(output);
+  auto matrix_span = uni20::mdspec_of(matrix);
+  auto input_span = uni20::mdspec_of(input);
   return uni20::linalg::probe_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemv_op{},
                                               output_span, alpha, matrix_span, input_span, beta);
 }
 
-template <class BackendSelector, uni20::MutableRankedDeviceTensorView<1> OutputTensor, class Scalar,
-          uni20::RankedDeviceTensorView<2> MatrixTensor, uni20::RankedDeviceTensorView<1> InputTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<1> OutputTensor, class Scalar,
+          uni20::RankedTensorView<2> MatrixTensor, uni20::RankedTensorView<1> InputTensor>
 [[nodiscard]] bool try_normalized_gemv(BackendSelector&& selector, OutputTensor& output, Scalar alpha,
                                        MatrixTensor const& matrix, InputTensor const& input, Scalar beta)
 {
-  auto output_span = uni20::device_mdspan_of(output);
-  auto matrix_span = uni20::device_mdspan_of(matrix);
-  auto input_span = uni20::device_mdspan_of(input);
+  auto output_span = uni20::mdspec_of(output);
+  auto matrix_span = uni20::mdspec_of(matrix);
+  auto input_span = uni20::mdspec_of(input);
   return uni20::linalg::try_dispatch_kernel(std::forward<BackendSelector>(selector), uni20::linalg::gemv_op{},
                                             output_span, alpha, matrix_span, input_span, beta);
 }

@@ -569,7 +569,7 @@ scratch storage.
 
 The direct GEMM and GEMV wrappers are wired below descriptor-level backend
 implementations. Fixed-output tensor overloads derive the default selector from
-tensor storage, normalize the existing operands to `DeviceMdspanLike`
+tensor storage, normalize the existing operands to `MdspecLike`
 refinements, and enter operation-tag dispatch. The selected backend acquires
 host mdspan leases and calls the direct wrappers. Bare-mdspan convenience
 overloads pass const-normalized inputs through the same descriptor boundary.

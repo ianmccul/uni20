@@ -66,7 +66,7 @@ struct IsConjugatedHostAccessor<uni20::conjugated_accessor<Accessor>>
     : std::bool_constant<uni20::is_default_accessor_v<Accessor>>
 {};
 
-template <class Mdspan> inline constexpr bool is_cuda_mdspan = uni20::detail::CudaBufferDeviceMdspan<Mdspan>;
+template <class Mdspan> inline constexpr bool is_cuda_mdspan = uni20::cuda::BufferMdspec<Mdspan>;
 
 template <class Mdspan>
 inline constexpr bool is_raw_cuda_mdspan =
@@ -91,9 +91,9 @@ inline constexpr bool is_supported_host_mdspan = is_raw_host_mdspan<Mdspan> || i
 
 template <class OutputMdspan, class InputMdspan>
 concept SupportedCopyMdspans =
-    uni20::MutableDeviceMdspanLike<std::remove_cvref_t<OutputMdspan>> &&
-    uni20::StridedDeviceMdspanLike<std::remove_cvref_t<OutputMdspan>> &&
-    uni20::StridedDeviceMdspanLike<std::remove_cvref_t<InputMdspan>> &&
+    uni20::MutableMdspecLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedMdspecLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedMdspecLike<std::remove_cvref_t<InputMdspan>> &&
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&
@@ -140,7 +140,7 @@ void validate_cuda_range(uni20::cuda::CudaBuffer<Scalar> const& buffer, std::siz
   CHECK(offset <= buffer.size() && count <= buffer.size() - offset, offset, count, buffer.size());
 }
 
-template <uni20::detail::CudaBufferDeviceMdspan Mdspan> [[nodiscard]] auto cuda_buffer_view(Mdspan& span)
+template <uni20::cuda::BufferMdspec Mdspan> [[nodiscard]] auto cuda_buffer_view(Mdspan& span)
 {
   return span.data_descriptor();
 }
@@ -377,8 +377,7 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
 }
 
 /// \brief Report compile-time eligibility for CUDA mdspan copy lowering.
-template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
-consteval auto copy_acceptance()
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan> consteval auto copy_acceptance()
 {
   if constexpr (SupportedCopyMdspans<OutputMdspan, InputMdspan>)
     return kernel_types_maybe;
@@ -398,8 +397,8 @@ KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 }
 } // namespace detail::cuda_reference
 
-/// \brief Report CUDA copy eligibility for normalized device mdspans.
-template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+/// \brief Report CUDA copy eligibility for normalized mdspecs.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
 consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
   constexpr auto acceptance = detail::cuda_reference::copy_acceptance<OutputMdspan, InputMdspan>();
@@ -409,8 +408,8 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
     return kernel_types_no;
 }
 
-/// \brief Perform a CUDA copy from normalized device mdspans.
-template <uni20::MutableDeviceMdspanLike OutputMdspan, uni20::DeviceMdspanLike InputMdspan>
+/// \brief Perform a CUDA copy from normalized mdspecs.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
 KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
 {
   return detail::cuda_reference::copy(output, input);

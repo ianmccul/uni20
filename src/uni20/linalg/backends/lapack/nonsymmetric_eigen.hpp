@@ -188,16 +188,15 @@ KernelAttempt try_nonsymmetric_eigen(nonsymmetric_eigen_op const& op, MatrixMdsp
 }
 } // namespace lapack_detail
 
-/// \brief Report eligibility for host-accessible device-mdspan nonsymmetric eigenanalysis.
-template <uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedDeviceMdspanLike<2> RightEigenvectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<RightEigenvectorMdspan>
+/// \brief Report eligibility for host-accessible mdspec nonsymmetric eigenanalysis.
+template <uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedMdspecLike<2> RightEigenvectorMdspan>
+  requires uni20::HostWritableMdspec<MatrixMdspan> && uni20::HostWritableMdspec<RightEigenvectorMdspan>
 consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op const&, MatrixMdspan&,
                                     std::span<EigenScalar>&, RightEigenvectorMdspan&)
 {
-  using matrix_span = uni20::detail::host_write_mdspan_t<MatrixMdspan>;
-  using vector_span = uni20::detail::host_write_mdspan_t<RightEigenvectorMdspan>;
+  using matrix_span = uni20::host_write_mdspan_t<MatrixMdspan>;
+  using vector_span = uni20::host_write_mdspan_t<RightEigenvectorMdspan>;
   constexpr auto acceptance = lapack_detail::nonsymmetric_eigen_acceptance<matrix_span, EigenScalar, vector_span>();
   if constexpr (acceptance == KernelTypeAcceptance::no)
     return kernel_types_no;
@@ -206,14 +205,13 @@ consteval auto kernel_accepts_types(LapackBackend const&, nonsymmetric_eigen_op 
 }
 
 /// \brief Resolve host access and run LAPACK nonsymmetric eigenanalysis.
-template <uni20::MutableRankedStridedDeviceMdspanLike<2> MatrixMdspan, class EigenScalar,
-          uni20::MutableRankedDeviceMdspanLike<2> RightEigenvectorMdspan>
-  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan> &&
-           uni20::detail::HostWritableDeviceMdspan<RightEigenvectorMdspan>
+template <uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan, class EigenScalar,
+          uni20::MutableRankedMdspecLike<2> RightEigenvectorMdspan>
+  requires uni20::HostWritableMdspec<MatrixMdspan> && uni20::HostWritableMdspec<RightEigenvectorMdspan>
 KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& operation, MatrixMdspan& matrix_work,
                          std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan& right_eigenvectors)
 {
-  return uni20::detail::with_host_write_mdspans(
+  return uni20::with_host_write_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         return lapack_detail::try_nonsymmetric_eigen(operation, matrix_span, eigenvalues, vector_span);
       },

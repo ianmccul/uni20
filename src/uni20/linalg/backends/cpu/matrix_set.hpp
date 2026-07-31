@@ -74,13 +74,13 @@ KernelAttempt set_matrix(matrix_set_op const& op, MatrixMdspan& matrix, Scalar d
 }
 } // namespace detail::cpu_reference
 
-/// \brief Report eligibility for host-accessible device-mdspan matrix initialization.
-template <uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan, uni20::Scalar Scalar>
-  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+/// \brief Report eligibility for host-accessible mdspec matrix initialization.
+template <uni20::MutableRankedMdspecLike<2> MatrixMdspan, uni20::Scalar Scalar>
+  requires uni20::HostWritableMdspec<MatrixMdspan>
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op const&, MatrixMdspan&, Scalar const&,
                                     Scalar const&)
 {
-  using matrix_span = uni20::detail::host_write_mdspan_t<MatrixMdspan>;
+  using matrix_span = uni20::host_write_mdspan_t<MatrixMdspan>;
   constexpr auto acceptance = detail::cpu_reference::matrix_set_acceptance<matrix_span, Scalar>();
   if constexpr (acceptance == KernelTypeAcceptance::yes)
     return kernel_types_yes;
@@ -89,8 +89,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op co
 }
 
 /// \brief Resolve host access and initialize the matrix.
-template <uni20::MutableRankedDeviceMdspanLike<2> MatrixMdspan, uni20::Scalar Scalar>
-  requires uni20::detail::HostWritableDeviceMdspan<MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<2> MatrixMdspan, uni20::Scalar Scalar>
+  requires uni20::HostWritableMdspec<MatrixMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMdspan& matrix, Scalar diagonal,
                          Scalar off_diagonal)
 {
