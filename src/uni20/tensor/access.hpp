@@ -11,9 +11,7 @@
 
 #include <concepts>
 #include <cstddef>
-#include <functional>
 #include <optional>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -729,20 +727,5 @@ template <class Tensor>
 concept HostWritableTensor = MutableTensorView<Tensor> && requires(Tensor& tensor) {
   { acquire_host_write_access(tensor) } -> HostWriteTensorLease;
 };
-
-/// \brief Invoke a callable with host-writable mdspans under simultaneous leases.
-template <class Function, HostWritableMdspec... Mdspans>
-decltype(auto) with_host_write_mdspans(Function&& function, Mdspans&... mdspans)
-{
-  auto accesses = std::tuple{acquire_host_write_access(mdspans)...};
-  return std::apply(
-      [&](auto&... access) -> decltype(auto) {
-        auto resolved_mdspans = std::tuple{access.mdspan()...};
-        return std::apply(
-            [&](auto&... mdspan) -> decltype(auto) { return std::invoke(std::forward<Function>(function), mdspan...); },
-            resolved_mdspans);
-      },
-      accesses);
-}
 
 } // namespace uni20

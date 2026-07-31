@@ -211,7 +211,7 @@ template <uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan, class EigenScal
 KernelAttempt try_kernel(LapackBackend, nonsymmetric_eigen_op const& operation, MatrixMdspan& matrix_work,
                          std::span<EigenScalar> eigenvalues, RightEigenvectorMdspan& right_eigenvectors)
 {
-  return uni20::with_host_write_mdspans(
+  return lapack_detail::with_host_write_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         return lapack_detail::try_nonsymmetric_eigen(operation, matrix_span, eigenvalues, vector_span);
       },

@@ -9,14 +9,35 @@
 #include <uni20/backend/backend.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/core/math.hpp>
+#include <uni20/linalg/kernel_attempt.hpp>
+#include <uni20/tensor/access.hpp>
 
+#include <concepts>
 #include <cstddef>
+#include <functional>
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
 namespace uni20::linalg::lapack_detail
 {
+
+/// \brief Invoke a LAPACK attempt with host-writable mdspans under simultaneous leases.
+template <class Function, uni20::HostWritableMdspec... Mdspecs>
+  requires std::same_as<std::invoke_result_t<Function&&, uni20::host_write_mdspan_t<Mdspecs>&...>, KernelAttempt>
+KernelAttempt with_host_write_mdspans(Function&& function, Mdspecs&... mdspecs)
+{
+  auto accesses = std::tuple{acquire_host_write_access(mdspecs)...};
+  return std::apply(
+      [&](auto&... access) -> KernelAttempt {
+        auto mdspans = std::tuple{access.mdspan()...};
+        return std::apply(
+            [&](auto&... mdspan) -> KernelAttempt { return std::invoke(std::forward<Function>(function), mdspan...); },
+            mdspans);
+      },
+      accesses);
+}
 
 /// \brief Convert a provider workspace query result to the configured LAPACK integer type.
 template <class Scalar> blas_int workspace_size(Scalar const& query)

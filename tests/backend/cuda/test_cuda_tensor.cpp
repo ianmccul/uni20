@@ -64,6 +64,12 @@ concept CanAcquireCudaRead = requires(Tensor const& tensor, uni20::cuda::Stream 
   uni20::acquire_cuda_read_access(tensor, stream);
 };
 
+template <class Tensor>
+concept CanReshapeInplace = requires(Tensor& tensor) { uni20::reshape_inplace(tensor, 3, 2); };
+
+template <class Tensor>
+concept CanTransferReshape = requires(Tensor&& tensor) { uni20::reshape(std::move(tensor), 3, 2); };
+
 struct MdspecCallCounts
 {
     int mutable_calls = 0;
@@ -183,6 +189,11 @@ static_assert(!CanSynchronizedCudaReadRvalue<CountingCudaTensorView>);
 static_assert(!CanStreamReadRvalue<CountingCudaTensorView>);
 static_assert(!std::copy_constructible<tensor_type>);
 static_assert(std::move_constructible<tensor_type>);
+static_assert(CanReshapeInplace<tensor_type>);
+static_assert(CanTransferReshape<tensor_type>);
+using reshaped_tensor_type = decltype(uni20::reshape(std::declval<tensor_type&&>(), 3, 2));
+static_assert(uni20::TensorView<reshaped_tensor_type>);
+static_assert(!uni20::ImmediateTensorView<reshaped_tensor_type>);
 static_assert(std::convertible_to<typename mutable_span_type::reference, double>);
 static_assert(std::assignable_from<typename mutable_span_type::reference, double>);
 
@@ -263,6 +274,29 @@ TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceResources)
   EXPECT_EQ(tensor.rows(), 4);
   EXPECT_EQ(tensor.cols(), 5);
   EXPECT_EQ(tensor.storage().size(), 20U);
+}
+
+TEST_F(CudaTensorTest, OwningReshapePreservesDeferredStorageResources)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  tensor_type tensor(resources, 2, 3);
+  auto* const original_resources = &tensor.storage().resources();
+
+  uni20::reshape_inplace(tensor, 3, 2);
+
+  EXPECT_EQ(tensor.rows(), 3);
+  EXPECT_EQ(tensor.cols(), 2);
+  EXPECT_EQ(tensor.storage().size(), 6U);
+  EXPECT_EQ(&tensor.storage().resources(), original_resources);
+
+  auto reshaped = uni20::reshape(std::move(tensor), 1, 6);
+
+  EXPECT_EQ(reshaped.rows(), 1);
+  EXPECT_EQ(reshaped.cols(), 6);
+  EXPECT_EQ(reshaped.storage().size(), 6U);
+  EXPECT_EQ(&reshaped.storage().resources(), original_resources);
+  static_assert(uni20::TensorView<decltype(reshaped)>);
+  static_assert(!uni20::ImmediateTensorView<decltype(reshaped)>);
 }
 
 TEST_F(CudaTensorTest, SynchronizedCudaAccessResolvesPointerMdspans)

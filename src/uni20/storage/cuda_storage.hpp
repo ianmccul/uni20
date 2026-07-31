@@ -57,6 +57,7 @@ template <class ElementType> class CudaBufferView {
     [[nodiscard]] constexpr std::size_t element_offset() const noexcept { return offset_; }
 
     /// \brief Return a view advanced by an element offset.
+    /// \pre The resulting element offset is representable by `std::size_t`.
     [[nodiscard]] constexpr CudaBufferView offset_by(std::size_t offset) const noexcept
     {
       CudaBufferView result = *this;

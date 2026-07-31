@@ -326,7 +326,7 @@ template <class Operation, uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan
 KernelAttempt try_kernel(LapackBackend, Operation const& operation, MatrixMdspan& matrix_work,
                          std::span<EigenScalar> eigenvalues, SchurVectorMdspan& schur_vectors)
 {
-  return uni20::with_host_write_mdspans(
+  return lapack_detail::with_host_write_mdspans(
       [&](auto& matrix_span, auto& vector_span) {
         if constexpr (std::same_as<Operation, schur_op>)
           return lapack_detail::try_schur(operation, matrix_span, eigenvalues, vector_span);
@@ -358,7 +358,7 @@ template <uni20::MutableRankedStridedMdspecLike<2> SchurFormMdspan,
 KernelAttempt try_kernel(LapackBackend, schur_reorder_op const& operation, SchurFormMdspan& schur_form,
                          SchurVectorMdspan& schur_vectors)
 {
-  return uni20::with_host_write_mdspans(
+  return lapack_detail::with_host_write_mdspans(
       [&](auto& form_span, auto& vector_span) {
         return lapack_detail::try_schur_reorder(operation, form_span, vector_span);
       },

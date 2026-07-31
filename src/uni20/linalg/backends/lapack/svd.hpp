@@ -534,8 +534,8 @@ template <lapack_detail::SvdOperation Operation, uni20::MutableStridedMdspecLike
   }
 KernelAttempt try_kernel(LapackBackend, Operation const& operation, Mdspans&... mdspans)
 {
-  return uni20::with_host_write_mdspans([&](auto&... spans) { return lapack_detail::try_svd(operation, spans...); },
-                                        mdspans...);
+  return lapack_detail::with_host_write_mdspans(
+      [&](auto&... spans) { return lapack_detail::try_svd(operation, spans...); }, mdspans...);
 }
 
 } // namespace uni20::linalg

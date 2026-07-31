@@ -25,6 +25,23 @@ struct final_scale final
     constexpr double operator()(double value) const { return factor * value; }
 };
 
+struct member_record
+{
+    double value;
+
+    constexpr double read() const { return value; }
+};
+
+template <class Function, class Span>
+concept CanMakeUnaryTransformView = requires(Function function, Span const& span) { transform_view(function, span); };
+
+using scalar_span = stdex::mdspan<double, stdex::dextents<index_type, 1>>;
+using member_span = stdex::mdspan<member_record, stdex::dextents<index_type, 1>>;
+
+static_assert(CanMakeUnaryTransformView<final_scale, scalar_span>);
+static_assert(!CanMakeUnaryTransformView<decltype(&member_record::value), member_span>);
+static_assert(!CanMakeUnaryTransformView<decltype(&member_record::read), member_span>);
+
 //----------------------------------------------------------------------
 // 1D: simple plus_n over two contiguous spans
 //----------------------------------------------------------------------

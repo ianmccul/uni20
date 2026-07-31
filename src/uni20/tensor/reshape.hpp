@@ -37,8 +37,8 @@ concept CanonicallyLaidOutMdspan =
     StridedMdspanLike<Span> && CanonicalReshapeLayout<typename std::remove_cvref_t<Span>::layout_type>;
 
 template <class T>
-concept CanonicallyLaidOutOwningTensor = OwningTensor<T> && MutableStridedImmediateTensorView<T> &&
-                                         CanonicalReshapeLayout<typename immediate_tensor_mdspan_t<T>::layout_type>;
+concept CanonicallyLaidOutOwningTensor =
+    OwningTensor<T> && MutableStridedTensorView<T> && CanonicalReshapeLayout<typename tensor_mdspec_t<T>::layout_type>;
 
 template <class T, class NewExtents>
 using reshape_rebind_t = typename std::remove_cvref_t<T>::template rebind_extents_type<NewExtents>;
@@ -400,7 +400,7 @@ template <detail::CanonicallyLaidOutOwningTensor TensorType, std::integral... Ex
 void reshape_inplace(TensorType& tensor, Extents... requested_extents)
 {
   using tensor_extents = tensor_extents_t<TensorType>;
-  using layout_type = typename immediate_tensor_mdspan_t<TensorType>::layout_type;
+  using layout_type = typename tensor_mdspec_t<TensorType>::layout_type;
   auto const source_size = detail::checked_element_count(tensor.extents());
   auto requested = detail::make_reshape_extents(source_size, requested_extents...);
   auto new_extents = detail::convert_reshape_extents<tensor_extents>(requested);
@@ -420,7 +420,7 @@ template <class TensorType, std::integral... Extents>
 
   using source_type = std::remove_cvref_t<TensorType>;
   using result_type = typename source_type::template rebind_extents_type<decltype(new_extents)>;
-  using layout_type = typename immediate_tensor_mdspan_t<TensorType>::layout_type;
+  using layout_type = typename tensor_mdspec_t<TensorType>::layout_type;
   using mapping_type = typename layout_type::template mapping<decltype(new_extents)>;
   auto accessor_factory = std::move(tensor).release_accessor_factory();
   auto storage = std::move(tensor).release_storage();

@@ -48,6 +48,8 @@ Before building the project, ensure you have the following installed:
   deduction implementation is incomplete for Uni20's tensor aliases.
 - Git (for cloning the repository and fetching dependencies)
 - BLAS and LAPACK libraries are essential; any library that implements the standard Fortran interface will work.
+- oneTBB 2022.3 or newer. CMake fetches the pinned source release when a
+  compatible system installation is unavailable.
 - Python 3.11 or newer with development headers if you want to build the
   Python bindings.
 
@@ -59,7 +61,10 @@ Before building the project, ensure you have the following installed:
 apt-get install libopenblas-dev liblapack-dev
 ```
 
-Optional developer packages such as `libtbb-dev`, `libbenchmark-dev`, `libfmt-dev`, and `libgtest-dev` can also be installed from the system, but Uni20 can fetch them automatically when needed.
+Optional developer packages such as `libbenchmark-dev`, `libfmt-dev`, and
+`libgtest-dev` can also be installed from the system, but Uni20 can fetch them
+automatically when needed. Install `libtbb-dev` only when it provides oneTBB
+2022.3 or newer; Ubuntu 24.04's 2021.11 package is too old.
 
 ## Building the Project
 

@@ -152,7 +152,7 @@ template <uni20::MutableRankedStridedMdspecLike<1> EigenvalueMdspan,
 KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& operation, EigenvalueMdspan& eigenvalues,
                          MatrixMdspan& matrix_work)
 {
-  return uni20::with_host_write_mdspans(
+  return lapack_detail::with_host_write_mdspans(
       [&](auto& eigenvalue_span, auto& matrix_span) {
         return lapack_detail::try_self_adjoint_eigh(operation, eigenvalue_span, matrix_span);
       },

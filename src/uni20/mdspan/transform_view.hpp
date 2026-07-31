@@ -13,7 +13,6 @@
 #include <uni20/mdspan/zip_layout.hpp>
 
 #include <cstddef>
-#include <functional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -23,6 +22,12 @@ namespace uni20
 namespace detail
 {
 
+template <class Function, class... Arguments>
+concept ConstDirectlyCallable = requires(Function const& function) { function(std::declval<Arguments>()...); };
+
+template <class Function, class... Arguments>
+using direct_call_result_t = decltype(std::declval<Function const&>()(std::declval<Arguments>()...));
+
 template <class Function, MdspanLike Span> class unary_transform_accessor {
   public:
     using function_type = Function;
@@ -30,7 +35,7 @@ template <class Function, MdspanLike Span> class unary_transform_accessor {
     using wrapped_accessor_type = typename span_type::accessor_type;
     using data_handle_type = typename span_type::data_handle_type;
     using offset_type = span_offset_t<wrapped_accessor_type>;
-    using reference = std::invoke_result_t<function_type const&, typename span_type::reference>;
+    using reference = direct_call_result_t<function_type, typename span_type::reference>;
     using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = unary_transform_accessor;
 
@@ -64,7 +69,7 @@ template <class Function, MdspanLike... Spans> class transform_accessor {
     using accessor_tuple = std::tuple<typename Spans::accessor_type...>;
     using data_handle_type = std::tuple<typename Spans::data_handle_type...>;
     using offset_type = std::tuple<span_offset_t<typename Spans::accessor_type>...>;
-    using reference = std::invoke_result_t<function_type const&, typename Spans::reference...>;
+    using reference = direct_call_result_t<function_type, typename Spans::reference...>;
     using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = transform_accessor;
 
@@ -125,6 +130,7 @@ inline constexpr bool enable_accessor_in_domain<detail::transform_accessor<Funct
 
 /// \brief Create a lazy read-only unary transform view while preserving the input mapping.
 template <class Function, MdspanLike Span>
+  requires detail::ConstDirectlyCallable<std::decay_t<Function>, typename Span::reference>
 [[nodiscard]] constexpr auto transform_view(Function&& function, Span const& span)
 {
   using function_type = std::decay_t<Function>;
@@ -140,6 +146,8 @@ template <class Function, MdspanLike Span>
 /// \brief Create a lazy read-only elementwise transform view over two or more inputs.
 /// \pre Every input has the same runtime extents.
 template <class Function, MdspanLike First, MdspanLike Second, MdspanLike... Rest>
+  requires detail::ConstDirectlyCallable<std::decay_t<Function>, typename First::reference, typename Second::reference,
+                                         typename Rest::reference...>
 [[nodiscard]] constexpr auto transform_view(Function&& function, First const& first, Second const& second,
                                             Rest const&... rest)
 {
