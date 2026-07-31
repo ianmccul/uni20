@@ -555,10 +555,10 @@ if(NOT UNI20_DOCS_WEB)
   # oneTBB
   uni20_add_dependency(
     NAME TBB
-    VERSION 2021
+    VERSION 2022.3
     TARGET TBB::tbb
     REPO https://github.com/uxlfoundation/oneTBB
-    TAG v2022.2.0
+    TAG v2022.3.0
     COMPONENTS tbb
     SETTINGS
       "TBB_TEST=OFF"
