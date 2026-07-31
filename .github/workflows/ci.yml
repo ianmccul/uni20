@@ -144,6 +144,7 @@ jobs:
             ninja-build \
             g++ \
             clang-19 \
+            clang-tools-19 \
             libopenblas-dev \
             liblapack-dev \
             libbenchmark-dev \
