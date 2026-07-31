@@ -40,12 +40,15 @@ if(UNI20_BACKEND_BLAS)
 endif()
 
 if(UNI20_ENABLE_MPLAPACK)
-  add_executable(uni20_linalg_mplapack_binary128_tests test_mplapack_binary128_cpu_ops.cpp)
+  add_executable(uni20_linalg_mplapack_binary128_tests
+    test_mplapack_binary128_cpu_ops.cpp
+    "${PROJECT_SOURCE_DIR}/tests/uni20_tests_main.cpp"
+  )
   target_link_libraries(uni20_linalg_mplapack_binary128_tests
     PRIVATE
       uni20_linalg
       mplapack::mplapack_binary128
-      GTest::gtest_main
+      GTest::gtest
   )
   target_compile_definitions(uni20_linalg_mplapack_binary128_tests PRIVATE UNIT_TEST)
   gtest_discover_tests(uni20_linalg_mplapack_binary128_tests)

@@ -14,8 +14,11 @@ function(add_test_module name)
     list(APPEND ABS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${src}")
   endforeach()
 
-  add_executable(uni20_${name}_tests ${ABS_SOURCES})
-  target_link_libraries(uni20_${name}_tests PRIVATE ${TESTMOD_LIBS} GTest::gtest_main)
+  add_executable(uni20_${name}_tests
+    ${ABS_SOURCES}
+    "${PROJECT_SOURCE_DIR}/tests/uni20_tests_main.cpp"
+  )
+  target_link_libraries(uni20_${name}_tests PRIVATE ${TESTMOD_LIBS} GTest::gtest)
   target_compile_definitions(uni20_${name}_tests PRIVATE UNIT_TEST)
   gtest_discover_tests(uni20_${name}_tests)
 
