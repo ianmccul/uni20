@@ -284,6 +284,47 @@ TEST_F(CudaCopyTest, SameBufferConjugatingCopyDeclinesWithoutMutation)
   EXPECT_EQ((result[1, 1]), (complex_type{-7.0, -8.0}));
 }
 
+TEST_F(CudaCopyTest, EmptySameBufferConjugatingCopySucceeds)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+  complex_cuda_matrix_type device(runtime.device_resources(0), 1, 1);
+  auto conjugated = uni20::conj(device);
+  auto output_base = device.mdspec();
+  auto input_base = conjugated.mdspec();
+  using output_type = decltype(output_base);
+  using input_type = decltype(input_base);
+  typename output_type::mapping_type output_mapping{typename output_type::extents_type{0, 1}};
+  typename input_type::mapping_type input_mapping{typename input_type::extents_type{0, 1}};
+  output_type output{output_base.data_descriptor(), output_mapping, output_base.accessor()};
+  input_type input{input_base.data_descriptor(), input_mapping, input_base.accessor()};
+
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(output, input);
+
+  EXPECT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  EXPECT_FALSE(preparation.has_work);
+  EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input), uni20::linalg::KernelAttempt::success);
+}
+
+TEST_F(CudaCopyTest, EmptySameBufferDifferentOffsetCopySucceeds)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+  cuda_matrix_type device(runtime.device_resources(0), 1, 2);
+  auto output_base = device.mdspec();
+  auto input_base = std::as_const(device).mdspec();
+  using output_type = decltype(output_base);
+  using input_type = decltype(input_base);
+  typename output_type::mapping_type output_mapping{typename output_type::extents_type{0, 1}};
+  typename input_type::mapping_type input_mapping{typename input_type::extents_type{0, 1}};
+  output_type output{output_base.data_descriptor(), output_mapping, output_base.accessor()};
+  input_type input{input_base.data_descriptor().offset_by(1), input_mapping, input_base.accessor()};
+
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(output, input);
+
+  EXPECT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  EXPECT_FALSE(preparation.has_work);
+  EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input), uni20::linalg::KernelAttempt::success);
+}
+
 TEST_F(CudaCopyTest, HostToDeviceCopyObservesConjugatingAccessor)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});

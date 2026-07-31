@@ -225,6 +225,12 @@ template <class OutputMdspan, class InputMdspan>
     plan.direction = CopyDirection::device_to_host;
   }
 
+  if (plan.element_count == 0)
+  {
+    plan.attempt = KernelAttempt::success;
+    return plan;
+  }
+
   if constexpr (is_conjugated_cuda_mdspan<InputMdspan>)
   {
     if (plan.direction == CopyDirection::device_to_device)
