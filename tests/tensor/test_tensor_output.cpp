@@ -95,3 +95,23 @@ TEST(TensorOutputTest, FixedTensorViewValidatesWithoutRebinding)
   EXPECT_EQ(view.extent(0), 2);
   EXPECT_EQ(view.extent(1), 3);
 }
+
+TEST(TensorOutputTest, ConstructedFixedSharedStorageUsesTensorViewPreparation)
+{
+  double data[6] = {};
+  auto storage =
+      uni20::async::make_shared_storage<FixedTensorView>(FixedTensorView{.data = data, .shape = extents_2d{2, 3}});
+
+  auto& output = uni20::prepare_output(storage, extents_2d{2, 3});
+
+  EXPECT_EQ(output.data, data);
+}
+
+TEST(TensorOutputTest, UnconstructedFixedSharedStorageReportsPreparationError)
+{
+  auto storage = uni20::async::make_unconstructed_shared_storage<FixedTensorView>();
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(uni20::prepare_output(storage, extents_2d{2, 3}), std::runtime_error);
+  EXPECT_FALSE(storage.constructed());
+}

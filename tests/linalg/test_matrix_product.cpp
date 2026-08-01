@@ -2,6 +2,7 @@
 #include <uni20/config.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
+#include <uni20/tensor/reshape.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
@@ -138,6 +139,27 @@ TEST(MatrixProductTest, ExplicitCpuSelectorSupportsMixedLayoutsAndResize)
   EXPECT_EQ(output.mapping().stride(1), 1);
   EXPECT_DOUBLE_EQ((output[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((output[1, 1]), 154.0);
+}
+
+TEST(MatrixProductTest, CpuBackendPreparesConstructedFixedShapeStorage)
+{
+  uni20::DenseMatrix<double> lhs(2, 3);
+  uni20::DenseMatrix<double> rhs(3, 2);
+  uni20::DenseMatrix<double> parent(1, 4);
+  fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  fill_matrix(rhs, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+  auto output_view = uni20::reshape_view(parent, 2, 2);
+  auto output = uni20::async::make_shared_storage<decltype(output_view)>(output_view);
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::assign_product_op{}, output,
+                                      1.0, lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::success);
+  EXPECT_DOUBLE_EQ((parent[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((parent[0, 1]), 139.0);
+  EXPECT_DOUBLE_EQ((parent[0, 2]), 64.0);
+  EXPECT_DOUBLE_EQ((parent[0, 3]), 154.0);
 }
 
 TEST(MatrixProductTest, BlasLayoutDeclineLeavesWrongShapedOutputForCpuFallback)

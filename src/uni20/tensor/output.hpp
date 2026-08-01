@@ -151,6 +151,10 @@ Output& prepare_output(Output& output, RequiredExtents const& required, Placemen
 }
 
 /// \brief Construct or resize a deferred Tensor output to the required shape.
+/// \details A constructed output is prepared through its ordinary tensor-view
+///          interface. An unconstructed output is initialized from the required
+///          extents when its type supports that construction; otherwise
+///          preparation reports an error.
 /// \warning This operation may construct, resize, or replace the output.
 ///          For operations whose contract declares the output replaceable, a
 ///          backend may call this before completing all side-effect-free
@@ -158,13 +162,19 @@ Output& prepare_output(Output& output, RequiredExtents const& required, Placemen
 ///          backends may reuse or replace the prepared output.
 /// \return Reference to the prepared output value.
 template <MutableTensorView Output, TensorExtentsLike RequiredExtents>
-  requires std::constructible_from<Output, tensor_extents_t<Output> const&>
 Output& prepare_output(async::shared_storage<Output>& storage, RequiredExtents const& required)
 {
   if (storage.constructed()) return prepare_output(*storage, required);
 
-  auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
-  return storage.emplace(converted);
+  if constexpr (std::constructible_from<Output, tensor_extents_t<Output> const&>)
+  {
+    auto const converted = convert_tensor_extents<tensor_extents_t<Output>>(required);
+    return storage.emplace(converted);
+  }
+  else
+  {
+    ERROR("unconstructed tensor output cannot be initialized from the required extents");
+  }
 }
 
 /// \brief Construct or replace a deferred Tensor output with compatible shape and storage.
