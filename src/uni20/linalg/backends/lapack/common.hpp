@@ -28,7 +28,7 @@ template <class Function, uni20::HostWritableMdspec... Mdspecs>
   requires std::same_as<std::invoke_result_t<Function&&, uni20::host_write_mdspan_t<Mdspecs>&...>, KernelAttempt>
 KernelAttempt with_host_write_mdspans(Function&& function, Mdspecs&... mdspecs)
 {
-  auto accesses = std::tuple{acquire_host_write_access(mdspecs)...};
+  auto accesses = std::tuple{acquire_host_write_access_sync(mdspecs)...};
   return std::apply(
       [&](auto&... access) -> KernelAttempt {
         auto mdspans = std::tuple{access.mdspan()...};

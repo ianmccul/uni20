@@ -94,7 +94,7 @@ template <uni20::MutableRankedMdspecLike<2> MatrixMdspan, uni20::Scalar Scalar>
 KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMdspan& matrix, Scalar diagonal,
                          Scalar off_diagonal)
 {
-  auto matrix_access = acquire_host_write_access(matrix);
+  auto matrix_access = acquire_host_write_access_sync(matrix);
   auto matrix_span = matrix_access.mdspan();
   return detail::cpu_reference::set_matrix(op, matrix_span, diagonal, off_diagonal);
 }

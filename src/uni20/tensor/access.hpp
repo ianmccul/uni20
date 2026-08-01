@@ -617,7 +617,7 @@ template <class Lease> class ready_access {
 /// \brief Acquire a directly host-accessible read-only mdspan.
 template <HostAccessibleMdspan Mdspan>
   requires std::is_const_v<typename std::remove_cvref_t<Mdspan>::element_type>
-[[nodiscard]] auto acquire_host_read_access(Mdspan const& mdspan)
+[[nodiscard]] auto acquire_host_read_access_sync(Mdspan const& mdspan)
 {
   using mdspan_type = std::remove_cvref_t<Mdspan>;
   return read_mdspan_lease<mdspan_type, detail::immediate_mdspan_access_state>{detail::immediate_mdspan_access_state{},
@@ -627,7 +627,7 @@ template <HostAccessibleMdspan Mdspan>
 /// \brief Acquire a directly host-accessible writable mdspan.
 template <MutableMdspanLike Mdspan>
   requires HostAccessibleMdspan<Mdspan>
-[[nodiscard]] auto acquire_host_write_access(Mdspan& mdspan)
+[[nodiscard]] auto acquire_host_write_access_sync(Mdspan& mdspan)
 {
   using mdspan_type = std::remove_cvref_t<Mdspan>;
   return write_mdspan_lease<mdspan_type, detail::immediate_mdspan_access_state>{detail::immediate_mdspan_access_state{},
@@ -637,7 +637,7 @@ template <MutableMdspanLike Mdspan>
 /// \brief Acquire an immediately host-accessible tensor view for read-only use.
 template <ImmediateTensorView Tensor>
   requires HostAccessibleMdspan<immediate_tensor_mdspan_t<Tensor>>
-[[nodiscard]] auto acquire_host_read_access(Tensor& tensor)
+[[nodiscard]] auto acquire_host_read_access_sync(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
   return detail::borrowed_read_tensor_lease<tensor_type>{tensor};
@@ -646,7 +646,7 @@ template <ImmediateTensorView Tensor>
 /// \brief Acquire an immediately host-accessible mutable tensor view.
 template <MutableImmediateTensorView Tensor>
   requires HostAccessibleMdspan<mutable_immediate_tensor_mdspan_t<Tensor>>
-[[nodiscard]] auto acquire_host_write_access(Tensor& tensor)
+[[nodiscard]] auto acquire_host_write_access_sync(Tensor& tensor)
 {
   using tensor_type = std::remove_cvref_t<Tensor>;
   return detail::borrowed_write_tensor_lease<tensor_type>{tensor};
@@ -657,7 +657,7 @@ template <ImmediateTensorView Tensor>
   requires HostAccessibleMdspan<immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_read_access_async(Tensor& tensor)
 {
-  return ready_access{acquire_host_read_access(tensor)};
+  return ready_access{acquire_host_read_access_sync(tensor)};
 }
 
 /// \brief Return an immediately-ready host write acquisition.
@@ -665,15 +665,16 @@ template <MutableImmediateTensorView Tensor>
   requires HostAccessibleMdspan<mutable_immediate_tensor_mdspan_t<Tensor>>
 [[nodiscard]] auto acquire_host_write_access_async(Tensor& tensor)
 {
-  return ready_access{acquire_host_write_access(tensor)};
+  return ready_access{acquire_host_write_access_sync(tensor)};
 }
 
 namespace detail
 {
 template <class Mdspec>
-using host_read_mdspan_lease_t = decltype(acquire_host_read_access(std::declval<Mdspec const&>()));
+using host_read_mdspan_lease_t = decltype(acquire_host_read_access_sync(std::declval<Mdspec const&>()));
 
-template <class Mdspec> using host_write_mdspan_lease_t = decltype(acquire_host_write_access(std::declval<Mdspec&>()));
+template <class Mdspec>
+using host_write_mdspan_lease_t = decltype(acquire_host_write_access_sync(std::declval<Mdspec&>()));
 } // namespace detail
 
 /// \brief Read-only mdspan type resolved by host descriptor acquisition.
@@ -689,21 +690,22 @@ using host_write_mdspan_t =
 /// \brief Mdspec metadata supporting host read acquisition.
 template <class Mdspec>
 concept HostReadableMdspec = MdspecLike<Mdspec> && requires(Mdspec const& mdspec) {
-  { acquire_host_read_access(mdspec) } -> HostReadMdspanLease;
+  { acquire_host_read_access_sync(mdspec) } -> HostReadMdspanLease;
 };
 
 /// \brief Mutable mdspec metadata supporting host write acquisition.
 template <class Mdspec>
 concept HostWritableMdspec = MutableMdspecLike<Mdspec> && requires(Mdspec& mdspec) {
-  { acquire_host_write_access(mdspec) } -> HostWriteMdspanLease;
+  { acquire_host_write_access_sync(mdspec) } -> HostWriteMdspanLease;
 };
 
 namespace detail
 {
 template <class Tensor>
-using host_read_tensor_lease_t = decltype(acquire_host_read_access(std::declval<Tensor const&>()));
+using host_read_tensor_lease_t = decltype(acquire_host_read_access_sync(std::declval<Tensor const&>()));
 
-template <class Tensor> using host_write_tensor_lease_t = decltype(acquire_host_write_access(std::declval<Tensor&>()));
+template <class Tensor>
+using host_write_tensor_lease_t = decltype(acquire_host_write_access_sync(std::declval<Tensor&>()));
 } // namespace detail
 
 /// \brief Read-only mdspan type resolved by host tensor acquisition.
@@ -719,13 +721,13 @@ using host_write_tensor_mdspan_t =
 /// \brief Tensor view supporting host read acquisition.
 template <class Tensor>
 concept HostReadableTensor = TensorView<Tensor> && requires(Tensor const& tensor) {
-  { acquire_host_read_access(tensor) } -> HostReadTensorLease;
+  { acquire_host_read_access_sync(tensor) } -> HostReadTensorLease;
 };
 
 /// \brief Mutable tensor view supporting host write acquisition.
 template <class Tensor>
 concept HostWritableTensor = MutableTensorView<Tensor> && requires(Tensor& tensor) {
-  { acquire_host_write_access(tensor) } -> HostWriteTensorLease;
+  { acquire_host_write_access_sync(tensor) } -> HostWriteTensorLease;
 };
 
 } // namespace uni20

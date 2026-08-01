@@ -43,7 +43,7 @@ class HostAccessState {
 template <class Element, class Extents, class Layout, class Accessor, class Storage>
   requires std::is_const_v<Element>
 [[nodiscard]] auto
-acquire_host_read_access(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>> const& span)
+acquire_host_read_access_sync(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>> const& span)
 {
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   using lease_type = read_mdspan_lease<mdspan_type, HostAccessState>;
@@ -56,7 +56,7 @@ acquire_host_read_access(mdspec<Element, Extents, Layout, Accessor, HostStorageD
 template <class Element, class Extents, class Layout, class Accessor, class Storage>
   requires(!std::is_const_v<Element>)
 [[nodiscard]] auto
-acquire_host_write_access(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>>& span)
+acquire_host_write_access_sync(mdspec<Element, Extents, Layout, Accessor, HostStorageDescriptor<Storage>>& span)
 {
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   using lease_type = write_mdspan_lease<mdspan_type, HostAccessState>;
@@ -127,7 +127,7 @@ template <class Element, std::size_t Rank, class Layout = stdex::layout_left> cl
 };
 
 template <class Element, std::size_t Rank, class Layout>
-[[nodiscard]] auto acquire_host_read_access(DeferredHostTensor<Element, Rank, Layout> const& tensor)
+[[nodiscard]] auto acquire_host_read_access_sync(DeferredHostTensor<Element, Rank, Layout> const& tensor)
 {
   using tensor_type = DeferredHostTensor<Element, Rank, Layout>;
   using lease_type =
@@ -140,7 +140,7 @@ template <class Element, std::size_t Rank, class Layout>
 }
 
 template <class Element, std::size_t Rank, class Layout>
-[[nodiscard]] auto acquire_host_write_access(DeferredHostTensor<Element, Rank, Layout>& tensor)
+[[nodiscard]] auto acquire_host_write_access_sync(DeferredHostTensor<Element, Rank, Layout>& tensor)
 {
   using tensor_type = DeferredHostTensor<Element, Rank, Layout>;
   using lease_type =

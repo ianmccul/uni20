@@ -53,9 +53,9 @@ template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::Scalar Scalar, 
   requires HostGemmMdspanAccess<OutputMdspan, LhsMdspan, RhsMdspan>
 KernelAttempt try_cpu_gemm(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto lhs_access = acquire_host_read_access(lhs);
-  auto rhs_access = acquire_host_read_access(rhs);
+  auto output_access = acquire_host_write_access_sync(output);
+  auto lhs_access = acquire_host_read_access_sync(lhs);
+  auto rhs_access = acquire_host_read_access_sync(rhs);
   auto output_span = output_access.mdspan();
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();

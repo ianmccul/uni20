@@ -149,8 +149,8 @@ template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::RankedMdspecLik
 KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan& output, InputMdspan& input,
                          TimeScalar time)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto input_access = acquire_host_read_access(input);
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_access = acquire_host_read_access_sync(input);
   auto output_span = output_access.mdspan();
   auto input_span = input_access.mdspan();
   return detail::cpu_reference::matrix_exponential(output_span, input_span, time);

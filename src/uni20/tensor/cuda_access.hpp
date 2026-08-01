@@ -189,7 +189,7 @@ template <class Tensor>
 /// \brief Resolve borrowed CUDA read access synchronized with an operation stream.
 template <cuda::BufferMdspec Mdspec>
   requires std::is_const_v<typename std::remove_cvref_t<Mdspec>::element_type>
-[[nodiscard]] auto acquire_cuda_read_access(Mdspec const& mdspec, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_read_access_async(Mdspec const& mdspec, cuda::Stream const& stream)
 {
   detail::validate_cuda_descriptor_range(mdspec);
   auto const element_offset = static_cast<std::size_t>(mdspec.data_descriptor().element_offset());
@@ -200,7 +200,7 @@ template <cuda::BufferMdspec Mdspec>
 /// \brief Resolve borrowed CUDA write access synchronized with an operation stream.
 template <class Mdspec>
   requires cuda::BufferMdspec<Mdspec> && MutableMdspecLike<Mdspec>
-[[nodiscard]] auto acquire_cuda_write_access(Mdspec& mdspec, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_write_access_async(Mdspec& mdspec, cuda::Stream const& stream)
 {
   detail::validate_cuda_descriptor_range(mdspec);
   auto state = mdspec.data_descriptor().buffer().write_synchronized_with(stream);
@@ -213,7 +213,7 @@ template <class Mdspec>
 ///          and the returned awaitable is ready without suspending.
 template <class Tensor>
   requires TensorView<Tensor> && (!ImmediateTensorView<Tensor>) && cuda::BufferMdspec<tensor_mdspec_t<Tensor>>
-[[nodiscard]] auto acquire_cuda_read_access(Tensor& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_read_access_async(Tensor& tensor, cuda::Stream const& stream)
 {
   auto mdspec = mdspec_of(std::as_const(tensor));
   detail::validate_cuda_descriptor_range(mdspec);
@@ -230,7 +230,7 @@ template <class Tensor>
           cuda::BufferMdspec<tensor_mdspec_t<std::remove_cvref_t<Tensor>>> && requires(Tensor&& tensor) {
             { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
           }
-[[nodiscard]] auto acquire_cuda_read_access(Tensor&& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_read_access_async(Tensor&& tensor, cuda::Stream const& stream)
 {
   auto mdspec = mdspec_of(std::as_const(tensor));
   detail::validate_cuda_descriptor_range(mdspec);
@@ -246,7 +246,7 @@ template <class Tensor>
 template <class Tensor>
   requires MutableTensorView<Tensor> && (!MutableImmediateTensorView<Tensor>) &&
            cuda::BufferMdspec<tensor_mdspec_t<Tensor>> && cuda::BufferMdspec<mutable_tensor_mdspec_t<Tensor>>
-[[nodiscard]] auto acquire_cuda_write_access(Tensor& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto acquire_cuda_write_access_async(Tensor& tensor, cuda::Stream const& stream)
 {
   auto mdspec = mdspec_of(tensor);
   auto const_mdspec = mdspec_of(std::as_const(tensor));

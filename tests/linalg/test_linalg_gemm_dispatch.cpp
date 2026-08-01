@@ -354,24 +354,24 @@ static_assert(!uni20::ImmediateTensorView<DeferredMatrix>);
 
 template <class Element, class Extents, class Layout, class Accessor>
   requires std::is_const_v<Element>
-[[nodiscard]] auto
-acquire_host_read_access(uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor> const& span)
+[[nodiscard]] auto acquire_host_read_access_sync(
+    uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor> const& span)
 {
   ++span.data_descriptor().counts->reads;
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   mdspan_type resolved{span.data_descriptor().tensor->storage().data(), span.mapping(), span.accessor()};
-  return uni20::acquire_host_read_access(resolved);
+  return uni20::acquire_host_read_access_sync(resolved);
 }
 
 template <class Element, class Extents, class Layout, class Accessor>
   requires(!std::is_const_v<Element>)
 [[nodiscard]] auto
-acquire_host_write_access(uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor>& span)
+acquire_host_write_access_sync(uni20::mdspec<Element, Extents, Layout, Accessor, DeferredMatrix::DataDescriptor>& span)
 {
   ++span.data_descriptor().counts->writes;
   using mdspan_type = stdex::mdspan<Element, Extents, Layout, Accessor>;
   mdspan_type resolved{span.data_descriptor().tensor->storage().data(), span.mapping(), span.accessor()};
-  return uni20::acquire_host_write_access(resolved);
+  return uni20::acquire_host_write_access_sync(resolved);
 }
 } // namespace host_gemm_test
 

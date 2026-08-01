@@ -366,18 +366,24 @@ Include the tensor acquisition API through:
 Acquisition names the execution domain of the resulting mdspan:
 
 ```cpp
-auto host_read = uni20::acquire_host_read_access(host_tensor);
-auto host_write = uni20::acquire_host_write_access(host_tensor);
+auto host_read = uni20::acquire_host_read_access_sync(host_tensor);
+auto host_write = uni20::acquire_host_write_access_sync(host_tensor);
 
 auto cuda_read =
-    co_await uni20::acquire_cuda_read_access(cuda_tensor, stream);
+    co_await uni20::acquire_cuda_read_access_async(cuda_tensor, stream);
 auto cuda_write =
-    co_await uni20::acquire_cuda_write_access(cuda_tensor, stream);
+    co_await uni20::acquire_cuda_write_access_async(cuda_tensor, stream);
 
 auto descriptor = cuda_tensor.mdspec();
 auto cuda_descriptor_write =
-    co_await uni20::acquire_cuda_write_access(descriptor, stream);
+    co_await uni20::acquire_cuda_write_access_async(descriptor, stream);
 ```
+
+The suffix names the completion model consistently across execution domains.
+`_sync` returns a lease directly after completing any caller-side
+synchronization. `_async` returns an awaitable; for CUDA, acquisition is
+ordered on the supplied stream and need not block the host. There are no
+unsuffixed acquisition aliases.
 
 These are constrained overloads, not required members of the data descriptor.
 This keeps storage and resource policy in the acquisition layer. A descriptor
@@ -419,7 +425,7 @@ not copy the mdspan or backend selector:
 uni20::Tensor<float, 2> tensor(4, 8);
 
 {
-  auto lease = uni20::acquire_host_write_access(tensor);
+  auto lease = uni20::acquire_host_write_access_sync(tensor);
   static_assert(uni20::HostWriteTensorLease<decltype(lease)>);
   lease.mdspan()[2, 3] = 1.0F;
 }
@@ -464,8 +470,8 @@ acquires the required host read and write leases, then invokes its
 backend-specific lower-level mdspan implementation:
 
 ```cpp
-auto output_access = acquire_host_write_access(output);
-auto input_access = acquire_host_read_access(input);
+auto output_access = acquire_host_write_access_sync(output);
+auto input_access = acquire_host_read_access_sync(input);
 
 return cpu_reference::copy(
     output_access.mdspan(),
@@ -523,14 +529,14 @@ acquisition resolves the descriptor through `CudaBuffer` access state:
 ```cpp
 auto stream = co_await uni20::cuda::acquire_stream(
     tensor.storage().resources().streams());
-auto lease = co_await uni20::acquire_cuda_write_access(tensor, stream);
+auto lease = co_await uni20::acquire_cuda_write_access_async(tensor, stream);
 
 static_assert(uni20::CudaWriteTensorLease<decltype(lease)>);
 launch_kernel(stream, lease.mdspan());
 ```
 
 Acquiring the stream is separate from acquiring tensor data. Once a stream is
-available, `acquire_cuda_write_access(tensor, stream)` installs predecessor
+available, `acquire_cuda_write_access_async(tensor, stream)` installs predecessor
 waits through `CudaBuffer` and returns an immediately-ready task awaitable.
 Destroying the lease records the writer completion at the stream tail. A later
 synchronized or stream-ordered CUDA access observes that completion.

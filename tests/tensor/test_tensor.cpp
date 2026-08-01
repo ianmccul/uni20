@@ -217,18 +217,18 @@ using instrumented_write_tensor_lease =
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
 
-using read_lease_type = decltype(acquire_host_read_access(std::declval<tensor_type const&>()));
-using write_lease_type = decltype(acquire_host_write_access(std::declval<tensor_type&>()));
+using read_lease_type = decltype(acquire_host_read_access_sync(std::declval<tensor_type const&>()));
+using write_lease_type = decltype(acquire_host_write_access_sync(std::declval<tensor_type&>()));
 using read_access_type = decltype(acquire_host_read_access_async(std::declval<tensor_type const&>()));
 using write_access_type = decltype(acquire_host_write_access_async(std::declval<tensor_type&>()));
-using storage_free_read_lease = decltype(acquire_host_read_access(std::declval<StorageFreeTensorView const&>()));
-using storage_free_write_lease = decltype(acquire_host_write_access(std::declval<StorageFreeTensorView&>()));
+using storage_free_read_lease = decltype(acquire_host_read_access_sync(std::declval<StorageFreeTensorView const&>()));
+using storage_free_write_lease = decltype(acquire_host_write_access_sync(std::declval<StorageFreeTensorView&>()));
 
 template <class T>
 concept HasStorageObserver = requires(T& value) { value.storage(); };
 
 template <class T>
-concept CanBorrowReadFromRvalue = requires(T&& value) { acquire_host_read_access(std::move(value)); };
+concept CanBorrowReadFromRvalue = requires(T&& value) { acquire_host_read_access_sync(std::move(value)); };
 
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
@@ -421,12 +421,12 @@ TEST(TensorTest, ImmediateLeasesDoNotRequireStorageObserver)
   StorageFreeTensorView view(values.data(), extents_2d{2, 3});
 
   {
-    auto lease = acquire_host_write_access(view);
+    auto lease = acquire_host_write_access_sync(view);
     lease.mdspan()[1, 2] = 42;
   }
 
   auto const& const_view = view;
-  auto lease = acquire_host_read_access(const_view);
+  auto lease = acquire_host_read_access_sync(const_view);
   EXPECT_EQ((lease.mdspan()[1, 2]), 42);
 }
 
@@ -695,7 +695,7 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
     lease.mdspan()[1, 2] = 42;
   }
 
-  auto lease = acquire_host_read_access(std::as_const(tensor));
+  auto lease = acquire_host_read_access_sync(std::as_const(tensor));
   static_assert(ImmediateTensorView<decltype(lease)>);
   static_assert(!MutableImmediateTensorView<decltype(lease)>);
   EXPECT_EQ(&lease.storage(), &tensor.storage());
@@ -708,13 +708,13 @@ TEST(TensorTest, ImmediateMdspanAccessUsesPolicyFreeLeases)
   access_test_mutable_mdspan mutable_span{data.data(), extents_2d{2, 2}};
 
   {
-    auto lease = acquire_host_write_access(mutable_span);
+    auto lease = acquire_host_write_access_sync(mutable_span);
     static_assert(HostWriteMdspanLease<decltype(lease)>);
     lease.mdspan()[1, 0] = 42;
   }
 
   access_test_const_mdspan const_span{data.data(), extents_2d{2, 2}};
-  auto lease = acquire_host_read_access(const_span);
+  auto lease = acquire_host_read_access_sync(const_span);
   static_assert(HostReadMdspanLease<decltype(lease)>);
   EXPECT_EQ((lease.mdspan()[1, 0]), 42);
 }

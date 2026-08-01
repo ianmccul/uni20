@@ -127,8 +127,8 @@ template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
   requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto input_access = acquire_host_read_access(input);
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_access = acquire_host_read_access_sync(input);
   auto output_span = output_access.mdspan();
   auto input_span = input_access.mdspan();
   return detail::cpu_reference::copy(output_span, input_span);

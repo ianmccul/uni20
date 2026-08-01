@@ -14,7 +14,7 @@ namespace
 using complex_type = uni20::complex<double>;
 using complex_matrix = uni20::DenseMatrix<complex_type>;
 using conjugated_matrix = decltype(uni20::conj(std::declval<complex_matrix&>()));
-using conjugated_read_lease = decltype(uni20::acquire_host_read_access(std::declval<conjugated_matrix&>()));
+using conjugated_read_lease = decltype(uni20::acquire_host_read_access_sync(std::declval<conjugated_matrix&>()));
 
 template <class Tensor>
 concept ConjugatesRvalueTensor = requires(Tensor&& tensor) { uni20::conj(std::move(tensor)); };
@@ -68,7 +68,7 @@ TEST(TensorConjugateTest, ImmediateReadLeaseDoesNotRequireStorageObserver)
   matrix[0, 0] = complex_type{2.0, 3.0};
   auto view = uni20::conj(matrix);
 
-  auto lease = uni20::acquire_host_read_access(view);
+  auto lease = uni20::acquire_host_read_access_sync(view);
 
   EXPECT_EQ((lease.mdspan()[0, 0]), (complex_type{2.0, -3.0}));
 }

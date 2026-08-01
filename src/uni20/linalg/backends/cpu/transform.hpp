@@ -192,8 +192,8 @@ template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLi
 KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan& output,
                          InputMdspans&... inputs)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_accesses = std::tuple{acquire_host_read_access_sync(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();
@@ -224,8 +224,8 @@ template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLi
 KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan& output,
                          InputMdspans&... inputs)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto input_accesses = std::tuple{acquire_host_read_access(inputs)...};
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_accesses = std::tuple{acquire_host_read_access_sync(inputs)...};
   return std::apply(
       [&](auto&... input_access) {
         auto output_span = output_access.mdspan();

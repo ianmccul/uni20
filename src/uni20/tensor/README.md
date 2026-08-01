@@ -99,9 +99,11 @@ kernels operate on resolved mdspans.
   selected only when no immediate handle is available. Readable and writable
   capabilities are independent.
 - `TensorView` covers both immediately accessible and descriptor-backed
-  tensors. Domain-explicit operations such as
-  `acquire_host_read_access` and `acquire_cuda_write_access` return RAII
-  TensorViews whose mdspan accessor is valid in the named execution domain.
+  tensors. Domain-explicit operations use explicit completion suffixes:
+  `acquire_host_read_access_sync` returns an RAII TensorView lease directly,
+  while `acquire_cuda_write_access_async` returns an awaitable that yields one.
+  The lease's mdspan accessor is valid in the named execution domain. There are
+  no unsuffixed acquisition defaults.
   Immediate host lvalue views use borrowed no-op leases and do not need a
   public `storage()` observer. These immediate leases store only a pointer to
   the source view and forward its mdspan and metadata. Acquisition never

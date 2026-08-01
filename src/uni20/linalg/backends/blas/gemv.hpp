@@ -53,9 +53,9 @@ template <uni20::MutableRankedMdspecLike<1> OutputMdspan, class Scalar, uni20::R
 KernelAttempt try_kernel(BlasBackend, gemv_op const&, OutputMdspan& output, Scalar alpha, MatrixMdspan& matrix,
                          InputMdspan& input, Scalar beta)
 {
-  auto output_access = acquire_host_write_access(output);
-  auto matrix_access = acquire_host_read_access(matrix);
-  auto input_access = acquire_host_read_access(input);
+  auto output_access = acquire_host_write_access_sync(output);
+  auto matrix_access = acquire_host_read_access_sync(matrix);
+  auto input_access = acquire_host_read_access_sync(input);
   auto output_span = output_access.mdspan();
   auto matrix_span = matrix_access.mdspan();
   auto input_span = input_access.mdspan();

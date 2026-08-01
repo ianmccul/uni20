@@ -113,7 +113,7 @@ template <uni20::MutableMdspecLike Mdspan>
   requires uni20::HostWritableMdspec<Mdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, conjugate_inplace_op const&, Mdspan& mdspan)
 {
-  auto access = acquire_host_write_access(mdspan);
+  auto access = acquire_host_write_access_sync(mdspan);
   auto span = access.mdspan();
   return detail::cpu_reference::conjugate(span);
 }

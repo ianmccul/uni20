@@ -583,9 +583,9 @@ void matmul(C& c, A const& a, B const& b)
 The selected backend acquires the execution-domain views:
 
 ```cpp
-auto av = acquire_host_read_access(a);
-auto bv = acquire_host_read_access(b);
-auto cv = acquire_host_write_access(c);
+auto av = acquire_host_read_access_sync(a);
+auto bv = acquire_host_read_access_sync(b);
+auto cv = acquire_host_write_access_sync(c);
 return cpu_reference::gemm(cv.mdspan(), av.mdspan(), bv.mdspan());
 ```
 

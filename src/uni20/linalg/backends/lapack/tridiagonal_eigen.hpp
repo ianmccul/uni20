@@ -110,7 +110,7 @@ template <uni20::LapackReal Scalar, uni20::MutableRankedStridedMdspecLike<2> Eig
 KernelAttempt try_kernel(LapackBackend, symmetric_tridiagonal_eigen_op const& operation, std::span<Scalar> diagonal,
                          std::span<Scalar> subdiagonal, EigenvectorMdspan& eigenvectors)
 {
-  auto access = acquire_host_write_access(eigenvectors);
+  auto access = acquire_host_write_access_sync(eigenvectors);
   auto span = access.mdspan();
   return lapack_detail::try_tridiagonal_eigen(operation, diagonal, subdiagonal, span);
 }

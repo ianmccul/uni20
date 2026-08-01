@@ -380,9 +380,9 @@ template <MutableRankedMdspecLike<2> C, class Scalar,
 KernelAttempt try_kernel(BlasBackend, gemm_op, C& c, Scalar alpha, A& a,
                          B& b, Scalar beta)
 {
-  auto c_access = acquire_host_write_access(c);
-  auto a_access = acquire_host_read_access(a);
-  auto b_access = acquire_host_read_access(b);
+  auto c_access = acquire_host_write_access_sync(c);
+  auto a_access = acquire_host_read_access_sync(a);
+  auto b_access = acquire_host_read_access_sync(b);
   return uni20::linalg::blas::try_gemm(
       c_access.mdspan(), alpha, a_access.mdspan(), b_access.mdspan(), beta);
 }

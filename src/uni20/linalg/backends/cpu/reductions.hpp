@@ -381,7 +381,7 @@ template <class Output, class Function> KernelAttempt with_host_reduction_output
 {
   if constexpr (uni20::MdspecLike<Output>)
   {
-    auto output_access = acquire_host_write_access(output);
+    auto output_access = acquire_host_write_access_sync(output);
     auto output_span = output_access.mdspan();
     return std::invoke(std::forward<Function>(function), output_span);
   }
@@ -416,8 +416,8 @@ template <class Output, uni20::MdspecLike LhsMdspan, uni20::MdspecLike RhsMdspan
            uni20::HostReadableMdspec<RhsMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output& output, LhsMdspan& lhs, RhsMdspan& rhs)
 {
-  auto lhs_access = acquire_host_read_access(lhs);
-  auto rhs_access = acquire_host_read_access(rhs);
+  auto lhs_access = acquire_host_read_access_sync(lhs);
+  auto rhs_access = acquire_host_read_access_sync(rhs);
   auto lhs_span = lhs_access.mdspan();
   auto rhs_span = rhs_access.mdspan();
   return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
@@ -445,7 +445,7 @@ template <class Output, uni20::MdspecLike InputMdspan>
   requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output& output, InputMdspan& input)
 {
-  auto input_access = acquire_host_read_access(input);
+  auto input_access = acquire_host_read_access_sync(input);
   auto input_span = input_access.mdspan();
   return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
     detail::reference_norm(resolved_output, input_span);
@@ -474,7 +474,7 @@ template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::M
 KernelAttempt try_kernel(CpuReferenceBackend, sum_reduction_op<InputRank, ReducedRank> const& operation, Output& output,
                          InputMdspan& input)
 {
-  auto input_access = acquire_host_read_access(input);
+  auto input_access = acquire_host_read_access_sync(input);
   auto input_span = input_access.mdspan();
   return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
     CHECK(reduction_axes_are_valid(operation.axes));
