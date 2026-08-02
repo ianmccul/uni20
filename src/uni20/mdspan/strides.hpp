@@ -235,7 +235,7 @@ template <std::size_t N, std::size_t R> void merge_strides_right(static_vector<e
 /// \param C The output tensor.
 /// \return Tuple of stride descriptors for the M, N, and K groupings.
 /// \ingroup mdspan_ext
-template <StridedMdspan AType, StridedMdspan BType, StridedMdspan CType, std::size_t N>
+template <StridedMdspanLike AType, StridedMdspanLike BType, StridedMdspanLike CType, std::size_t N>
 auto extract_strides(AType const& A, BType const& B,
                      std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims, CType const& C)
 {

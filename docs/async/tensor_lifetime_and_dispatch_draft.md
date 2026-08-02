@@ -77,9 +77,9 @@ a descriptor table. Each element handle adds an element/block epoch token.
 
 ## Async Aliases
 
-Dense aliases use ordinary `Async<View>` types. The view models `TensorView`,
-not mdspan, and therefore retains synchronous tensor metadata and exposes
-`backend_selector()` plus `mdspan()`:
+Dense aliases use ordinary `Async<View>` types. The stored view models
+`TensorView`, not mdspec or mdspan, and therefore retains synchronous tensor
+metadata and a backend selector:
 
 ```cpp
 Async<Tensor<complex<double>, 2>> parent;
@@ -197,7 +197,7 @@ void assign_product(Async<Matrix>& output,
                     Async<Matrix> const& rhs,
                     auto&& alpha)
 {
-  auto selector = select_backend_for<Matrix, Matrix, Matrix>(gemm_op{});
+  auto selector = select_backend_for<Matrix, Matrix, Matrix>(assign_product_op{});
   validate_obvious_queue_alias(output, lhs, rhs);
   schedule(assign_product_task(std::move(selector), output.write(), lhs.read(),
                                rhs.read(), async::read(alpha)));
@@ -208,8 +208,9 @@ The task is a named free coroutine, or equivalently a captureless `static`
 lambda whose buffers are parameters. It never retains references to the
 caller-owned `Async<T>` handles.
 
-This is deliberately different from asking `Async<Tensor>` to satisfy the same
-immediate `TensorView` concept as `Tensor`. A synchronous tensor can
+This is deliberately different from asking `Async<Tensor>` to satisfy the
+`ImmediateTensorView` concept implemented by an immediately accessible
+`Tensor`. A synchronous tensor can
 produce an immediate read view. An async tensor produces a read handle that must
 be awaited.
 
@@ -223,18 +224,19 @@ the coroutine by value.
 
 The public wrappers intentionally do not normalize mixed synchronous and async
 Tensor operands. Every Tensor operand in one async operation is `Async<T>`.
-Resolved `SpanLike` concepts remain leaf-kernel concepts.
+Resolved `MdspanLike` concepts remain leaf-kernel concepts.
 
 ## Shape Preparation And Outputs
 
-`ensure_shape(out, shape)` remains the synchronous Tensor output hook, but a
-whole `Async<Tensor>` output cannot use it until its writer epoch is active.
+`prepare_output(out, shape, requirements...)` is the replaceable-output hook, but
+a whole `Async<Tensor>` output cannot use it until its writer epoch is active.
 
 The implemented matrix-product distinction is:
 
-- `assign_product` is an overwrite. It constructs an unconstructed output when
-  the Tensor type is constructible from its extents, then delegates resizing or
-  validation to the synchronous operation.
+- `assign_product` is an overwrite dispatched as `assign_product_op`. It
+  passes the output's potentially unconstructed `shared_storage<Tensor>` to
+  backend dispatch. The selected backend determines the required shape and
+  storage placement before constructing, resizing, or replacing the output.
 - `add_product` is an update. The output must already be constructed and have
   the correct shape because its old values participate in the result.
 
@@ -418,18 +420,19 @@ Expected behavior:
   owner token, epoch/hazard token, and backend/domain metadata.
 - A raw resolved mdspan is not a safe async tensor value. It is a
   leaf-kernel argument materialized after await.
-- `Async<Tensor>` should not be forced to satisfy the immediate synchronous
-  `TensorView` concept. The first operation wrappers use exact `Async<T>`
+- `Async<Tensor>` should not be forced to satisfy the synchronous `TensorView`
+  concept. The first operation wrappers use exact `Async<T>`
   signatures rather than a broader async operand concept.
 - `AsyncArray::block(i)` should return the same kind of async tensor alias
   handle, backed by shared allocation lifetime and per-block hazard state.
-- `ensure_shape` remains the right output hook, but resizable
-  `Async<Tensor>` outputs may need write access before shape preparation.
+- `prepare_output` is the replaceable-output hook. Async backends receive the
+  active writer's `shared_storage<Tensor>` so they can also construct an
+  uninitialized output.
 - Async Tensor wrappers require all Tensor operands to be async. Immediate and
   async scalar operands are normalized into awaiters; those awaiters, Tensor
   buffers, and ordinary state move into the coroutine.
-- Static selector resolution happens before scheduling, while shape-sensitive
-  preparation and the runtime backend walk happen after awaiting.
+- Static selector resolution happens before scheduling, while backend-specific
+  shape/storage preparation and the runtime backend walk happen after awaiting.
 - Exact output/input queue identity is a useful early alias error, not a general
   deadlock detector or memory-overlap proof.
 - Async temporaries need explicit backend-selector/storage-domain/factory

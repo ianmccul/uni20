@@ -39,11 +39,11 @@ template <uni20::MutableRankedTensorView<1> SingularValueTensor, uni20::MutableR
   std::size_t const left_cols = options.left == SvdVectorExtent::Full ? rows : rank;
   std::size_t const right_rows = options.right == SvdVectorExtent::Full ? cols : rank;
 
-  uni20::ensure_shape(singular_values, svd_value_extents{static_cast<uni20::index_type>(rank)});
-  uni20::ensure_shape(left_singular_vectors, svd_matrix_extents{static_cast<uni20::index_type>(rows),
-                                                                static_cast<uni20::index_type>(left_cols)});
-  uni20::ensure_shape(right_singular_vectors_adjoint, svd_matrix_extents{static_cast<uni20::index_type>(right_rows),
-                                                                         static_cast<uni20::index_type>(cols)});
+  uni20::prepare_output(singular_values, svd_value_extents{static_cast<uni20::index_type>(rank)});
+  uni20::prepare_output(left_singular_vectors, svd_matrix_extents{static_cast<uni20::index_type>(rows),
+                                                                  static_cast<uni20::index_type>(left_cols)});
+  uni20::prepare_output(right_singular_vectors_adjoint, svd_matrix_extents{static_cast<uni20::index_type>(right_rows),
+                                                                           static_cast<uni20::index_type>(cols)});
   return {.left = options.left, .right = options.right};
 }
 
@@ -54,12 +54,12 @@ void dispatch_svd(BackendSelector&& selector, svd_op operation, SingularValueTen
                   LeftTensor& left_singular_vectors, RightAdjointTensor& right_singular_vectors_adjoint,
                   MatrixTensor& matrix_work)
 {
-  auto singular_value_span = singular_values.mdspan();
-  auto left_span = left_singular_vectors.mdspan();
-  auto right_span = right_singular_vectors_adjoint.mdspan();
-  auto matrix_span = matrix_work.mdspan();
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_value_span, left_span, right_span,
-                  matrix_span);
+  auto value_descriptor = uni20::mdspec_of(singular_values);
+  auto left_descriptor = uni20::mdspec_of(left_singular_vectors);
+  auto right_descriptor = uni20::mdspec_of(right_singular_vectors_adjoint);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, left_descriptor,
+                  right_descriptor, matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValueTensor,
@@ -67,9 +67,9 @@ template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValue
 void dispatch_singular_values(BackendSelector&& selector, SingularValueTensor& singular_values,
                               MatrixTensor& matrix_work)
 {
-  auto singular_value_span = singular_values.mdspan();
-  auto matrix_span = matrix_work.mdspan();
-  dispatch_kernel(std::forward<BackendSelector>(selector), singular_values_op{}, singular_value_span, matrix_span);
+  auto value_descriptor = uni20::mdspec_of(singular_values);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), singular_values_op{}, value_descriptor, matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValueTensor,
@@ -77,10 +77,11 @@ template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValue
 void dispatch_svd_left(BackendSelector&& selector, svd_left_op operation, SingularValueTensor& singular_values,
                        LeftTensor& left_singular_vectors, MatrixTensor& matrix_work)
 {
-  auto singular_value_span = singular_values.mdspan();
-  auto left_span = left_singular_vectors.mdspan();
-  auto matrix_span = matrix_work.mdspan();
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_value_span, left_span, matrix_span);
+  auto value_descriptor = uni20::mdspec_of(singular_values);
+  auto left_descriptor = uni20::mdspec_of(left_singular_vectors);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, left_descriptor,
+                  matrix_descriptor);
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValueTensor,
@@ -88,10 +89,11 @@ template <class BackendSelector, uni20::MutableRankedTensorView<1> SingularValue
 void dispatch_svd_right(BackendSelector&& selector, svd_right_op operation, SingularValueTensor& singular_values,
                         RightAdjointTensor& right_singular_vectors_adjoint, MatrixTensor& matrix_work)
 {
-  auto singular_value_span = singular_values.mdspan();
-  auto right_span = right_singular_vectors_adjoint.mdspan();
-  auto matrix_span = matrix_work.mdspan();
-  dispatch_kernel(std::forward<BackendSelector>(selector), operation, singular_value_span, right_span, matrix_span);
+  auto value_descriptor = uni20::mdspec_of(singular_values);
+  auto right_descriptor = uni20::mdspec_of(right_singular_vectors_adjoint);
+  auto matrix_descriptor = uni20::mdspec_of(matrix_work);
+  dispatch_kernel(std::forward<BackendSelector>(selector), operation, value_descriptor, right_descriptor,
+                  matrix_descriptor);
 }
 } // namespace detail
 
@@ -181,31 +183,33 @@ using svd_reuse_factor_t =
 template <class MatrixTensor> consteval bool can_transfer_svd_storage()
 {
   using matrix_type = std::remove_cvref_t<MatrixTensor>;
-  if constexpr (requires {
-                  typename matrix_type::storage_policy;
-                  typename matrix_type::layout_type;
-                  typename matrix_type::accessor_factory_type;
-                  typename matrix_type::storage_type;
-                  typename matrix_type::extents_type;
-                  typename matrix_type::template rebind_layout_type<stdex::layout_stride>;
-                })
+  if constexpr (!uni20::MutableRankedImmediateTensorView<matrix_type, 2>)
+  {
+    return false;
+  }
+  else if constexpr (requires {
+                       typename matrix_type::storage_policy;
+                       typename matrix_type::layout_type;
+                       typename matrix_type::accessor_factory_type;
+                       typename matrix_type::storage_type;
+                       typename matrix_type::extents_type;
+                       typename matrix_type::template rebind_layout_type<stdex::layout_stride>;
+                     })
   {
     using factor_type = svd_reuse_factor_t<matrix_type>;
     return matrix_type::extents_type::rank_dynamic() == 2 &&
            std::same_as<typename matrix_type::storage_policy, uni20::VectorStorage> &&
            std::same_as<typename matrix_type::accessor_factory_type, uni20::DefaultAccessorFactory> &&
-           uni20::DefaultAccessorMdspan<uni20::mutable_tensor_mdspan_t<matrix_type>> &&
-           requires(matrix_type& matrix, typename factor_type::mapping_type mapping,
-                    typename factor_type::storage_type storage,
-                    typename factor_type::accessor_factory_type accessor_factory) {
-             { std::move(matrix).release_storage() } -> std::same_as<typename factor_type::storage_type>;
-             {
-               std::move(matrix).release_accessor_factory()
-             } -> std::same_as<typename factor_type::accessor_factory_type>;
-             {
-               factor_type::adopt_storage(std::move(mapping), std::move(storage), std::move(accessor_factory))
-             } -> std::same_as<factor_type>;
-           };
+           uni20::DefaultAccessorMdspanLike<uni20::mutable_immediate_tensor_mdspan_t<matrix_type>>&&
+             requires(matrix_type & matrix, typename factor_type::mapping_type mapping,
+                      typename factor_type::storage_type storage,
+                      typename factor_type::accessor_factory_type accessor_factory)
+    {
+      {std::move(matrix).release_storage()}->std::same_as<typename factor_type::storage_type>;
+      {std::move(matrix).release_accessor_factory()}->std::same_as<typename factor_type::accessor_factory_type>;
+      {factor_type::adopt_storage(std::move(mapping), std::move(storage), std::move(accessor_factory))}
+          ->std::same_as<factor_type>;
+    };
   }
   else
   {
@@ -253,7 +257,7 @@ template <class MatrixTensor> [[nodiscard]] auto direct_column_major_svd_stage(M
 }
 
 template <class BackendSelector, uni20::OwningTensor MatrixTensor>
-  requires uni20::MutableRankedTensorView<MatrixTensor, 2>
+  requires uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
 [[nodiscard]] auto singular_values_from_work_matrix(BackendSelector&& selector, MatrixTensor matrix_work)
 {
   svd_value_tensor_t<MatrixTensor> values(
@@ -263,7 +267,7 @@ template <class BackendSelector, uni20::OwningTensor MatrixTensor>
 }
 
 template <class BackendSelector, uni20::OwningTensor MatrixTensor>
-  requires uni20::MutableRankedTensorView<MatrixTensor, 2>
+  requires uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_left_from_work_matrix(BackendSelector&& selector, MatrixTensor matrix_work,
                                              SvdVectorExtent extent)
 {
@@ -279,7 +283,7 @@ template <class BackendSelector, uni20::OwningTensor MatrixTensor>
 }
 
 template <class BackendSelector, uni20::OwningTensor MatrixTensor>
-  requires uni20::MutableRankedTensorView<MatrixTensor, 2>
+  requires uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_right_from_work_matrix(BackendSelector&& selector, MatrixTensor matrix_work,
                                               SvdVectorExtent extent)
 {
@@ -296,7 +300,7 @@ template <class BackendSelector, uni20::OwningTensor MatrixTensor>
 }
 
 template <class BackendSelector, uni20::OwningTensor MatrixTensor>
-  requires uni20::MutableRankedTensorView<MatrixTensor, 2>
+  requires uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_from_work_matrix(BackendSelector&& selector, MatrixTensor matrix_work, SvdOptions options)
 {
   using scalar_type = uni20::tensor_element_t<MatrixTensor>;
@@ -338,7 +342,7 @@ template <class MatrixTensor> [[nodiscard]] constexpr auto select_svd_backend(Sv
 }
 
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
 [[nodiscard]] auto singular_values_from_consumed_matrix(BackendSelector&& selector, MatrixTensor&& matrix)
 {
   if constexpr (can_transfer_svd_storage<MatrixTensor>())
@@ -355,7 +359,7 @@ template <class BackendSelector, class MatrixTensor>
 }
 
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (can_transfer_svd_storage<MatrixTensor>())
 [[nodiscard]] auto svd_left_from_transferable_matrix(BackendSelector&& selector, MatrixTensor&& matrix,
                                                      SvdVectorExtent extent)
@@ -400,7 +404,7 @@ template <class BackendSelector, class MatrixTensor>
 }
 
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (can_transfer_svd_storage<MatrixTensor>())
 [[nodiscard]] auto svd_right_from_transferable_matrix(BackendSelector&& selector, MatrixTensor&& matrix,
                                                       SvdVectorExtent extent)
@@ -446,7 +450,7 @@ template <class BackendSelector, class MatrixTensor>
 }
 
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (can_transfer_svd_storage<MatrixTensor>())
 [[nodiscard]] auto svd_from_transferable_matrix(BackendSelector&& selector, MatrixTensor&& matrix, SvdOptions options)
 {
@@ -556,7 +560,7 @@ template <uni20::RankedTensorView<2> MatrixTensor> [[nodiscard]] auto singular_v
 /// \details The input allocation is used directly as destructive workspace
 ///          when its layout is LAPACK-compatible.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto singular_values(BackendSelector&& selector, MatrixTensor&& matrix)
 {
@@ -566,7 +570,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Consume an owning matrix and return its exact singular values.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto singular_values(MatrixTensor&& matrix)
 {
@@ -598,7 +602,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 /// \details A reduced left factor may adopt the input allocation through
 ///          LAPACK `JOBU='O'`. A full factor is allocated separately.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd_left(BackendSelector&& selector, MatrixTensor&& matrix,
                             SvdVectorExtent extent = SvdVectorExtent::Reduced)
@@ -617,7 +621,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Consume an owning matrix and return exact left singular vectors and singular values.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd_left(MatrixTensor&& matrix, SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
@@ -659,7 +663,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 /// \details A reduced right factor may adopt the input allocation through
 ///          LAPACK `JOBVT='O'`. A full factor is allocated separately.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd_right(BackendSelector&& selector, MatrixTensor&& matrix,
                              SvdVectorExtent extent = SvdVectorExtent::Reduced)
@@ -678,7 +682,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Consume an owning matrix and return exact singular values and right singular vectors.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd_right(MatrixTensor&& matrix, SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
@@ -726,7 +730,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 ///          dispatch. Compatible reduced factors may adopt the input
 ///          allocation through a LAPACK overwrite job.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd(BackendSelector&& selector, MatrixTensor&& matrix, SvdOptions options = {})
 {
@@ -753,7 +757,7 @@ template <class BackendSelector, class MatrixTensor>
 /// \warning Existing views into transferred input storage are invalidated by
 ///          the ordinary C++ moved-from owner rules.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
 [[nodiscard]] auto svd(MatrixTensor&& matrix, SvdOptions options = {})
 {

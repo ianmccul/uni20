@@ -6,13 +6,13 @@
  * \brief Lazy read-only elementwise transform views over mdspan-like inputs.
  */
 
+#include <uni20/core/compiler_attributes.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/mdspan/zip_layout.hpp>
 
 #include <cstddef>
-#include <functional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -22,31 +22,38 @@ namespace uni20
 namespace detail
 {
 
-template <class Function, SpanLike Span> class unary_transform_accessor {
+template <class Function, class... Arguments>
+concept ConstDirectlyCallable = requires(Function const& function) { function(std::declval<Arguments>()...); };
+
+template <class Function, class... Arguments>
+using direct_call_result_t = decltype(std::declval<Function const&>()(std::declval<Arguments>()...));
+
+template <class Function, MdspanLike Span> class unary_transform_accessor {
   public:
     using function_type = Function;
     using span_type = Span;
     using wrapped_accessor_type = typename span_type::accessor_type;
     using data_handle_type = typename span_type::data_handle_type;
     using offset_type = span_offset_t<wrapped_accessor_type>;
-    using reference = std::invoke_result_t<function_type const&, typename span_type::reference>;
-    using element_type = remove_proxy_reference_t<reference> const;
+    using reference = direct_call_result_t<function_type, typename span_type::reference>;
+    using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = unary_transform_accessor;
 
     template <class FwdFunction>
-    constexpr unary_transform_accessor(FwdFunction&& function, span_type const& span)
+    UNI20_HOST_DEVICE constexpr unary_transform_accessor(FwdFunction&& function, span_type const& span)
         : function_(std::forward<FwdFunction>(function)), accessor_(span.accessor())
     {}
 
-    [[nodiscard]] constexpr auto offset(data_handle_type const& handle,
-                                        offset_type const& offset) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset(data_handle_type const& handle,
+                                                          offset_type const& offset) const -> data_handle_type
     {
       return accessor_.offset(handle, offset);
     }
 
-    [[nodiscard]] constexpr auto access(data_handle_type const& handle, offset_type const& offset) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access(data_handle_type const& handle,
+                                                          offset_type const& offset) const -> reference
     {
-      return std::invoke(function_, accessor_.access(handle, offset));
+      return function_(accessor_.access(handle, offset));
     }
 
   private:
@@ -54,7 +61,7 @@ template <class Function, SpanLike Span> class unary_transform_accessor {
     [[no_unique_address]] wrapped_accessor_type accessor_;
 };
 
-template <class Function, SpanLike... Spans> class transform_accessor {
+template <class Function, MdspanLike... Spans> class transform_accessor {
   public:
     static_assert(sizeof...(Spans) >= 2);
 
@@ -62,40 +69,42 @@ template <class Function, SpanLike... Spans> class transform_accessor {
     using accessor_tuple = std::tuple<typename Spans::accessor_type...>;
     using data_handle_type = std::tuple<typename Spans::data_handle_type...>;
     using offset_type = std::tuple<span_offset_t<typename Spans::accessor_type>...>;
-    using reference = std::invoke_result_t<function_type const&, typename Spans::reference...>;
-    using element_type = remove_proxy_reference_t<reference> const;
+    using reference = direct_call_result_t<function_type, typename Spans::reference...>;
+    using element_type = logical_value_t<remove_proxy_reference_t<reference>> const;
     using offset_policy = transform_accessor;
 
     template <class FwdFunction>
-    constexpr transform_accessor(FwdFunction&& function, Spans const&... spans)
+    UNI20_HOST_DEVICE constexpr transform_accessor(FwdFunction&& function, Spans const&... spans)
         : function_(std::forward<FwdFunction>(function)), accessors_(spans.accessor()...)
     {}
 
-    [[nodiscard]] constexpr auto offset(data_handle_type const& handles,
-                                        offset_type const& offsets) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset(data_handle_type const& handles,
+                                                          offset_type const& offsets) const -> data_handle_type
     {
       return offset_impl(handles, offsets, std::index_sequence_for<Spans...>{});
     }
 
-    [[nodiscard]] constexpr auto access(data_handle_type const& handles, offset_type const& offsets) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access(data_handle_type const& handles,
+                                                          offset_type const& offsets) const -> reference
     {
       return access_impl(handles, offsets, std::index_sequence_for<Spans...>{});
     }
 
   private:
     template <std::size_t... Index>
-    [[nodiscard]] constexpr auto offset_impl(data_handle_type const& handles, offset_type const& offsets,
-                                             std::index_sequence<Index...>) const -> data_handle_type
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto offset_impl(data_handle_type const& handles,
+                                                               offset_type const& offsets,
+                                                               std::index_sequence<Index...>) const -> data_handle_type
     {
       return {std::get<Index>(accessors_).offset(std::get<Index>(handles), std::get<Index>(offsets))...};
     }
 
     template <std::size_t... Index>
-    [[nodiscard]] constexpr auto access_impl(data_handle_type const& handles, offset_type const& offsets,
-                                             std::index_sequence<Index...>) const -> reference
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto access_impl(data_handle_type const& handles,
+                                                               offset_type const& offsets,
+                                                               std::index_sequence<Index...>) const -> reference
     {
-      return std::invoke(function_,
-                         std::get<Index>(accessors_).access(std::get<Index>(handles), std::get<Index>(offsets))...);
+      return function_(std::get<Index>(accessors_).access(std::get<Index>(handles), std::get<Index>(offsets))...);
     }
 
     [[no_unique_address]] function_type function_;
@@ -104,8 +113,24 @@ template <class Function, SpanLike... Spans> class transform_accessor {
 
 } // namespace detail
 
+/// \brief A unary transform is accessible wherever its wrapped span is accessible.
+template <class Function, MdspanLike Span, class Domain>
+inline constexpr bool enable_accessor_in_domain<detail::unary_transform_accessor<Function, Span>, Domain> =
+    enable_accessor_in_domain<typename Span::accessor_type, Domain>;
+
+/// \brief A multi-input transform is host-accessible when every wrapped span is.
+template <class Function, MdspanLike... Spans>
+inline constexpr bool enable_accessor_in_domain<detail::transform_accessor<Function, Spans...>, host_access_domain> =
+    (enable_accessor_in_domain<typename Spans::accessor_type, host_access_domain> && ...);
+
+/// \brief A multi-input transform is CUDA-accessible when every wrapped span is.
+template <class Function, MdspanLike... Spans>
+inline constexpr bool enable_accessor_in_domain<detail::transform_accessor<Function, Spans...>, cuda_access_domain> =
+    (enable_accessor_in_domain<typename Spans::accessor_type, cuda_access_domain> && ...);
+
 /// \brief Create a lazy read-only unary transform view while preserving the input mapping.
-template <class Function, SpanLike Span>
+template <class Function, MdspanLike Span>
+  requires detail::ConstDirectlyCallable<std::decay_t<Function>, typename Span::reference>
 [[nodiscard]] constexpr auto transform_view(Function&& function, Span const& span)
 {
   using function_type = std::decay_t<Function>;
@@ -120,7 +145,9 @@ template <class Function, SpanLike Span>
 
 /// \brief Create a lazy read-only elementwise transform view over two or more inputs.
 /// \pre Every input has the same runtime extents.
-template <class Function, SpanLike First, SpanLike Second, SpanLike... Rest>
+template <class Function, MdspanLike First, MdspanLike Second, MdspanLike... Rest>
+  requires detail::ConstDirectlyCallable<std::decay_t<Function>, typename First::reference, typename Second::reference,
+                                         typename Rest::reference...>
 [[nodiscard]] constexpr auto transform_view(Function&& function, First const& first, Second const& second,
                                             Rest const&... rest)
 {

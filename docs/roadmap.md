@@ -114,9 +114,13 @@ See the [Async Documentation Index](async/) and
   acquires a handle-plus-stream lease and lowers through staged CUDA mdspans,
   synchronized buffer access, and checked `S/D/C/ZGEMM` provider calls.
 - Ordinary `CublasBackend` uses blocking resource admission. Async lowering
-  uses generic `co_dispatch_kernel`; its optional cuBLAS `try_kernel_task`
+  uses generic `co_dispatch_kernel`; its optional cuBLAS `try_make_kernel_task`
   implementation suspends while the same execution resources are unavailable.
   Both paths share operand preparation and provider execution.
+- `CudaReferenceBackend` has a compiled elementwise copy kernel for
+  same-device semantic copies. Raw contiguous storage retains the
+  `cudaMemcpyAsync` path; conjugated complex storage is evaluated through
+  device-callable accessors and CUDA execution-value proxies.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and
@@ -199,7 +203,7 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
 - Preserve the distinction between independent async values and aliases bound
   to an owner's lifetime and epoch queue.
 - Add coroutine kernel implementations incrementally through
-  `try_kernel_task`. Backends without one continue through ordinary
+  `try_make_kernel_task`. Backends without one continue through ordinary
   `try_kernel` inside `co_dispatch_kernel`; allocation, mutation, and
   consumption remain operation-specific Tensor concerns.
 - Improve deadlock and task-provenance diagnostics without adding meaningful
@@ -345,8 +349,8 @@ below are addressed:
    documented.
 2. The Tensor front end chooses allocating, overwrite, update, consuming, or
    in-place semantics deliberately.
-3. Resolved mdspan operands use operation-tag dispatch and structured clean
-   decline.
+3. Tensor-view operands use operation-tag dispatch and structured clean
+   decline; the selected backend lowers them to resolved mdspan leaf kernels.
 4. At least one deterministic implementation exists, with an independent test
    oracle where practical.
 5. Provider-specific paths have scalar, layout, workspace, and provider-error
@@ -361,7 +365,9 @@ below are addressed:
 - Maintain C++23 and the captureless `static` coroutine-lambda rule.
 - Treat accessor semantics, storage domain, and symmetry metadata as
   correctness constraints.
-- Keep backend decline side-effect free; execution failure is not fallback.
+- Keep backend decline free of execution effects. Operation-authorized
+  preparation of a replaceable output may survive a decline; execution failure
+  is not fallback.
 - Make allocation, materialization, transfer, synchronization, and dense
   projection explicit.
 - Prefer incremental vertical slices with independent numerical evidence over

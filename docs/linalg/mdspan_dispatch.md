@@ -37,8 +37,11 @@ Related notes:
 
 ## Goal
 
-The linalg leaf-kernel entry point should be a strided mdspan-like view, not a
-Krylov-only matrix class and not a vendor-specific pointer API.
+The tensor/linalg frontend should accept tensor views rather than a Krylov-only
+matrix class or vendor-specific pointer API. Once it has selected a backend
+list, fixed-operation dispatch should use normalized mdspecs. The
+selected backend lowers those descriptors to execution-domain mdspans for its
+lower-level implementation.
 
 The intended contract is:
 
@@ -62,7 +65,7 @@ concepts, not a runtime LAPACK-layout check.
 
 Uni20 already has the pieces to build on:
 
-- `uni20::StridedMdspan` and `uni20::MutableStridedMdspan` in
+- `uni20::StridedMdspanLike` and `uni20::MutableStridedMdspanLike` in
   `src/uni20/mdspan/concepts.hpp`.
 - Checked LAPACK wrappers in `src/uni20/backend/lapack/lapack.hpp`.
 - Provider-specific unchecked wrappers under `src/uni20/backend/lapack/reference`
@@ -96,20 +99,42 @@ The final layering should look like this:
 
 1. **Tensor/linalg front end**
    - Accepts Uni20 tensors, tensor refs, matrix adaptors, or explicit mdspans.
-   - Prepares outputs with `ensure_shape(...)` when the output is resizable.
    - Derives or receives a backend selector.
 2. **Kernel dispatch**
    - Walks an ordered backend list for an operation tag.
    - Uses `kernel_accepts_types(...)` / detected `try_kernel(...)`.
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
-3. **Linalg leaf kernel**
-   - Receives resolved mdspan-like views.
+   - Passes fixed existing operands as normalized `MdspecLike`
+     refinements.
+   - Retains tensor or shared-storage objects only for operation-declared
+     replaceable outputs.
+3. **Backend lowering**
+   - May provisionally prepare an operation-declared replaceable output with
+     `prepare_output(...)`; a later backend may reuse or replace it after a
+     decline.
+   - Completes all clean-decline checks before writing result elements or
+     submitting work. An operation-declared replaceable output may be
+     provisionally prepared earlier.
+   - Interprets or acquires normalized descriptors in the backend's execution
+     domain.
+   - Produces resolved mdspan-like views or provider descriptors.
+4. **Linalg leaf kernel**
    - Converts extents, strides, storage orientation, view-derived readable
      transforms, and triangle flags to the vendor wrapper call.
+   - Does not participate in operation-tag redispatch.
 
-Bare mdspan calls are allowed as leaf-kernel calls, but they cannot derive a
-default Uni20 backend stack by themselves. They need an explicit backend
-selector, or a concrete convenience wrapper such as "use LAPACK for this view".
+Descriptor normalization preserves rather than projects the operand. Future
+symmetry-aware, distributed, file-backed, and remote-storage descriptors must
+retain their sector metadata, distribution, communicator, file mapping, or
+resource identity through dispatch. Extracting a descriptor never implies a
+dense conversion, host transfer, or data acquisition.
+
+Public bare-mdspan convenience calls may require an explicit backend selector
+because they cannot derive a default Uni20 backend stack. They pass a
+const-normalized input and mutable output directly through the same
+mdspec dispatch boundary. Resolved-mdspan functions below the backend
+are lower-level Uni20 module or provider interfaces and do not participate in
+the operation-tag dispatch walk.
 
 ## Mdspan Concepts
 
@@ -122,13 +147,13 @@ Implemented generic mdspan refinement:
 
 ```cpp
 template <class View, std::size_t Rank>
-concept RankedStridedMdspan =
-    uni20::StridedMdspan<std::remove_cvref_t<View>> &&
+concept RankedStridedMdspanLike =
+    uni20::StridedMdspanLike<std::remove_cvref_t<View>> &&
     std::remove_cvref_t<View>::rank() == Rank;
 
 template <class View, std::size_t Rank>
-concept MutableRankedStridedMdspan =
-    uni20::MutableStridedMdspan<std::remove_cvref_t<View>> &&
+concept MutableRankedStridedMdspanLike =
+    uni20::MutableStridedMdspanLike<std::remove_cvref_t<View>> &&
     std::remove_cvref_t<View>::rank() == Rank;
 ```
 
@@ -137,53 +162,53 @@ Candidate linalg refinements:
 ```cpp
 template <class View>
 concept LinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::RealOrComplex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept MutableLinalgMatrixView =
-    MutableRankedStridedMdspan<View, 2> &&
+    MutableRankedStridedMdspanLike<View, 2> &&
     LinalgMatrixView<View>;
 
 template <class View>
 concept LinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::RealOrComplex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept MutableLinalgVectorView =
-    MutableRankedStridedMdspan<View, 1> &&
+    MutableRankedStridedMdspanLike<View, 1> &&
     LinalgVectorView<View>;
 
 template <class View>
 concept RealLinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::Real<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept ComplexLinalgMatrixView =
-    RankedStridedMdspan<View, 2> &&
+    RankedStridedMdspanLike<View, 2> &&
     uni20::Complex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept RealLinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::Real<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View>
 concept ComplexLinalgVectorView =
-    RankedStridedMdspan<View, 1> &&
+    RankedStridedMdspanLike<View, 1> &&
     uni20::Complex<
         std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
 
 template <class View, std::size_t Rank>
 concept HostRawAddressableRankedView =
-    RankedStridedMdspan<View, Rank> &&
+    RankedStridedMdspanLike<View, Rank> &&
     raw_host_accessor_v<typename std::remove_cvref_t<View>::accessor_type> &&
     raw_data_handle_compatible_v<std::remove_cvref_t<View>>;
 
@@ -206,8 +231,8 @@ concept LapackScalarRankedView =
 
 The exact names can change, but the split matters:
 
-- `StridedMdspan`: structural mdspan-like API with runtime strides.
-- `RankedStridedMdspan<View, Rank>`: structural mdspan-like API plus a static
+- `StridedMdspanLike`: structural mdspan-like API with runtime strides.
+- `RankedStridedMdspanLike<View, Rank>`: structural mdspan-like API plus a static
   rank requirement; this belongs in the generic mdspan layer and is implemented
   in `src/uni20/mdspan/concepts.hpp`.
 - `LinalgMatrixView` and `LinalgVectorView`: rank-specific real-or-complex
@@ -301,8 +326,9 @@ The important split is:
   transform helpers, direct no-copy runtime acceptance or decline, prepared
   input temporaries, and operation-specific rewrites such as row-major GEMM
   output handling.
-- future operation-tag dispatch wraps the mdspan wrappers; the descriptor
-  helpers should be testable before the generic backend-list dispatcher exists.
+- operation-tag backend implementations wrap the mdspan helpers; the descriptor
+  helpers remain independently testable below the generic backend-list
+  dispatcher.
 
 This keeps dense linalg policy out of the raw provider wrappers while giving the
 kernel-dispatch design a real, testable leaf-kernel boundary.
@@ -315,12 +341,15 @@ metadata such as conjugation.
 
 ## Kernel Dispatch Interface
 
-The mdspan linalg layer is the first concrete user of the operation-tag model.
-The explicit-selector GEMM and GEMV vertical slices exist: direct mdspan BLAS
-wrappers delegate through `try_kernel(BlasBackend, operation, ...)`, and the
-dispatch walk falls back to `CpuReferenceBackend`. GEMV adds rank-one BLAS
-increments and Tensor-to-mdspan forwarding before LAPACK workspace policy enters
-the picture.
+The mdspan linalg layer supplies lower-level implementations used by the
+operation-tag model. The fixed-operand operation families select from tensor
+policy, normalize each fixed operand once, and dispatch those descriptors to
+the candidate backends. This includes copy, GEMM, GEMV, elementwise transforms,
+reductions, matrix initialization and exponentiation, and the fixed-output
+LAPACK eigensystem, Schur, and SVD operations. Each selected host backend
+acquires access and calls its ordinary mdspan implementation. GEMV additionally
+lowers rank-one BLAS increments before LAPACK workspace policy enters the
+picture.
 
 Backend CPOs put the backend value first, then the operation tag, then ordinary
 reference parameters matching the public call order. A separate
@@ -333,10 +362,11 @@ first pass.
 struct BlasBackend {};
 struct CpuReferenceBackend {};
 
-template <class C, class Alpha, class A, class B, class Beta>
+template <MutableRankedMdspecLike<2> C, class Alpha,
+          RankedMdspecLike<2> A, RankedMdspecLike<2> B, class Beta>
 consteval auto
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
-                     A const&, B const&, Beta const&)
+                     A&, B&, Beta const&)
 {
   if constexpr (/* host, same scalar, BLAS scalar, rank-2 writable/readable */) {
     return kernel_types_maybe; // strides and transforms are runtime
@@ -345,27 +375,37 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
   }
 }
 
-template <class C, class Scalar, class A, class B>
-KernelAttempt try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a,
-                          B&& b, Scalar beta)
+template <MutableRankedMdspecLike<2> C, class Scalar,
+          RankedMdspecLike<2> A, RankedMdspecLike<2> B>
+KernelAttempt try_kernel(BlasBackend, gemm_op, C& c, Scalar alpha, A& a,
+                         B& b, Scalar beta)
 {
-  return uni20::linalg::blas::try_gemm(std::forward<C>(c), alpha,
-                                      std::forward<A>(a), std::forward<B>(b),
-                                      beta);
+  auto c_access = acquire_host_write_access_sync(c);
+  auto a_access = acquire_host_read_access_sync(a);
+  auto b_access = acquire_host_read_access_sync(b);
+  return uni20::linalg::blas::try_gemm(
+      c_access.mdspan(), alpha, a_access.mdspan(), b_access.mdspan(), beta);
 }
 ```
 
 `try_kernel(...)` assumes dispatch has already obtained a non-`no` result from
 `kernel_accepts_types(...)`; it does not repeat that type predicate.
 
-The public mdspan dispatch entry point is the generic dispatcher:
+The tensor frontend normalizes fixed operands before calling the generic
+dispatcher:
 
 ```cpp
+auto c_span = mdspec_of(c);
+auto a_span = mdspec_of(std::as_const(a));
+auto b_span = mdspec_of(std::as_const(b));
+
 dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}},
-                gemm_op{}, c, alpha, a, b, beta);
-dispatch_kernel(BlasBackend{}, gemm_op{}, c, alpha, a, b, beta);
-dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c, alpha, a, b, beta);
+                gemm_op{}, c_span, alpha, a_span, b_span, beta);
 ```
+
+Here `c`, `a`, and `b` model the appropriate tensor-view concepts, while the
+operation-tag customization receives their normalized mdspecs. Direct
+calls such as `blas::try_gemm(...)` operate below dispatch on resolved mdspans.
 
 The first LAPACK wrapper can then use the same pattern with richer operand
 rules:
@@ -690,8 +730,10 @@ Minimal tests:
 ## Error Semantics
 
 Low-level `try_kernel(...)` functions return a specific non-success
-`KernelAttempt` for clean runtime decline before side effects. Once a LAPACK
-routine has been called, a terminal positive `INFO` raises a structured
+`KernelAttempt` for clean runtime decline before execution effects. Provisional
+preparation of an operation-declared replaceable output is permitted; input,
+fixed-output, and update-output mutation is not. Once a LAPACK routine has been
+called, a terminal positive `INFO` raises a structured
 `LapackError`; dispatch must not continue because update operands may already
 have been overwritten. A negative `INFO` is an unconditional invariant failure:
 it means the provider rejected arguments constructed by the checked Uni20
@@ -782,14 +824,13 @@ Tests should use fake backends to verify:
 
 ### Phase 3: Tensor Linalg Convenience API
 
-Bare mdspans call generic dispatch directly:
+Bare-mdspan convenience overloads adapt their operands to tensor views before
+generic dispatch:
 
 ```cpp
-dispatch_kernel(LapackBackend{},
-                symmetric_tridiagonal_eigen_op{.compute_vectors = true},
-                diagonal, subdiagonal, eigenvectors);
-dispatch_kernel(LapackBackend{}, schur_op{.compute_vectors = true},
-                matrix_work, eigenvalues, schur_vectors);
+symmetric_tridiagonal_eigen(
+    LapackBackend{}, diagonal, subdiagonal, eigenvectors);
+schur(LapackBackend{}, matrix_work, eigenvalues, schur_vectors);
 ```
 
 Add operation-specific convenience functions only where the Tensor layer has
@@ -815,17 +856,28 @@ The Tensor front-end checkpoints now:
 
 - derive a default backend selector from tensor storage policy.
 - enforce operation-specific ranked Tensor views.
-- lower those operands through `mdspan()`; the generic CPU path does not
-  require stridedness, while BLAS lowering does.
+- lower fixed operands through `mdspec()` before dispatch; the generic
+  CPU path does not require stridedness, while BLAS lowering does.
 - use the same operation tag and backend-list walk as explicit mdspan calls.
-- distinguish fixed `gemm`/`gemv` and `add_product` updates from resizable
-  `assign_product` overwrites.
+- distinguish fixed `gemm_op`/`gemv` and `add_product` updates from
+  replaceable-output `assign_product_op` overwrites. `gemm_op` remains fixed
+  even when `beta` is numerically zero; overwrite permission is carried by the
+  operation type rather than inferred from a scalar value.
 - provide lazy read-only `conj(tensor)` views and explicit eager `copy` and
   `make_tensor` operations. `make_tensor(conj(input))` allocates first and then
   dispatches `copy_op`.
 
-Shape-changing operations call `ensure_shape(...)` before resolving the
-writable mdspan. That policy does not belong in fixed-output GEMM or GEMV.
+Replaceable-output backend adapters call `prepare_output(...)` before resolving
+the writable mdspan. They may still return a clean decline after preparation;
+the next backend receives the prepared output and may reuse or replace it.
+Fixed-output GEMM and GEMV only validate their existing outputs and remain
+unchanged on decline.
+
+The current BLAS `assign_product_op` adapter provides a stronger guarantee by
+resolving its input mdspans and probing BLAS with prospective output
+mapping/accessor metadata. The probe uses no usable data handle and performs no
+provider call. This avoids provisional host-output preparation, but that extra
+preflight is an implementation choice rather than a dispatch requirement.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan

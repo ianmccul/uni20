@@ -29,26 +29,31 @@ The implemented dense GEMM and GEMV paths use a strict layer split:
    need storage policy, output policy, synchronous metadata, async/block
    structure, and a default backend selector.
 2. **Backend dispatch** selects a backend from an operation tag plus a backend
-   selector derived from tensor storage policy.
-3. **Leaf kernels** operate on resolved mdspan-like views. At this level the
-   backend has already been selected, and the only remaining job is to run the
-   kernel on handles, extents, strides, and accessors.
+   selector derived from tensor storage policy, then normalizes fixed operands
+   to `MdspecLike` descriptors.
+3. **Backend lowering** acquires or interprets those descriptors in the
+   selected execution domain and produces resolved mdspan-like views.
+4. **Leaf kernels** are provider calls or lower-level Uni20 module functions.
+   They run on handles, extents, strides, accessors, or provider descriptors and
+   do not participate in the operation-tag dispatch walk.
 
-A plain `stdex::mdspan` or structural `SpanLike` is sufficient for a leaf kernel
-but is not sufficient for top-level Uni20 dispatch. It does not carry the
-storage policy needed to derive the default backend stack.
+A plain `stdex::mdspan` or structural `MdspanLike` is sufficient for a
+lower-level kernel and is also the immediate case of `MdspecLike`. It does not
+carry tensor-level backend-selection policy, so a bare-mdspan frontend requires
+an explicit selector.
 
-For local dense tensors, the tensor-level concepts are intentionally not
-mdspan-like:
+The tensor-level concepts are intentionally not mdspan-like:
 
 ```cpp
-TensorView        = backend selector + readable mdspan() result
-MutableTensorView = TensorView + writable mdspan() result
+TensorView          = backend selector + readable MdspecLike result
+MutableTensorView   = TensorView + writable MdspecLike result
+ImmediateTensorView = TensorView + readable mdspan() result
 ```
 
-The tensor object itself does not model `SpanLike`. This keeps policy selection
-at the tensor layer and makes the lowering boundary explicit. A bare mdspan is
-accepted by raw kernels only when the caller supplies a backend selector.
+The tensor object itself does not model `MdspecLike`. This keeps policy
+selection at the tensor layer and makes the normalization boundary explicit. A
+public bare-mdspan convenience overload takes an explicit selector and uses the
+mdspan directly as its immediate mdspec representation.
 
 ## Type Roles
 
@@ -57,8 +62,9 @@ The current semantic split is:
 ```cpp
 BasicTensor      // configurable owner parameterized by an mdspan extents type
 Tensor           // ordinary owner with runtime extents and a static rank
-TensorView       // readable tensor-level concept, not an mdspan-like type
-MutableTensorView // writable refinement of TensorView
+TensorView        // readable policy-bearing tensor-level concept
+ImmediateTensorView // TensorView whose mdspec is already an mdspan
+mdspec            // metadata with a data descriptor in place of a data handle
 mdspan           // resolved leaf-kernel operand
 TensorRef        // future non-owning tensor lvalue proxy
 ```
@@ -103,9 +109,8 @@ v = tensor_view(B); // rebind v's descriptor; no element assignment
 ```
 
 `TensorView` is a concept, not a central base class. There is currently no
-general concrete non-owning tensor adaptor. Leaf kernels receive the mdspan
-resolved by an owning tensor or a future adaptor with explicit storage-policy
-and lifetime semantics.
+general concrete non-owning tensor adaptor. Fixed operands normalize to
+mdspecs; leaf kernels receive mdspans resolved by the selected backend.
 
 For dense CUDA data, the tensor/adaptor object must carry enough dispatch
 information to identify device memory. At minimum that means a storage/backend
@@ -242,23 +247,27 @@ There are two broad output modes.
 Both use the implemented shape helpers:
 
 ```cpp
-require_shape(out, shape); // fixed update
-ensure_shape(out, shape);  // overwrite may resize
+require_output(out, shape); // fixed update
+prepare_output(out, shape); // overwrite may resize
 ```
 
-For an owning/resizable `Tensor`, `ensure_shape` retains matching storage and
+For an owning/resizable `Tensor`, `prepare_output` retains matching storage and
 otherwise calls `reset_shape`, which rebuilds the tensor using its default
 mapping. For a
 non-reallocatable output such as `TensorRef`, a block view, or a resolved
-mdspan-like output, `ensure_shape` validates that the current shape already
+mdspan-like output, `prepare_output` validates that the current shape already
 matches and otherwise throws/asserts. For an adaptor such as
 `as_tensor(std::vector<T>&)`, the adaptor decides: it may resize the vector, or
 it may expose fixed/write-through semantics. This lets front-end kernels use one
 output-preparation step while the output type controls whether resizing is legal.
 
-`ensure_shape` must run before materializing the output write view. For a
+`prepare_output` must run before materializing the output write view. For a
 resizable tensor it may reallocate and invalidate any previous mdspan-like
-object referring to the old storage.
+object referring to the old storage. When the operation declares its output
+replaceable, a backend candidate may provisionally prepare it and later decline
+without writing result elements or submitting work. The next candidate may
+reuse or replace that prepared output. Fixed and update outputs remain unchanged
+on decline.
 
 ### Fixed Output
 
@@ -266,7 +275,7 @@ A fixed output cannot reallocate parent storage. It validates shape and then
 produces a mutable view:
 
 ```cpp
-require_shape(C, shape);            // validate only
+require_output(C, shape);            // validate only
 gemm(C, alpha, A, B, beta);         // fixed-output BLAS form
 add_product(C, A, B);               // reads and updates existing C
 ```
@@ -306,12 +315,12 @@ C = same_concrete_tensor;
 Needed behavior:
 
 - infer the right-hand-side shape
-- call `ensure_shape(C, shape)`
+- call `prepare_output(C, shape)`
 - evaluate into `tensor_write_view(C)`
 
 Concept pressure:
 
-- `ResizableTensorOutput<C>` for `ensure_shape` plus writable view
+- `ResizableTensorOutput<C>` for `prepare_output` plus writable view
 
 ### Value-Producing Operation
 
@@ -322,7 +331,7 @@ assign_product(C, A, B); // C may be resized
 Needed behavior:
 
 - `A` and `B` provide synchronous metadata and read views
-- `C` provides `ensure_shape` and a write view
+- `C` provides `prepare_output` and a write view
 - backend selector is computed from all participating tensor operands
 
 Concept pressure:
@@ -365,8 +374,8 @@ Needed behavior:
 
 Concept pressure:
 
-- `SpanLike` / `StridedMdspan` remains the leaf-kernel concept
-- top-level dispatch may accept `SpanLike` operands only when a backend selector
+- `MdspanLike` / `StridedMdspanLike` remains the leaf-kernel concept
+- top-level dispatch may accept `MdspanLike` operands only when a backend selector
   is explicit
 
 ### Vector Adaptor
@@ -382,7 +391,7 @@ Needed behavior:
 - `X` is an unnamed concept-modeling adaptor
 - `tensor_view(X)` returns a rank-1 mdspan-like view
 - `tensor_backend_selector(X)` defaults to a CPU/host selector unless overridden
-- `ensure_shape(X, shape)` may resize the vector because this adaptor explicitly
+- `prepare_output(X, shape)` may resize the vector because this adaptor explicitly
   owns that policy
 
 Concept pressure:
@@ -402,7 +411,7 @@ Needed behavior:
 
 - `S` is a non-owning fixed output
 - assignment writes through
-- `ensure_shape(S, shape)` validates only
+- `prepare_output(S, shape)` validates only
 - `tensor_write_view(S)` exposes a resolved mdspan-like view
 
 Concept pressure:
@@ -460,8 +469,8 @@ Concept pressure:
 
 ## Implemented Dense Concepts
 
-The dense checkpoint distinguishes tensor dispatch participation from
-mdspan-like leaf views directly:
+The dense checkpoint distinguishes policy-bearing tensor views, normalized
+mdspecs, and resolved mdspan leaf views:
 
 ```cpp
 template <class T>
@@ -469,26 +478,32 @@ concept TensorView = requires(T const& tensor) {
   tensor.backend_selector();
   tensor.extents();
   tensor.extent(size_t{});
-  { tensor.mdspan() } -> SpanLike;
-};
+  { mdspec_of(tensor) };
+} && MdspecLike<
+       decltype(mdspec_of(std::declval<T const&>()))>;
 
 template <class T>
 concept MutableTensorView = TensorView<T> &&
-  MutableSpanLike<decltype(std::declval<T&>().mdspan())>;
+  MutableMdspecLike<
+    decltype(mdspec_of(std::declval<T&>()))>;
+
+template <class T>
+concept ImmediateTensorView = TensorView<T> &&
+  requires(T const& tensor) {
+    { tensor.mdspan() };
+  } &&
+  MdspanLike<decltype(std::declval<T const&>().mdspan())>;
 
 template <class T>
 concept StridedTensorView = TensorView<T> &&
-  StridedMdspan<decltype(std::declval<T const&>().mdspan())>;
+  StridedMdspecLike<tensor_mdspec_t<T>>;
 
 template <class T, size_t Rank>
 concept RankedTensorView = TensorView<T> &&
-  RankedSpanLike<decltype(std::declval<T const&>().mdspan()), Rank>;
-
-template <class T, size_t Rank>
-concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
+  RankedMdspecLike<tensor_mdspec_t<T>, Rank>;
 ```
 
-`ResizableTensorOutput` detects `reset_shape(extents)`. `ensure_shape` uses it
+`ResizableTensorOutput` detects `reset_shape(extents)`. `prepare_output` uses it
 for overwrite operations; it is not part of fixed-output GEMM, where allocation
 policy has already been decided by the caller.
 
@@ -529,7 +544,7 @@ tensor_descriptor(x);        // may call x.descriptor()
 ```
 
 The important point is that top-level dispatch is written against the concept,
-not against inheritance from `TensorView`.
+not against inheritance from `ImmediateTensorView`.
 
 Possible CPO shape:
 
@@ -538,14 +553,14 @@ tensor_descriptor(x);
 tensor_backend_selector(x);
 tensor_storage_domain(x);
 tensor_read_view(x);
-ensure_shape(out, shape);
+prepare_output(out, shape);
 tensor_write_view(out);
 make_temporary_tensor(selector, domain, descriptor);
 ```
 
 Whether an output is fixed or resizable may be a separate semantic trait, for
 example `tensor_can_resize_v<T>`, rather than a separate concept. Most front-end
-kernels can simply call `ensure_shape`; APIs that specifically forbid
+kernels can simply call `prepare_output`; APIs that specifically forbid
 reallocation can constrain on the fixed-output trait or pass a fixed view/ref.
 
 Then a value-producing operation can be structured as:
@@ -557,26 +572,30 @@ void matmul(C& c, A const& a, B const& b)
   auto selector = select_backend(matmul_op{}, a, b, c);
   auto shape = matmul_shape(tensor_descriptor(a), tensor_descriptor(b));
 
-  ensure_shape(c, shape);
-  dispatch_kernel(backend_list_t<decltype(selector)>{}, matmul_op{}, c, a, b);
+  prepare_output(c, shape);
+  auto cv = mdspec_of(c);
+  auto av = mdspec_of(a);
+  auto bv = mdspec_of(b);
+  dispatch_kernel(std::move(selector), matmul_op{}, cv, av, bv);
 }
 ```
 
-The selected backend eventually lowers operands to views:
+The selected backend acquires the execution-domain views:
 
 ```cpp
-auto av = tensor_read_view(a);
-auto bv = tensor_read_view(b);
-auto cv = tensor_write_view(c);
-try_kernel(Backend{}, matmul_op{}, cv, av, bv);
+auto av = acquire_host_read_access_sync(a);
+auto bv = acquire_host_read_access_sync(b);
+auto cv = acquire_host_write_access_sync(c);
+return cpu_reference::gemm(cv.mdspan(), av.mdspan(), bv.mdspan());
 ```
 
-This keeps `SpanLike` at the leaf-kernel level and keeps backend selection at
-the tensor/storage level.
+This keeps `MdspanLike` at the leaf-kernel level, `MdspecLike` at the
+operation-tag backend boundary, and backend selection at the tensor/storage
+level.
 
-For local dense tensors, `TensorView` remains backend selector plus synchronous
-metadata plus a readable `mdspan()` result. `Tensor` itself deliberately does
-not satisfy `SpanLike`; the resolved result of `mdspan()` does.
+For local dense tensors, `ImmediateTensorView` is the refinement whose
+normalized representation is already an mdspan. `Tensor` itself deliberately
+does not satisfy `MdspanLike`; the result of `mdspan()` does.
 
 ## Temporaries
 
@@ -676,11 +695,12 @@ Backend selection belongs to tensor/storage operands:
 - Block/MPI tensor: likely a container-level backend such as `[Mpi]`, which
   recurses into local dense backends per block or coalesced group.
 
-For dense local tensors, `TensorView` requires a backend selector and a readable
-mdspan result; `MutableTensorView` additionally requires a writable mdspan
-result. The tensor object is not `SpanLike`. Memory kind and runtime device
-placement are properties of the returned mdspan's accessor-defined data handle,
-not of the default selector.
+For dense local tensors, `TensorView` requires a backend selector and a
+readable mdspec result; `MutableTensorView` additionally requires an eventually
+writable result. `ImmediateTensorView` is the subset whose result is already an
+mdspan. The tensor object is not `MdspecLike`. Memory kind and runtime placement
+are properties of the normalized descriptor and its accessor, not of the
+default selector.
 
 Storage and backend selection should remain separate concepts. A storage policy
 owns or describes how bytes are stored, and one of its traits is the default
@@ -856,7 +876,7 @@ public:
 ```
 
 This keeps owner copy/move semantics independent of mdspan descriptor rebinding.
-`Tensor` satisfies the tensor-level concepts but not `SpanLike`; its
+`Tensor` satisfies the tensor-level concepts but not `MdspanLike`; its
 returned mdspans satisfy the leaf concepts. A future slice or external-storage
 adaptor must carry storage/execution policy and explicit lifetime semantics.
 
@@ -903,10 +923,10 @@ Uni20 tensor.
 The adaptor's concrete type can encode semantics specific to the wrapped object,
 and user code normally does not need to name that type. For example,
 `as_tensor(std::vector<T>&)` can expose the existing vector storage as a rank-1
-host tensor and also allow `ensure_shape` to resize the vector. A slice adaptor
+host tensor and also allow `prepare_output` to resize the vector. A slice adaptor
 or block-view adaptor would instead validate shape and write through fixed
 storage. Both can satisfy the same `TensorOutput` concept because the behavior is
-owned by the adaptor's `ensure_shape` and assignment operations.
+owned by the adaptor's `prepare_output` and assignment operations.
 
 ## Async And Block Tensor Notes
 
@@ -964,9 +984,9 @@ being raw mdspan descriptors.
 7. Should the dispatch customization layer be implemented as named CPO objects,
    ADL free functions, or a small trait class that forwards to members?
 8. Should fixed/resizable output be represented as separate concepts, or as one
-    `TensorOutput` concept plus a trait controlling `ensure_shape` behavior?
+    `TensorOutput` concept plus a trait controlling `prepare_output` behavior?
 9. Which explicit adaptors should expose resizable behavior through
-    `ensure_shape`? `as_tensor(std::vector<T>&)` is a plausible resizable
+    `prepare_output`? `as_tensor(std::vector<T>&)` is a plausible resizable
     adaptor, while slices and block views should remain fixed/write-through.
 10. What is the exact storage-domain/factory API for temporaries? Current
     candidates are `tensor_storage_domain(x)`,
@@ -990,11 +1010,14 @@ being raw mdspan descriptors.
 
 ## Tentative Conclusions
 
-- Default-selector dispatch requires tensor-level operands; bare mdspans use an
-  explicit selector.
+- Frontends select from tensor-level operands, then operation-tag dispatch uses
+  normalized `MdspecLike` fixed operands. Bare-mdspan convenience overloads use
+  an explicit selector and dispatch those mdspans as immediate mdspecs.
 - `TensorView` and `MutableTensorView` are tensor-level concepts. Their objects
-  deliberately do not model `SpanLike`; they produce resolved mdspans.
-- Leaf kernels should operate on resolved mdspan-like views.
+  deliberately do not model `MdspecLike`; `mdspec_of()` produces the normalized
+  representation. `ImmediateTensorView` is the already-resolved refinement.
+- Provider APIs and lower-level Uni20 module kernels may operate directly on
+  resolved mdspan-like views; they are below operation-tag dispatch.
 - Storage policy and backend selector should be split: storage provides a
   default backend selector, but non-owning views can carry a selector/domain
   without owning storage.

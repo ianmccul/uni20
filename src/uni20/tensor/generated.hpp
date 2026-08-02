@@ -7,6 +7,7 @@
  */
 
 #include <uni20/common/trace.hpp>
+#include <uni20/core/compiler_attributes.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/mdspan/generated_accessor.hpp>
 #include <uni20/mdspan/generated_layout.hpp>
@@ -31,12 +32,15 @@ template <class ElementType> struct FullGenerator
 {
     ElementType value;
 
-    template <class Indices> [[nodiscard]] constexpr ElementType operator()(Indices const&) const { return value; }
+    template <class Indices> [[nodiscard]] UNI20_HOST_DEVICE constexpr ElementType operator()(Indices const&) const
+    {
+      return value;
+    }
 };
 
 template <class ElementType> struct ZeroGenerator
 {
-    template <class Indices> [[nodiscard]] constexpr ElementType operator()(Indices const&) const
+    template <class Indices> [[nodiscard]] UNI20_HOST_DEVICE constexpr ElementType operator()(Indices const&) const
     {
       return ElementType{0};
     }
@@ -44,7 +48,7 @@ template <class ElementType> struct ZeroGenerator
 
 template <class ElementType> struct OneGenerator
 {
-    template <class Indices> [[nodiscard]] constexpr ElementType operator()(Indices const&) const
+    template <class Indices> [[nodiscard]] UNI20_HOST_DEVICE constexpr ElementType operator()(Indices const&) const
     {
       return ElementType{1};
     }
@@ -52,7 +56,8 @@ template <class ElementType> struct OneGenerator
 
 template <class ElementType> struct EyeGenerator
 {
-    template <class Indices> [[nodiscard]] constexpr ElementType operator()(Indices const& indices) const
+    template <class Indices>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr ElementType operator()(Indices const& indices) const
     {
       if constexpr (std::tuple_size_v<std::remove_cvref_t<Indices>> > 1)
       {

@@ -22,9 +22,10 @@ template <class BackendSelector, uni20::LapackReal Scalar, uni20::MutableRankedT
 void symmetric_tridiagonal_eigen(BackendSelector&& selector, std::span<Scalar> diagonal, std::span<Scalar> subdiagonal,
                                  EigenvectorTensor&& eigenvectors, bool compute_vectors)
 {
+  auto eigenvector_descriptor = uni20::mdspec_of(eigenvectors);
   dispatch_kernel(std::forward<BackendSelector>(selector),
                   symmetric_tridiagonal_eigen_op{.compute_vectors = compute_vectors}, diagonal, subdiagonal,
-                  eigenvectors.mdspan());
+                  eigenvector_descriptor);
 }
 
 /// \brief Compute a tridiagonal eigensystem using host tensor backend policy.

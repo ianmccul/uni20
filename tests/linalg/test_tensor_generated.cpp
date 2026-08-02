@@ -27,9 +27,9 @@ struct RecordingGenerator
     }
 };
 
-static_assert(uni20::RankedTensorView<generated_matrix, 2>);
-static_assert(!uni20::RankedStridedTensorView<generated_matrix, 2>);
-static_assert(!uni20::MutableTensorView<generated_matrix>);
+static_assert(uni20::RankedImmediateTensorView<generated_matrix, 2>);
+static_assert(!uni20::RankedStridedImmediateTensorView<generated_matrix, 2>);
+static_assert(!uni20::MutableImmediateTensorView<generated_matrix>);
 static_assert(!uni20::OwningTensor<generated_matrix>);
 static_assert(std::same_as<typename generated_matrix::storage_policy, uni20::GeneratedStorage>);
 static_assert(std::same_as<typename generated_matrix::layout_type, uni20::GeneratedLayout>);

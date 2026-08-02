@@ -6,8 +6,10 @@
  * \brief Mdspan accessor adaptor for lazy complex conjugation.
  */
 
+#include <uni20/core/compiler_attributes.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -15,6 +17,26 @@
 
 namespace uni20
 {
+namespace detail
+{
+
+struct conjugate_function
+{
+    template <class Real>
+    [[nodiscard]] constexpr auto operator()(uni20::complex<Real> const& value) const -> uni20::complex<Real>
+    {
+      return uni20::conj(value);
+    }
+
+    template <class Value>
+      requires(!uni20::Complex<std::remove_cvref_t<Value>>)
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr decltype(auto) operator()(Value&& value) const
+    {
+      return conj(static_cast<Value&&>(value));
+    }
+};
+
+} // namespace detail
 
 /// \brief Trait used by mdspan accessors that present conjugated values on read.
 template <class Accessor> struct accessor_applies_conjugation : std::false_type
@@ -42,35 +64,41 @@ class conjugated_accessor {
     using wrapped_accessor_type = Accessor;
     using value_type = std::remove_cv_t<typename Accessor::element_type>;
     using element_type = value_type const;
-    using reference = value_type;
+    using reference = std::invoke_result_t<detail::conjugate_function, typename Accessor::reference>;
     using data_handle_type = typename Accessor::data_handle_type;
     using offset_policy = conjugated_accessor;
     using offset_type = span_offset_t<Accessor>;
 
-    constexpr conjugated_accessor()
+    UNI20_HOST_DEVICE constexpr conjugated_accessor()
       requires std::default_initializable<Accessor>
-    = default;
+        : accessor_{}
+    {}
 
     /// \brief Construct from the accessor whose values should be conjugated on read.
-    constexpr explicit conjugated_accessor(Accessor accessor) : accessor_(std::move(accessor)) {}
+    UNI20_HOST_DEVICE constexpr explicit conjugated_accessor(Accessor accessor)
+        : accessor_(static_cast<Accessor&&>(accessor))
+    {}
 
     /// \brief Return the conjugated value at a handle-relative offset.
-    [[nodiscard]] constexpr reference access(data_handle_type ptr, offset_type offset) const
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr reference access(data_handle_type ptr, offset_type offset) const
     {
-      return uni20::conj(accessor_.access(ptr, offset));
+      return detail::conjugate_function{}(accessor_.access(ptr, offset));
     }
 
     /// \brief Delegate handle offsetting to the wrapped accessor.
-    [[nodiscard]] constexpr data_handle_type offset(data_handle_type ptr, offset_type offset) const
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr data_handle_type offset(data_handle_type ptr, offset_type offset) const
     {
       return accessor_.offset(ptr, offset);
     }
 
     /// \brief Return the wrapped accessor.
-    [[nodiscard]] constexpr auto wrapped_accessor() const& -> Accessor const& { return accessor_; }
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto wrapped_accessor() const& -> Accessor const& { return accessor_; }
 
     /// \brief Move out the wrapped accessor.
-    [[nodiscard]] constexpr auto wrapped_accessor() && -> Accessor { return std::move(accessor_); }
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto wrapped_accessor() && -> Accessor
+    {
+      return static_cast<Accessor&&>(accessor_);
+    }
 
   private:
     [[no_unique_address]] Accessor accessor_{};
@@ -79,8 +107,13 @@ class conjugated_accessor {
 template <AccessorPolicy Accessor> struct accessor_applies_conjugation<conjugated_accessor<Accessor>> : std::true_type
 {};
 
+/// \brief Conjugation preserves the execution domains of the wrapped accessor.
+template <AccessorPolicy Accessor, class Domain>
+inline constexpr bool enable_accessor_in_domain<conjugated_accessor<Accessor>, Domain> =
+    enable_accessor_in_domain<Accessor, Domain>;
+
 /// \brief Return a read-only mdspan view that presents conjugated complex values.
-template <SpanLike Span>
+template <MdspanLike Span>
   requires(uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
            !accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
 [[nodiscard]] constexpr auto conj(Span const& span)
@@ -95,8 +128,25 @@ template <SpanLike Span>
                                                                                std::move(accessor)};
 }
 
+/// \brief Return a read-only deferred view that presents conjugated complex values.
+template <MdspecLike Span>
+  requires(!MdspanLike<Span> && uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
+           !accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
+[[nodiscard]] constexpr auto conj(Span const& span)
+{
+  auto accessor = conjugated_accessor{const_accessor(span.accessor())};
+  using accessor_type = decltype(accessor);
+  using extents_type = typename Span::extents_type;
+  using layout_type = typename Span::layout_type;
+  using element_type = typename accessor_type::element_type;
+  using descriptor_type = typename Span::data_descriptor_type;
+
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+      span.data_descriptor(), span.mapping(), std::move(accessor)};
+}
+
 /// \brief Cancel a conjugating mdspan accessor and return the underlying view.
-template <SpanLike Span>
+template <MdspanLike Span>
   requires(uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
            accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
 [[nodiscard]] constexpr auto conj(Span const& span)
@@ -111,8 +161,25 @@ template <SpanLike Span>
                                                                                std::move(accessor)};
 }
 
+/// \brief Cancel conjugation on a deferred multidimensional view.
+template <MdspecLike Span>
+  requires(!MdspanLike<Span> && uni20::Complex<std::remove_cv_t<typename Span::element_type>> &&
+           accessor_applies_conjugation_v<typename std::remove_cvref_t<Span>::accessor_type>)
+[[nodiscard]] constexpr auto conj(Span const& span)
+{
+  auto accessor = span.accessor().wrapped_accessor();
+  using accessor_type = decltype(accessor);
+  using extents_type = typename Span::extents_type;
+  using layout_type = typename Span::layout_type;
+  using element_type = typename accessor_type::element_type;
+  using descriptor_type = typename Span::data_descriptor_type;
+
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+      span.data_descriptor(), span.mapping(), std::move(accessor)};
+}
+
 /// \brief Return a read-only identity view for non-complex mdspan-like views.
-template <SpanLike Span>
+template <MdspanLike Span>
   requires(!uni20::Complex<std::remove_cv_t<typename Span::element_type>>)
 [[nodiscard]] constexpr auto conj(Span const& span)
 {
@@ -124,6 +191,22 @@ template <SpanLike Span>
 
   return stdex::mdspan<element_type, extents_type, layout_type, accessor_type>{span.data_handle(), span.mapping(),
                                                                                std::move(accessor)};
+}
+
+/// \brief Return a read-only identity view for a non-complex deferred view.
+template <MdspecLike Span>
+  requires(!MdspanLike<Span> && !uni20::Complex<std::remove_cv_t<typename Span::element_type>>)
+[[nodiscard]] constexpr auto conj(Span const& span)
+{
+  auto accessor = const_accessor(span.accessor());
+  using accessor_type = decltype(accessor);
+  using extents_type = typename Span::extents_type;
+  using layout_type = typename Span::layout_type;
+  using element_type = typename accessor_type::element_type;
+  using descriptor_type = typename Span::data_descriptor_type;
+
+  return mdspec<element_type, extents_type, layout_type, accessor_type, descriptor_type>{
+      span.data_descriptor(), span.mapping(), std::move(accessor)};
 }
 
 } // namespace uni20

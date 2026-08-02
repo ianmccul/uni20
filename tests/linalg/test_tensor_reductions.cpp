@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -63,6 +65,24 @@ TEST(TensorReductionTest, ExplicitScalarOutputUsesTheSameKernel)
   uni20::inner_product(output, lhs, rhs);
 
   EXPECT_FLOAT_EQ(output[], 8.0F);
+}
+
+TEST(TensorReductionTest, DeferredInputsAndOutputsUseHostLeases)
+{
+  uni20::test::DeferredHostTensor<double, 1> lhs(3);
+  uni20::test::DeferredHostTensor<double, 1> rhs(3);
+  uni20::test::DeferredHostTensor<double, 0> sum_output(
+      typename uni20::test::DeferredHostTensor<double, 0>::extents_type{});
+  lhs.storage() = {1.0, 2.0, 3.0};
+  rhs.storage() = {4.0, -1.0, 2.0};
+
+  uni20::sum(sum_output, lhs);
+  auto inner = uni20::inner_product(lhs, rhs);
+  auto const norm = uni20::norm_host(lhs);
+
+  EXPECT_DOUBLE_EQ(sum_output.storage()[0], 6.0);
+  EXPECT_DOUBLE_EQ(inner[], 8.0);
+  EXPECT_DOUBLE_EQ(norm, std::sqrt(14.0));
 }
 
 TEST(TensorReductionTest, FullSumReturnsScalarTensorOrHostScalar)
@@ -311,8 +331,8 @@ TEST(TensorReductionTest, CpuTypeProbeAcceptsHostAndRankZeroOutputs)
   uni20::Tensor<double, 1> lhs(2);
   uni20::Tensor<double, 1> rhs(2);
   uni20::ScalarTensor<double> output;
-  auto lhs_span = lhs.mdspan();
-  auto rhs_span = rhs.mdspan();
+  auto lhs_span = std::as_const(lhs).mdspan();
+  auto rhs_span = std::as_const(rhs).mdspan();
   auto output_span = output.mdspan();
   double host_output = 0.0;
 
@@ -328,7 +348,7 @@ TEST(TensorReductionTest, CpuTypeProbeAcceptsHostAndRankZeroOutputs)
 
   uni20::Tensor<double, 2> matrix(2, 3);
   uni20::Tensor<double, 1> partial_output(3);
-  auto matrix_span = matrix.mdspan();
+  auto matrix_span = std::as_const(matrix).mdspan();
   auto partial_output_span = partial_output.mdspan();
   auto sum_operation = uni20::linalg::sum_reduction_op<2, 1>{.axes = uni20::linalg::make_reduction_axes<2>(0)};
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, sum_operation,
@@ -337,7 +357,7 @@ TEST(TensorReductionTest, CpuTypeProbeAcceptsHostAndRankZeroOutputs)
 
   uni20::Tensor<int, 2> integer_matrix(2, 3);
   uni20::Tensor<int, 1> integer_output(3);
-  auto integer_matrix_span = integer_matrix.mdspan();
+  auto integer_matrix_span = std::as_const(integer_matrix).mdspan();
   auto integer_output_span = integer_output.mdspan();
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, sum_operation,
                                                  integer_output_span, integer_matrix_span),

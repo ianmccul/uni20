@@ -1,7 +1,10 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/tensor/copy.hpp>
+#include <uni20/tensor/conjugate.hpp>
 #include <uni20/tensor/tensor.hpp>
+
+#include "deferred_host_tensor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,10 +22,15 @@ using const_reshape = decltype(uni20::reshape_view(std::declval<mutable_matrix c
 using strided_matrix = uni20::StridedTensor<double, 2>;
 using generated_matrix = decltype(uni20::ones<double>(2, 3));
 using const_strided_matrix = uni20::ConstTensorView<strided_matrix>;
+using deferred_complex_matrix = uni20::test::DeferredHostTensor<uni20::complex<double>, 2>;
+using deferred_conjugated_matrix = decltype(uni20::conj(std::declval<deferred_complex_matrix&>()));
+using metadata_extents = stdex::dextents<uni20::index_type, 2>;
+using metadata_span = uni20::mdspec<double const, metadata_extents, stdex::layout_stride,
+                                    stdex::default_accessor<double const>, std::size_t>;
 
-static_assert(uni20::MutableRankedTensorView<mutable_reshape, 2>);
-static_assert(uni20::RankedTensorView<const_reshape, 2>);
-static_assert(!uni20::MutableTensorView<const_reshape>);
+static_assert(uni20::MutableRankedImmediateTensorView<mutable_reshape, 2>);
+static_assert(uni20::RankedImmediateTensorView<const_reshape, 2>);
+static_assert(!uni20::MutableImmediateTensorView<const_reshape>);
 static_assert(!uni20::OwningTensor<mutable_reshape>);
 static_assert(std::same_as<typename mutable_reshape::layout_type, uni20::RowMajor>);
 
@@ -52,6 +60,9 @@ concept CanExplicitlyReshapeValue = requires(Tensor const& tensor) { uni20::resh
 
 static_assert(!CanImplicitlyReshapeValue<const_strided_matrix>);
 static_assert(CanExplicitlyReshapeValue<const_strided_matrix>);
+static_assert(uni20::TensorView<deferred_conjugated_matrix>);
+static_assert(!uni20::ImmediateTensorView<deferred_conjugated_matrix>);
+static_assert(CanImplicitlyReshapeValue<deferred_conjugated_matrix>);
 
 class ErrorModeGuard {
   public:
@@ -179,6 +190,18 @@ TEST(TensorReshapeTest, ViewAcceptsArbitrarySingletonStrideInContiguousMapping)
   EXPECT_EQ((reshaped[1, 2]), 6);
 }
 
+TEST(TensorReshapeTest, ContiguousMappingAnalysisDoesNotRequireADataHandle)
+{
+  metadata_extents const extents{2, 3};
+  metadata_span const row_major{0, metadata_span::mapping_type{extents, std::array<uni20::index_type, 2>{3, 1}},
+                                metadata_span::accessor_type{}};
+  metadata_span const noncontiguous{0, metadata_span::mapping_type{extents, std::array<uni20::index_type, 2>{4, 1}},
+                                    metadata_span::accessor_type{}};
+
+  EXPECT_TRUE(uni20::detail::has_canonical_contiguous_mapping<uni20::RowMajor>(row_major));
+  EXPECT_FALSE(uni20::detail::has_canonical_contiguous_mapping<uni20::RowMajor>(noncontiguous));
+}
+
 TEST(TensorReshapeTest, ViewRejectsInvalidShapeAndNoncontiguousMapping)
 {
   ErrorModeGuard const error_mode;
@@ -224,6 +247,24 @@ TEST(TensorReshapeTest, OwningReshapeCopiesLvalue)
   EXPECT_EQ(input.rows(), 2);
   EXPECT_EQ(input.cols(), 3);
   EXPECT_DOUBLE_EQ(result[5], 6.0);
+}
+
+TEST(TensorReshapeTest, MaterializingReshapeAcceptsDeferredNonowningView)
+{
+  deferred_complex_matrix input(2, 2);
+  input.storage()[0] = {1.0, 2.0};
+  input.storage()[1] = {3.0, 4.0};
+  input.storage()[2] = {5.0, 6.0};
+  input.storage()[3] = {7.0, 8.0};
+
+  auto result = uni20::reshape(uni20::conj(input), 4);
+
+  static_assert(uni20::ImmediateTensorView<decltype(result)>);
+  EXPECT_EQ(result.extent(0), 4);
+  EXPECT_EQ(result[0], (uni20::complex<double>{1.0, -2.0}));
+  EXPECT_EQ(result[1], (uni20::complex<double>{3.0, -4.0}));
+  EXPECT_EQ(result[2], (uni20::complex<double>{5.0, -6.0}));
+  EXPECT_EQ(result[3], (uni20::complex<double>{7.0, -8.0}));
 }
 
 TEST(TensorReshapeTest, OwningReshapeReusesRvalueAllocation)

@@ -117,7 +117,7 @@ classification and the operations that the payload actually supports:
 
 Tensor aliases obtain write-through capability from `MutableTensorView`.
 `uni20::assign_through` delegates to the ordinary backend-dispatched tensor
-`copy` operation. A read-only tensor descriptor resolves a const-element mdspan,
+`copy` operation. A read-only tensor descriptor exposes a const-element mdspec,
 does not satisfy `MutableTensorView`, and therefore has no tensor
 `assign_through` overload.
 

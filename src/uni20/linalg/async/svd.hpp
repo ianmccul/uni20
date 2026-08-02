@@ -127,9 +127,9 @@ template <class Result, class MatrixTensor>
 }
 
 template <class BackendSelector, class SingularValueTensor, uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_singular_values_task(BackendSelector const selector,
-                                                       async::WriteBuffer<SingularValueTensor> singular_values,
-                                                       async::ReadBuffer<MatrixTensor> matrix)
+async::AsyncTask co_preserving_singular_values(BackendSelector const selector,
+                                               async::WriteBuffer<SingularValueTensor> singular_values,
+                                               async::ReadBuffer<MatrixTensor> matrix)
 {
   auto singular_value_storage_awaiter = singular_values.storage();
   auto& singular_value_storage = co_await singular_value_storage_awaiter;
@@ -140,9 +140,9 @@ async::AsyncTask async_preserving_singular_values_task(BackendSelector const sel
 
 template <class BackendSelector, class SingularValueTensor, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
-async::AsyncTask async_consuming_singular_values_task(BackendSelector const selector,
-                                                      async::WriteBuffer<SingularValueTensor> singular_values,
-                                                      async::WriteBuffer<MatrixTensor> matrix)
+async::AsyncTask co_consuming_singular_values(BackendSelector const selector,
+                                              async::WriteBuffer<SingularValueTensor> singular_values,
+                                              async::WriteBuffer<MatrixTensor> matrix)
 {
   auto singular_value_storage_awaiter = singular_values.storage();
   auto& singular_value_storage = co_await singular_value_storage_awaiter;
@@ -152,10 +152,10 @@ async::AsyncTask async_consuming_singular_values_task(BackendSelector const sele
 }
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_svd_left_task(BackendSelector const selector,
-                                                async::WriteBuffer<LeftTensor> left_singular_vectors,
-                                                async::WriteBuffer<SingularValueTensor> singular_values,
-                                                async::ReadBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
+async::AsyncTask co_preserving_svd_left(BackendSelector const selector,
+                                        async::WriteBuffer<LeftTensor> left_singular_vectors,
+                                        async::WriteBuffer<SingularValueTensor> singular_values,
+                                        async::ReadBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -172,10 +172,10 @@ async::AsyncTask async_preserving_svd_left_task(BackendSelector const selector,
 template <class BackendSelector, class LeftTensor, class SingularValueTensor,
           uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
-async::AsyncTask async_consuming_svd_left_task(BackendSelector const selector,
-                                               async::WriteBuffer<LeftTensor> left_singular_vectors,
-                                               async::WriteBuffer<SingularValueTensor> singular_values,
-                                               async::WriteBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
+async::AsyncTask co_consuming_svd_left(BackendSelector const selector,
+                                       async::WriteBuffer<LeftTensor> left_singular_vectors,
+                                       async::WriteBuffer<SingularValueTensor> singular_values,
+                                       async::WriteBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -191,10 +191,10 @@ async::AsyncTask async_consuming_svd_left_task(BackendSelector const selector,
 
 template <class BackendSelector, class SingularValueTensor, class RightAdjointTensor,
           uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_svd_right_task(BackendSelector const selector,
-                                                 async::WriteBuffer<SingularValueTensor> singular_values,
-                                                 async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-                                                 async::ReadBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
+async::AsyncTask co_preserving_svd_right(BackendSelector const selector,
+                                         async::WriteBuffer<SingularValueTensor> singular_values,
+                                         async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                                         async::ReadBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
 {
   auto singular_value_storage_awaiter = singular_values.storage();
   auto right_storage_awaiter = right_singular_vectors_adjoint.storage();
@@ -211,10 +211,10 @@ async::AsyncTask async_preserving_svd_right_task(BackendSelector const selector,
 template <class BackendSelector, class SingularValueTensor, class RightAdjointTensor,
           uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
-async::AsyncTask async_consuming_svd_right_task(BackendSelector const selector,
-                                                async::WriteBuffer<SingularValueTensor> singular_values,
-                                                async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-                                                async::WriteBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
+async::AsyncTask co_consuming_svd_right(BackendSelector const selector,
+                                        async::WriteBuffer<SingularValueTensor> singular_values,
+                                        async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                                        async::WriteBuffer<MatrixTensor> matrix, SvdVectorExtent const extent)
 {
   auto singular_value_storage_awaiter = singular_values.storage();
   auto right_storage_awaiter = right_singular_vectors_adjoint.storage();
@@ -230,11 +230,10 @@ async::AsyncTask async_consuming_svd_right_task(BackendSelector const selector,
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
           uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_svd_task(BackendSelector const selector,
-                                           async::WriteBuffer<LeftTensor> left_singular_vectors,
-                                           async::WriteBuffer<SingularValueTensor> singular_values,
-                                           async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-                                           async::ReadBuffer<MatrixTensor> matrix, SvdOptions const options)
+async::AsyncTask co_preserving_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
+                                   async::WriteBuffer<SingularValueTensor> singular_values,
+                                   async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                                   async::ReadBuffer<MatrixTensor> matrix, SvdOptions const options)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -254,11 +253,10 @@ async::AsyncTask async_preserving_svd_task(BackendSelector const selector,
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
           uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
-async::AsyncTask async_consuming_svd_task(BackendSelector const selector,
-                                          async::WriteBuffer<LeftTensor> left_singular_vectors,
-                                          async::WriteBuffer<SingularValueTensor> singular_values,
-                                          async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
-                                          async::WriteBuffer<MatrixTensor> matrix, SvdOptions const options)
+async::AsyncTask co_consuming_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
+                                  async::WriteBuffer<SingularValueTensor> singular_values,
+                                  async::WriteBuffer<RightAdjointTensor> right_singular_vectors_adjoint,
+                                  async::WriteBuffer<MatrixTensor> matrix, SvdOptions const options)
 {
   auto left_storage_awaiter = left_singular_vectors.storage();
   auto singular_value_storage_awaiter = singular_values.storage();
@@ -283,7 +281,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
 {
   async::Async<preserving_singular_values_result_t<MatrixTensor>> output;
   output.debug_name("singular_values.values");
-  auto task = async_preserving_singular_values_task(std::move(selector), output.write(), matrix.read());
+  auto task = co_preserving_singular_values(std::move(selector), output.write(), matrix.read());
   task.debug_name("singular_values");
   async::schedule(std::move(task));
   return output;
@@ -295,7 +293,7 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
 {
   async::Async<consuming_singular_values_result_t<MatrixTensor>> output;
   output.debug_name("singular_values.values");
-  auto task = async_consuming_singular_values_task(std::move(selector), output.write(), matrix.write());
+  auto task = co_consuming_singular_values(std::move(selector), output.write(), matrix.write());
   task.debug_name("singular_values");
   async::schedule(std::move(task));
   return output;
@@ -309,8 +307,8 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   async_svd_left_result_t<result_type> outputs;
   outputs.left_singular_vectors.debug_name("svd_left.left_singular_vectors");
   outputs.singular_values.debug_name("svd_left.singular_values");
-  auto task = async_preserving_svd_left_task(std::move(selector), outputs.left_singular_vectors.write(),
-                                             outputs.singular_values.write(), matrix.read(), extent);
+  auto task = co_preserving_svd_left(std::move(selector), outputs.left_singular_vectors.write(),
+                                     outputs.singular_values.write(), matrix.read(), extent);
   task.debug_name("svd_left");
   async::schedule(std::move(task));
   return outputs;
@@ -325,8 +323,8 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   async_svd_left_result_t<result_type> outputs;
   outputs.left_singular_vectors.debug_name("svd_left.left_singular_vectors");
   outputs.singular_values.debug_name("svd_left.singular_values");
-  auto task = async_consuming_svd_left_task(std::move(selector), outputs.left_singular_vectors.write(),
-                                            outputs.singular_values.write(), matrix.write(), extent);
+  auto task = co_consuming_svd_left(std::move(selector), outputs.left_singular_vectors.write(),
+                                    outputs.singular_values.write(), matrix.write(), extent);
   task.debug_name("svd_left");
   async::schedule(std::move(task));
   return outputs;
@@ -340,8 +338,8 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   async_svd_right_result_t<result_type> outputs;
   outputs.singular_values.debug_name("svd_right.singular_values");
   outputs.right_singular_vectors_adjoint.debug_name("svd_right.right_singular_vectors_adjoint");
-  auto task = async_preserving_svd_right_task(std::move(selector), outputs.singular_values.write(),
-                                              outputs.right_singular_vectors_adjoint.write(), matrix.read(), extent);
+  auto task = co_preserving_svd_right(std::move(selector), outputs.singular_values.write(),
+                                      outputs.right_singular_vectors_adjoint.write(), matrix.read(), extent);
   task.debug_name("svd_right");
   async::schedule(std::move(task));
   return outputs;
@@ -356,8 +354,8 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   async_svd_right_result_t<result_type> outputs;
   outputs.singular_values.debug_name("svd_right.singular_values");
   outputs.right_singular_vectors_adjoint.debug_name("svd_right.right_singular_vectors_adjoint");
-  auto task = async_consuming_svd_right_task(std::move(selector), outputs.singular_values.write(),
-                                             outputs.right_singular_vectors_adjoint.write(), matrix.write(), extent);
+  auto task = co_consuming_svd_right(std::move(selector), outputs.singular_values.write(),
+                                     outputs.right_singular_vectors_adjoint.write(), matrix.write(), extent);
   task.debug_name("svd_right");
   async::schedule(std::move(task));
   return outputs;
@@ -373,9 +371,9 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   outputs.singular_values.debug_name("svd.singular_values");
   outputs.right_singular_vectors_adjoint.debug_name("svd.right_singular_vectors_adjoint");
 
-  auto task = async_preserving_svd_task(std::move(selector), outputs.left_singular_vectors.write(),
-                                        outputs.singular_values.write(), outputs.right_singular_vectors_adjoint.write(),
-                                        matrix.read(), options);
+  auto task =
+      co_preserving_svd(std::move(selector), outputs.left_singular_vectors.write(), outputs.singular_values.write(),
+                        outputs.right_singular_vectors_adjoint.write(), matrix.read(), options);
   task.debug_name("svd");
   async::schedule(std::move(task));
   return outputs;
@@ -392,9 +390,9 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   outputs.singular_values.debug_name("svd.singular_values");
   outputs.right_singular_vectors_adjoint.debug_name("svd.right_singular_vectors_adjoint");
 
-  auto task = async_consuming_svd_task(std::move(selector), outputs.left_singular_vectors.write(),
-                                       outputs.singular_values.write(), outputs.right_singular_vectors_adjoint.write(),
-                                       matrix.write(), options);
+  auto task =
+      co_consuming_svd(std::move(selector), outputs.left_singular_vectors.write(), outputs.singular_values.write(),
+                       outputs.right_singular_vectors_adjoint.write(), matrix.write(), options);
   task.debug_name("svd");
   async::schedule(std::move(task));
   return outputs;

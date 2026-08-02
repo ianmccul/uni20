@@ -142,25 +142,31 @@ unsupported stride pattern or a temporarily unavailable optional provider.
 `KernelAttempt` gives these outcomes a small allocation-free vocabulary. Exceptions and
 ordinary error channels are reserved for terminal failures.
 
-This distinction matters because fallback is only correct after an operation has not
-started. A returned decline therefore carries a strict guarantee: arguments are
-unchanged and no externally visible work was committed.
+This distinction matters because fallback is only correct before execution has
+started. A returned decline therefore guarantees that inputs and fixed or update
+outputs are unchanged and no work or completed result was committed. An operation may
+explicitly permit provisional construction, resizing, or replacement of a replaceable
+output; later candidates receive that prepared output.
 
 ## Why clean decline is a hard invariant
 
-A fallback walk presents the same logical operation to later candidates. That is only
-valid if every earlier decline leaves the operation untouched.
+A fallback walk presents the same logical operation to later candidates. Inputs and
+existing values that participate in the operation must therefore remain untouched.
+Storage and shape of an overwrite-only replaceable output are not participating values
+and may be provisionally prepared for the next candidate.
 
 The forbidden sequence is:
 
 ```text
-backend A mutates or submits work
+backend A mutates an input, participating output value, or submits work
 backend A reports decline
 backend B receives the partially executed operation
 ```
 
-Once mutation, submission, output commitment, or equivalent externally visible work
-occurs, backend A owns the operation. Any later failure is terminal.
+Once result elements or participating values are mutated, work is submitted, or a
+completed result is committed, backend A owns the operation. Any later failure is
+terminal. Preparing only the shape or storage of an operation-declared replaceable
+output does not commit its result.
 
 This rule applies equally to host providers, device providers, and future communication
 layers.
@@ -170,15 +176,17 @@ layers.
 The dispatcher probes and invokes backend customizations with stable lvalue arguments.
 
 This avoids repeatedly forwarding or moving an operand during an ordered walk. It also
-lets later candidates see the same descriptors after an earlier clean decline.
+lets later candidates receive the same stable argument objects after an earlier clean
+decline. An operation-declared replaceable output may have a newly prepared descriptor
+inside that stable object.
 
 The type probe deliberately mirrors this invocation shape. It removes a reference and
 then forms an lvalue reference while preserving cv-qualification.
 
-## Why Tensor policy is outside the dispatcher
+## Why Tensor policy is resolved before fixed dispatch
 
-Kernel dispatch is deliberately fixed-output and descriptor-oriented. A Tensor
-operation may need to:
+Operation tags declare whether an output is fixed, updated, or replaceable. A
+Tensor operation may need to:
 
 - construct or resize an output;
 - choose resources for that output;
@@ -186,11 +194,14 @@ operation may need to:
 - enroll async reads and writes;
 - preserve symmetry or block structure.
 
-Those are operation semantics, not backend selection.
-
-The Tensor wrapper resolves those decisions first and then passes mdspans or other
-kernel descriptors into the dispatcher. This keeps the same backend implementation
-usable from synchronous and coroutine-aware front ends.
+Those permissions are operation semantics, while exact placement requirements
+may be backend-specific. For fixed existing operands, the Tensor wrapper first
+selects the backend list and then passes normalized `MdspecLike`
+descriptors into the dispatcher. For a replaceable output, it instead passes
+the tensor or potentially unconstructed shared storage so the selected backend
+can prepare it. The backend then acquires or lowers fixed descriptors to
+execution-domain mdspans. This keeps the same backend implementation usable
+from synchronous and coroutine-aware front ends.
 
 ## Why mdspan accessors are part of eligibility
 
@@ -226,7 +237,7 @@ Many kernels can run directly when a coroutine reaches them. Requiring every bac
 wrap ordinary work in a coroutine would add boilerplate without improving semantics.
 
 Some backends do need suspension, especially for bounded execution-resource admission.
-For those cases, `try_kernel_task` returns either:
+For those cases, `try_make_kernel_task` returns either:
 
 - a clean decline;
 - completed success;

@@ -16,6 +16,8 @@
 #include <uni20/linalg/blas/mdspan_vector.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -28,6 +30,12 @@ namespace uni20::linalg
 {
 namespace lapack_detail
 {
+template <class Operation>
+concept SvdOperation =
+    std::same_as<std::remove_cvref_t<Operation>, singular_values_op> ||
+    std::same_as<std::remove_cvref_t<Operation>, svd_left_op> ||
+    std::same_as<std::remove_cvref_t<Operation>, svd_right_op> || std::same_as<std::remove_cvref_t<Operation>, svd_op>;
+
 inline char svd_job(SvdVectorExtent extent)
 {
   switch (extent)
@@ -58,14 +66,14 @@ template <class SingularValueMdspan, class MatrixMdspan> consteval bool svd_base
   using singular_value_scalar = std::remove_cv_t<typename SingularValueMdspan::element_type>;
   return uni20::LapackScalar<matrix_scalar> && uni20::LapackReal<singular_value_scalar> &&
          std::same_as<singular_value_scalar, uni20::make_real_t<matrix_scalar>> &&
-         uni20::DefaultAccessorMdspan<SingularValueMdspan> && uni20::DefaultAccessorMdspan<MatrixMdspan>;
+         uni20::DefaultAccessorMdspanLike<SingularValueMdspan> && uni20::DefaultAccessorMdspanLike<MatrixMdspan>;
 }
 
 template <class FactorMdspan, class MatrixMdspan> consteval bool svd_factor_types_supported()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using factor_scalar = std::remove_cv_t<typename FactorMdspan::element_type>;
-  return std::same_as<factor_scalar, matrix_scalar> && uni20::DefaultAccessorMdspan<FactorMdspan>;
+  return std::same_as<factor_scalar, matrix_scalar> && uni20::DefaultAccessorMdspanLike<FactorMdspan>;
 }
 
 template <uni20::LapackScalar Scalar, class MatrixHandle, class ValueHandle>
@@ -136,10 +144,13 @@ KernelAttempt try_singular_values_kernel(char jobu, char jobvt, SingularValueMds
 }
 } // namespace lapack_detail
 
-/// \brief Report compile-time eligibility for LAPACK singular values.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, singular_values_op const&, SingularValueMdspan&,
-                                    MatrixMdspan&)
+namespace lapack_detail
+{
+/// \brief Report compile-time eligibility for resolved LAPACK singular values.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(singular_values_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>())
   {
@@ -152,18 +163,18 @@ consteval auto kernel_accepts_types(LapackBackend const&, singular_values_op con
 }
 
 /// \brief Compute exact singular values through LAPACK `gesvd`.
-template <class SingularValueMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, singular_values_op const&, SingularValueMdspan&& singular_values,
-                         MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(singular_values_op const&, SingularValueMdspan& singular_values, MatrixMdspan& matrix_work)
 {
-  return lapack_detail::try_singular_values_kernel('N', 'N', singular_values, matrix_work);
+  return try_singular_values_kernel('N', 'N', singular_values, matrix_work);
 }
 
-/// \brief Report compile-time eligibility for LAPACK left singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, SingularValueMdspan&, LeftMdspan&,
-                                    MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved LAPACK left singular vectors.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_left_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<LeftMdspan>, std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>() &&
                 lapack_detail::svd_factor_types_supported<LeftMdspan, MatrixMdspan>())
@@ -176,9 +187,11 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, Si
   }
 }
 
-/// \brief Report compile-time eligibility for input-overwriting LAPACK left singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, SingularValueMdspan&, MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved input-overwriting LAPACK left singular vectors.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_left_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>())
   {
@@ -191,9 +204,10 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_left_op const&, Si
 }
 
 /// \brief Compute singular values and left singular vectors through LAPACK `gesvd`.
-template <class SingularValueMdspan, class LeftMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdspan&& singular_values,
-                         LeftMdspan&& left_singular_vectors, MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> LeftMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_left_op const& op, SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
+                      MatrixMdspan& matrix_work)
 {
   CHECK(!op.overwrite_input);
   using matrix_scalar = std::remove_cv_t<typename std::remove_cvref_t<MatrixMdspan>::element_type>;
@@ -206,7 +220,7 @@ KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdsp
   CHECK_EQUAL(static_cast<std::size_t>(left_singular_vectors.extent(1)), left_cols);
   if (rank == 0)
   {
-    lapack_detail::set_identity(left_singular_vectors);
+    set_identity(left_singular_vectors);
     return KernelAttempt::success;
   }
 
@@ -227,25 +241,26 @@ KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdsp
   CHECK_EQUAL(values->size, k);
   CHECK_EQUAL(left->rows, matrix->rows);
   CHECK_EQUAL(left->cols, left_columns);
-  return lapack_detail::run_gesvd(lapack_detail::svd_job(op.left), 'N', rank, *matrix, *values, left->data,
-                                  left->leading_dimension, static_cast<matrix_scalar*>(matrix->data), 1);
+  return run_gesvd(svd_job(op.left), 'N', rank, *matrix, *values, left->data, left->leading_dimension,
+                   static_cast<matrix_scalar*>(matrix->data), 1);
 }
 
 /// \brief Compute reduced left singular vectors in the matrix input allocation.
-template <class SingularValueMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_left_op const& op, SingularValueMdspan&& singular_values,
-                         MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_left_op const& op, SingularValueMdspan& singular_values, MatrixMdspan& matrix_work)
 {
   CHECK(op.overwrite_input);
   CHECK(op.left == SvdVectorExtent::Reduced);
-  return lapack_detail::try_singular_values_kernel('O', 'N', singular_values, matrix_work);
+  return try_singular_values_kernel('O', 'N', singular_values, matrix_work);
 }
 
-/// \brief Report compile-time eligibility for LAPACK right singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, SingularValueMdspan&,
-                                    RightAdjointMdspan&, MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved LAPACK right singular vectors.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_right_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<RightAdjointMdspan>, std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>() &&
                 lapack_detail::svd_factor_types_supported<RightAdjointMdspan, MatrixMdspan>())
@@ -258,9 +273,11 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, S
   }
 }
 
-/// \brief Report compile-time eligibility for input-overwriting LAPACK right singular vectors.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, SingularValueMdspan&, MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved input-overwriting LAPACK right singular vectors.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_right_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>())
   {
@@ -273,9 +290,11 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_right_op const&, S
 }
 
 /// \brief Compute singular values and right singular vectors through LAPACK `gesvd`.
-template <class SingularValueMdspan, class RightAdjointMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMdspan&& singular_values,
-                         RightAdjointMdspan&& right_singular_vectors_adjoint, MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_right_op const& op, SingularValueMdspan& singular_values,
+                      RightAdjointMdspan& right_singular_vectors_adjoint, MatrixMdspan& matrix_work)
 {
   CHECK(!op.overwrite_input);
   using matrix_scalar = std::remove_cv_t<typename std::remove_cvref_t<MatrixMdspan>::element_type>;
@@ -288,7 +307,7 @@ KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMds
   CHECK_EQUAL(static_cast<std::size_t>(right_singular_vectors_adjoint.extent(1)), cols);
   if (rank == 0)
   {
-    lapack_detail::set_identity(right_singular_vectors_adjoint);
+    set_identity(right_singular_vectors_adjoint);
     return KernelAttempt::success;
   }
 
@@ -309,25 +328,26 @@ KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMds
   CHECK_EQUAL(values->size, k);
   CHECK_EQUAL(right->rows, right_rows_blas);
   CHECK_EQUAL(right->cols, matrix->cols);
-  return lapack_detail::run_gesvd('N', lapack_detail::svd_job(op.right), rank, *matrix, *values,
-                                  static_cast<matrix_scalar*>(matrix->data), 1, right->data, right->leading_dimension);
+  return run_gesvd('N', svd_job(op.right), rank, *matrix, *values, static_cast<matrix_scalar*>(matrix->data), 1,
+                   right->data, right->leading_dimension);
 }
 
 /// \brief Compute reduced right singular vectors in the matrix input allocation.
-template <class SingularValueMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_right_op const& op, SingularValueMdspan&& singular_values,
-                         MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_right_op const& op, SingularValueMdspan& singular_values, MatrixMdspan& matrix_work)
 {
   CHECK(op.overwrite_input);
   CHECK(op.right == SvdVectorExtent::Reduced);
-  return lapack_detail::try_singular_values_kernel('N', 'O', singular_values, matrix_work);
+  return try_singular_values_kernel('N', 'O', singular_values, matrix_work);
 }
 
-/// \brief Report compile-time eligibility for LAPACK exact SVD.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, SingularValueMdspan&, LeftMdspan&,
-                                    RightAdjointMdspan&, MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved LAPACK exact SVD.
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_op const&, std::type_identity<SingularValueMdspan>, std::type_identity<LeftMdspan>,
+                              std::type_identity<RightAdjointMdspan>, std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>() &&
                 lapack_detail::svd_factor_types_supported<LeftMdspan, MatrixMdspan>() &&
@@ -341,11 +361,12 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, Singula
   }
 }
 
-/// \brief Report compile-time eligibility for an input-overwriting LAPACK exact SVD.
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan,
-          uni20::MutableRankedStridedMdspan<2> OtherFactorMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, SingularValueMdspan&, OtherFactorMdspan&,
-                                    MatrixMdspan&)
+/// \brief Report compile-time eligibility for a resolved input-overwriting LAPACK exact SVD.
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> OtherFactorMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto svd_acceptance(svd_op const&, std::type_identity<SingularValueMdspan>,
+                              std::type_identity<OtherFactorMdspan>, std::type_identity<MatrixMdspan>)
 {
   if constexpr (lapack_detail::svd_base_types_supported<SingularValueMdspan, MatrixMdspan>() &&
                 lapack_detail::svd_factor_types_supported<OtherFactorMdspan, MatrixMdspan>())
@@ -362,10 +383,11 @@ consteval auto kernel_accepts_types(LapackBackend const&, svd_op const&, Singula
 /// \details `matrix_work` is destroyed. The returned right factor is the
 ///          transpose for real scalars and the conjugate transpose for complex
 ///          scalars, matching LAPACK's `VT` output.
-template <class SingularValueMdspan, class LeftMdspan, class RightAdjointMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& singular_values,
-                         LeftMdspan&& left_singular_vectors, RightAdjointMdspan&& right_singular_vectors_adjoint,
-                         MatrixMdspan&& matrix_work)
+template <
+    uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan, uni20::MutableRankedStridedMdspanLike<2> LeftMdspan,
+    uni20::MutableRankedStridedMdspanLike<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_op const& op, SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
+                      RightAdjointMdspan& right_singular_vectors_adjoint, MatrixMdspan& matrix_work)
 {
   CHECK(op.overwrite == SvdOverwrite::None);
   std::size_t const rows = static_cast<std::size_t>(matrix_work.extent(0));
@@ -381,8 +403,8 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
   CHECK_EQUAL(static_cast<std::size_t>(right_singular_vectors_adjoint.extent(1)), cols);
   if (rank == 0)
   {
-    lapack_detail::set_identity(left_singular_vectors);
-    lapack_detail::set_identity(right_singular_vectors_adjoint);
+    set_identity(left_singular_vectors);
+    set_identity(right_singular_vectors_adjoint);
     return KernelAttempt::success;
   }
 
@@ -409,14 +431,16 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
   CHECK_EQUAL(left->cols, left_columns);
   CHECK_EQUAL(right->rows, right_rows_blas);
   CHECK_EQUAL(right->cols, matrix->cols);
-  return lapack_detail::run_gesvd(lapack_detail::svd_job(op.left), lapack_detail::svd_job(op.right), rank, *matrix,
-                                  *values, left->data, left->leading_dimension, right->data, right->leading_dimension);
+  return run_gesvd(svd_job(op.left), svd_job(op.right), rank, *matrix, *values, left->data, left->leading_dimension,
+                   right->data, right->leading_dimension);
 }
 
 /// \brief Compute an exact dense SVD with one reduced factor overwriting the input allocation.
-template <class SingularValueMdspan, class OtherFactorMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& singular_values,
-                         OtherFactorMdspan&& other_factor, MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> SingularValueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> OtherFactorMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_svd(svd_op const& op, SingularValueMdspan& singular_values, OtherFactorMdspan& other_factor,
+                      MatrixMdspan& matrix_work)
 {
   using matrix_scalar = std::remove_cv_t<typename std::remove_cvref_t<MatrixMdspan>::element_type>;
   std::size_t const rows = static_cast<std::size_t>(matrix_work.extent(0));
@@ -434,7 +458,7 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
     CHECK_EQUAL(static_cast<std::size_t>(other_factor.extent(0)), right_rows);
     CHECK_EQUAL(static_cast<std::size_t>(other_factor.extent(1)), cols);
     jobu = 'O';
-    jobvt = lapack_detail::svd_job(op.right);
+    jobvt = svd_job(op.right);
   }
   else
   {
@@ -443,13 +467,13 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
     std::size_t const left_cols = op.left == SvdVectorExtent::Full ? rows : rank;
     CHECK_EQUAL(static_cast<std::size_t>(other_factor.extent(0)), rows);
     CHECK_EQUAL(static_cast<std::size_t>(other_factor.extent(1)), left_cols);
-    jobu = lapack_detail::svd_job(op.left);
+    jobu = svd_job(op.left);
     jobvt = 'O';
   }
 
   if (rank == 0)
   {
-    lapack_detail::set_identity(other_factor);
+    set_identity(other_factor);
     return KernelAttempt::success;
   }
 
@@ -484,8 +508,34 @@ KernelAttempt try_kernel(LapackBackend, svd_op const& op, SingularValueMdspan&& 
     left = other->data;
     left_leading_dimension = other->leading_dimension;
   }
-  return lapack_detail::run_gesvd(jobu, jobvt, rank, *matrix, *values, left, left_leading_dimension, right,
-                                  right_leading_dimension);
+  return run_gesvd(jobu, jobvt, rank, *matrix, *values, left, left_leading_dimension, right, right_leading_dimension);
+}
+} // namespace lapack_detail
+
+/// \brief Report eligibility for host-accessible mdspec SVD operands.
+template <lapack_detail::SvdOperation Operation, uni20::MutableStridedMdspecLike... Mdspans>
+  requires(uni20::HostWritableMdspec<Mdspans> && ...) && requires {
+    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
+  }
+consteval auto kernel_accepts_types(LapackBackend const&, Operation const&, Mdspans&...)
+{
+  constexpr auto acceptance =
+      lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve host access and run a LAPACK SVD operation.
+template <lapack_detail::SvdOperation Operation, uni20::MutableStridedMdspecLike... Mdspans>
+  requires(uni20::HostWritableMdspec<Mdspans> && ...) && requires {
+    lapack_detail::svd_acceptance(Operation{}, std::type_identity<uni20::host_write_mdspan_t<Mdspans>>{}...);
+  }
+KernelAttempt try_kernel(LapackBackend, Operation const& operation, Mdspans&... mdspans)
+{
+  return lapack_detail::with_host_write_mdspans(
+      [&](auto&... spans) { return lapack_detail::try_svd(operation, spans...); }, mdspans...);
 }
 
 } // namespace uni20::linalg

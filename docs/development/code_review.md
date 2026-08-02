@@ -75,7 +75,8 @@ irrelevant when that is not obvious.
 - Are coroutine lambdas captureless and `static`?
 - Are values needed after suspension passed by value into the coroutine frame?
 - Are `EpochQueue`, buffer, and alias lifetimes valid?
-- Can a declining kernel or cancelled branch leave visible mutation?
+- Does a decline preserve inputs and fixed/update outputs, and limit any visible
+  mutation to operation-authorized preparation of a replaceable output?
 - Are exceptions delivered to every required output without stranding waiters?
 - Can an unobserved failed or cancelled branch block dependent work?
 - Are read/write epochs ordered by causality rather than scheduler timing?

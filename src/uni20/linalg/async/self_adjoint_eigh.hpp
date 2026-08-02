@@ -37,10 +37,9 @@ template <class Result> [[nodiscard]] constexpr auto select_async_eigh_backend(M
 
 template <class BackendSelector, class EigenvalueTensor, class EigenvectorTensor,
           uni20::RankedTensorView<2> MatrixTensor>
-async::AsyncTask async_preserving_eigh_task(BackendSelector const selector,
-                                            async::WriteBuffer<EigenvalueTensor> eigenvalues,
-                                            async::WriteBuffer<EigenvectorTensor> eigenvectors,
-                                            async::ReadBuffer<MatrixTensor> matrix, MatrixTriangle const triangle)
+async::AsyncTask co_preserving_eigh(BackendSelector const selector, async::WriteBuffer<EigenvalueTensor> eigenvalues,
+                                    async::WriteBuffer<EigenvectorTensor> eigenvectors,
+                                    async::ReadBuffer<MatrixTensor> matrix, MatrixTriangle const triangle)
 {
   auto eigenvalue_storage_awaiter = eigenvalues.storage();
   auto eigenvector_storage_awaiter = eigenvectors.storage();
@@ -57,10 +56,9 @@ async::AsyncTask async_preserving_eigh_task(BackendSelector const selector,
 template <class BackendSelector, class EigenvalueTensor, class EigenvectorTensor,
           uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
-async::AsyncTask async_consuming_eigh_task(BackendSelector const selector,
-                                           async::WriteBuffer<EigenvalueTensor> eigenvalues,
-                                           async::WriteBuffer<EigenvectorTensor> eigenvectors,
-                                           async::WriteBuffer<MatrixTensor> matrix, MatrixTriangle const triangle)
+async::AsyncTask co_consuming_eigh(BackendSelector const selector, async::WriteBuffer<EigenvalueTensor> eigenvalues,
+                                   async::WriteBuffer<EigenvectorTensor> eigenvectors,
+                                   async::WriteBuffer<MatrixTensor> matrix, MatrixTriangle const triangle)
 {
   auto eigenvalue_storage_awaiter = eigenvalues.storage();
   auto eigenvector_storage_awaiter = eigenvectors.storage();
@@ -85,8 +83,8 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   outputs.eigenvalues.debug_name("eigh.eigenvalues");
   outputs.eigenvectors.debug_name("eigh.eigenvectors");
 
-  auto task = async_preserving_eigh_task(std::move(selector), outputs.eigenvalues.write(), outputs.eigenvectors.write(),
-                                         matrix.read(), triangle);
+  auto task = co_preserving_eigh(std::move(selector), outputs.eigenvalues.write(), outputs.eigenvectors.write(),
+                                 matrix.read(), triangle);
   task.debug_name("eigh");
   async::schedule(std::move(task));
   return outputs;
@@ -102,8 +100,8 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   outputs.eigenvalues.debug_name("eigh.eigenvalues");
   outputs.eigenvectors.debug_name("eigh.eigenvectors");
 
-  auto task = async_consuming_eigh_task(std::move(selector), outputs.eigenvalues.write(), outputs.eigenvectors.write(),
-                                        matrix.write(), triangle);
+  auto task = co_consuming_eigh(std::move(selector), outputs.eigenvalues.write(), outputs.eigenvectors.write(),
+                                matrix.write(), triangle);
   task.debug_name("eigh");
   async::schedule(std::move(task));
   return outputs;

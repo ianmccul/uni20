@@ -10,13 +10,15 @@ backend tags without owning tensor mathematics.
   mapping and a CPU default backend tag.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
-- `cuda_storage.hpp`: CUDA device-storage policy with opaque
-  `CudaBufferView` mdspan handles and a storage-selected cuBLAS backend.
+- `cuda_accessor.hpp`: CUDA-device-callable pointer accessors, complex
+  execution-value proxies, and named CUDA transformations.
+- `cuda_storage.hpp`: CUDA device-storage policy with deferred
+  `CudaBufferView` descriptors and a storage-selected cuBLAS backend.
 
 ## Notes
 
-- New storage policies should make handle creation, layout defaults, and default
-  backend selection explicit.
+- New storage policies should make immediate-handle or deferred-descriptor
+  creation, layout defaults, and default backend selection explicit.
 - Context-capable policies provide `context_type`, `make_storage(context,
   size)`, and `make_storage_like(storage, size)`. `CudaStorage` ordinarily
   resolves the installed runtime's default `DeviceResources`; an explicit

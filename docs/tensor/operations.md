@@ -38,9 +38,10 @@ Tensor operations have three distinct layers:
 Tensor operation
   -> shape, ownership, and output policy
   -> storage-derived backend selector
-  -> resolved mdspan operands
-  -> backend dispatch
-  -> leaf kernel
+  -> fixed-operand MdspecLike normalization
+  -> backend dispatch on normalized descriptors
+  -> backend-specific execution-domain acquisition
+  -> resolved mdspan leaf kernel
 ```
 
 An Async operation adds scheduling around the same synchronous operation:
@@ -49,13 +50,20 @@ An Async operation adds scheduling around the same synchronous operation:
 Async<Tensor> operands
   -> enroll ReadBuffer and WriteBuffer epochs
   -> scheduled coroutine awaits stored Tensor values
-  -> synchronous Tensor operation
-  -> mdspan dispatch and leaf kernel
+  -> fixed-operand normalization or replaceable-output dispatch
+  -> descriptor acquisition and resolved mdspan leaf kernel
 ```
 
 Leaf kernels do not receive `Tensor` or `Async<Tensor>`. They receive resolved
 mdspan-like operands after ownership, storage domain, output policy, and async
 ordering have been handled by higher layers.
+
+Operation-tag `kernel_accepts_types(...)` and `try_kernel(...)` overloads are
+backend adapters and therefore accept normalized `MdspecLike` fixed operands,
+not tensor views or resolved mdspans. A backend calls an ordinary lower-level
+function such as `cpu::gemm` or `cpu::gemv`, or a provider adapter such as
+`blas::try_gemm` or `blas::try_gemv`, after acquiring the required
+execution-domain leases.
 
 ### Type Roles
 
@@ -69,15 +77,18 @@ ordering have been handled by higher layers.
 | `CudaMatrix<Element, Layout>` | Rank-two `CudaTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
-| `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |
-| `MutableTensorView` | `TensorView` whose resolved mdspan permits writes. |
+| `TensorView` | Readable tensor-level object exposing extents, a normalized `MdspecLike` representation, and a backend selector. It is a concept, not a base class. |
+| `MutableTensorView` | `TensorView` whose normalized writable mdspec permits eventual element assignment. |
+| `ImmediateTensorView` | `TensorView` whose normalized mdspec is already an mdspan and which exposes `mdspan()` directly. |
+| `MutableImmediateTensorView` | `ImmediateTensorView` whose resolved mdspan permits writes. |
 | `OwningTensor` | Explicit opt-in classification whose move operation transfers the storage and lifetime exposed by `mdspan()`. |
-| `StridedTensorView` | Tensor view whose resolved mdspan has a strided mapping. Operations such as reshape may require this refinement. |
+| `StridedTensorView` | `TensorView` whose normalized mdspec has a strided mapping. |
+| `StridedImmediateTensorView` | Immediate tensor view whose resolved mdspan has a strided mapping. Operations such as reshape may require this refinement. |
 | Resolved mdspan | Short-lived leaf-kernel operand containing handle, mapping, extents, and accessor semantics. |
 
 Tensor objects deliberately do not model mdspan concepts. Front-end operations
-accept tensor concepts and resolve `.mdspan()` only after any shape-changing
-work is complete.
+accept tensor concepts, normalize fixed operands to mdspecs after backend
+selection, and acquire resolved mdspans inside the selected backend.
 
 ## Operation Vocabulary
 
@@ -180,17 +191,38 @@ their selector through storage policy.
 Output operations use two contracts:
 
 ```cpp
-uni20::require_shape(output, required); // validate only
-uni20::ensure_shape(output, required);  // resize owner or validate fixed view
+uni20::require_output(output, required);            // validate only
+uni20::prepare_output(output, required);            // resize owner or validate fixed view
+uni20::prepare_output(output, required, placement); // shape plus backend storage requirement
 ```
 
-An update operation uses `require_shape` because old output values participate.
-An overwrite operation may use `ensure_shape`. A resizable owner retains a
+Operation and backend code share the public `TensorExtentsLike`,
+`tensor_extents_equal`, and `convert_tensor_extents` contracts when inspecting
+or converting a proposed output shape. These are tensor output-policy
+interfaces; callers should not depend on their implementation helpers in
+`uni20::detail`.
+
+An update operation uses `require_output` because old output values participate.
+An overwrite backend may use `prepare_output`. A resizable owner retains a
 matching allocation and calls `reset_shape` only when the shape differs. A
-fixed view can never resize.
+placement-aware overload additionally retains compatible storage or replaces
+it through the Tensor's storage policy. A fixed view can never resize or
+replace storage.
 
 Shape preparation must happen before resolving the output mdspan because
 resizing may invalidate its handle.
+
+`prepare_output` may invalidate storage and resolved views. For an operation
+whose contract declares the output replaceable, a backend may prepare it before
+completing all acceptance checks. If that backend declines without writing
+result elements or submitting work, a later backend receives the prepared
+output and may reuse or replace it. If every backend declines, the output
+remains valid but its shape, allocation, placement, and values may reflect
+provisional preparation.
+
+Inputs and fixed or update outputs remain unchanged on decline. Once a backend
+writes result elements, submits work, or enters a provider operation, later
+failure is terminal and must not trigger fallback.
 
 ### Move and Storage Reuse
 
@@ -294,8 +326,8 @@ contracts described later in this guide.
 | `reshape_view(x, ...)` | No-copy reshape of a static `layout_left` or `layout_right` source. | Aliases an lvalue source and preserves its canonical layout type and accessor. | `async::reshape_view(x, ...)` returns an owner-retaining alias on the same epoch queue. |
 | `reshape_view_left`, `reshape_view_right` | Explicitly ordered no-copy reshape of a general strided source. | Requires a unique, exhaustive canonical mapping in the selected order. | Matching async overloads retain the parent and queue. |
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
-| `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; generated input materializes in the requested/default layout. | Not implemented. |
-| `copy(out, in)` | Overwrite while observing input accessor semantics. Canonical contiguous host/CUDA transfers use `CudaReferenceBackend`. | Resizes a resizable output or validates a fixed output. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
+| `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Not implemented. |
+| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings through rank eight use logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports differing physical order, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
 | `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
@@ -307,7 +339,7 @@ contracts described later in this guide.
 | `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
 | `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
 | `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Not implemented. |
-| `require_shape`, `ensure_shape` | Output-policy helpers for operation authors. | Validate only, or resize when the output type permits it. | Used inside wrappers; not standalone Async operations. |
+| `require_output`, `prepare_output` | Output-policy helpers for operation authors. | Validate only, or construct/resize/replace when the output type permits it. | Replaceable-output preparation may be provisional across backend decline; fixed and update outputs remain unchanged. |
 
 For a rank-`R` result, generalized `eye<T>(n0, ..., n{R-1})` returns
 one exactly when all indices agree. It includes scalar one, an all-ones
@@ -326,6 +358,12 @@ from storage policy. The CPU reference backend accepts arbitrary rank and input
 arity, respects accessor semantics, and uses logical-index traversal when an
 operand is not strided. Named callable types may gain optimized backend
 implementations without changing these front-end signatures.
+
+Uni20-owned tensor function objects intended for execution through an accessor
+use `UNI20_HOST_DEVICE`. A CUDA-accessible transform's stored callable must do
+the same. This makes the expression device-callable but does not install a
+precompiled CUDA backend specialization; the selected backend still needs an
+explicit typed lowering or a sufficient type-erased execution plan.
 
 The Async overloads keep the same argument order and require every Tensor
 operand to be `Async<T>`. The callable is not itself an async operand: it is
@@ -373,21 +411,99 @@ mdspans or spans.
 | `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | Not implemented. |
 | `symmetric_tridiagonal_eigen` | Tridiagonal eigensystem over caller-provided spans and tensor output. | LAPACK-style mutable work/output buffers. | Not implemented. |
 
+Preserving Async `eigh`, exact SVD, and truncated SVD overloads accept
+`Async<Tensor>` whenever `Tensor` models the appropriate ranked `TensorView`.
+This includes deferred views: the preserving synchronous operation materializes
+its work tensor through ordinary backend-dispatched copy. Consuming overloads
+require a mutable owning `TensorView`, but not immediate access. Taking the
+stored async value is the semantic consumption; compatible immediate owners may
+additionally reuse or transfer their allocation as an optimization.
+
+Async tensor wrappers constrain fixed operands at the `TensorView` or
+`MutableTensorView` level. They must not require `ImmediateTensorView` merely
+because the currently selected backend eventually needs an mdspan. After the
+stored values become readable, the wrapper preserves their mdspecs through
+dispatch and the selected backend acquires the execution-domain leases.
+Whether a backend implementation exists for a particular storage domain is a
+separate kernel-acceptance question.
+
 The fixed-output `gemm` and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
 
+`assign_product` and `gemm` use distinct dispatch operations:
+
+```cpp
+auto lhs_span = mdspec_of(std::as_const(lhs));
+auto rhs_span = mdspec_of(std::as_const(rhs));
+dispatch_kernel(
+    selector, assign_product_op{}, output, alpha, lhs_span, rhs_span);
+
+auto output_span = mdspec_of(output);
+dispatch_kernel(
+    selector, gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
+```
+
+`assign_product_op` is a replaceable-output overwrite. The previous output value
+is irrelevant, so an output type that supports replacement may change its shape
+or storage. `gemm_op` is a fixed-output update: its output must already exist and
+its storage is never rebound. This remains true when `beta` is numerically zero.
+Dispatch does not inspect `beta` to infer overwrite permission because a backend
+may represent scalar parameters with opaque or device-resident handles.
+
+Backends may lower both operation tags to the same provider GEMM implementation.
+The `assign_product_op` adapter supplies zero in the representation required by
+that backend; `gemm_op` forwards the caller's `beta`. Shape and storage
+preparation occur in the `assign_product_op` backend adapter, where the backend
+has enough information to state its storage requirements. The synchronous form
+receives a concrete Tensor output. The async form receives the output's
+potentially unconstructed `shared_storage<Tensor>`.
+
+The frontends select their backend lists while tensor policy is still
+available, then normalize fixed operands exactly once before dispatch.
+`gemm_op` backend customizations therefore accept
+`MutableMdspecLike` and `MdspecLike` refinements, not tensor views.
+`assign_product_op` receives normalized readable inputs but retains its
+tensor-level output because that output may not exist until the selected
+backend supplies placement and storage requirements.
+
+Host backends require only the product shape. The cuBLAS backend also requires
+the output to use the operands' CUDA device, after first rejecting operands that
+reside on different devices. This requirement is a `cuda::Device`, not a stream
+pool or `DeviceResources`; `CudaStorage` resolves the device through the
+process-wide CUDA runtime when it must allocate a new buffer. A matching
+allocation is retained, a shape mismatch on the same device preserves its
+existing storage resources, and a device mismatch replaces the allocation.
+Operands that reside on different CUDA devices produce
+`KernelAttempt::incompatible_devices` before output preparation.
+
+For `assign_product_op`, the BLAS backend resolves the readable input mdspans
+and probes the prospective output metadata before calling `prepare_output`.
+`unsupported_instance`, `unsupported_layout`, and `unsupported_transform`
+therefore leave a wrong-shaped concrete output unchanged and leave deferred
+output storage unconstructed. After the probe succeeds, BLAS prepares the real
+output and is committed to execution.
+
+The cuBLAS `assign_product_op` adapter uses the provisional-preparation
+contract instead: it may prepare the actual CUDA output and then decline an
+unsupported layout or transform. A later CUDA backend receives that prepared
+output and may reuse or replace it. Within one cuBLAS attempt, the readable
+input descriptors have already been normalized by the frontend and the writable
+output is normalized once after preparation. The adapter then invokes the
+private cuBLAS mdspan implementation directly rather than redispatching those
+operands as `gemm_op`.
+
 For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
 Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
-`try_kernel_task` returns a nested `CudaTask` bound to the operand device. It
+`try_make_kernel_task` returns a nested `CudaTask` bound to the operand device. It
 inherits the compatible unified scheduler, awaits an idle cuBLAS handle and
 stream, and publishes CUDA buffer completion records before returning. Column-
 and row-major outputs are supported. A direct non-Async Tensor `gemm` uses the
 same operand preparation and provider leaf but may block during resource
 admission. Async `gemm` and `add_product` require an existing compatible output;
-`assign_product` prepares an unconstructed or resizable output before entering
-the same kernel-dispatch path.
+`assign_product` uses its distinct replaceable-output dispatch operation and may
+prepare an unconstructed or resizable output.
 
 ## Async Tensor Contract
 
@@ -413,17 +529,17 @@ descriptor is passed by value and require separate lifetime analysis.
 The wrapper resolves the immutable selector from tensor/storage types before
 scheduling, enrolls buffers, and moves all coroutine state into a named
 coroutine or captureless static coroutine lambda. The coroutine awaits stored
-Tensor values and invokes the synchronous operation. Runtime backend declines
-still happen after the mdspans are available.
+Tensor values and invokes backend dispatch. Runtime backend declines still
+happen after the Tensor values are available.
 
 Do not make `Async<Tensor>` model `TensorView`, and do not add Async awareness
 to leaf backends.
 
 ### Overwrite and Update Outputs
 
-For async `assign_product`, an unconstructed output may be constructed from the
-required extents. An existing output follows synchronous `ensure_shape`
-semantics.
+For async `assign_product`, backend dispatch receives the output's
+`shared_storage<Tensor>`. The selected backend may construct an unconstructed
+output or prepare an existing one through `prepare_output`.
 
 For async `add_product`, output is both input and output. It uses one
 `WriteBuffer`, must already be constructed, and cannot resize. Taking separate

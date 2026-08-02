@@ -15,20 +15,24 @@ Kernel dispatch walks an ordered backend selector for an operation tag.
 `kernel_accepts_types` classifies each backend as `no`, `maybe`, or `yes` from the
 argument types. A `no` candidate is not instantiated, a `maybe` candidate may cleanly
 decline at runtime, and a `yes` candidate must succeed. `try_kernel` performs the
-runtime attempt, and every non-success result must occur before argument mutation, work
-submission, output commitment, or any other externally visible effect.
+runtime attempt. Every non-success result must preserve inputs and fixed or update
+outputs and must occur before work submission, result writes, or any other externally
+visible execution effect. An operation-declared replaceable output is the narrow
+exception: a backend may provisionally construct, resize, or replace it before
+declining, and a later backend may reuse or replace that prepared output.
 `dispatch_kernel` reports exhaustion, while `try_dispatch_kernel` returns whether any
 candidate accepted the operation. `co_dispatch_kernel` follows the same ordered walk
-and may use `try_kernel_task` when a backend needs to suspend for resource admission.
+and may use `try_make_kernel_task` when a backend needs to suspend for resource admission.
 
 ## Scope
 
 Kernel dispatch answers one question:
 
 > Which implementation in an ordered backend selector can perform this operation on
-> these resolved argument types and values?
+> these tensor-view operand types and values?
 
-It does not:
+Except for operation-authorized provisional preparation of a replaceable output, it
+does not:
 
 - choose tensor shapes or allocate outputs;
 - transfer values between storage domains;
@@ -42,15 +46,85 @@ provider adapters.
 
 ## Core vocabulary
 
+### Dispatch operand boundary
+
+Each operation tag defines its operand boundary. Fixed existing operands no
+longer need tensor policy after the frontend has selected a backend list.
+Copy, fixed-output matrix products, elementwise transforms, reductions, matrix
+initialization and exponentiation, and fixed-output LAPACK decompositions
+therefore enter `probe_dispatch_kernel`, `kernel_type_candidates`,
+`try_dispatch_kernel`, `dispatch_kernel`, or `co_dispatch_kernel` as
+`MdspecLike` operands, with the applicable mutable and ranked
+refinements. Their `kernel_accepts_types`, `try_kernel`, and
+`try_make_kernel_task` customizations use the same descriptor types. Scalar
+coefficients, axes, host `std::span` work arrays, and other non-tensor
+parameters remain ordinary values.
+
+The tensor frontend must select the backend while storage and execution policy
+are still available, then normalize each fixed operand exactly once. A readable
+input is normalized through the tensor's const interface and a writable output
+through its mutable interface. An `ImmediateTensorView` produces an ordinary
+mdspan; a descriptor-backed `TensorView` produces concrete `mdspec` metadata.
+A bare mdspan convenience API directly supplies the
+same normalized descriptor boundary and does not need a temporary tensor
+facade.
+
+The frontend materializes each fixed descriptor as a local value before the
+backend walk. This copies the mapping, accessor, and data descriptor; it does
+not acquire a handle, migrate data, or extend the lifetime of underlying
+storage. A descriptor may be borrowed, so its source storage must remain alive
+through every backend attempt and any work whose access lease refers to it.
+Async frontends retain the applicable epoch storage while descriptor values are
+held in the coroutine or kernel-task frame.
+
+Normalization preserves the mathematical object and every resource identity
+needed by a selected backend. A descriptor for a future block-sparse,
+distributed, file-backed, or remotely staged tensor may therefore carry
+symmetry sectors, distribution metadata, communicators, file mappings, or
+storage-placement identities in addition to extents, mapping, and accessor
+state. Normalization never means dense projection, host materialization, or
+storage transfer.
+
+A replaceable output is not a fixed multidimensional descriptor.
+`assign_product_op{}` therefore has a heterogeneous dispatch signature. Its
+synchronous output is a mutable tensor object and its async output may be an
+unconstructed `shared_storage<Tensor>`, while its readable fixed inputs are
+normalized before the backend walk. The selected backend chooses and prepares
+the output, then normalizes the resulting fixed descriptor.
+
+Functions that operate directly on resolved mdspans sit below operation dispatch.
+They are provider/library API calls or lower-level Uni20 module interfaces, not
+`xxxx_op{}` dispatch customization points. This separation keeps acquisition,
+execution-domain validation, and accessor lowering inside the selected backend.
+
+Within a replaceable-output backend attempt, retain the readable descriptors
+received from dispatch. Prepare the output before retaining its writable
+descriptor because preparation may invalidate an earlier descriptor. After
+lowering, invoke the backend's private descriptor or provider implementation
+directly; do not redispatch the resolved operands through another operation-tag
+customization.
+
 ### Operation tag
 
 An operation tag is a lightweight value identifying a kernel family. Operation tags
 must define a stable static `name` used by diagnostics.
 
-Examples include `gemm_op`, `gemv_op`, and decomposition-specific operation tags.
+Examples include `assign_product_op`, `gemm_op`, `gemv_op`, and
+decomposition-specific operation tags.
 
 The operation tag is passed to all backend customization points. This keeps the
 dispatcher generic and allows one backend value to implement many operations.
+
+Operation tags also carry output semantics that cannot safely be inferred from
+runtime scalar values. `assign_product_op` permits a replaceable output because
+the old output value is irrelevant. Its dispatch signature has no `beta`
+argument. `gemm_op` treats the output as an existing fixed-storage operand and
+never authorizes rebinding, even when `beta` is numerically zero or is represented
+by an opaque backend scalar handle. A backend may lower both operations to one
+provider GEMM implementation after applying their different output contracts.
+Because `assign_product_op` declares its output replaceable, a candidate may prepare
+that output before its final layout or transform check. A decline may therefore leave
+the output prepared for the next candidate, but may not write result elements.
 
 ### Backend
 
@@ -208,12 +282,16 @@ KernelAttempt::unsupported_shape
 KernelAttempt::unsupported_layout
 KernelAttempt::unsupported_accessor
 KernelAttempt::unsupported_transform
+KernelAttempt::incompatible_devices
 KernelAttempt::unavailable
 KernelAttempt::insufficient_resources
 ```
 
-Every value other than `success` is a clean decline. A decline must preserve all
-arguments and produce no externally visible side effect.
+Every value other than `success` is a clean decline. A decline must preserve inputs
+and fixed or update outputs, submit no work, and publish no result. When the operation
+declares an output replaceable, its contract may permit provisional construction,
+resizing, or replacement before a decline. Later candidates receive that prepared
+output and may reuse or replace it.
 
 Terminal failures are not represented by `KernelAttempt`. Once execution is committed,
 provider failures, task failures, and operation failures are reported through the
@@ -224,11 +302,14 @@ operation's ordinary error or exception mechanism.
 A backend that needs suspendable resource admission may additionally define:
 
 ```cpp
-try_kernel_task(backend, operation, args...)
+try_make_kernel_task(backend, operation, args...)
     -> KernelTaskAttempt<ConcreteTask>
 ```
 
 `ConcreteTask` must derive from `async::BasicTask`.
+
+`try_make_kernel_task` is an ordinary fallible task factory, not a coroutine.
+Any coroutine it creates uses a `co_`-prefixed name.
 
 `KernelTaskAttempt` represents one of three states:
 
@@ -236,12 +317,13 @@ try_kernel_task(backend, operation, args...)
 2. **Completed success:** `success` and no task.
 3. **Deferred success:** `success` and a task.
 
-A decline has the same side-effect-free contract as an ordinary `try_kernel` decline.
+A decline has the same input-preservation and provisional replaceable-output
+preparation contract as an ordinary `try_kernel` decline.
 A completed success represents an operation that is already finished, such as a
 zero-size output. A deferred success commits the backend when the task is awaited;
 failures after that point are terminal and must not trigger fallback.
 
-Backends without `try_kernel_task` are invoked through their ordinary `try_kernel`
+Backends without `try_make_kernel_task` are invoked through their ordinary `try_kernel`
 implementation on the current scheduler thread.
 
 ## Type probing and candidate filtering
@@ -301,6 +383,10 @@ walks candidates in selector order and returns:
 - `false` when every eligible backend cleanly declines.
 
 A `yes` candidate must succeed and therefore terminates the walk.
+On `false`, inputs and fixed outputs are preserved; replaceable outputs remain valid
+but may contain provisional backend preparation. This postcondition does not require
+restoring a replaceable output's previous allocation. Its element values are
+unspecified.
 
 ### `dispatch_kernel`
 
@@ -344,32 +430,35 @@ diagnostics, and exhaustion behavior as `dispatch_kernel`.
 
 For each eligible backend:
 
-1. If `try_kernel_task` is available, the coroutine obtains a
+1. If `try_make_kernel_task` is available, the coroutine obtains a
    `KernelTaskAttempt`.
-2. A clean decline continues to the next candidate.
+2. A clean decline continues to the next candidate, which receives any provisionally
+   prepared replaceable output.
 3. A completed success terminates the walk.
 4. A deferred success awaits the task and then terminates the walk.
 5. If no task customization exists, the coroutine calls ordinary `try_kernel`.
 
 Operation arguments are stable lvalues owned by the calling coroutine. This avoids
-copying arbitrary descriptors and keeps type probing and invocation consistent.
+copying arbitrary tensor views and keeps type probing and invocation consistent.
 
 `co_dispatch_kernel` does not enroll epochs or await `Async<T>` operands. An async
-operation wrapper must first establish the correct epoch reads and writes, await the
-resolved values, prepare the output, and then dispatch the resolved mdspans or other
-kernel arguments.
+operation wrapper must first establish the correct epoch reads and writes and await the
+resolved inputs. An operation-declared replaceable output may remain unconstructed when
+backend dispatch begins, allowing the attempted backend to choose its placement.
 
 Async legality comes from epoch causality. Scheduler timing and fortunate task order
 are not correctness arguments.
 
 ## Tensor, mdspan, and provider boundaries
 
-The usual dense operation path has three layers:
+The usual dense operation path has four layers:
 
 ```text
 Tensor operation wrapper
-    -> kernel dispatch over resolved mdspans
-    -> provider or reference implementation
+    -> selector resolution and fixed-operand mdspec normalization
+    -> operation-tag dispatch over normalized descriptors
+    -> selected backend acquisition/lowering to execution-domain mdspans
+    -> provider API or lower-level Uni20 module
 ```
 
 ### Tensor operation wrapper
@@ -387,22 +476,36 @@ For example, an assigning matrix product may construct or resize its output befo
 calling a fixed-output GEMM kernel, while an additive matrix product requires an
 existing shape-compatible output.
 
-### Mdspan dispatch boundary
+### Fixed-descriptor dispatch boundary
 
-The kernel operation receives resolved mdspans and scalar parameters. Backends may
-inspect runtime extents, mappings, strides, accessors, and handles before accepting the
-instance.
+A fixed-output operation-tag kernel receives normalized mdspecs and
+scalar parameters. The backend may inspect their mappings, accessors, and data
+descriptors before accepting an instance. Once selected, it obtains any
+required domain-specific leases and resolves the operands to mdspans whose
+handles and accessors are usable by its implementation.
+
+Type probing and runtime invocation receive the same normalized descriptor
+types. The dispatcher does not acquire leases. The backend that accepts the
+execution domain owns acquisition and passes resolved mdspans directly to an
+ordinary leaf routine rather than to another operation-tag customization.
+
+Replaceable-output tags retain their tensor or output-storage operand until the
+selected backend has supplied the missing shape and placement policy. That
+backend lowers the output immediately after preparation and does not redispatch
+it as a fixed-output operation tag.
 
 The mdspan accessor defines value semantics. A pointer-shaped `data_handle_type` does
 not prove that a backend may dereference the handle or pass it to a provider. A backend
 may bypass indexed accessor operations only when it explicitly understands and lowers
 that accessor's semantics.
 
-### Provider boundary
+### Lower-level boundary
 
-Provider adapters receive only arguments already normalized to the provider contract.
-At this point the backend has committed. Provider failure is terminal and may not
-return a dispatch decline.
+Provider adapters and lower-level Uni20 modules receive arguments already normalized
+to their contracts, commonly resolved mdspans or provider descriptors. These functions
+do not participate in the `xxxx_op{}` backend walk. At this point the backend has
+committed. Provider or lower-level failure is terminal and may not return a dispatch
+decline.
 
 Kernel dispatch never performs an implicit host/device transfer or an implicit dense
 projection. A backend list for opaque device storage must contain only backends that can
@@ -414,22 +517,29 @@ Fallback is legal only after a clean decline.
 
 Before returning a non-success `KernelAttempt`, a backend must not:
 
-- write or resize an output;
+- write result elements or mutate a fixed or update output;
 - mutate an input;
 - submit provider work;
 - enqueue device work;
 - acquire a resource in a way visible to later candidates;
 - publish a completion event;
-- commit output ownership;
+- publish or commit a completed result;
 - perform communication visible outside the attempt.
+
+When the operation declares an output replaceable, the backend may provisionally
+construct, resize, replace, or rebind that output before returning a decline. The next
+candidate receives the prepared output and may reuse or replace it. If every candidate
+declines, the output remains valid, but its storage, placement, shape, and element
+values may reflect provisional preparation and must not be treated as a completed
+result.
 
 Preparation may inspect descriptors and create temporary local values. Any temporary
 resource acquired before a possible decline must be released without externally
 visible effects.
 
-Once a backend mutates state, submits work, commits output, awaits a successful
-deferred task, or enters a provider operation, failure is terminal. The dispatcher
-must not continue to a later backend.
+Once a backend mutates an input, a fixed or update output, or result elements; submits
+work; commits a result; awaits a successful deferred task; or enters a provider
+operation, failure is terminal. The dispatcher must not continue to a later backend.
 
 Fallback also may not change the mathematical object. Symmetry metadata, block-space
 metadata, local-space metadata, and leg orientation are part of the value. A
@@ -462,10 +572,11 @@ When adding a kernel to a backend:
 2. Add `kernel_accepts_types` for the exact static domain.
 3. Return `yes` only when the implementation is total for that domain.
 4. Provide `try_kernel` for every `maybe` or `yes` result.
-5. Complete all runtime acceptance checks before any side effect.
+5. Complete all runtime acceptance checks before any effect other than
+   operation-authorized provisional preparation of a replaceable output.
 6. Return a specific `KernelAttempt` for each clean-decline category.
 7. Report failures after commitment through the ordinary terminal error path.
-8. Add `try_kernel_task` only when suspension is required.
+8. Add `try_make_kernel_task` only when suspension is required.
 9. Keep the ordinary and coroutine implementations on the same static domain.
 10. Preserve mdspan accessor semantics.
 11. Do not introduce implicit transfer or symmetry-erasing fallback.
@@ -487,7 +598,8 @@ Focused tests should cover:
 
 - direct success;
 - each meaningful decline reason;
-- output and input preservation after decline;
+- input and fixed/update-output preservation after decline;
+- reusable provisional preparation for replaceable-output operations;
 - fallback to the next candidate;
 - exhaustion when all candidates decline;
 - totality of every `yes` domain.

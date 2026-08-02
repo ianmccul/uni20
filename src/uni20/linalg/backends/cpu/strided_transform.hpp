@@ -22,7 +22,7 @@ namespace uni20::linalg::cpu::detail
 template <bool ReadsOutput, class Output, class Operation, class... Inputs> consteval bool strided_transform_operation()
 {
   using output_type = std::remove_cvref_t<Output>;
-  if constexpr (!MutableStridedMdspan<Output> || (!(StridedMdspan<Inputs> && ...)) ||
+  if constexpr (!MutableStridedMdspanLike<Output> || (!(StridedMdspanLike<Inputs> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<Inputs>::rank()) && ...))
   {
     return false;
@@ -45,7 +45,7 @@ template <bool ReadsOutput, class Output, class Operation, class... Inputs> cons
   }
 }
 
-template <bool ReadsOutput, class Operation, MutableStridedMdspan Output, StridedMdspan... Inputs>
+template <bool ReadsOutput, class Operation, MutableStridedMdspanLike Output, StridedMdspanLike... Inputs>
 class strided_transform_executor {
   public:
     using operation_type = std::decay_t<Operation>;

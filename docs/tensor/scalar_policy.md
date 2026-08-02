@@ -57,6 +57,15 @@ Project code, tests, examples, and documentation should use
 relationship to `std::complex<T>`, or they are at a narrow external interop
 boundary that must name the standard-library type.
 
+CUDA execution does not change the logical or persistent scalar type.
+`CudaTensor<uni20::complex<T>>` stores the same `uni20::complex<T>` objects as
+the corresponding host tensor. CUDA accessors load and store their guaranteed
+two real components through `cuda::std::complex<T>` execution values and
+assignable proxy references. `cuComplex` and `cuDoubleComplex` remain localized
+provider ABI types at cuBLAS call boundaries. `uni20::logical_value_t<T>` maps a
+domain-specific execution value back to the backend-neutral logical scalar
+advertised by expression accessors.
+
 ## Scalar Concepts
 
 Scalar-generic code should prefer the scalar traits in `uni20/core`:

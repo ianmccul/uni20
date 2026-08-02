@@ -4,6 +4,8 @@
 #include <uni20/linalg/dispatch_error.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <concepts>
@@ -15,6 +17,10 @@ namespace
 {
 using matrix_type = uni20::DenseMatrix<double>;
 using async_matrix_type = uni20::async::Async<matrix_type>;
+using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
+using async_deferred_matrix_type = uni20::async::Async<deferred_matrix_type>;
+
+static_assert(requires(async_deferred_matrix_type&& matrix) { uni20::linalg::truncated_svd(std::move(matrix)); });
 
 matrix_type make_matrix()
 {
@@ -25,7 +31,18 @@ matrix_type make_matrix()
   return matrix;
 }
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+deferred_matrix_type make_deferred_matrix()
+{
+  deferred_matrix_type matrix(3, 3);
+  auto lease = uni20::test::acquire_host_write_access_sync(matrix);
+  auto& span = lease.mdspan();
+  span[0, 0] = 4.0;
+  span[1, 1] = 2.0;
+  span[2, 2] = 0.5;
+  return matrix;
+}
+
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
 }
@@ -68,7 +85,7 @@ TEST(AsyncTruncatedSvdTest, PreservingCallAwaitsInputAndReturnsIndependentOutput
   uni20::async::DebugScheduler scheduler;
   uni20::async::ScopedScheduler scoped(&scheduler);
   async_matrix_type matrix;
-  uni20::async::schedule(publish(matrix.write(), make_matrix()));
+  uni20::async::schedule(co_publish(matrix.write(), make_matrix()));
 
   auto [left, singular_values, right_adjoint, truncation] = uni20::linalg::truncated_svd(
       matrix, uni20::linalg::SvdTruncationPolicy<double>{.maximum_discarded_weight = 0.02});
@@ -88,6 +105,23 @@ TEST(AsyncTruncatedSvdTest, PreservingCallAwaitsInputAndReturnsIndependentOutput
   EXPECT_DOUBLE_EQ((matrix.get_wait(scheduler)[0, 0]), 4.0);
 }
 
+TEST(AsyncTruncatedSvdTest, PreservingCallAcceptsDeferredTensorViews)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<deferred_matrix_type> matrix = make_deferred_matrix();
+
+  auto [left, singular_values, right_adjoint, truncation] = uni20::linalg::truncated_svd(
+      uni20::linalg::LapackBackend{}, matrix, uni20::linalg::SvdTruncationPolicy<double>{.maximum_retained_extent = 2});
+
+  EXPECT_EQ(left.get_wait(scheduler).cols(), 2);
+  EXPECT_EQ(singular_values.get_wait(scheduler).extent(0), 2);
+  EXPECT_EQ(right_adjoint.get_wait(scheduler).rows(), 2);
+  EXPECT_EQ(truncation.get_wait(scheduler).retained_rank, 2);
+  auto preserved = uni20::test::acquire_host_read_access_sync(matrix.get_wait(scheduler));
+  EXPECT_DOUBLE_EQ((preserved.mdspan()[0, 0]), 4.0);
+}
+
 TEST(AsyncTruncatedSvdTest, ConsumingCallConsumesInputAndPublishesFourResults)
 {
   uni20::async::DebugScheduler scheduler;
@@ -101,6 +135,22 @@ TEST(AsyncTruncatedSvdTest, ConsumingCallConsumesInputAndPublishesFourResults)
   EXPECT_EQ(singular_values.get_wait(scheduler).extent(0), 1);
   EXPECT_EQ(right_adjoint.get_wait(scheduler).rows(), 1);
   EXPECT_EQ(truncation.get_wait(scheduler).retained_rank, 1);
+}
+
+TEST(AsyncTruncatedSvdTest, ConsumingDeferredTensorMaterializesAfterTakingInput)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_deferred_matrix_type matrix = make_deferred_matrix();
+
+  auto [left, singular_values, right_adjoint, truncation] = uni20::linalg::truncated_svd(
+      std::move(matrix), uni20::linalg::SvdTruncationPolicy<double>{.maximum_retained_extent = 2});
+
+  EXPECT_EQ(left.get_wait(scheduler).cols(), 2);
+  EXPECT_EQ(singular_values.get_wait(scheduler).extent(0), 2);
+  EXPECT_EQ(right_adjoint.get_wait(scheduler).rows(), 2);
+  EXPECT_EQ(truncation.get_wait(scheduler).retained_rank, 2);
+  EXPECT_THROW((void)matrix.get_wait(scheduler), uni20::async::buffer_read_uninitialized);
 }
 
 TEST(AsyncTruncatedSvdTest, DispatchFailurePropagatesToInputAndAllOutputs)

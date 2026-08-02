@@ -58,7 +58,7 @@ raw pointer (``data handle'') with an \emph{extents} object, a layout mapping, a
 Within Uni20 we wrap that interface in convenience aliases and concepts (see
 \texttt{src/uni20/mdspan/mdspan.hpp} and
 \texttt{src/uni20/mdspan/concepts.hpp}). Any type that models the
-\texttt{StridedMdspan} concept exposes the rank, extents, and per-index strides
+\texttt{StridedMdspanLike} concept exposes the rank, extents, and per-index strides
 required to navigate strided storage. Leaf kernels may therefore accept plain
 \texttt{mdspan} and custom resolved views directly. Tensor wrappers remain a
 higher-level abstraction and resolve their \texttt{mdspan()} only at the
@@ -143,7 +143,7 @@ The CPU reference backend executes the grouped contraction via recursive loops. 
 iterated outer-most, the $N$-group governs the middle loops, and the $K$-group contributes to the
 innermost dot product.  Each recursion level adjusts the active pointers by the precomputed strides
 so that no additional index arithmetic is required.  This implementation
-works for arbitrary strided tensors that satisfy the \texttt{StridedMdspan} concept, even if they are not in a
+works for arbitrary strided tensors that satisfy the \texttt{StridedMdspanLike} concept, even if they are not in a
 form that can readily be contracted using \texttt{GEMM} or other kernels.
 
 \section{Delegating to BLAS}

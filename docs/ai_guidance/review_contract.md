@@ -75,9 +75,12 @@ Custom accessors require explicit lowering, materialization, or a generic path.
 
 ### Backend fallback
 
-Fallback is allowed only after a clean, externally invisible decline. Once a
-backend mutates an operand, submits work, commits output, or receives a terminal
-provider failure, the operation may not continue with another backend.
+Fallback is allowed only after a clean decline. A replaceable-output operation
+may authorize provisional output construction, resizing, or replacement that a
+later backend can reuse or replace. Inputs and fixed/update outputs must remain
+unchanged, and once a backend writes result elements, submits work, commits a
+completed result, or receives a terminal provider failure, the operation may
+not continue with another backend.
 
 ### Symmetry preservation
 

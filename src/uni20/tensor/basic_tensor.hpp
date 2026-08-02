@@ -11,6 +11,7 @@
 
 #include <uni20/common/trace.hpp>
 #include <uni20/mdspan/mdspan.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/copy_into.hpp>
 
@@ -68,9 +69,24 @@ struct TensorAccessorFactory<StoragePolicy, std::void_t<typename StoragePolicy::
 
 template <class StoragePolicy> using tensor_accessor_factory_t = typename TensorAccessorFactory<StoragePolicy>::type;
 
+template <class AccessorFactory, class ElementType, class = void> struct TensorDeviceAccessor
+{
+    using type = typename AccessorFactory::template accessor_t<ElementType>;
+};
+
+template <class AccessorFactory, class ElementType>
+struct TensorDeviceAccessor<AccessorFactory, ElementType,
+                            std::void_t<typename AccessorFactory::template device_accessor_t<ElementType>>>
+{
+    using type = typename AccessorFactory::template device_accessor_t<ElementType>;
+};
+
+template <class AccessorFactory, class ElementType>
+using tensor_device_accessor_t = typename TensorDeviceAccessor<AccessorFactory, ElementType>::type;
+
 } // namespace detail
 
-/// \brief General-purpose owning tensor that exposes mdspan-based access.
+/// \brief General-purpose owning tensor with immediate or deferred mdspan metadata.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
 /// \tparam Rank Static rank of the tensor.
@@ -94,6 +110,8 @@ class Tensor {
     using accessor_factory_type = AccessorFactory;
     using accessor_type = typename accessor_factory_type::template accessor_t<element_type>;
     using const_accessor_type = typename accessor_factory_type::template accessor_t<element_type const>;
+    using device_accessor_type = detail::tensor_device_accessor_t<accessor_factory_type, element_type>;
+    using const_device_accessor_type = detail::tensor_device_accessor_t<accessor_factory_type, element_type const>;
     using extents_type = Extents;
     using handle_type = typename const_accessor_type::data_handle_type;
     using mutable_handle_type = typename accessor_type::data_handle_type;
@@ -105,6 +123,24 @@ class Tensor {
     using const_mdspan_type = stdex::mdspan<element_type const, extents_type, layout_policy, const_accessor_type>;
 
     using storage_type = typename storage_policy::template storage_t<element_type>;
+
+    /// \brief Whether const storage provides a readable data handle without acquisition.
+    static constexpr bool immediately_readable = requires(storage_type const& storage) {
+      { storage_policy::make_handle(storage) } -> std::convertible_to<handle_type>;
+    };
+
+    /// \brief Whether mutable storage provides a writable data handle without acquisition.
+    static constexpr bool immediately_writable = requires(storage_type& storage) {
+      { storage_policy::make_handle(storage) } -> std::convertible_to<mutable_handle_type>;
+    };
+
+    /// \brief Whether const storage provides deferred read metadata.
+    static constexpr bool deferred_readable =
+        requires(storage_type const& storage) { storage_policy::make_data_descriptor(storage); };
+
+    /// \brief Whether mutable storage provides deferred write metadata.
+    static constexpr bool deferred_writable =
+        requires(storage_type& storage) { storage_policy::make_data_descriptor(storage); };
 
     /// \brief Rebind this owning tensor configuration to another layout policy.
     template <typename NewLayoutPolicy>
@@ -159,9 +195,9 @@ class Tensor {
     /// \tparam InputTensor Readable tensor-level source with matching static rank.
     /// \param input Source tensor view whose values are materialized.
     template <TensorView InputTensor>
-      requires(tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
+      requires(tensor_mdspec_t<InputTensor>::rank() == extents_type::rank() &&
                std::default_initializable<accessor_factory_type> && detail::DefaultTensorStorage<storage_type>)
-    explicit Tensor(InputTensor const& input) : Tensor(detail::convert_tensor_extents<extents_type>(input.extents()))
+    explicit Tensor(InputTensor const& input) : Tensor(convert_tensor_extents<extents_type>(input.extents()))
     {
       copy(*this, input);
     }
@@ -188,6 +224,22 @@ class Tensor {
     explicit Tensor(typename Policy::context_type& context, extents_type const& exts,
                     accessor_factory_type accessor_factory = accessor_factory_type{})
         : Tensor(internal_tag{}, make_payload(context, make_default_mapping(exts), std::move(accessor_factory)))
+    {}
+
+    /// \brief Construct a tensor with storage satisfying a placement value.
+    /// \details The storage policy interprets the placement and resolves any
+    ///          allocation resources needed to construct the buffer.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param placement Required storage placement.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
+    template <class Placement>
+      requires requires(Placement const& placement, std::size_t count) {
+        { storage_policy::template make_storage<element_type>(placement, count) } -> std::same_as<storage_type>;
+      }
+    explicit Tensor(Placement const& placement, extents_type const& exts,
+                    accessor_factory_type accessor_factory = accessor_factory_type{})
+        : Tensor(internal_tag{}, make_payload(placement, make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a fully dynamic tensor from one extent per axis.
@@ -261,6 +313,41 @@ class Tensor {
       this->swap_state(replacement);
     }
 
+    /// \brief Report whether owned storage satisfies a placement requirement.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param placement Required storage placement.
+    /// \return `true` when the current allocation may be retained.
+    template <class Placement>
+      requires requires(storage_type const& storage, Placement const& placement) {
+        { storage_policy::storage_is_compatible(storage, placement) } -> std::convertible_to<bool>;
+      }
+    [[nodiscard]] bool storage_is_compatible(Placement const& placement) const
+    {
+      return storage_policy::storage_is_compatible(data_, placement);
+    }
+
+    /// \brief Replace tensor shape and storage to satisfy a placement requirement.
+    /// \details The replacement discards current values and uses the storage
+    ///          policy to allocate for `placement`. Construction completes before
+    ///          the current tensor state is swapped.
+    /// \tparam Placement Storage-policy placement value.
+    /// \param exts New tensor extents.
+    /// \param placement Required storage placement.
+    template <class Placement>
+      requires(std::copy_constructible<accessor_factory_type> && std::is_nothrow_swappable_v<mapping_type> &&
+               std::is_nothrow_swappable_v<storage_type> && std::is_nothrow_swappable_v<accessor_factory_type> &&
+               requires(Placement const& required_placement, std::size_t count) {
+                 {
+                   storage_policy::template make_storage<element_type>(required_placement, count)
+                 } -> std::same_as<storage_type>;
+               })
+    void replace(extents_type const& exts, Placement const& placement)
+    {
+      auto mapping = make_default_mapping(exts);
+      Tensor replacement(internal_tag{}, make_payload(placement, std::move(mapping), accessor_factory_));
+      this->swap_state(replacement);
+    }
+
     /// \brief Access the owned storage container.
     /// \return Mutable reference to the underlying storage.
     [[nodiscard]] storage_type& storage() noexcept { return data_; }
@@ -331,6 +418,7 @@ class Tensor {
     /// \brief Resolve a writable mdspan over the owned storage.
     /// \return Mutable mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() noexcept -> mdspan_type
+      requires immediately_writable
     {
       return mdspan_type(this->mutable_handle(), mapping_, this->accessor());
     }
@@ -338,17 +426,64 @@ class Tensor {
     /// \brief Resolve a read-only mdspan over the owned storage.
     /// \return Const mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+      requires immediately_readable
     {
       return const_mdspan_type(this->handle(), mapping_, this->accessor());
     }
 
+    /// \brief Return mutable mdspan metadata for explicit data-handle acquisition.
+    /// \details Immediate storage returns the ordinary mdspan. Descriptor-backed
+    ///          storage returns `mdspec` without acquiring its handle.
+    [[nodiscard]] auto mdspec() noexcept
+      requires(immediately_writable || deferred_writable)
+    {
+      if constexpr (immediately_writable)
+      {
+        return this->mdspan();
+      }
+      else
+      {
+        using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
+        using span_type =
+            uni20::mdspec<element_type, extents_type, layout_policy, device_accessor_type, descriptor_type>;
+        return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
+      }
+    }
+
+    /// \brief Return read-only mdspan metadata for explicit data-handle acquisition.
+    /// \details Immediate storage returns the ordinary const mdspan. Descriptor-backed
+    ///          storage returns `mdspec` without acquiring its handle.
+    [[nodiscard]] auto mdspec() const noexcept
+      requires(immediately_readable || deferred_readable)
+    {
+      if constexpr (immediately_readable)
+      {
+        return this->mdspan();
+      }
+      else
+      {
+        using descriptor_type = decltype(storage_policy::make_data_descriptor(data_));
+        using span_type =
+            uni20::mdspec<element_type const, extents_type, layout_policy, const_device_accessor_type, descriptor_type>;
+        return span_type{storage_policy::make_data_descriptor(data_), mapping_, this->device_accessor()};
+      }
+    }
+
     /// \brief Return the tensor's const storage handle.
     /// \return Handle addressing the beginning of the owned storage.
-    [[nodiscard]] auto handle() const noexcept -> handle_type { return storage_policy::make_handle(data_); }
+    [[nodiscard]] auto handle() const noexcept -> handle_type
+      requires immediately_readable
+    {
+      return storage_policy::make_handle(data_);
+    }
 
     /// \brief Return the tensor's mutable storage handle.
     /// \return Mutable handle addressing the beginning of the owned storage.
-    [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type { return storage_policy::make_handle(data_); }
+    [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type
+      requires immediately_writable
+    {
+      return storage_policy::make_handle(data_);
+    }
 
     /// \brief Return the tensor mapping.
     /// \return Mapping containing extents and strides.
@@ -375,6 +510,24 @@ class Tensor {
     [[nodiscard]] auto accessor() const noexcept -> const_accessor_type
     {
       return accessor_factory_.template make_accessor<element_type const>(data_);
+    }
+
+    /// \brief Construct the accessor stored in a mutable mdspec.
+    [[nodiscard]] auto device_accessor() noexcept -> device_accessor_type
+    {
+      if constexpr (requires { accessor_factory_.template make_device_accessor<element_type>(data_); })
+        return accessor_factory_.template make_device_accessor<element_type>(data_);
+      else
+        return this->accessor();
+    }
+
+    /// \brief Construct the accessor stored in a read-only mdspec.
+    [[nodiscard]] auto device_accessor() const noexcept -> const_device_accessor_type
+    {
+      if constexpr (requires { accessor_factory_.template make_device_accessor<element_type const>(data_); })
+        return accessor_factory_.template make_device_accessor<element_type const>(data_);
+      else
+        return this->accessor();
     }
 
     /// \brief Return the number of elements in the mapped storage span.
@@ -407,7 +560,7 @@ class Tensor {
 
     /// \brief Access a mutable tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires(sizeof...(Index) == extents_type::rank() && immediately_writable)
     decltype(auto) operator[](Index... indices) noexcept
     {
       return this->mdspan()[indices...];
@@ -415,7 +568,7 @@ class Tensor {
 
     /// \brief Access a const tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires(sizeof...(Index) == extents_type::rank() && immediately_readable)
     decltype(auto) operator[](Index... indices) const noexcept
     {
       return this->mdspan()[indices...];
@@ -425,6 +578,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Mutable element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) noexcept
+      requires immediately_writable
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
@@ -436,6 +590,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Const element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) const noexcept
+      requires immediately_readable
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
@@ -474,6 +629,20 @@ class Tensor {
     {
       auto const count = static_cast<std::size_t>(mapping.required_span_size());
       auto storage = Policy::template make_storage<element_type>(context, count);
+      return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+    }
+
+    template <class Placement>
+    static ctor_payload make_payload(Placement const& placement, mapping_type mapping,
+                                     accessor_factory_type accessor_factory)
+      requires requires(Placement const& required_placement, std::size_t count) {
+        {
+          storage_policy::template make_storage<element_type>(required_placement, count)
+        } -> std::same_as<storage_type>;
+      }
+    {
+      auto const count = static_cast<std::size_t>(mapping.required_span_size());
+      auto storage = storage_policy::template make_storage<element_type>(placement, count);
       return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
     }
 
@@ -571,8 +740,8 @@ inline constexpr bool
 ///          physical layout deduce the default column-major layout.
 template <TensorView InputTensor>
 Tensor(InputTensor const&)
-    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspan_t<InputTensor>::rank(), VectorStorage,
-              detail::materialized_layout_t<void, tensor_mdspan_t<InputTensor>>, DefaultAccessorFactory>;
+    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspec_t<InputTensor>::rank(), VectorStorage,
+              detail::materialized_layout_t<void, tensor_mdspec_t<InputTensor>>, DefaultAccessorFactory>;
 
 /// \brief Configurable owning tensor with an explicit mdspan extents type.
 /// \ingroup tensor

@@ -5,6 +5,9 @@ front-end operation semantics.
 
 ## Canonical Guides
 
+- [Mdspec](mdspec.md) defines the structural
+  `(data_descriptor, mapping, accessor)` representation, tensor-level view and
+  lease concepts, and the initial host/CUDA acquisition APIs.
 - [Tensor Operations](operations.md) defines ownership, mutation, return-value,
   materialization, and async-support contracts.
 - [Scalar Tensors, Host Scalars, and Storage Transfer](scalar_tensors_and_transfer.md)

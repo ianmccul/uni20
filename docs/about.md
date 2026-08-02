@@ -44,8 +44,9 @@ A synchronous dense tensor operation follows this path:
 ```text
 Tensor operation and output policy
   -> storage-derived backend selector
-  -> resolved mdspan operands
+  -> fixed operands normalized to mdspecs
   -> operation-value dispatch walk
+  -> selected backend acquires execution-domain access
   -> BLAS, LAPACK, or CPU-reference kernel
 ```
 
@@ -56,8 +57,10 @@ backend system:
 Async<Tensor> operands
   -> epoch enrollment and scheduled coroutine
   -> await tensor values and async scalar parameters
-  -> resolve mdspans and operation-specific output preparation
+  -> operation-specific output preparation
+  -> fixed operands normalized to mdspecs
   -> the same operation-tag backend dispatch walk
+  -> selected backend acquires execution-domain access
 ```
 
 For example, the implemented async matrix-product API can schedule an overwrite
@@ -85,8 +88,10 @@ auto const& result = output.get_wait(scheduler);
 ```
 
 The operation wrapper owns output construction and alias checks. The scheduler
-owns dependency ordering. Tensor storage selects the default backend list. Leaf
-kernels see resolved mdspans rather than Tensor or Async objects.
+owns dependency ordering. Tensor storage selects the default backend list.
+Backend operation entry points see normalized mdspecs, and their leaf kernels
+see mdspans resolved under the appropriate execution-domain leases rather than
+Tensor or Async objects.
 
 ## Examples That Exercise Real Paths
 

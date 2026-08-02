@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -18,11 +20,11 @@
 
 namespace uni20::linalg
 {
+namespace detail::cpu_reference
+{
 
-/// \brief Report compile-time eligibility for reference CPU matrix initialization.
-template <uni20::MutableRankedSpanLike<2> MatrixMdspan, uni20::Scalar Scalar>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op const&, MatrixMdspan&, Scalar const&,
-                                    Scalar const&)
+/// \brief Report compile-time eligibility for resolved CPU matrix initialization.
+template <uni20::MutableRankedMdspanLike<2> MatrixMdspan, uni20::Scalar Scalar> consteval auto matrix_set_acceptance()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   if constexpr (std::same_as<matrix_scalar, Scalar> &&
@@ -40,8 +42,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op co
 
 /// \brief Initialize a selected matrix region through its accessor semantics.
 template <class MatrixMdspan, class Scalar>
-KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMdspan&& matrix, Scalar diagonal,
-                         Scalar off_diagonal)
+KernelAttempt set_matrix(matrix_set_op const& op, MatrixMdspan& matrix, Scalar diagonal, Scalar off_diagonal)
 {
   using matrix_type = std::remove_cvref_t<MatrixMdspan>;
   using index_type = typename matrix_type::index_type;
@@ -70,6 +71,32 @@ KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMds
     }
   }
   return KernelAttempt::success;
+}
+} // namespace detail::cpu_reference
+
+/// \brief Report eligibility for host-accessible mdspec matrix initialization.
+template <uni20::MutableRankedMdspecLike<2> MatrixMdspan, uni20::Scalar Scalar>
+  requires uni20::HostWritableMdspec<MatrixMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_set_op const&, MatrixMdspan&, Scalar const&,
+                                    Scalar const&)
+{
+  using matrix_span = uni20::host_write_mdspan_t<MatrixMdspan>;
+  constexpr auto acceptance = detail::cpu_reference::matrix_set_acceptance<matrix_span, Scalar>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and initialize the matrix.
+template <uni20::MutableRankedMdspecLike<2> MatrixMdspan, uni20::Scalar Scalar>
+  requires uni20::HostWritableMdspec<MatrixMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, matrix_set_op const& op, MatrixMdspan& matrix, Scalar diagonal,
+                         Scalar off_diagonal)
+{
+  auto matrix_access = acquire_host_write_access_sync(matrix);
+  auto matrix_span = matrix_access.mdspan();
+  return detail::cpu_reference::set_matrix(op, matrix_span, diagonal, off_diagonal);
 }
 
 } // namespace uni20::linalg

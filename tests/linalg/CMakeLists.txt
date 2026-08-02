@@ -8,6 +8,7 @@ add_test_module(linalg
     test_async_truncated_svd.cpp
     test_async_tensor_reductions.cpp
     test_async_tensor_transform.cpp
+    test_cpu_tensor_dispatch.cpp
     test_cpu_strided_transform.cpp
     test_dispatch_diagnostics.cpp
     test_dense_ops_dispatch.cpp
@@ -39,12 +40,15 @@ if(UNI20_BACKEND_BLAS)
 endif()
 
 if(UNI20_ENABLE_MPLAPACK)
-  add_executable(uni20_linalg_mplapack_binary128_tests test_mplapack_binary128_cpu_ops.cpp)
+  add_executable(uni20_linalg_mplapack_binary128_tests
+    test_mplapack_binary128_cpu_ops.cpp
+    "${PROJECT_SOURCE_DIR}/tests/uni20_tests_main.cpp"
+  )
   target_link_libraries(uni20_linalg_mplapack_binary128_tests
     PRIVATE
       uni20_linalg
       mplapack::mplapack_binary128
-      GTest::gtest_main
+      GTest::gtest
   )
   target_compile_definitions(uni20_linalg_mplapack_binary128_tests PRIVATE UNIT_TEST)
   gtest_discover_tests(uni20_linalg_mplapack_binary128_tests)
@@ -54,5 +58,10 @@ if(TARGET uni20_backend_cuda)
   add_test_module(linalg_cuda
     SOURCES test_cuda_copy.cpp
     LIBS uni20_linalg uni20_async uni20_backend_cuda
+  )
+  target_sources(uni20_linalg_cuda_tests PRIVATE test_cuda_descriptor_compile.cu)
+  set_target_properties(uni20_linalg_cuda_tests PROPERTIES
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON
   )
 endif()

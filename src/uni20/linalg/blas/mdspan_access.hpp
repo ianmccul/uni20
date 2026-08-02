@@ -29,15 +29,22 @@ inline constexpr bool is_blas_direct_read_accessor_v =
     is_blas_direct_read_accessor<std::remove_cvref_t<Accessor>>::value;
 
 template <class Mdspan, std::size_t Rank>
-concept blas_readable_mdspan =
-    uni20::RankedStridedMdspan<Mdspan, Rank> &&
+concept blas_readable_mdspec =
+    uni20::RankedStridedMdspecLike<Mdspan, Rank> &&
     uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
     is_blas_direct_read_accessor_v<typename std::remove_cvref_t<Mdspan>::accessor_type>;
 
 template <class Mdspan, std::size_t Rank>
-concept blas_writable_mdspan =
-    uni20::MutableRankedStridedMdspan<Mdspan, Rank> &&
+concept blas_readable_mdspan = uni20::RankedStridedMdspanLike<Mdspan, Rank> && blas_readable_mdspec<Mdspan, Rank>;
+
+template <class Mdspan, std::size_t Rank>
+concept blas_writable_mdspec =
+    uni20::MutableRankedStridedMdspecLike<Mdspan, Rank> &&
     uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
-    uni20::DefaultAccessorMdspan<Mdspan>;
+    uni20::is_default_accessor_v<typename std::remove_cvref_t<Mdspan>::accessor_type>;
+
+template <class Mdspan, std::size_t Rank>
+concept blas_writable_mdspan =
+    uni20::MutableRankedStridedMdspanLike<Mdspan, Rank> && blas_writable_mdspec<Mdspan, Rank>;
 
 } // namespace uni20::linalg::blas::detail

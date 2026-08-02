@@ -22,7 +22,7 @@ namespace uni20
 template <TensorView Tensor> class ConstTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
-    using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
+    using storage_policy = tensor_storage_policy_t<tensor_type>;
     /// \brief Marks this descriptor as a structurally copied async alias.
     using async_alias_tag = void;
 
@@ -44,8 +44,16 @@ template <TensorView Tensor> class ConstTensorView {
     /// \brief Resolve the underlying tensor's read-only mdspan.
     [[nodiscard]] constexpr decltype(auto) mdspan() const
         noexcept(noexcept(std::declval<tensor_type const&>().mdspan()))
+      requires ImmediateTensorView<tensor_type>
     {
       return this->base().mdspan();
+    }
+
+    /// \brief Return the underlying tensor's read-only immediate or deferred metadata.
+    [[nodiscard]] constexpr decltype(auto) mdspec() const
+        noexcept(noexcept(mdspec_of(std::declval<tensor_type const&>())))
+    {
+      return mdspec_of(this->base());
     }
 
     /// \brief Return the underlying tensor extents.
@@ -69,14 +77,14 @@ template <TensorView Tensor> class ConstTensorView {
     tensor_type const* tensor_;
 };
 
-/// \brief Non-owning tensor view whose resolved mdspan presents conjugated values.
+/// \brief Non-owning tensor view whose immediate or deferred metadata presents conjugated values.
 /// \details The view preserves tensor metadata and backend selection while
 ///          delegating value transformation to `conjugated_accessor`. It is
 ///          read-only and may not outlive the referenced tensor.
 template <TensorView Tensor> class ConjugatedTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
-    using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
+    using storage_policy = tensor_storage_policy_t<tensor_type>;
     /// \brief Marks this descriptor as a structurally copied async alias.
     using async_alias_tag = void;
 
@@ -98,8 +106,16 @@ template <TensorView Tensor> class ConjugatedTensorView {
     /// \brief Resolve the conjugating mdspan view.
     [[nodiscard]] constexpr auto mdspan() const
         noexcept(noexcept(uni20::conj(std::declval<tensor_type const&>().mdspan())))
+      requires ImmediateTensorView<tensor_type>
     {
       return uni20::conj(this->base().mdspan());
+    }
+
+    /// \brief Return conjugated immediate or deferred multidimensional metadata.
+    [[nodiscard]] constexpr auto mdspec() const
+        noexcept(noexcept(uni20::conj(mdspec_of(std::declval<tensor_type const&>()))))
+    {
+      return uni20::conj(mdspec_of(this->base()));
     }
 
     /// \brief Return the underlying tensor extents.

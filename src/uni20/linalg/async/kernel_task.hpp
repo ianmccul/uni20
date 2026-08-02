@@ -19,11 +19,13 @@ namespace uni20::linalg
 {
 
 /// \brief Runtime backend attempt optionally carrying a deferred kernel task.
-/// \details A decline carries no task and must satisfy the ordinary clean-decline
-///          contract. Success without a task represents an operation that is
-///          already complete, such as an empty output. Success with a task
-///          commits the backend once that task is awaited; later failures are
-///          terminal exceptions rather than backend declines.
+/// \details A decline carries no task and must satisfy the ordinary
+///          clean-decline contract, including its allowance for provisional
+///          preparation of operation-declared replaceable outputs. Success
+///          without a task represents an operation that is already complete,
+///          such as an empty output. Success with a task commits the backend
+///          once that task is awaited; later failures are terminal exceptions
+///          rather than backend declines.
 template <class Task>
   requires std::derived_from<Task, async::BasicTask>
 class KernelTaskAttempt {

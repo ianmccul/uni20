@@ -12,9 +12,11 @@
  * \brief Additional concepts, adaptors, and helpers that extend the reference mdspan implementation.
  */
 
+#include <uni20/core/compiler_attributes.hpp>
+#include <uni20/mdspan/mdspan.hpp>
+
 #include <concepts>
 #include <type_traits>
-#include <uni20/mdspan/mdspan.hpp>
 #include <utility>
 
 namespace uni20
@@ -67,6 +69,45 @@ concept AccessorPolicy = requires {
   { a.access(dh, off) } -> std::same_as<typename AP::reference>;
 };
 
+/// \brief Execution domain in which ordinary host code may evaluate an accessor.
+struct host_access_domain
+{};
+
+/// \brief Execution domain in which CUDA device code may evaluate an accessor.
+struct cuda_access_domain
+{};
+
+/// \brief Opt-in customization for the execution domains supported by an accessor.
+/// \details Specializations must describe where `access(...)` may be evaluated,
+///          independently of whether `data_handle_type` is pointer-shaped.
+/// \tparam Accessor Accessor policy being classified.
+/// \tparam Domain Execution-domain tag.
+template <class Accessor, class Domain> inline constexpr bool enable_accessor_in_domain = false;
+
+/// \brief Standard mdspan accessors are directly host-accessible.
+template <class ElementType>
+inline constexpr bool enable_accessor_in_domain<stdex::default_accessor<ElementType>, host_access_domain> = true;
+
+/// \concept AccessorInDomain
+/// \brief Accessor policy explicitly valid in one execution domain.
+/// \tparam Accessor Accessor policy being tested.
+/// \tparam Domain Execution-domain tag.
+template <class Accessor, class Domain>
+concept AccessorInDomain = AccessorPolicy<std::remove_cvref_t<Accessor>> &&
+                           enable_accessor_in_domain<std::remove_cvref_t<Accessor>, std::remove_cvref_t<Domain>>;
+
+/// \concept HostAccessibleAccessor
+/// \brief Accessor policy that may be evaluated directly by host code.
+/// \tparam Accessor Accessor policy being tested.
+template <class Accessor>
+concept HostAccessibleAccessor = AccessorInDomain<Accessor, host_access_domain>;
+
+/// \concept CudaAccessibleAccessor
+/// \brief Accessor policy that may be evaluated directly by CUDA device code.
+/// \tparam Accessor Accessor policy being tested.
+template <class Accessor>
+concept CudaAccessibleAccessor = AccessorInDomain<Accessor, cuda_access_domain>;
+
 /// \brief Adaptor that exposes a mutable lvalue accessor as read-only.
 /// \details Example: to turn a mutable accessor returning \c T& into a read-only
 ///          accessor returning \c T const&, use
@@ -85,15 +126,26 @@ class const_accessor_adaptor {
     using offset_policy = const_accessor_adaptor;
     using offset_type = span_offset_t<Accessor>;
 
-    const_accessor_adaptor(Accessor const& to_be_wrapped) : wrapped_{to_be_wrapped} {}
+    UNI20_HOST_DEVICE constexpr const_accessor_adaptor(Accessor const& to_be_wrapped) : wrapped_{to_be_wrapped} {}
 
-    constexpr reference access(data_handle_type p, offset_type i) const { return wrapped_.access(p, i); }
+    UNI20_HOST_DEVICE constexpr reference access(data_handle_type p, offset_type i) const
+    {
+      return wrapped_.access(p, i);
+    }
 
-    constexpr data_handle_type offset(data_handle_type p, offset_type i) const { return wrapped_.offset(p, i); }
+    UNI20_HOST_DEVICE constexpr data_handle_type offset(data_handle_type p, offset_type i) const
+    {
+      return wrapped_.offset(p, i);
+    }
 
   private:
     Accessor wrapped_;
 };
+
+/// \brief A const accessor adaptor preserves its wrapped accessor's execution domains.
+template <class Accessor, class Domain>
+inline constexpr bool enable_accessor_in_domain<const_accessor_adaptor<Accessor>, Domain> =
+    enable_accessor_in_domain<Accessor, Domain>;
 
 //
 // const_accessor overloads: build a read-only accessor from a mutable one.
@@ -128,15 +180,6 @@ template <class ElementType> struct is_default_accessor<stdex::default_accessor<
 /// \ingroup mdspan_ext
 template <class Accessor>
 inline constexpr bool is_default_accessor_v = is_default_accessor<std::remove_cvref_t<Accessor>>::value;
-
-/// \brief Opt-in for accessors whose storage is writable only after backend lowering.
-/// \details Ordinary accessors prove mutability through indexed assignment.
-///          Specialize this variable for an accessor that represents writable
-///          storage but intentionally exposes no host-side assignment operator,
-///          such as an opaque CUDA device-memory descriptor.
-/// \tparam Accessor Candidate accessor policy.
-/// \ingroup mdspan_ext
-template <class Accessor> inline constexpr bool enable_backend_writable_accessor = false;
 
 // /// \brief const_accessor on const_default_accessor yields itself.
 // template <typename T> constexpr default_accessor<T const> const_accessor(default_accessor<T const> const&)
@@ -198,7 +241,7 @@ template <class S, std::size_t... Axis> consteval bool span_has_ranked_assignmen
 }
 
 template <class S>
-concept SpanDescriptor =
+concept SpanMetadata =
     requires(span_type_t<S> const& span, std::size_t axis) {
       typename span_type_t<S>::element_type;
       typename span_type_t<S>::value_type;
@@ -214,7 +257,6 @@ concept SpanDescriptor =
       { span.extents() } -> std::convertible_to<typename span_type_t<S>::extents_type>;
       { span.extent(axis) } -> std::convertible_to<typename span_type_t<S>::index_type>;
       { span.mapping() } -> std::convertible_to<typename span_type_t<S>::mapping_type>;
-      { span.data_handle() } -> std::convertible_to<typename span_type_t<S>::data_handle_type>;
       { span.accessor() } -> std::convertible_to<typename span_type_t<S>::accessor_type>;
     } && std::same_as<typename span_type_t<S>::value_type, std::remove_cv_t<typename span_type_t<S>::element_type>> &&
     std::same_as<typename span_type_t<S>::index_type, typename span_type_t<S>::extents_type::index_type> &&
@@ -224,27 +266,80 @@ concept SpanDescriptor =
     std::same_as<typename span_type_t<S>::reference, typename span_type_t<S>::accessor_type::reference> &&
     (span_type_t<S>::rank() == span_type_t<S>::extents_type::rank());
 
+template <class S>
+concept SpanDescriptor = SpanMetadata<S> && requires(span_type_t<S> const& span) {
+  { span.data_handle() } -> std::convertible_to<typename span_type_t<S>::data_handle_type>;
+};
+
+template <class S>
+concept MdspecDescriptor = SpanMetadata<S> && requires(span_type_t<S> const& span) {
+  typename span_type_t<S>::data_descriptor_type;
+  { span.data_descriptor() } -> std::convertible_to<typename span_type_t<S>::data_descriptor_type const&>;
+};
+
 } // namespace detail
 
-/// \concept SpanLike
+/// \concept MdspanLike
 /// \brief A readable type implementing the mdspan observers and multidimensional subscript contract.
 /// \details In addition to the standard mdspan descriptor aliases, a model
 ///          exposes its static rank, extents, mapping, accessor, data handle,
 ///          and an `operator[]` accepting one index per rank whose result is
 ///          exactly `reference`.
-/// \tparam S The type being tested for SpanLike requirements.
+/// \tparam S The type being tested for MdspanLike requirements.
 /// \ingroup mdspan_ext
 template <class S>
-concept SpanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
-                   detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
+concept MdspanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
+                     detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
+
+/// \concept MdspecLike
+/// \brief Mdspan metadata whose data handle is immediate or available through a data descriptor.
+/// \details Ordinary `MdspanLike` values model this concept as the immediate case.
+///          A deferred model instead exposes `data_descriptor_type` and
+///          `data_descriptor()` while retaining the actual mapping and accessor
+///          that will be used after handle acquisition. The concept does not
+///          require the concrete `mdspec` class.
+/// \tparam S The type being tested for mdspec requirements.
+/// \ingroup mdspan_ext
+template <class S>
+concept MdspecLike =
+    MdspanLike<S> || (detail::MdspecDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type>);
+
+/// \concept HostAccessibleMdspan
+/// \brief Mdspan whose accessor may be evaluated directly by host code.
+/// \tparam S Mdspan-like type being tested.
+template <class S>
+concept HostAccessibleMdspan = MdspanLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
+
+/// \concept CudaAccessibleMdspan
+/// \brief Mdspan whose accessor may be evaluated directly by CUDA device code.
+/// \tparam S Mdspan-like type being tested.
+template <class S>
+concept CudaAccessibleMdspan = MdspanLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
+
+/// \concept HostAccessibleMdspec
+/// \brief Immediate or descriptor-backed mdspan metadata targeting host access.
+/// \tparam S Mdspec-like type being tested.
+template <class S>
+concept HostAccessibleMdspec = MdspecLike<S> && HostAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
+
+/// \concept CudaAccessibleMdspec
+/// \brief Immediate or descriptor-backed mdspan metadata targeting CUDA access.
+/// \tparam S Mdspec-like type being tested.
+template <class S>
+concept CudaAccessibleMdspec = MdspecLike<S> && CudaAccessibleAccessor<typename detail::span_type_t<S>::accessor_type>;
 
 namespace detail
 {
 
 template <class Span, class... Index>
-concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Span>::rank()) &&
+concept MdspanIndexPack = MdspanLike<Span> && (sizeof...(Index) == span_type_t<Span>::rank()) &&
                           (std::is_convertible_v<Index, typename span_type_t<Span>::index_type> && ...) &&
                           (std::is_nothrow_constructible_v<typename span_type_t<Span>::index_type, Index> && ...);
+
+template <class Accessor>
+concept AccessorReferenceAssignable =
+    requires(Accessor const& accessor, typename Accessor::data_handle_type handle, span_offset_t<Accessor> offset,
+             std::remove_const_t<typename Accessor::element_type> value) { accessor.access(handle, offset) = value; };
 
 } // namespace detail
 
@@ -258,7 +353,7 @@ concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Spa
 /// \param indices Coordinates for every mdspan axis.
 /// \return The reference or calculated value produced by the read-only accessor.
 /// \ingroup mdspan_ext
-template <SpanLike Span, class... Index>
+template <MdspanLike Span, class... Index>
   requires detail::MdspanIndexPack<Span, Index...>
 constexpr decltype(auto) const_access(Span const& span, Index... indices)
 {
@@ -267,84 +362,161 @@ constexpr decltype(auto) const_access(Span const& span, Index... indices)
   return accessor.access(span.data_handle(), span.mapping()(static_cast<index_type>(std::move(indices))...));
 }
 
-/// \concept MutableSpanLike
-/// \brief SpanLike types whose storage supports indexed or backend-mediated writes.
-/// \details Ordinary accessors satisfy this concept through indexed assignment.
-///          Opaque device accessors may opt in through
-///          `enable_backend_writable_accessor` while keeping host-side element
-///          access unavailable.
+/// \brief Build a read-only mdspan descriptor over the same storage and mapping.
+/// \details The accessor is adapted with `const_accessor`, preserving its state
+///          and execution-domain classifications without copying or transferring
+///          the underlying elements.
+/// \tparam Span Immediate mdspan-like descriptor type.
+/// \param span Descriptor whose handle, mapping, and accessor are retained.
+/// \return A read-only mdspan descriptor over the same elements.
+template <MdspanLike Span> [[nodiscard]] constexpr auto make_const_mdspan(Span const& span)
+{
+  auto accessor = const_accessor(span.accessor());
+  using accessor_type = decltype(accessor);
+  using span_type = std::remove_cvref_t<Span>;
+  using const_mdspan_type = stdex::mdspan<typename accessor_type::element_type, typename span_type::extents_type,
+                                          typename span_type::layout_type, accessor_type>;
+  return const_mdspan_type{span.data_handle(), span.mapping(), std::move(accessor)};
+}
+
+/// \concept MutableMdspanLike
+/// \brief MdspanLike types whose accessor supports indexed assignment.
 /// \tparam S The type being evaluated for mutable access.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableSpanLike =
-    SpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
-    (detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{}) ||
-     enable_backend_writable_accessor<typename detail::span_type_t<S>::accessor_type>);
+concept MutableMdspanLike =
+    MdspanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+    detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
 
-/// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.
+/// \concept MutableMdspecLike
+/// \brief MdspecLike types whose eventual storage supports writes.
+/// \details Immediate spans use `MutableMdspanLike`. Deferred spans use the same
+///          accessor-reference assignment that will govern the resolved span.
+/// \tparam S The mdspec-like type being evaluated.
+/// \ingroup mdspan_ext
+template <class S>
+concept MutableMdspecLike =
+    MdspecLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
+    (MutableMdspanLike<S> || detail::AccessorReferenceAssignable<typename detail::span_type_t<S>::accessor_type>);
+
+/// \brief An mdspan-like type whose mapping is always strided and exposes stride observers.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept StridedMdspan = SpanLike<MDS> && detail::span_type_t<MDS>::is_always_strided() &&
-                        requires(detail::span_type_t<MDS> const& span, std::size_t axis) {
-                          { span.stride(axis) } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
-                          {
-                            span.mapping().stride(axis)
-                          } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
-                        };
+concept StridedMdspanLike = MdspanLike<MDS> && detail::span_type_t<MDS>::is_always_strided() &&
+                            requires(detail::span_type_t<MDS> const& span, std::size_t axis) {
+                              {
+                                span.stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
+                              {
+                                span.mapping().stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<MDS>::index_type>;
+                            };
 
-/// \concept MutableStridedMdspan
-/// \brief Mutable span-like types whose layout reports they are always strided.
+/// \concept MutableStridedMdspanLike
+/// \brief Mutable mdspan-like types whose layout reports they are always strided.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept MutableStridedMdspan = MutableSpanLike<MDS> && StridedMdspan<MDS>;
+concept MutableStridedMdspanLike = MutableMdspanLike<MDS> && StridedMdspanLike<MDS>;
+
+/// \brief An mdspec-like type whose mapping exposes multidimensional strides.
+/// \tparam S The mdspec-like type under test.
+/// \ingroup mdspan_ext
+template <class S>
+concept StridedMdspecLike = MdspecLike<S> && detail::span_type_t<S>::is_always_strided() &&
+                            requires(detail::span_type_t<S> const& span, std::size_t axis) {
+                              { span.stride(axis) } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                              {
+                                span.mapping().stride(axis)
+                              } -> std::convertible_to<typename detail::span_type_t<S>::index_type>;
+                            };
+
+/// \concept MutableStridedMdspecLike
+/// \brief Mutable mdspec-like type whose mapping is always strided.
+/// \tparam S The mdspec-like type under test.
+/// \ingroup mdspan_ext
+template <class S>
+concept MutableStridedMdspecLike = MutableMdspecLike<S> && StridedMdspecLike<S>;
 
 /// \brief An mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept RankedSpanLike = SpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept RankedMdspanLike = MdspanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+
+/// \brief An mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept RankedMdspecLike = MdspecLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
+
+/// \concept MutableRankedMdspecLike
+/// \brief Mutable mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept MutableRankedMdspecLike = MutableMdspecLike<S> && RankedMdspecLike<S, Rank>;
 
 /// \brief A mutable mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept MutableRankedSpanLike = MutableSpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept MutableRankedMdspanLike =
+    MutableMdspanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
 
 /// \brief An mdspan-like type whose accessor is `stdex::default_accessor`.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
-concept DefaultAccessorMdspan =
-    SpanLike<std::remove_cvref_t<MDS>> && is_default_accessor_v<typename std::remove_cvref_t<MDS>::accessor_type>;
+concept DefaultAccessorMdspanLike =
+    MdspanLike<std::remove_cvref_t<MDS>> && is_default_accessor_v<typename std::remove_cvref_t<MDS>::accessor_type>;
 
 /// \brief A strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept RankedStridedMdspan = RankedSpanLike<MDS, Rank> && StridedMdspan<std::remove_cvref_t<MDS>>;
+concept RankedStridedMdspanLike = RankedMdspanLike<MDS, Rank> && StridedMdspanLike<std::remove_cvref_t<MDS>>;
+
+/// \brief A strided mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept RankedStridedMdspecLike = RankedMdspecLike<S, Rank> && StridedMdspecLike<std::remove_cvref_t<S>>;
+
+/// \concept MutableRankedStridedMdspecLike
+/// \brief Mutable strided mdspec-like type with a specified static rank.
+/// \tparam S The mdspec-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class S, std::size_t Rank>
+concept MutableRankedStridedMdspecLike =
+    MutableRankedMdspecLike<S, Rank> && MutableStridedMdspecLike<std::remove_cvref_t<S>>;
 
 /// \brief A mutable strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept MutableRankedStridedMdspan = MutableRankedSpanLike<MDS, Rank> && MutableStridedMdspan<std::remove_cvref_t<MDS>>;
+concept MutableRankedStridedMdspanLike =
+    MutableRankedMdspanLike<MDS, Rank> && MutableStridedMdspanLike<std::remove_cvref_t<MDS>>;
 
 namespace detail
 {
 
 /// \brief Helper that materializes strides from the layout mapping.
-/// \tparam S The strided mdspan-like type.
+/// \tparam S The strided mdspec-like type.
 /// \tparam I Index sequence selecting the stride positions.
-/// \param s The mdspan instance whose strides will be computed.
+/// \param s The multidimensional descriptor whose strides will be computed.
 /// \return An array containing strides for each dimension in \c S.
 /// \ingroup internal
-template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
+template <StridedMdspecLike S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
 {
   using index_type = typename S::index_type;
   // fold the pack I... into an array by calling s.mapping().stride(I) for each I
@@ -353,12 +525,12 @@ template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, 
 
 } // namespace detail
 
-/// \brief Retrieve the strides associated with a strided mdspan-like type.
-/// \tparam S The strided mdspan-like type.
-/// \param s The mdspan instance whose strides will be returned.
+/// \brief Retrieve the strides associated with a strided mdspec-like type.
+/// \tparam S The strided mdspec-like type.
+/// \param s The multidimensional descriptor whose strides will be returned.
 /// \return A std::array containing the strides for each rank.
 /// \ingroup mdspan_ext
-template <StridedMdspan S> auto strides(S const& s)
+template <StridedMdspecLike S> auto strides(S const& s)
 {
   return detail::strides_impl(s, std::make_index_sequence<S::rank()>{});
 }

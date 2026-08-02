@@ -13,8 +13,8 @@ later:
 
 - any number of reads may overlap;
 - a write cannot overlap another write or any read;
-- a buffer cannot be moved, destroyed, or synchronized while an access object
-  refers to it;
+- a buffer cannot be moved, destroyed, or synchronized while a borrowed access
+  object refers to it;
 - releasing access submits a completion marker; it does not wait for the GPU.
 
 `CudaBuffer<T>` keeps a completion ledger behind this value-like API. A
@@ -59,16 +59,16 @@ uni20::CudaTensor<float, 2> matrix(32, 48);
 ```
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
-metadata. Its mdspan data handle is a non-owning
-`cuda::CudaBufferView<float>` containing buffer identity and an element offset.
-Mdspan indexing computes another view offset; it does not dereference device
-memory, perform a transfer, acquire a stream, or wait.
+metadata. Its unresolved mdspec contains a non-owning
+`cuda::CudaBufferView<float>` descriptor with buffer identity and an element
+offset; it provides no indexed access. A CUDA operation must lower the view
+through `read_synchronized_with(stream)` or
+`write_synchronized_with(stream)` before a leaf backend receives a raw pointer.
 
-The non-const CUDA accessor opts into backend-mediated writes so the owning
-Tensor can satisfy mutable Tensor output concepts. Its opaque reference remains
-non-assignable on the host. A CUDA operation must lower the view through
-`read_synchronized_with(stream)` or `write_synchronized_with(stream)` before a
-leaf backend receives a raw pointer.
+The resolved `CudaPointerAccessor<T>` uses `T*` as its data handle and `T&` as
+its reference type. Its indexed access follows ordinary mdspan semantics, but
+must be evaluated only in an execution domain where that CUDA pointer is
+directly accessible.
 
 For GEMM this lowering is reached through the Async Tensor API:
 
@@ -113,6 +113,26 @@ launch_read_only_kernel(input.data(), input.size(), stream.native_handle());
 Keep an access object alive until every operation using its pointer has been
 submitted to that object's stream. Do not retain the pointer after releasing
 the access.
+
+## Consuming Read Access
+
+Code that owns a buffer may consume it into a distinct read-access state:
+
+```cpp
+auto access = std::move(values).into_read_synchronized_with(stream);
+launch_read_only_kernel(access.data(), 1024, stream.native_handle());
+```
+
+`OwningReadAccess<T>` stores the moved `CudaBuffer<T>` directly. Unlike
+`ReadAccess<T>`, it has no back-pointer to a separately owned buffer and remains
+valid when the access state itself moves. Its `release()` or destruction
+publishes the stream-ordered read completion, waits for outstanding work that
+still uses the allocation, and then frees the owned allocation.
+
+`std::move(values).into_blocking_read_access()` provides the corresponding
+host-synchronized form. It waits for the prior writer before exposing the
+pointer. Both forms require exclusive ownership transfer: an ordinary borrowed
+access guard must not be live when the buffer is consumed.
 
 ## Several Operands
 

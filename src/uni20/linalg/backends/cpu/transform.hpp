@@ -11,11 +11,14 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -33,8 +36,8 @@ template <class Mdspan> consteval bool transform_value_is_readable()
 template <class OutputMdspan, class Function, class... InputMdspans> consteval bool overwrite_transform_is_supported()
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (!uni20::MutableSpanLike<output_type> || sizeof...(InputMdspans) == 0 ||
-                (!(uni20::SpanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
+  if constexpr (!uni20::MutableMdspanLike<output_type> || sizeof...(InputMdspans) == 0 ||
+                (!(uni20::MdspanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<InputMdspans>::rank()) && ...))
   {
     return false;
@@ -42,18 +45,19 @@ template <class OutputMdspan, class Function, class... InputMdspans> consteval b
   else
   {
     return (transform_value_is_readable<InputMdspans>() && ...) &&
-           std::invocable<Function const&, typename std::remove_cvref_t<InputMdspans>::value_type...> &&
-           requires(typename output_type::reference output, Function const& function) {
-             output = std::invoke(function, std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
-           };
+           std::invocable<Function const&, typename std::remove_cvref_t<InputMdspans>::value_type...>&&
+             requires(typename output_type::reference output, Function const& function)
+    {
+      output = std::invoke(function, std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
+    };
   }
 }
 
 template <class OutputMdspan, class Function, class... InputMdspans> consteval bool update_transform_is_supported()
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (!uni20::MutableSpanLike<output_type> ||
-                (!(uni20::SpanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
+  if constexpr (!uni20::MutableMdspanLike<output_type> ||
+                (!(uni20::MdspanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<InputMdspans>::rank()) && ...))
   {
     return false;
@@ -62,11 +66,12 @@ template <class OutputMdspan, class Function, class... InputMdspans> consteval b
   {
     return transform_value_is_readable<OutputMdspan>() && (transform_value_is_readable<InputMdspans>() && ...) &&
            std::invocable<Function const&, typename output_type::value_type,
-                          typename std::remove_cvref_t<InputMdspans>::value_type...> &&
-           requires(typename output_type::reference output, Function const& function) {
-             output = std::invoke(function, std::declval<typename output_type::value_type>(),
-                                  std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
-           };
+                          typename std::remove_cvref_t<InputMdspans>::value_type...>&&
+             requires(typename output_type::reference output, Function const& function)
+    {
+      output = std::invoke(function, std::declval<typename output_type::value_type>(),
+                           std::declval<typename std::remove_cvref_t<InputMdspans>::value_type>()...);
+    };
   }
 }
 
@@ -138,8 +143,8 @@ template <bool ReadsOutput, class Operation, class OutputMdspan, class... InputM
 void reference_transform(Operation const& operation, OutputMdspan& output, InputMdspans&... inputs)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (uni20::MutableStridedMdspan<output_type> &&
-                (uni20::StridedMdspan<std::remove_cvref_t<InputMdspans>> && ...))
+  if constexpr (uni20::MutableStridedMdspanLike<output_type> &&
+                (uni20::StridedMdspanLike<std::remove_cvref_t<InputMdspans>> && ...))
   {
     if constexpr (ReadsOutput)
     {
@@ -167,48 +172,68 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
 
 } // namespace detail
 
-/// \brief Report compile-time eligibility for reference CPU overwrite transforms.
-template <class Function, uni20::MutableSpanLike OutputMdspan, uni20::SpanLike... InputMdspans>
+/// \brief Report eligibility for host-accessible mdspec overwrite transforms.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
-  if constexpr (detail::overwrite_transform_is_supported<OutputMdspan, Function, InputMdspans...>())
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  if constexpr (detail::overwrite_transform_is_supported<output_span, Function,
+                                                         uni20::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Apply a generic accessor-respecting elementwise overwrite transform.
-/// \pre Output and inputs have equal extents and output does not overlap an input.
-template <class Function, class OutputMdspan, class... InputMdspans>
-KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan&& output,
-                         InputMdspans&&... inputs)
+/// \brief Resolve host access and apply an overwrite transform.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend, transform_op<Function> const& operation, OutputMdspan& output,
+                         InputMdspans&... inputs)
 {
-  detail::check_transform_extents(output, inputs...);
-  detail::reference_transform<false>(operation, output, inputs...);
-  return KernelAttempt::success;
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_accesses = std::tuple{acquire_host_read_access_sync(inputs)...};
+  return std::apply(
+      [&](auto&... input_access) {
+        auto output_span = output_access.mdspan();
+        detail::check_transform_extents(output_span, input_access.mdspan()...);
+        detail::reference_transform<false>(operation, output_span, input_access.mdspan()...);
+        return KernelAttempt::success;
+      },
+      input_accesses);
 }
 
-/// \brief Report compile-time eligibility for reference CPU update transforms.
-template <class Function, uni20::MutableSpanLike OutputMdspan, uni20::SpanLike... InputMdspans>
+/// \brief Report eligibility for host-accessible mdspec update transforms.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
 consteval auto kernel_accepts_types(CpuReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspan&,
                                     InputMdspans&...)
 {
-  if constexpr (detail::update_transform_is_supported<OutputMdspan, Function, InputMdspans...>())
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  if constexpr (detail::update_transform_is_supported<output_span, Function,
+                                                      uni20::host_read_mdspan_t<InputMdspans>...>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Apply a generic accessor-respecting elementwise update transform.
-/// \pre Output and inputs have equal extents and output does not overlap an input.
-template <class Function, class OutputMdspan, class... InputMdspans>
-KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan&& output,
-                         InputMdspans&&... inputs)
+/// \brief Resolve host access and apply an update transform.
+template <class Function, uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike... InputMdspans>
+  requires uni20::HostWritableMdspec<OutputMdspan> && (uni20::HostReadableMdspec<InputMdspans> && ...)
+KernelAttempt try_kernel(CpuReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspan& output,
+                         InputMdspans&... inputs)
 {
-  detail::check_transform_extents(output, inputs...);
-  detail::reference_transform<true>(operation, output, inputs...);
-  return KernelAttempt::success;
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_accesses = std::tuple{acquire_host_read_access_sync(inputs)...};
+  return std::apply(
+      [&](auto&... input_access) {
+        auto output_span = output_access.mdspan();
+        detail::check_transform_extents(output_span, input_access.mdspan()...);
+        detail::reference_transform<true>(operation, output_span, input_access.mdspan()...);
+        return KernelAttempt::success;
+      },
+      input_accesses);
 }
 
 } // namespace uni20::linalg

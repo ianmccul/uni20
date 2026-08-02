@@ -15,7 +15,8 @@ implemented under `src/uni20/async/`.
   capability caching.
 - `buffer.hpp`: typed move-only device allocations and scoped read/write access
   guards. Each buffer owns its completion ledger and briefly locks only that
-  ledger when publishing access completions.
+  ledger when publishing access completions. A consumed buffer may instead be
+  moved directly into an `OwningReadAccess` state.
 - `runtime.hpp`: scoped process-wide CUDA initialization, canonical per-device
   resources, device guards, reference-counted stream-pool leases, immutable
   completion tokens, and device-local idle-stream pools. Device resources also
@@ -27,8 +28,9 @@ implemented under `src/uni20/async/`.
   individual CUDA awaiter types.
 - `CMakeLists.txt`: CUDA backend target setup.
 
-The Tensor-facing `CudaStorage` policy and opaque `CudaBufferView` mdspan
-handle live in [`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
+The Tensor-facing `CudaStorage` policy, deferred `CudaBufferView` descriptor,
+and eventual pointer accessor live in
+[`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
 
 ## Notes
 
@@ -67,6 +69,12 @@ handle live in [`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
   unfinished prior device accesses. Live guard tokens reject host-side
   read/write overlap that would be invalid for an ordinary mutable value. They
   diagnose incorrect ordering rather than queueing or suspending the caller.
+- An owning rvalue read may use
+  `std::move(buffer).into_read_synchronized_with(stream)` or
+  `std::move(buffer).into_blocking_read_access()`. The resulting
+  `OwningReadAccess<T>` contains the buffer itself rather than pointing back to
+  another owner, so the access state remains valid when moved into a Tensor
+  lease.
 - Pageable host transfers use `buffer.blocking_read_access()` and
   `buffer.blocking_write_access()`. These guards host-wait for the current
   completion ledger, expose the device pointer only for a synchronous CUDA

@@ -6,12 +6,13 @@
  * \brief Additional layout helpers and policies for zipped mdspan views.
  */
 
-#include <uni20/common/trace.hpp>
+#include <uni20/core/compiler_attributes.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <initializer_list>
 #include <tuple>
@@ -95,7 +96,7 @@ template <typename FirstSpan, typename... OtherSpans> struct common_extents
       // Construct the extents object. All of the extents of each span must agree.
       type ext{first.extent(Is)...};
 
-      auto do_check = [&](auto const& sp) { CHECK_EQUAL(ext, sp.extents()); };
+      auto do_check = [&](auto const& sp) { assert(ext == sp.extents()); };
 
       (do_check(otherspans), ...);
 
@@ -103,7 +104,8 @@ template <typename FirstSpan, typename... OtherSpans> struct common_extents
     }
 
   public:
-    /// Runtime-checked factory
+    /// Factory for spans with matching extents.
+    /// \pre Every span has the same extents as the first span.
     static type make(FirstSpan const& firstspan, OtherSpans const&... otherspans)
     {
       return make_impl(std::make_index_sequence<R>{}, firstspan, otherspans...);
@@ -131,21 +133,23 @@ namespace detail
 {
 
 template <typename T, std::size_t N1, std::size_t N2, std::size_t... I, std::size_t... J>
-constexpr std::array<T, N1 + N2> concat_impl(const std::array<T, N1>& a1, const std::array<T, N2>& a2,
-                                             std::index_sequence<I...>, std::index_sequence<J...>)
+UNI20_HOST_DEVICE constexpr std::array<T, N1 + N2> concat_impl(const std::array<T, N1>& a1, const std::array<T, N2>& a2,
+                                                               std::index_sequence<I...>, std::index_sequence<J...>)
 {
   // pack-expand a1[I]..., then a2[J]...
   return {{a1[I]..., a2[J]...}};
 }
 
 template <typename T, std::size_t N, std::size_t... I>
-constexpr std::array<T, N + 1> concat_impl(const std::array<T, N>& a, const T& x, std::index_sequence<I...>)
+UNI20_HOST_DEVICE constexpr std::array<T, N + 1> concat_impl(const std::array<T, N>& a, const T& x,
+                                                             std::index_sequence<I...>)
 {
   return {{a[I]..., x}};
 }
 
 template <typename T, std::size_t N, std::size_t... I>
-constexpr std::array<T, N + 1> concat_impl(const T& x, const std::array<T, N>& a, std::index_sequence<I...>)
+UNI20_HOST_DEVICE constexpr std::array<T, N + 1> concat_impl(const T& x, const std::array<T, N>& a,
+                                                             std::index_sequence<I...>)
 {
   return {{x, a[I]...}};
 }
@@ -161,7 +165,7 @@ constexpr std::array<T, N + 1> concat_impl(const T& x, const std::array<T, N>& a
 /// \return Array containing the elements of \p a1 followed by \p a2.
 /// \ingroup internal
 template <typename T, std::size_t N1, std::size_t N2>
-constexpr std::array<T, N1 + N2> concat(const std::array<T, N1>& a1, const std::array<T, N2>& a2)
+UNI20_HOST_DEVICE constexpr std::array<T, N1 + N2> concat(const std::array<T, N1>& a1, const std::array<T, N2>& a2)
 {
   return detail::concat_impl(a1, a2, std::make_index_sequence<N1>{}, std::make_index_sequence<N2>{});
 }
@@ -173,7 +177,8 @@ constexpr std::array<T, N1 + N2> concat(const std::array<T, N1>& a1, const std::
 /// \param a  Array whose contents follow \p x.
 /// \return Array with \p x prepended.
 /// \ingroup internal
-template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const T& x, const std::array<T, N>& a)
+template <typename T, std::size_t N>
+UNI20_HOST_DEVICE constexpr std::array<T, N + 1> concat(const T& x, const std::array<T, N>& a)
 {
   return detail::concat_impl(x, a, std::make_index_sequence<N>{});
 }
@@ -185,13 +190,27 @@ template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const
 /// \param x  Element appended at the end.
 /// \return Array with \p x appended.
 /// \ingroup internal
-template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const std::array<T, N>& a, const T& x)
+template <typename T, std::size_t N>
+UNI20_HOST_DEVICE constexpr std::array<T, N + 1> concat(const std::array<T, N>& a, const T& x)
 {
   return detail::concat_impl(a, x, std::make_index_sequence<N>{});
 }
 
 namespace detail
 {
+
+template <typename IndexType, std::size_t Rank, typename Mapping, std::size_t... I>
+UNI20_HOST_DEVICE constexpr std::array<IndexType, Rank> mapping_strides_impl(Mapping const& mapping,
+                                                                             std::index_sequence<I...>)
+{
+  return {static_cast<IndexType>(mapping.stride(I))...};
+}
+
+template <typename IndexType, std::size_t Rank, typename Mapping>
+UNI20_HOST_DEVICE constexpr std::array<IndexType, Rank> mapping_strides(Mapping const& mapping)
+{
+  return mapping_strides_impl<IndexType, Rank>(mapping, std::make_index_sequence<Rank>{});
+}
 
 // build a std::tuple of N default-constructed T’s
 template <typename T, std::size_t... I> constexpr auto make_tuple_n_impl(std::index_sequence<I...>)
@@ -239,27 +258,27 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         /// \brief Always unique for uni20 tensors.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_unique() noexcept { return true; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_unique() noexcept { return true; }
         /// \brief Never exhaustive: no single contiguous backing buffer.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_exhaustive() noexcept { return false; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_exhaustive() noexcept { return false; }
         /// \brief Statically unknown if strided: may differ per dimension.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_strided() noexcept { return false; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_strided() noexcept { return false; }
 
         /// \brief Always unique at runtime.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr bool is_unique() const noexcept { return true; }
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr bool is_unique() const noexcept { return true; }
         /// \brief Never exhaustive at runtime.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr bool is_exhaustive() const noexcept { return false; }
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr bool is_exhaustive() const noexcept { return false; }
 
         // std::size_t required_span_size() const does not make sense for a StridedZipLayout
 
         /// \brief True if every dimension uses the same stride across all spans.
         /// \return True when each span shares identical strides per dimension.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr bool is_strided() const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr bool is_strided() const noexcept
         {
           for (std::size_t d = 0; d < Ext::rank(); ++d)
           {
@@ -275,9 +294,9 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \brief Return the common strides for each dimension.
         /// \return Array of strides indexed by dimension.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr std::array<index_type, Ext::rank()> strides() const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr std::array<index_type, Ext::rank()> strides() const noexcept
         {
-          DEBUG_PRECONDITION(this->is_strided());
+          assert(this->is_strided());
           return all_strides_[0];
         }
 
@@ -286,16 +305,17 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \param r Dimension index, 0 ≤ r < rank().
         /// \return The stride (step) in the flattened data for dim \p r.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr index_type stride(rank_type r) const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr index_type stride(rank_type r) const noexcept
         {
-          DEBUG_PRECONDITION(this->is_strided());
+          assert(this->is_strided());
           return all_strides_[0][r];
         }
 
         /// \brief Retrieve the 2-D array of all per-span strides.
         /// \return An array [span][dim] of strides.
         /// \ingroup mdspan_ext
-        [[nodiscard]] std::array<std::array<index_type, Ext::rank()>, num_spans> const& all_strides() const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE std::array<std::array<index_type, Ext::rank()>, num_spans> const&
+        all_strides() const noexcept
         {
           return all_strides_;
         }
@@ -305,16 +325,17 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \param exts Shared extents of all spans.
         /// \param maps Existing mappings whose strides are copied into this layout.
         /// \ingroup mdspan_ext
-        constexpr mapping(extents_type const& exts, Mappings... maps) noexcept
-            : extents_(exts), all_strides_{maps.strides()...}
+        UNI20_HOST_DEVICE constexpr mapping(extents_type const& exts, Mappings... maps) noexcept
+            : extents_(exts), all_strides_{detail::mapping_strides<index_type, Ext::rank()>(maps)...}
         {}
 
         /// \brief Construct from shared extents and per-span raw strides.
         /// \param exts         Common extents of the view.
         /// \param strides_pack strides_pack[s][d] is the stride of span s in dimension d.
         /// \ingroup mdspan_ext
-        constexpr mapping(extents_type const& exts,
-                          std::array<std::array<index_type, Ext::rank()>, NumSpans> const& strides_pack) noexcept
+        UNI20_HOST_DEVICE constexpr mapping(
+            extents_type const& exts,
+            std::array<std::array<index_type, Ext::rank()>, NumSpans> const& strides_pack) noexcept
             : extents_(exts), all_strides_(strides_pack)
         {}
 
@@ -322,8 +343,9 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \tparam OtherExt  Extents type of the smaller mapping.
         /// \ingroup mdspan_ext
         template <typename OtherExt>
-        constexpr mapping(std::array<index_type, Ext::rank()> const& new_strides,
-                          typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other) noexcept
+        UNI20_HOST_DEVICE constexpr mapping(
+            std::array<index_type, Ext::rank()> const& new_strides,
+            typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other) noexcept
             : extents_(other.extents()), all_strides_(concat(new_strides, other.all_strides()))
         {}
 
@@ -331,8 +353,9 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \tparam OtherExt  Extents type of the smaller mapping.
         /// \ingroup mdspan_ext
         template <typename OtherExt>
-        constexpr mapping(typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other,
-                          std::array<index_type, Ext::rank()> const& new_strides) noexcept
+        UNI20_HOST_DEVICE constexpr mapping(
+            typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other,
+            std::array<index_type, Ext::rank()> const& new_strides) noexcept
             : extents_(other.extents()), all_strides_(concat(other.all_strides(), new_strides))
         {}
 
@@ -342,21 +365,21 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \ingroup mdspan_ext
         template <typename LeftMap, typename RightMap>
           requires(LeftMap::num_spans + RightMap::num_spans == num_spans)
-        constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
+        UNI20_HOST_DEVICE constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
             : extents_(left.extents()), all_strides_(concat(left.all_strides(), right.all_strides()))
         {}
 
         /// \brief Return the extents of the layout.
         /// \return The common extents of all child layouts.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr extents_type const& extents() const noexcept { return extents_; }
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr extents_type const& extents() const noexcept { return extents_; }
 
         /// \brief Compute per-span linear offsets for a multi-index.
         /// \tparam Idx  Types of each index argument.
         /// \param idxs  Indices for each dimension.
         /// \return      Array of per-span offsets.
         /// \ingroup mdspan_ext
-        template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
+        template <typename... Idx> UNI20_HOST_DEVICE constexpr offset_type operator()(Idx... idxs) const noexcept
         {
           static_assert(sizeof...(Idx) == Ext::rank(), "Wrong number of indices");
           // pack the multi-index into an array
@@ -368,8 +391,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
       private:
         // For a given span S, compute its offset by folding over all dims D:
         template <std::size_t S, std::size_t... D>
-        [[nodiscard]] constexpr index_type span_offset(std::array<index_type, Ext::rank()> const& ix,
-                                                       std::index_sequence<D...>) const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr index_type span_offset(std::array<index_type, Ext::rank()> const& ix,
+                                                                         std::index_sequence<D...>) const noexcept
         {
           // fold: 0 + (stride[S][0]*ix[0]) + (stride[S][1]*ix[1]) + …
           return ((all_strides_[S][D] * ix[D]) + ... + index_type(0));
@@ -377,8 +400,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         // Build the tuple of all span-offsets in one go:
         template <std::size_t... S>
-        [[nodiscard]] constexpr offset_type offset_impl(std::array<index_type, Ext::rank()> const& ix,
-                                                        std::index_sequence<S...>) const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr offset_type offset_impl(std::array<index_type, Ext::rank()> const& ix,
+                                                                          std::index_sequence<S...>) const noexcept
         {
           // pack-expand: span_offset<0>(ix), span_offset<1>(ix), …
           return offset_type{span_offset<S>(ix, std::make_index_sequence<Ext::rank()>{})...};
@@ -401,38 +424,39 @@ template <typename... Layouts> struct GeneralZipLayout
         using extents_type = Extents;
         using index_type = typename Extents::index_type;
         using rank_type = typename Extents::rank_type;
-        static constexpr rank_type rank() noexcept { return Extents::rank(); }
-        static constexpr rank_type rank_dynamic() noexcept { return Extents::rank_dynamic(); }
+        UNI20_HOST_DEVICE static constexpr rank_type rank() noexcept { return Extents::rank(); }
+        UNI20_HOST_DEVICE static constexpr rank_type rank_dynamic() noexcept { return Extents::rank_dynamic(); }
         using offset_type = std::tuple<span_offset_t<typename Layouts::template mapping<Extents>>...>;
         using mapping_type = mapping<Extents>;
 
         /// \brief Always unique for uni20 tensors.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_unique() noexcept { return true; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_unique() noexcept { return true; }
         /// \brief Never exhaustive: no single contiguous backing buffer.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_exhaustive() noexcept { return false; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_exhaustive() noexcept { return false; }
         /// \brief Not strided.
         /// \ingroup mdspan_ext
-        static constexpr bool is_always_strided() noexcept { return false; }
+        UNI20_HOST_DEVICE static constexpr bool is_always_strided() noexcept { return false; }
 
         /// \brief Construct child mappings.
         /// \param ext Common extents shared by every mapping.
         /// \param m   Child mappings stored within the layout.
         /// \ingroup mdspan_ext
-        explicit constexpr mapping(Extents const& ext, typename Layouts::template mapping<Extents> const&... m) noexcept
+        UNI20_HOST_DEVICE explicit constexpr mapping(Extents const& ext,
+                                                     typename Layouts::template mapping<Extents> const&... m) noexcept
             : extents_(ext), impls_{m...}
         {}
 
         /// \brief Access the common extents.
         /// \return Shared extents across all child mappings.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr extents_type const& extents() const noexcept { return extents_; }
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr extents_type const& extents() const noexcept { return extents_; }
 
         /// \brief Return the maximum required span size among the child mappings.
         /// \return Maximum number of elements any child mapping may touch.
         /// \ingroup mdspan_ext
-        [[nodiscard]] constexpr std::size_t required_span_size() const noexcept
+        [[nodiscard]] UNI20_HOST_DEVICE constexpr std::size_t required_span_size() const noexcept
         {
           std::size_t max_sz = 0;
           std::apply(
@@ -449,7 +473,7 @@ template <typename... Layouts> struct GeneralZipLayout
         /// \param idxs Indices for each dimension.
         /// \return Tuple containing offsets for every child mapping.
         /// \ingroup mdspan_ext
-        template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
+        template <typename... Idx> UNI20_HOST_DEVICE constexpr offset_type operator()(Idx... idxs) const noexcept
         {
           return std::apply([&](auto const&... m) { return offset_type{m(idxs...)...}; }, impls_);
         }
@@ -458,7 +482,7 @@ template <typename... Layouts> struct GeneralZipLayout
         /// \param o Mapping to compare against.
         /// \return True when both extents and child mappings match.
         /// \ingroup mdspan_ext
-        constexpr bool operator==(mapping const& o) const noexcept
+        UNI20_HOST_DEVICE constexpr bool operator==(mapping const& o) const noexcept
         {
           return extents_ == o.extents_ && impls_ == o.impls_;
         }
@@ -466,7 +490,7 @@ template <typename... Layouts> struct GeneralZipLayout
         /// \param o Mapping to compare against.
         /// \return True when either extents or child mappings differ.
         /// \ingroup mdspan_ext
-        constexpr bool operator!=(mapping const& o) const noexcept { return !(*this == o); }
+        UNI20_HOST_DEVICE constexpr bool operator!=(mapping const& o) const noexcept { return !(*this == o); }
 
       private:
         extents_type extents_;
@@ -483,9 +507,9 @@ template <typename... Spans> struct zip_layout_selector
 };
 
 /// \brief Specialization that selects StridedZipLayout when all spans are strided.
-/// \tparam Spans  Mdspan types that satisfy StridedMdspan.
+/// \tparam Spans  Mdspan types that satisfy StridedMdspanLike.
 /// \ingroup mdspan_ext
-template <StridedMdspan... Spans> struct zip_layout_selector<Spans...>
+template <StridedMdspanLike... Spans> struct zip_layout_selector<Spans...>
 {
     using type = StridedZipLayout<sizeof...(Spans)>;
 };

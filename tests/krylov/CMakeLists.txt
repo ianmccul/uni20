@@ -21,11 +21,12 @@ target_compile_definitions(uni20_krylov_tests PRIVATE
 if(UNI20_ENABLE_MPLAPACK)
   add_executable(uni20_krylov_mplapack_binary128_tests
     test_mplapack_binary128_krylov_solvers.cpp
+    "${PROJECT_SOURCE_DIR}/tests/uni20_tests_main.cpp"
   )
   target_link_libraries(uni20_krylov_mplapack_binary128_tests
     PRIVATE
       uni20_krylov
-      GTest::gtest_main
+      GTest::gtest
   )
   target_compile_definitions(uni20_krylov_mplapack_binary128_tests PRIVATE
       UNIT_TEST

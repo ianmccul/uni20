@@ -17,7 +17,7 @@ material interval.
 Related notes:
 
 - [Kernel Dispatch](../../architecture/kernel_dispatch.md) defines the generic
-  `kernel_accepts_types` / `try_kernel` / optional `try_kernel_task` /
+  `kernel_accepts_types` / `try_kernel` / optional `try_make_kernel_task` /
   backend-list contract.
 - [Execution Architecture](../../architecture/execution.md) describes scheduler
   and storage-policy layering.
@@ -91,10 +91,10 @@ CUDA operations should be described in terms of submission channels:
   non-blocking execution environments.
 
 The first implemented storage policy is `CudaStorage`, exposed
-conveniently through `CudaTensor`. It supplies opaque CUDA storage that can
-participate in the non-blocking channel, but the operation entry point still
-selects resource-admission behavior. An ordinary direct Tensor operation may
-block while acquiring resources; an `Async<Tensor>` lowering must suspend
+conveniently through `CudaTensor`. It supplies deferred CUDA descriptors that
+can participate in the non-blocking channel, but the operation entry point
+still selects resource-admission behavior. An ordinary direct Tensor operation
+may block while acquiring resources; an `Async<Tensor>` lowering must suspend
 instead. Both paths share `CudaBuffer`, operand preparation, and provider
 execution.
 
@@ -113,7 +113,7 @@ not be stored in the backend selector. Ordinary `CublasBackend` GEMM prepares
 the operands, blocks for an execution lease, and submits the prepared call.
 Async fixed-output GEMM and matrix-product lowering instead call generic
 `co_dispatch_kernel`.
-`CublasBackend::try_kernel_task` prepares the same operands and returns a CUDA
+`CublasBackend::try_make_kernel_task` prepares the same operands and returns a CUDA
 task that suspends for the execution lease before invoking the prepared cuBLAS
 leaf. Backends without this optional hook use their ordinary blocking
 `try_kernel` implementation directly inside the dispatch coroutine.
@@ -309,8 +309,8 @@ edge.
 
 `try_kernel(...)` remains an ordinary function. Direct GEMM acquires a CUDA
 execution lease and scoped buffer guards inside the accepted backend attempt.
-Async lowering performs side-effect-free preparation followed by awaitable
-resource admission before entering the same non-suspending prepared leaf. A
+Async lowering prepares provider metadata without submitting work, followed by
+awaitable resource admission before entering the same non-suspending prepared leaf. A
 CUDA backend attempt may:
 
 1. validate all remaining runtime preconditions;
@@ -328,11 +328,13 @@ operation runnable are released, the CUDA scoped guards must have been
 destroyed or otherwise released so their tokens are retained by the affected
 storage epochs.
 
-The strong clean-decline contract remains unchanged. A CUDA backend may decline
-only before it changes provider state, enqueues work, consumes an operand,
-commits output, or produces another externally visible side effect. Failure
-after that point is an operation error and must not fall through to another
-backend.
+The clean-decline contract permits operation-authorized provisional preparation
+of a replaceable output. A CUDA backend may allocate, resize, or rebind such an
+output and still decline; the next backend may reuse or replace it. The backend
+must decline before it changes provider state, enqueues work, consumes an input,
+writes result elements, mutates a fixed or update output, or commits a completed
+result. Failure after that point is an operation error and must not fall through
+to another backend.
 
 ## Submission And Completion Boundaries
 
@@ -380,7 +382,7 @@ focused tests, and profiling.
 Ordinary `dispatch_kernel` remains non-coroutine code and invokes only
 `try_kernel`. `co_dispatch_kernel` performs the same ordered type and runtime
 backend walk from within a coroutine. For each backend/operation pair it awaits
-`try_kernel_task` when that optional customization exists; otherwise it invokes
+`try_make_kernel_task` when that optional customization exists; otherwise it invokes
 ordinary `try_kernel` inline.
 
 The cuBLAS GEMM customization completes runtime operand preparation before
@@ -396,6 +398,61 @@ a queued task and its pool must remain alive until admission resumes the task.
 Once the backend has changed provider state or enqueued work, cancellation
 cannot turn the attempt into a backend decline or reclaim retained resources
 early. The submitted work must reach a completion/error boundary.
+
+## Execution Descriptor Lowering
+
+Backend selection happens while tensor storage policy is still available.
+After selection, fixed operands are normalized to mdspecs. The CUDA backend
+uses each data descriptor to acquire stream-ordered buffer access, then launches
+with the resolved handle plus the mapping, accessor, and any operation state
+needed by the leaf:
+
+```text
+TensorView
+  -> select CUDA backend
+  -> mdspec(data descriptor, mapping, accessor)
+  -> acquire buffer access on the selected stream
+  -> kernel(handle, mapping or lowered layout, accessor or compiled lowering)
+```
+
+Uni20-owned mapping, accessor, proxy-reference, generator, and transform
+execution functions use `UNI20_HOST_DEVICE`. This code-generation property is
+separate from the accessor-domain concepts. `CudaAccessibleAccessor` states that
+the acquired handle may be evaluated in CUDA; the compiler verifies that the
+concrete execution expressions are device-callable when a `.cu` translation
+unit instantiates them.
+
+Data descriptors are not kernel payloads by default. A `CudaBufferView` retains
+allocation identity and offset so the backend can order access, but the kernel
+receives the acquired pointer and the relevant execution metadata. Future file,
+MPI, or staged descriptors likewise remain in the control plane unless a
+specific kernel ABI requires lowered descriptor state.
+
+The precompiled CUDA reference copy backend currently uses two lowering forms:
+
+| Case | Lowering |
+|---|---|
+| Raw contiguous mappings with matching physical order | `cudaMemcpyAsync` or `cudaMemcpyPeerAsync` |
+| Same-device positive-strided mappings through rank eight | Compact extents and independent input/output stride arrays passed to an elementwise kernel |
+| Raw or conjugating CUDA input accessor | Explicitly compiled accessor lowering selected by the copy plan |
+| Non-strided mapping or other stateful accessor composition | Clean decline |
+
+The strided executor covers canonical layout conversion, padded mappings, and
+nonzero `CudaBufferView` offsets. It traverses logical indices and therefore
+does not require input and output physical order to match. It requires a unique
+output mapping and positive strides on every active axis. Negative-stride
+mappings remain valid candidates for future Uni20 layout policies, but this
+precompiled executor cleanly declines them. Distinct-offset views into one
+buffer resolve through one exclusive buffer access and rely on the C++ copy
+precondition that the operands do not destructively overlap. A nontrivial
+same-offset transformation is proven to overlap and declines.
+
+Device-callability alone cannot make an arbitrary external accessor available
+to a precompiled library kernel. Generalization requires either a typed
+registry with explicit CUDA instantiations or a type-erased plan that carries
+the complete operation state. An enum is appropriate only for a deliberately
+closed compiled lowering such as the current raw/conjugating pair; it must not
+be described as a generic executor for arbitrary accessor state.
 
 ## CUDA Graph Capture
 
@@ -462,8 +519,9 @@ diagnostic data rather than preformatting one terminal-only string.
    accounting, cancellation, exceptions, waits, and quiescence.
 4. Define cancellation and runtime-shutdown behavior for queued resource
    waiters.
-5. Extend `CudaReferenceBackend` beyond its initial contiguous Tensor copy path
-   with fill and accessor-respecting elementwise kernels.
+5. Extend the CUDA reference executor beyond positive-strided copy with
+   registered stateful accessor lowerings, non-strided mapping support, and
+   fill kernels.
 6. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
 7. Validate multi-device isolation and explicit migration between two device

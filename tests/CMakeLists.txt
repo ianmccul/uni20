@@ -31,6 +31,7 @@ if(UNI20_BUILD_COMBINED_TESTS AND UNI20_COMBINED_TEST_SRCS)
   )
   target_link_libraries(uni20_tests PRIVATE ${UNI20_COMBINED_TEST_LIBS} GTest::gtest)
   target_compile_definitions(uni20_tests PRIVATE
+    UNI20_TEST_DEATH_TEST_STYLE_THREADSAFE
     UNI20_KRYLOV_MATRIX_MARKET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/krylov/matrix_market")
   # gtest_discover_tests(uni20_tests) # we do not nede to discover the tests here - the individial test modules already do this
 elseif(UNI20_BUILD_COMBINED_TESTS)

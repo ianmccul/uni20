@@ -13,37 +13,43 @@
 
 namespace uni20::linalg
 {
-namespace detail
+namespace detail::cuda_reference
 {
 
-template <class Scalar> async::CudaTask cuda_reference_copy_task(cuda_reference::CopyPlan<Scalar> plan)
+template <class Scalar> async::CudaTask co_copy_submission(CopyPlan<Scalar> plan)
 {
   auto& resources = plan.output_buffer->resources();
   co_await uni20::cuda::set_device(resources.device());
   auto stream = co_await uni20::cuda::acquire_stream(resources.streams());
-  cuda_reference::enqueue_device_copy(plan, stream);
+  enqueue_device_copy(plan, stream);
   co_return;
 }
 
-} // namespace detail
-
-/// \brief Return a deferred non-blocking CUDA-to-CUDA copy submission.
+/// \brief Lower CUDA mdspans into a deferred non-blocking copy submission.
 template <class OutputMdspan, class InputMdspan>
-  requires(detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan> &&
-           detail::cuda_reference::is_cuda_mdspan<OutputMdspan> && detail::cuda_reference::is_cuda_mdspan<InputMdspan>)
-auto try_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output,
-                     InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
+  requires(SupportedCopyMdspans<OutputMdspan, InputMdspan> && is_raw_cuda_mdspan<OutputMdspan> &&
+           is_supported_cuda_mdspan<InputMdspan>)
+auto try_make_copy_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {
-  auto preparation = detail::cuda_reference::prepare_copy(output, input);
+  auto preparation = prepare_copy(output, input);
   if (!kernel_attempt_succeeded(preparation.attempt) || !preparation.has_work)
   {
     return KernelTaskAttempt<async::CudaTask>{preparation.attempt};
   }
 
   int const device = preparation.output_buffer->device().ordinal();
-  auto task = detail::cuda_reference_copy_task(std::move(preparation));
+  auto task = co_copy_submission(std::move(preparation));
   async::cuda_promise(task.handle()).bind_device(device);
   return KernelTaskAttempt<async::CudaTask>{std::move(task)};
+}
+} // namespace detail::cuda_reference
+
+/// \brief Create a CUDA copy task from normalized mdspecs.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
+auto try_make_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
+    -> KernelTaskAttempt<async::CudaTask>
+{
+  return detail::cuda_reference::try_make_copy_task(output, input);
 }
 
 } // namespace uni20::linalg

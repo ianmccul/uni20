@@ -21,14 +21,15 @@ Async<Tensor> handles
   -> ReadBuffer / WriteBuffer enrollment
   -> scheduled coroutine
   -> await stored Tensor values and async scalars
-  -> operation-specific output preparation and mdspan resolution
-  -> co_dispatch_kernel and backend kernel
+  -> operation-specific output preparation and mdspec normalization
+  -> co_dispatch_kernel
+  -> backend-specific acquisition and resolved mdspan kernel
 ```
 
 Backends and leaf kernels remain unaware of `Async<T>`, epoch queues, and
 schedulers. The async wrapper resolves the storage policy's static selector,
-owns any output preparation, resolves stable mdspans, and then enters
-`co_dispatch_kernel`.
+owns any frontend output preparation, normalizes fixed operands to stable
+mdspecs, and then enters `co_dispatch_kernel`.
 
 Do not add async overloads directly to a backend or make `Async<Tensor>` model
 `TensorView`.
@@ -90,13 +91,32 @@ The coroutine then:
 1. Awaits the Tensor buffers and any async scalar buffers together.
 2. Resolves references to the stored Tensor values.
 3. Prepares an unconstructed overwrite output when supported.
-4. Resolves stable mdspans and calls `co_dispatch_kernel` with the operation tag
-   and resolved selector.
+4. Normalizes fixed operands to stable mdspecs and calls
+   `co_dispatch_kernel` with the operation tag and resolved selector. A
+   replaceable output remains shared storage until the backend prepares it.
 
 Use a named free coroutine, or a captureless C++23 `static` lambda. Never pass
 references to the `Async<T>` handles into the coroutine. The moved buffers
 already retain storage, queue context, and the selected epochs, so the original
 handles may be destroyed immediately after submission.
+
+## Coroutine and Task-Factory Names
+
+Use names that distinguish C++ coroutine bodies from ordinary functions that
+return task handles:
+
+| Function kind | Naming form | Example |
+|---|---|---|
+| Coroutine body containing `co_await`, `co_yield`, or `co_return` | `co_<operation>` | `co_gemm_submission(...)` |
+| Ordinary function returning a task | `make_<operation>_task` | `make_prefetch_task(...)` |
+| Ordinary fallible factory returning an optional or attempt wrapper | `try_make_<operation>_task` | `try_make_kernel_task(...)` |
+| Ordinary function that submits work to a scheduler | `schedule_<operation>` | `schedule_async_gemm(...)` |
+| Synchronous implementation | `<operation>` | `gemm(...)` |
+
+Reserve the `co_` prefix for actual coroutine bodies. Returning `AsyncTask`,
+`CudaTask`, or a wrapper around one does not by itself make an ordinary factory
+a coroutine. Conversely, `_async` describes an API or execution model and does
+not identify whether the function body uses the C++ coroutine mechanism.
 
 ## Access and Aliasing
 
@@ -135,9 +155,10 @@ moved into the coroutine. An explicit selector follows the same ownership
 rule and may carry immutable operation context.
 
 This does not mean a concrete backend has run or accepted the operation before
-scheduling. The coroutine awaits the Tensors, resolves their mdspans, and only
-then enters the normal runtime backend walk. Layout- and accessor-dependent
-declines therefore remain valid.
+scheduling. The coroutine awaits the Tensors, normalizes their fixed operands
+to mdspecs, and only then enters the normal runtime backend walk. The selected
+backend acquires any execution-domain leases and resolves mdspans. Layout- and
+accessor-dependent declines therefore remain valid.
 
 A future async block handle may expose a synchronous descriptor outside its
 data epoch. Such a wrapper may perform more layout-dependent planning before
@@ -152,14 +173,21 @@ for `Async<Tensor>`.
 - `alpha` and `beta` may independently be immediate or async scalar operands.
 - The output's existing values participate according to `beta`; `gemm` never
   constructs or resizes the output.
+- Its backend dispatch uses `gemm_op`; a numerically zero `beta` does not change
+  the fixed-output contract.
 
 `assign_product` is an overwrite operation:
 
-- If the async output already contains a Tensor, the synchronous operation may
-  retain or resize it according to `ensure_shape`.
-- If the output is unconstructed and its Tensor type can be constructed from
-  its extents type, the coroutine constructs it at the required product shape.
-- Otherwise, unconstructed output is an error.
+- Its backend dispatch uses `assign_product_op`, which has no `beta` argument.
+- The async front end passes the output's `shared_storage<Tensor>` to dispatch,
+  so an unconstructed output remains representable at the backend boundary.
+- The selected backend determines the required shape and any storage placement
+  requirement, then retains, resizes, constructs, or replaces the output when
+  its Tensor type supports that preparation.
+- CUDA placement requirements are expressed as `cuda::Device`; `CudaStorage`
+  resolves that device to its canonical allocation resources.
+- A backend may lower the accepted operation to its GEMM provider using a zero
+  value represented in the form that provider requires.
 
 `add_product` is an update operation:
 
@@ -316,7 +344,7 @@ updates, or produces a differently typed result.
 - Simple output/input queue aliasing is rejected before enrollment when it
   would self-block.
 - Static selector resolution happens before scheduling; the runtime backend
-  walk happens after awaited mdspans are available.
+  walk happens after awaited mdspecs are available.
 - Empty-output construction and update-output requirements are explicit.
 - Unhandled failures reach every output epoch.
 - Tests cover pending-input lifetime, numerical behavior, aliases, output
@@ -324,7 +352,7 @@ updates, or produces a differently typed result.
 
 Keep operation-specific Tensor wrappers explicit because output construction,
 mutation, and multi-output exception routing differ materially between
-algorithms. Once the wrapper has awaited its values and resolved stable mdspan
+algorithms. Once the wrapper has awaited its values and normalized stable mdspec
 operands, use generic `co_dispatch_kernel`. Blocking backends require no
-coroutine wrapper; individual backend/operation pairs add `try_kernel_task`
+coroutine wrapper; individual backend/operation pairs add `try_make_kernel_task`
 only when resource admission or execution must suspend.

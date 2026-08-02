@@ -1,6 +1,8 @@
+#include <uni20/async/shared_storage.hpp>
 #include <uni20/config.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
+#include <uni20/tensor/reshape.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
@@ -8,6 +10,7 @@
 #include <initializer_list>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace
@@ -66,7 +69,7 @@ TEST(MatrixProductTest, AssignProductResizesAndUsesDefaultSelector)
   check_reference_product<double>();
 
   ASSERT_EQ(events.size(), 1);
-  EXPECT_EQ(events[0].operation, "gemm");
+  EXPECT_EQ(events[0].operation, "assign_product");
   EXPECT_TRUE(events[0].succeeded());
   EXPECT_TRUE(events[0].selected_backend().has_value());
 }
@@ -85,6 +88,24 @@ TEST(MatrixProductTest, AssignProductRetainsMatchingOutputStorage)
   EXPECT_EQ(output.mutable_handle(), original_handle);
   EXPECT_DOUBLE_EQ((output[0, 0]), 2.0);
   EXPECT_DOUBLE_EQ((output[1, 1]), 8.0);
+}
+
+TEST(MatrixProductTest, GemmWithZeroBetaRetainsFixedOutputDispatchIdentity)
+{
+  namespace diagnostics = uni20::linalg::dispatch_diagnostics;
+  std::vector<diagnostics::event> events;
+  diagnostics::scoped_sink capture([&](diagnostics::event const& event) { events.push_back(event); });
+  uni20::DenseMatrix<double> lhs(1, 1);
+  uni20::DenseMatrix<double> rhs(1, 1);
+  uni20::DenseMatrix<double> output(1, 1);
+  lhs[0, 0] = 2.0;
+  rhs[0, 0] = 3.0;
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+
+  ASSERT_EQ(events.size(), 1);
+  EXPECT_EQ(events[0].operation, "gemm");
+  EXPECT_DOUBLE_EQ((output[0, 0]), 6.0);
 }
 
 TEST(MatrixProductTest, AddProductUsesFixedOutputAndExistingValues)
@@ -118,6 +139,109 @@ TEST(MatrixProductTest, ExplicitCpuSelectorSupportsMixedLayoutsAndResize)
   EXPECT_EQ(output.mapping().stride(1), 1);
   EXPECT_DOUBLE_EQ((output[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((output[1, 1]), 154.0);
+}
+
+TEST(MatrixProductTest, CpuBackendPreparesConstructedFixedShapeStorage)
+{
+  uni20::DenseMatrix<double> lhs(2, 3);
+  uni20::DenseMatrix<double> rhs(3, 2);
+  uni20::DenseMatrix<double> parent(1, 4);
+  fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  fill_matrix(rhs, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+  auto output_view = uni20::reshape_view(parent, 2, 2);
+  auto output = uni20::async::make_shared_storage<decltype(output_view)>(output_view);
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::assign_product_op{}, output,
+                                      1.0, lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::success);
+  EXPECT_DOUBLE_EQ((parent[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((parent[0, 1]), 139.0);
+  EXPECT_DOUBLE_EQ((parent[0, 2]), 64.0);
+  EXPECT_DOUBLE_EQ((parent[0, 3]), 154.0);
+}
+
+TEST(MatrixProductTest, BlasLayoutDeclineLeavesWrongShapedOutputForCpuFallback)
+{
+  using strided_matrix = uni20::StridedTensor<double, 2>;
+  strided_matrix lhs(strided_matrix::extents_type{2, 2}, std::array<uni20::index_type, 2>{2, 5});
+  uni20::DenseMatrix<double> rhs(2, 2);
+  uni20::DenseMatrix<double> output(1, 1);
+  fill_matrix(lhs, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(rhs, {1.0, 0.0, 0.0, 1.0});
+  output[0, 0] = -7.0;
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
+                                      lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::unsupported_layout);
+  EXPECT_EQ(output.rows(), 1);
+  EXPECT_EQ(output.cols(), 1);
+  EXPECT_DOUBLE_EQ((output[0, 0]), -7.0);
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+  EXPECT_EQ(output.rows(), 2);
+  EXPECT_EQ(output.cols(), 2);
+  EXPECT_DOUBLE_EQ((output[0, 0]), 1.0);
+  EXPECT_DOUBLE_EQ((output[0, 1]), 2.0);
+  EXPECT_DOUBLE_EQ((output[1, 0]), 3.0);
+  EXPECT_DOUBLE_EQ((output[1, 1]), 4.0);
+}
+
+TEST(MatrixProductTest, BlasLayoutDeclineLeavesDeferredOutputUnconstructed)
+{
+  using strided_matrix = uni20::StridedTensor<double, 2>;
+  using output_matrix = uni20::DenseMatrix<double>;
+  strided_matrix lhs(strided_matrix::extents_type{2, 2}, std::array<uni20::index_type, 2>{2, 5});
+  output_matrix rhs(2, 2);
+  auto output = uni20::async::make_unconstructed_shared_storage<output_matrix>();
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
+                                      lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::unsupported_layout);
+  EXPECT_FALSE(output.constructed());
+}
+
+TEST(MatrixProductTest, BlasEmptyInnerDeclineLeavesWrongShapedOutputUntouched)
+{
+  uni20::DenseMatrix<double> lhs(2, 0);
+  uni20::DenseMatrix<double> rhs(0, 3);
+  uni20::DenseMatrix<double> output(1, 1);
+  output[0, 0] = -7.0;
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
+                                      lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::unsupported_instance);
+  EXPECT_EQ(output.rows(), 1);
+  EXPECT_EQ(output.cols(), 1);
+  EXPECT_DOUBLE_EQ((output[0, 0]), -7.0);
+}
+
+TEST(MatrixProductTest, BlasTransformDeclineLeavesWrongShapedOutputUntouched)
+{
+  using scalar_type = uni20::complex<double>;
+  uni20::DenseMatrix<scalar_type> lhs(1, 1);
+  uni20::DenseMatrix<scalar_type> rhs(1, 1);
+  uni20::DenseMatrix<scalar_type> output(2, 2);
+  lhs[0, 0] = scalar_type{2.0, 1.0};
+  rhs[0, 0] = scalar_type{3.0, 1.0};
+  fill_matrix(output, {scalar_type{-7.0}, scalar_type{-7.0}, scalar_type{-7.0}, scalar_type{-7.0}});
+  auto conjugated = uni20::conj(lhs);
+  auto lhs_span = uni20::mdspec_of(std::as_const(conjugated));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::BlasBackend{}, uni20::linalg::assign_product_op{}, output,
+                                      scalar_type{1.0}, lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::unsupported_transform);
+  EXPECT_EQ(output.rows(), 2);
+  EXPECT_EQ(output.cols(), 2);
+  EXPECT_EQ((output[0, 0]), scalar_type{-7.0});
 }
 
 TEST(MatrixProductTest, AlphaZeroDoesNotReadProductOperands)

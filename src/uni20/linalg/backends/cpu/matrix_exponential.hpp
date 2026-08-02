@@ -18,6 +18,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <complex>
 #include <concepts>
@@ -52,11 +54,12 @@ matrix_exponential(DenseMatrix<Scalar> const& matrix, uni20::complex<uni20::make
 
 namespace uni20::linalg
 {
+namespace detail::cpu_reference
+{
 
-/// \brief Report compile-time eligibility for the CPU matrix exponential.
-template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::RankedSpanLike<2> InputMdspan, class TimeScalar>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
-                                    InputMdspan&, TimeScalar const&)
+/// \brief Report compile-time eligibility for the resolved CPU matrix exponential.
+template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::RankedMdspanLike<2> InputMdspan, class TimeScalar>
+consteval auto matrix_exponential_acceptance()
 {
   using input_scalar = std::remove_cv_t<typename InputMdspan::element_type>;
   using input_matrix = backends::cpu::DenseMatrix<input_scalar>;
@@ -89,8 +92,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponenti
 
 /// \brief Compute a matrix exponential through the existing CPU implementation.
 template <class OutputMdspan, class InputMdspan, class TimeScalar>
-KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan&& output, InputMdspan&& input,
-                         TimeScalar time)
+KernelAttempt matrix_exponential(OutputMdspan& output, InputMdspan& input, TimeScalar time)
 {
   using input_type = std::remove_cvref_t<InputMdspan>;
   using input_scalar = std::remove_cv_t<typename input_type::element_type>;
@@ -122,6 +124,36 @@ KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, Outp
     }
   }
   return KernelAttempt::success;
+}
+} // namespace detail::cpu_reference
+
+/// \brief Report eligibility for host-accessible mdspec matrix exponentiation.
+template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::RankedMdspecLike<2> InputMdspan, class TimeScalar>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, matrix_exponential_op const&, OutputMdspan&,
+                                    InputMdspan&, TimeScalar const&)
+{
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
+  constexpr auto acceptance =
+      detail::cpu_reference::matrix_exponential_acceptance<output_span, input_span, TimeScalar>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and compute a matrix exponential.
+template <uni20::MutableRankedMdspecLike<2> OutputMdspan, uni20::RankedMdspecLike<2> InputMdspan, class TimeScalar>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, matrix_exponential_op const&, OutputMdspan& output, InputMdspan& input,
+                         TimeScalar time)
+{
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_access = acquire_host_read_access_sync(input);
+  auto output_span = output_access.mdspan();
+  auto input_span = input_access.mdspan();
+  return detail::cpu_reference::matrix_exponential(output_span, input_span, time);
 }
 
 } // namespace uni20::linalg

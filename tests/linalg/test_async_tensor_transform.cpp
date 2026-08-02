@@ -5,6 +5,8 @@
 #include <uni20/tensor/generated.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <concepts>
@@ -19,6 +21,8 @@ namespace
 
 using vector_type = uni20::Tensor<double, 1>;
 using async_vector_type = uni20::async::Async<vector_type>;
+using deferred_vector_type = uni20::test::DeferredHostTensor<double, 1>;
+using async_deferred_vector_type = uni20::async::Async<deferred_vector_type>;
 
 template <class Output, class Function, class... Inputs>
 concept CanAssignTransform = requires(Output& output, Function&& function, Inputs const&... inputs) {
@@ -64,7 +68,7 @@ struct move_only_scale
     double operator()(double value) const { return *scale * value; }
 };
 
-template <class T> uni20::async::AsyncTask publish(uni20::async::WriteBuffer<T> output, T value)
+template <class T> uni20::async::AsyncTask co_publish(uni20::async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
   co_return;
@@ -79,14 +83,24 @@ vector_type make_vector(std::initializer_list<double> values)
   return result;
 }
 
+deferred_vector_type make_deferred_vector(std::initializer_list<double> values)
+{
+  deferred_vector_type result(static_cast<uni20::index_type>(values.size()));
+  auto lease = uni20::test::acquire_host_write_access_sync(result);
+  uni20::index_type index = 0;
+  for (double value : values)
+    lease.mdspan()[index++] = value;
+  return result;
+}
+
 async_vector_type schedule_transform_from_local_state()
 {
   async_vector_type lhs;
   async_vector_type rhs;
   async_vector_type output;
 
-  uni20::async::schedule(publish(lhs.write(), make_vector({1.0, 2.0, 3.0})));
-  uni20::async::schedule(publish(rhs.write(), make_vector({10.0, 20.0, 30.0})));
+  uni20::async::schedule(co_publish(lhs.write(), make_vector({1.0, 2.0, 3.0})));
+  uni20::async::schedule(co_publish(rhs.write(), make_vector({10.0, 20.0, 30.0})));
   uni20::assign_transform(
       output, [offset = std::make_unique<double>(0.5)](double left, double right) { return left + right + *offset; },
       lhs, rhs);
@@ -155,6 +169,53 @@ TEST(AsyncTensorTransformTest, GeneratedAsyncInputUsesBackendNeutralStorage)
   EXPECT_DOUBLE_EQ(result[0], 2.0);
   EXPECT_DOUBLE_EQ(result[1], 3.0);
   EXPECT_DOUBLE_EQ(result[2], 4.0);
+}
+
+TEST(AsyncTensorTransformTest, DeferredInputsAndOutputUseTensorLevelDispatch)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_deferred_vector_type lhs = make_deferred_vector({1.0, 2.0, 3.0});
+  async_deferred_vector_type rhs = make_deferred_vector({10.0, 20.0, 30.0});
+  async_deferred_vector_type output = deferred_vector_type(3);
+
+  uni20::assign_transform(output, std::plus<>{}, lhs, rhs);
+  uni20::transform_inplace(output, [](double value) { return 2.0 * value; });
+
+  auto lease = uni20::test::acquire_host_read_access_sync(output.get_wait(scheduler));
+  EXPECT_DOUBLE_EQ(lease.mdspan()[0], 22.0);
+  EXPECT_DOUBLE_EQ(lease.mdspan()[1], 44.0);
+  EXPECT_DOUBLE_EQ(lease.mdspan()[2], 66.0);
+}
+
+TEST(AsyncTensorTransformTest, DeferredReshapeAliasPreservesDescriptorAndWritesParent)
+{
+  using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
+
+  deferred_matrix_type value(2, 2);
+  {
+    auto lease = uni20::test::acquire_host_write_access_sync(value);
+    lease.mdspan()[0, 0] = 1.0;
+    lease.mdspan()[1, 0] = 2.0;
+    lease.mdspan()[0, 1] = 3.0;
+    lease.mdspan()[1, 1] = 4.0;
+  }
+
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<deferred_matrix_type> parent = std::move(value);
+  auto flattened = uni20::async::reshape_view(parent, 4);
+  using flattened_type = uni20::async::async_value_t<decltype(flattened)>;
+  static_assert(uni20::MutableTensorView<flattened_type>);
+  static_assert(!uni20::ImmediateTensorView<flattened_type>);
+
+  uni20::transform_inplace(flattened, [](double value) { return -value; });
+
+  auto lease = uni20::test::acquire_host_read_access_sync(parent.get_wait(scheduler));
+  EXPECT_DOUBLE_EQ((lease.mdspan()[0, 0]), -1.0);
+  EXPECT_DOUBLE_EQ((lease.mdspan()[1, 0]), -2.0);
+  EXPECT_DOUBLE_EQ((lease.mdspan()[0, 1]), -3.0);
+  EXPECT_DOUBLE_EQ((lease.mdspan()[1, 1]), -4.0);
 }
 
 TEST(AsyncTensorTransformTest, MutableAsyncAliasUpdatesParentStorage)

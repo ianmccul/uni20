@@ -3,12 +3,13 @@
 /**
  * \file cuda_storage.hpp
  * \ingroup tensor
- * \brief CUDA Tensor storage with opaque device-memory mdspan descriptors.
+ * \brief CUDA Tensor storage with deferred device-memory data descriptors.
  */
 
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/linalg/backend_selector.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/storage/cuda_accessor.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -56,6 +57,7 @@ template <class ElementType> class CudaBufferView {
     [[nodiscard]] constexpr std::size_t element_offset() const noexcept { return offset_; }
 
     /// \brief Return a view advanced by an element offset.
+    /// \pre The resulting element offset is representable by `std::size_t`.
     [[nodiscard]] constexpr CudaBufferView offset_by(std::size_t offset) const noexcept
     {
       CudaBufferView result = *this;
@@ -74,37 +76,49 @@ template <class ElementType> class CudaBufferView {
     template <class> friend class CudaBufferView;
 };
 
-/// \brief Mdspan accessor for opaque CUDA Tensor storage.
-/// \details Indexed access produces another opaque buffer view. It never
-///          dereferences device memory or performs an implicit transfer.
-template <class ElementType> struct CudaAccessor
+} // namespace uni20::cuda
+
+namespace uni20::cuda
 {
-    using element_type = ElementType;
-    using reference = CudaBufferView<element_type>;
-    using data_handle_type = reference;
-    using offset_policy = CudaAccessor;
-    using offset_type = std::size_t;
 
-    [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const noexcept
-    {
-      return handle.offset_by(offset);
-    }
+namespace detail
+{
 
-    [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, offset_type offset) const noexcept
-    {
-      return handle.offset_by(offset);
-    }
-};
+template <class Descriptor> struct IsCudaBufferView : std::false_type
+{};
+
+template <class ElementType> struct IsCudaBufferView<CudaBufferView<ElementType>> : std::true_type
+{};
+
+} // namespace detail
+
+/// \brief CUDA-accessible mdspec backed by a `CudaBufferView` descriptor.
+template <class Span>
+concept BufferMdspec = uni20::CudaAccessibleMdspec<Span> && requires {
+  typename std::remove_cvref_t<Span>::data_descriptor_type;
+} && detail::IsCudaBufferView<typename std::remove_cvref_t<Span>::data_descriptor_type>::value;
+
+} // namespace uni20::cuda
+
+namespace uni20::cuda
+{
 
 /// \brief Factory that resolves CUDA accessors for Tensor descriptors.
 struct CudaAccessorFactory
 {
-    template <class ElementType> using accessor_t = CudaAccessor<ElementType>;
+    template <class ElementType> using accessor_t = CudaPointerAccessor<ElementType>;
+    template <class ElementType> using device_accessor_t = CudaPointerAccessor<ElementType>;
 
     template <class ElementType, class Storage>
     [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
     {
       return accessor_t<ElementType>{};
+    }
+
+    template <class ElementType, class Storage>
+    [[nodiscard]] constexpr auto make_device_accessor(Storage const&) const noexcept -> device_accessor_t<ElementType>
+    {
+      return device_accessor_t<ElementType>{};
     }
 };
 
@@ -117,11 +131,12 @@ namespace uni20
 /// \details Ordinary allocation uses the installed CUDA runtime's default
 ///          device. An explicit `cuda::DeviceResources` selects another enrolled
 ///          device or an isolated resource set used by tests. The policy selects
-///          CUDA backends and exposes opaque CUDA handles. Stream and
-///          provider-resource admission remains operation-local. Direct Tensor
-///          operations may block during admission. `Async<Tensor>` operations
-///          use coroutine-aware dispatch when a backend provides it, while
-///          retaining the same storage and mdspan representation.
+///          CUDA backends and exposes deferred `CudaBufferView` descriptors with
+///          eventual pointer accessors. Stream and provider-resource admission
+///          remains operation-local. Direct Tensor operations may block during
+///          admission. `Async<Tensor>` operations use coroutine-aware dispatch
+///          when a backend provides it, while retaining the same storage and
+///          mdspec representation.
 struct CudaStorage
 {
     using context_type = cuda::DeviceResources;
@@ -141,21 +156,34 @@ struct CudaStorage
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage,
-                                                std::size_t size) -> storage_t<ElementType>
+    [[nodiscard]] static auto make_storage(cuda::Device device, std::size_t size) -> storage_t<ElementType>
+    {
+      return storage_t<ElementType>{cuda::device_resources(device.ordinal()), size};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage, std::size_t size)
+        -> storage_t<ElementType>
     {
       return storage_t<ElementType>{storage.resources(), size};
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_handle(storage_t<ElementType>& storage) noexcept -> cuda::CudaBufferView<ElementType>
+    [[nodiscard]] static bool storage_is_compatible(storage_t<ElementType> const& storage, cuda::Device device)
+    {
+      return storage.device() == device;
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType>& storage) noexcept
+        -> cuda::CudaBufferView<ElementType>
     {
       return cuda::CudaBufferView<ElementType>{storage};
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto
-    make_handle(storage_t<ElementType> const& storage) noexcept -> cuda::CudaBufferView<ElementType const>
+    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType> const& storage) noexcept
+        -> cuda::CudaBufferView<ElementType const>
     {
       return cuda::CudaBufferView<ElementType const>{storage};
     }
@@ -170,8 +198,5 @@ struct CudaStorage
 #endif
     }
 };
-
-template <class ElementType>
-inline constexpr bool enable_backend_writable_accessor<cuda::CudaAccessor<ElementType>> = !std::is_const_v<ElementType>;
 
 } // namespace uni20

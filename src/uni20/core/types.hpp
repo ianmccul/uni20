@@ -78,4 +78,17 @@ using remove_proxy_reference_t =
     std::conditional_t<is_proxy_reference_v<R>, typename remove_proxy_reference<std::remove_cvref_t<R>>::type,
                        std::remove_reference_t<R>>;
 
+/// \brief Map an execution expression type to its backend-neutral logical value type.
+/// \details The primary template preserves the unqualified expression type.
+///          Execution backends may specialize this customization point when a
+///          domain-specific value represents a different persistent scalar type.
+/// \tparam Value Execution expression type.
+template <typename Value> struct logical_value
+{
+    using type = std::remove_cvref_t<Value>;
+};
+
+/// \brief Backend-neutral logical value represented by an execution expression.
+template <typename Value> using logical_value_t = typename logical_value<std::remove_cvref_t<Value>>::type;
+
 } // namespace uni20

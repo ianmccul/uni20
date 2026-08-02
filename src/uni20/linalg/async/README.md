@@ -9,7 +9,7 @@ linear-algebra operations over `Async<Tensor>` values.
   `assign_product`, and fixed-output `add_product` wrappers.
 - `dispatch.hpp`: coroutine-aware kernel dispatch; ordinary backends run their
   blocking `try_kernel` directly, while individual backend/operation pairs may
-  provide a deferred task through `try_kernel_task`.
+  provide a deferred task through `try_make_kernel_task`.
 - `kernel_task.hpp`: clean-decline, completed-success, or deferred-task result
   returned by an optional coroutine backend implementation.
 - `reductions.hpp`: full and axis-selective async sums with storage-preserving
@@ -29,15 +29,18 @@ linear-algebra operations over `Async<Tensor>` values.
 
 - Ordinary backend entry points and leaf kernels remain non-suspending and
   scheduler-unaware. `co_dispatch_kernel` invokes `try_kernel` directly unless
-  a backend/operation pair provides `try_kernel_task`. The outer Tensor
+  a backend/operation pair provides `try_make_kernel_task`. The outer Tensor
   coroutine retains its epoch buffers until any deferred task has completed
   host-side submission and published storage completion state.
 - Every Tensor operand in one wrapper call is an `Async<T>`.
 - Wrappers pass buffer handles and all other task state into coroutines by
   value; coroutine lambdas must be captureless and `static`.
 - Default selectors are resolved statically from Tensor/storage types before
-  scheduling. The runtime backend walk occurs after awaiting and resolving the
-  Tensor mdspans.
+  scheduling. The runtime backend walk occurs after awaiting the Tensor values
+  and normalizing their fixed operands to mdspecs.
+- Async wrapper signatures use `TensorView` and `MutableTensorView`; immediate
+  accessibility is an internal backend or storage-reuse optimization, not an
+  async API precondition.
 - Immediate and async scalar operands are normalized with `async::read(...)`;
   the former uses an always-ready `ValueAwaiter` and the latter a real buffer.
 - Elementwise callables are immediate operation state. They are moved into the

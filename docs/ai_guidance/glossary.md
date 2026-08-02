@@ -44,9 +44,11 @@ pointer-shaped data handle alone does not permit bypassing those semantics.
 
 ### Clean decline
 
-A backend's side-effect-free refusal to handle an operation. Once it mutates
-state, submits work, or commits output, failure is an operation error and must
-not trigger fallback.
+A backend's refusal before execution effects. Inputs and fixed/update outputs
+remain unchanged. An operation may authorize provisional preparation of a
+replaceable output for reuse or replacement by later backends. Once a backend
+writes result elements, submits work, or commits a completed result, failure is
+an operation error and must not trigger fallback.
 
 ### Symmetry metadata
 

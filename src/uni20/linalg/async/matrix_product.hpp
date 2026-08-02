@@ -16,7 +16,6 @@
 
 #if UNI20_BACKEND_CUBLAS
 #include <uni20/linalg/backends/cublas/gemm_task.hpp>
-#include <uni20/storage/cuda_storage.hpp>
 #endif
 
 #include <concepts>
@@ -47,51 +46,11 @@ void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& ou
            "async matrix product output must not share an epoch queue with an input");
 }
 
-#if UNI20_BACKEND_CUBLAS
-template <class OutputTensor, class LhsTensor>
-concept CudaMatrixProductOutput =
-    std::same_as<uni20::detail::tensor_storage_policy_t<OutputTensor>, uni20::CudaStorage> &&
-    std::same_as<uni20::detail::tensor_storage_policy_t<LhsTensor>, uni20::CudaStorage>;
-
-template <uni20::TensorView Tensor>
-[[nodiscard]] uni20::cuda::DeviceResources& cuda_tensor_resources(Tensor const& tensor)
-{
-  return tensor.mdspan().data_handle().buffer().resources();
-}
-
-#endif
-
-template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor>
-[[nodiscard]] OutputTensor& prepare_async_assign_product_output(async::shared_storage<OutputTensor>& storage,
-                                                                matrix_product_extents const& shape,
-                                                                LhsTensor const& lhs)
-{
-  if (storage.constructed()) return *storage;
-
-  using extents_type = uni20::tensor_extents_t<OutputTensor>;
-  auto const extents = uni20::detail::convert_tensor_extents<extents_type>(shape);
-#if UNI20_BACKEND_CUBLAS
-  if constexpr (CudaMatrixProductOutput<OutputTensor, LhsTensor> &&
-                std::constructible_from<OutputTensor, uni20::cuda::DeviceResources&, extents_type const&>)
-  {
-    return storage.emplace(cuda_tensor_resources(lhs), extents);
-  }
-#endif
-  if constexpr (std::constructible_from<OutputTensor, extents_type const&>)
-  {
-    return storage.emplace(extents);
-  }
-  else
-  {
-    throw async::buffer_write_uninitialized{};
-  }
-}
-
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter>
-async::AsyncTask async_assign_product_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                           async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
-                                           AlphaAwaiter alpha)
+async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                   async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
+                                   AlphaAwaiter alpha)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, lhs, rhs, alpha);
@@ -100,24 +59,19 @@ async::AsyncTask async_assign_product_task(BackendSelector const selector, async
   auto const& rhs_value = std::get<2>(awaited);
   auto const& alpha_value = std::get<3>(awaited);
 
-  auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  auto& output_value = prepare_async_assign_product_output<OutputTensor>(storage, shape, lhs_value);
-  uni20::ensure_shape(output_value, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
-  auto output_mdspan = output_value.mdspan();
-  auto lhs_mdspan = lhs_value.mdspan();
-  auto rhs_mdspan = rhs_value.mdspan();
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
-  scalar_type const beta_scalar{};
-  co_await co_dispatch_kernel(selector, gemm_op{}, output_mdspan, alpha_scalar, lhs_mdspan, rhs_mdspan, beta_scalar);
+  auto lhs_descriptor = uni20::mdspec_of(lhs_value);
+  auto rhs_descriptor = uni20::mdspec_of(rhs_value);
+  co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_descriptor, rhs_descriptor);
   co_return;
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter, class BetaAwaiter>
-async::AsyncTask async_gemm_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                 async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
-                                 BetaAwaiter beta)
+async::AsyncTask co_gemm(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                         async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
+                         BetaAwaiter beta)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, lhs, rhs, alpha, beta);
@@ -129,14 +83,14 @@ async::AsyncTask async_gemm_task(BackendSelector const selector, async::WriteBuf
 
   if (!storage.constructed()) throw async::buffer_write_uninitialized{};
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  uni20::require_shape(*storage, shape);
+  uni20::require_output(*storage, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
-  auto output_mdspan = storage->mdspan();
-  auto lhs_mdspan = lhs_value.mdspan();
-  auto rhs_mdspan = rhs_value.mdspan();
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
   scalar_type const beta_scalar = static_cast<scalar_type>(beta_value);
-  co_await co_dispatch_kernel(selector, gemm_op{}, output_mdspan, alpha_scalar, lhs_mdspan, rhs_mdspan, beta_scalar);
+  auto output_span = uni20::mdspec_of(*storage);
+  auto lhs_span = uni20::mdspec_of(lhs_value);
+  auto rhs_span = uni20::mdspec_of(rhs_value);
+  co_await co_dispatch_kernel(selector, gemm_op{}, output_span, alpha_scalar, lhs_span, rhs_span, beta_scalar);
   co_return;
 }
 
@@ -147,7 +101,7 @@ void schedule_async_assign_product(BackendSelector selector, async::Async<Output
                                    AlphaAwaiter alpha)
 {
   validate_async_matrix_product_aliasing(output, lhs, rhs);
-  auto task = async_assign_product_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha));
+  auto task = co_assign_product(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha));
   task.debug_name("assign_product");
   async::schedule(std::move(task));
 }
@@ -159,8 +113,7 @@ void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& o
                          BetaAwaiter beta)
 {
   validate_async_matrix_product_aliasing(output, lhs, rhs);
-  auto task =
-      async_gemm_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha), std::move(beta));
+  auto task = co_gemm(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha), std::move(beta));
   task.debug_name("gemm");
   async::schedule(std::move(task));
 }
@@ -226,7 +179,7 @@ template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorVie
 void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
-  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(gemm_op{});
+  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(assign_product_op{});
   detail::schedule_async_assign_product(std::move(selector), output, lhs, rhs, async::read(std::forward<Alpha>(alpha)));
 }
 

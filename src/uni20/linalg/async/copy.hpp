@@ -29,19 +29,23 @@ namespace detail
 template <class Tensor>
 concept OwningCudaTensor = OwningTensor<Tensor> && std::same_as<tensor_storage_policy_t<Tensor>, CudaStorage>;
 
+template <class Tensor>
+concept CudaCopyInputTensor = TensorView<Tensor> && cuda::BufferMdspec<tensor_mdspec_t<Tensor>>;
+
 template <class OutputTensor, class InputTensor>
-concept AsyncCudaCopyTensors = OwningCudaTensor<OutputTensor> && OwningCudaTensor<InputTensor> &&
-                               (tensor_mdspan_t<OutputTensor>::rank() == tensor_mdspan_t<InputTensor>::rank()) &&
+concept AsyncCudaCopyTensors = OwningCudaTensor<OutputTensor> && CudaCopyInputTensor<InputTensor> &&
+                               (tensor_mdspec_t<OutputTensor>::rank() == tensor_mdspec_t<InputTensor>::rank()) &&
                                std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>;
 
-template <TensorView Tensor> [[nodiscard]] cuda::DeviceResources& cuda_copy_resources(Tensor const& tensor)
+template <cuda::BufferMdspec InputMdspan>
+[[nodiscard]] cuda::DeviceResources& cuda_copy_resources(InputMdspan const& input)
 {
-  return tensor.mdspan().data_handle().buffer().resources();
+  return input.data_descriptor().buffer().resources();
 }
 
-template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
+template <OwningCudaTensor OutputTensor, cuda::BufferMdspec InputMdspan>
 [[nodiscard]] OutputTensor& prepare_async_copy_output(async::shared_storage<OutputTensor>& storage,
-                                                      InputTensor const& input)
+                                                      InputMdspan const& input)
 {
   if (!storage.constructed())
   {
@@ -50,32 +54,32 @@ template <OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
     return storage.emplace(cuda_copy_resources(input), extents);
   }
 
-  ensure_shape(*storage, input.extents());
+  prepare_output(*storage, input.extents());
   return *storage;
 }
 
-template <class BackendSelector, OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
-async::AsyncTask async_cuda_copy_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                      async::ReadBuffer<InputTensor> input)
+template <class BackendSelector, OwningCudaTensor OutputTensor, CudaCopyInputTensor InputTensor>
+async::AsyncTask co_cuda_copy(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                              async::ReadBuffer<InputTensor> input)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, input);
   auto& storage = std::get<0>(awaited);
   auto const& input_value = std::get<1>(awaited);
-  auto& output_value = prepare_async_copy_output(storage, input_value);
-  auto output_mdspan = output_value.mdspan();
-  auto input_mdspan = input_value.mdspan();
-  co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_mdspan, input_mdspan);
+  auto input_span = mdspec_of(input_value);
+  auto& output_value = prepare_async_copy_output(storage, input_span);
+  auto output_span = mdspec_of(output_value);
+  co_await linalg::co_dispatch_kernel(selector, linalg::copy_op{}, output_span, input_span);
   co_return;
 }
 
-template <class BackendSelector, OwningCudaTensor OutputTensor, OwningCudaTensor InputTensor>
+template <class BackendSelector, OwningCudaTensor OutputTensor, CudaCopyInputTensor InputTensor>
 void schedule_async_cuda_copy(BackendSelector selector, async::Async<OutputTensor>& output,
                               async::Async<InputTensor> const& input)
 {
   ERROR_IF(std::addressof(output.queue()) == std::addressof(input.queue()),
            "async CUDA copy output must not share an epoch queue with its input");
-  auto task = async_cuda_copy_task(std::move(selector), output.write(), input.read());
+  auto task = co_cuda_copy(std::move(selector), output.write(), input.read());
   task.debug_name("copy");
   async::schedule(std::move(task));
 }

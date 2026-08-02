@@ -43,7 +43,6 @@ jobs:
             g++ \
             libopenblas-dev \
             liblapack-dev \
-            libtbb-dev \
             libbenchmark-dev \
             libfmt-dev \
             libgtest-dev
@@ -56,7 +55,7 @@ jobs:
             -DUNI20_BUILD_COMBINED_TESTS=OFF \
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
-            -DUNI20_USE_SYSTEM_TBB=ON \
+            -DUNI20_USE_SYSTEM_TBB=OFF \
             -DUNI20_USE_SYSTEM_FMT=ON \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \
@@ -95,7 +94,6 @@ jobs:
             g++ \
             libopenblas-dev \
             liblapack-dev \
-            libtbb-dev \
             libbenchmark-dev \
             libfmt-dev \
             libgtest-dev
@@ -108,7 +106,7 @@ jobs:
             -DUNI20_BUILD_COMBINED_TESTS=OFF \
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
-            -DUNI20_USE_SYSTEM_TBB=ON \
+            -DUNI20_USE_SYSTEM_TBB=OFF \
             -DUNI20_USE_SYSTEM_FMT=ON \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \
@@ -146,9 +144,9 @@ jobs:
             ninja-build \
             g++ \
             clang-19 \
+            clang-tools-19 \
             libopenblas-dev \
             liblapack-dev \
-            libtbb-dev \
             libbenchmark-dev \
             libfmt-dev \
             libgtest-dev
@@ -162,7 +160,7 @@ jobs:
             -DUNI20_BUILD_COMBINED_TESTS=OFF \
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
-            -DUNI20_USE_SYSTEM_TBB=ON \
+            -DUNI20_USE_SYSTEM_TBB=OFF \
             -DUNI20_USE_SYSTEM_FMT=ON \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \

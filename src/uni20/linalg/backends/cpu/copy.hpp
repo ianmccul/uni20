@@ -11,6 +11,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <cstddef>
@@ -19,7 +21,7 @@
 
 namespace uni20::linalg
 {
-namespace detail
+namespace detail::cpu_reference
 {
 template <class OutputMdspan, class InputMdspan, std::size_t... Axis>
 consteval bool copy_element_is_assignable(std::index_sequence<Axis...>)
@@ -59,15 +61,12 @@ void copy_elements(OutputMdspan& output, InputMdspan& input,
     }
   }
 }
-} // namespace detail
 
-/// \brief Report compile-time eligibility for reference CPU element-copy dispatch.
-template <uni20::MutableSpanLike OutputMdspan, uni20::SpanLike InputMdspan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
+/// \brief Report compile-time eligibility for reference CPU mdspan copy lowering.
+template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan> consteval auto copy_acceptance()
 {
   if constexpr (OutputMdspan::rank() == InputMdspan::rank() &&
-                detail::copy_element_is_assignable<OutputMdspan, InputMdspan>(
-                    std::make_index_sequence<OutputMdspan::rank()>{}))
+                copy_element_is_assignable<OutputMdspan, InputMdspan>(std::make_index_sequence<OutputMdspan::rank()>{}))
   {
     return kernel_types_yes;
   }
@@ -77,10 +76,10 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, 
   }
 }
 
-/// \brief Copy every input element through its accessor into the corresponding output element.
+/// \brief Copy mdspans after tensor-level CPU backend selection.
 /// \pre Input and output have equal extents and do not destructively overlap.
-template <class OutputMdspan, class InputMdspan>
-KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& output, InputMdspan&& input)
+template <uni20::MutableMdspanLike OutputMdspan, uni20::MdspanLike InputMdspan>
+KernelAttempt copy(OutputMdspan&& output, InputMdspan&& input)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
   static_assert(output_type::rank() == std::remove_cvref_t<InputMdspan>::rank());
@@ -91,7 +90,8 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
       CHECK_EQUAL(output.extent(axis), input.extent(axis));
   }
 
-  if constexpr (uni20::MutableStridedMdspan<output_type> && uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>>)
+  if constexpr (uni20::MutableStridedMdspanLike<output_type> &&
+                uni20::StridedMdspanLike<std::remove_cvref_t<InputMdspan>>)
   {
     cpu::detail::transform_strided<false>(
         output, [](auto&& value) -> decltype(auto) { return std::forward<decltype(value)>(value); }, input);
@@ -100,11 +100,38 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
   {
     std::array<typename output_type::index_type, output_type::rank()> index{};
     if constexpr (std::same_as<typename output_type::layout_type, stdex::layout_left>)
-      detail::copy_elements<0, true>(output, input, index);
+      copy_elements<0, true>(output, input, index);
     else
-      detail::copy_elements<0, false>(output, input, index);
+      copy_elements<0, false>(output, input, index);
   }
   return KernelAttempt::success;
+}
+} // namespace detail::cpu_reference
+
+/// \brief Report eligibility for a host-accessible mdspec element copy.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
+{
+  using output_span = uni20::host_write_mdspan_t<OutputMdspan>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
+  constexpr auto acceptance = detail::cpu_reference::copy_acceptance<output_span, input_span>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and copy through the resulting mdspans.
+template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
+  requires uni20::HostWritableMdspec<OutputMdspan> && uni20::HostReadableMdspec<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
+{
+  auto output_access = acquire_host_write_access_sync(output);
+  auto input_access = acquire_host_read_access_sync(input);
+  auto output_span = output_access.mdspan();
+  auto input_span = input_access.mdspan();
+  return detail::cpu_reference::copy(output_span, input_span);
 }
 
 } // namespace uni20::linalg

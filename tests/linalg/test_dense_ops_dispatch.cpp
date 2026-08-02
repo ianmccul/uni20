@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -17,6 +19,7 @@ TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
   EXPECT_EQ(uni20::linalg::conjugate_inplace_op::name, "conjugate_inplace");
   EXPECT_EQ(uni20::linalg::transform_op<std::plus<>>::name, "transform");
   EXPECT_EQ(uni20::linalg::transform_inplace_op<std::plus<>>::name, "transform_inplace");
+  EXPECT_EQ(uni20::linalg::assign_product_op::name, "assign_product");
   EXPECT_EQ(uni20::linalg::gemm_op::name, "gemm");
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
   EXPECT_EQ(uni20::linalg::inner_product_op::name, "inner_product");
@@ -86,6 +89,19 @@ TEST(LinalgDenseOpsDispatchTest, MatrixSetUsesCpuReferenceForEitherOwningLayout)
   }
 }
 
+TEST(LinalgDenseOpsDispatchTest, MatrixSetAcquiresDeferredWritableStorage)
+{
+  uni20::test::DeferredHostTensor<double, 2> matrix(2, 3);
+
+  uni20::linalg::set_matrix(matrix, 4.0, -1.0);
+
+  auto access = uni20::test::acquire_host_read_access_sync(matrix);
+  auto span = access.mdspan();
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type col = 0; col < 3; ++col)
+      EXPECT_DOUBLE_EQ((span[row, col]), row == col ? 4.0 : -1.0);
+}
+
 TEST(LinalgDenseOpsDispatchTest, MatrixExponentialUsesFixedOutputMatrixFrontEnd)
 {
   uni20::DenseMatrix<double> input(1, 1);
@@ -95,6 +111,17 @@ TEST(LinalgDenseOpsDispatchTest, MatrixExponentialUsesFixedOutputMatrixFrontEnd)
   uni20::linalg::matrix_exponential(output, input, 0.5);
 
   EXPECT_NEAR((output[0, 0]), std::exp(1.0), 1.0e-14);
+}
+
+TEST(LinalgDenseOpsDispatchTest, MatrixExponentialAcquiresDeferredOperands)
+{
+  uni20::test::DeferredHostTensor<double, 2> input(1, 1);
+  uni20::test::DeferredHostTensor<double, 2> output(1, 1);
+  input.storage()[0] = 2.0;
+
+  uni20::linalg::matrix_exponential(output, input, 0.5);
+
+  EXPECT_NEAR(output.storage()[0], std::exp(1.0), 1.0e-14);
 }
 
 TEST(LinalgDenseOpsDispatchTest, TridiagonalEigenUsesLapackBackend)

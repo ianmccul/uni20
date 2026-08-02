@@ -12,21 +12,28 @@
 sudo apt-get update -y && \
 sudo apt-get install -y \
     cmake ninja-build g++ \
-    libopenblas-dev liblapack-dev libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
+    libopenblas-dev liblapack-dev libbenchmark-dev libfmt-dev libgtest-dev
 ```
 
 **Notes for hosted environments:**
 
 * Do **not** modify `CMakeLists.txt` to bypass dependency detection.
 * If BLAS/LAPACK detection fails, re-run the install step above.
+* Uni20 requires oneTBB 2022.3 or newer. CMake fetches the pinned oneTBB
+  source when no compatible system installation is available. Ubuntu 24.04's
+  `libtbb-dev` 2021.11 package is below the supported minimum.
 * Codex-like agents should always execute this block before attempting a build.
 
 **Optional packages**
 
-These packages are automatically fetched from github if they are not detected.
+These packages are automatically fetched from GitHub if they are not detected.
 ```
-sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
+sudo apt-get install -y libbenchmark-dev libfmt-dev libgtest-dev
 ```
+
+Install `libtbb-dev` only when the distribution provides oneTBB 2022.3 or
+newer. In network-restricted environments, provide a compatible `TBB_DIR` or
+pre-populate the CMake FetchContent source instead.
 
 ---
 
@@ -219,11 +226,11 @@ DMRG calculations.
 * A Uni20 accessor that presents a read-only semantic view must declare a const
   `element_type`, even when `access(...)` returns a calculated value rather than
   a reference. Do not encode read-only behavior only in the handle type or
-  `reference` alias. `MutableSpanLike` uses const `element_type` together with
+  `reference` alias. `MutableMdspanLike` uses const `element_type` together with
   indexed assignment validity to reject ordinary mutation. An opaque
-  device-memory accessor may instead opt in through
-  `enable_backend_writable_accessor` when writes are valid only after explicit
-  backend lowering; that opt-in must not add host-side indexed assignment.
+  device-memory accessor without assignable element semantics does not model
+  `MutableMdspanLike` or `MutableMdspecLike`; resolve it to an accessor with
+  the required reference semantics before mutation.
 * A tensor view's const interface must resolve an mdspan with const
   `element_type`. Mutable access belongs on the non-const `mdspan()` overload;
   shallow-const descriptors must not make `TensorView const&` writable.
@@ -236,6 +243,16 @@ DMRG calculations.
   and other proxy accessors as semantic views that require explicit lowering,
   materialization, or a generic elementwise path. A pointer data handle does not
   make them BLAS-addressable.
+* Mark Uni20-owned mapping, accessor, proxy-reference, generator, and tensor
+  transform execution surfaces with `UNI20_HOST_DEVICE`. Stored function
+  objects invoked through CUDA-accessible accessors must annotate the invoked
+  call operator the same way. Do not add a separate function- or mapping-domain
+  trait: an actual CUDA compilation probe is the check for device-callability.
+* Keep device-callability separate from memory-domain semantics.
+  `enable_accessor_in_domain` states where an acquired handle may be evaluated;
+  `UNI20_HOST_DEVICE` only makes the execution code available to both
+  compilers. A device-callable accessor still needs an explicit precompiled
+  backend lowering or a sufficiently general execution plan.
 * Uni20's lazy conjugation follows the C++26 `std::linalg::conjugated_accessor`
   model from WG21 P3050R3, but the user-facing helper is `uni20::conj(span)`.
   Do not use `std::conj` to decide real-mdspan behavior: `uni20::conj` is the

@@ -18,9 +18,9 @@ The C++ `full` factory puts the fill value first so its scalar type can be
 inferred; Python bindings may provide Python-specific argument ordering
 independently.
 
-These objects model `TensorView`, but their accessors return generated values
+These objects model `ImmediateTensorView`, but their accessors return generated values
 rather than references into a dense element allocation. Consequently they do
-not model `MutableTensorView`, `StridedTensorView`, or reusable dense
+not model `MutableImmediateTensorView`, `StridedImmediateTensorView`, or reusable dense
 `OwningTensor`. Their `GeneratedLayout` maps logical indices to synthetic
 accessor offsets; it does not claim a row-major or column-major physical order.
 
@@ -109,13 +109,16 @@ Repeated tensor-level reshapes preserve order through the result's static
 including when an intermediate shape contains singleton extents.
 
 For asynchronous tensors, `async::reshape_view(parent, ...)` returns an
-owner-retaining `Async<TensorView>` alias on the parent's exact epoch queue.
-The alias may be created while the parent value is still pending. It resolves
-and validates its reshaped mdspan only after the parent epoch becomes readable,
-and a parent failure propagates through the alias. Mutable aliases support
-write-through assignment; aliases of a const parent are read-only. The async
-API also provides `reshape_view_left` and `reshape_view_right` for strided
-parents whose order must be selected explicitly.
+owner-retaining `Async<View>` whose `View` models `TensorView`, on the parent's
+exact epoch queue. The alias may be created while the parent value is still
+pending. Once the parent epoch becomes readable, it validates the mapping and
+rebuilds the parent's mdspan or deferred mdspec with the reshaped mapping. The
+result models `ImmediateTensorView` exactly when the parent does; reshaping a
+deferred descriptor does not acquire its data handle. A parent failure
+propagates through the alias. Mutable aliases support write-through assignment;
+aliases of a const parent are read-only. The async API also provides
+`reshape_view_left` and `reshape_view_right` for strided parents whose order
+must be selected explicitly.
 
 ### `reshape_inplace`
 
@@ -139,10 +142,11 @@ As with consuming eigensolver overloads, `std::move` grants permission to reuse
 storage but is not a separate operation name. There is therefore no
 `reshape_move` or `reshape_copy` API.
 
-Canonical non-owning sources are reshaped before materialization so their
-contiguous sequence is preserved. Layout-neutral generated inputs are first
-materialized in the default or explicitly requested layout, then reshaped by
-transferring that allocation:
+Immediately accessible canonical non-owning sources are reshaped before
+materialization so their contiguous sequence is preserved. Deferred non-owning
+views are first materialized through their selected backend, then reshaped by
+transferring the resulting owning allocation. Layout-neutral generated inputs
+similarly materialize in the default or explicitly requested layout:
 
 ```cpp
 auto column_result = uni20::reshape(uni20::eye<double>(2, 3), 3, 2);

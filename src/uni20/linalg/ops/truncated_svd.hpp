@@ -104,7 +104,7 @@ template <uni20::Real Real> void validate_svd_truncation_policy(SvdTruncationPol
            "SVD maximum discarded weight exceeds one", *policy.maximum_discarded_weight);
 }
 
-template <uni20::RankedTensorView<1> SingularValueTensor>
+template <uni20::RankedImmediateTensorView<1> SingularValueTensor>
 [[nodiscard]] auto
 select_svd_truncation(SingularValueTensor const& singular_values,
                       SvdTruncationPolicy<uni20::tensor_element_t<SingularValueTensor>> const& policy)
@@ -278,11 +278,11 @@ truncated_svd(MatrixTensor const& matrix,
 ///          workspace. Truncation returns right-sized owning factors and does
 ///          not promise that the transferred allocation is retained.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
-[[nodiscard]] auto truncated_svd(
-    BackendSelector&& selector, MatrixTensor&& matrix,
-    SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})
+[[nodiscard]] auto
+truncated_svd(BackendSelector&& selector, MatrixTensor&& matrix,
+              SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})
 {
   auto exact = svd(std::forward<BackendSelector>(selector), std::forward<MatrixTensor>(matrix));
   return detail::truncate_svd_result(std::move(exact), policy);
@@ -290,10 +290,11 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Consume an owning matrix and return a truncated reduced SVD.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2> &&
            (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
-[[nodiscard]] auto truncated_svd(
-    MatrixTensor&& matrix, SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})
+[[nodiscard]] auto
+truncated_svd(MatrixTensor&& matrix,
+              SvdTruncationPolicy<uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>> policy = {})
 {
   auto exact = svd(std::forward<MatrixTensor>(matrix));
   return detail::truncate_svd_result(std::move(exact), policy);

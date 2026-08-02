@@ -40,30 +40,30 @@ class ErrorModeGuard {
     bool previous_;
 };
 
-static_assert(uni20::TensorView<FixedTensorView>);
-static_assert(uni20::MutableTensorView<FixedTensorView>);
+static_assert(uni20::ImmediateTensorView<FixedTensorView>);
+static_assert(uni20::MutableImmediateTensorView<FixedTensorView>);
 static_assert(!uni20::ResizableTensorOutput<FixedTensorView>);
 static_assert(uni20::ResizableTensorOutput<uni20::DenseMatrix<double>>);
 static_assert(std::same_as<uni20::tensor_element_t<uni20::DenseMatrix<double>>, double>);
 } // namespace
 
-TEST(TensorOutputTest, EnsureShapeRetainsMatchingOwningTensor)
+TEST(TensorOutputTest, PrepareOutputRetainsMatchingOwningTensor)
 {
   uni20::DenseMatrix<double> matrix(2, 3);
   matrix[0, 0] = 7.0;
   auto* const original_handle = matrix.mutable_handle();
 
-  uni20::ensure_shape(matrix, extents_2d{2, 3});
+  uni20::prepare_output(matrix, extents_2d{2, 3});
 
   EXPECT_EQ(matrix.mutable_handle(), original_handle);
   EXPECT_EQ((matrix[0, 0]), 7.0);
 }
 
-TEST(TensorOutputTest, EnsureShapeRebuildsOwningTensorWithDefaultMapping)
+TEST(TensorOutputTest, PrepareOutputRebuildsOwningTensorWithDefaultMapping)
 {
   uni20::DenseMatrix<double> matrix(1, 1);
 
-  uni20::ensure_shape(matrix, extents_2d{2, 3});
+  uni20::prepare_output(matrix, extents_2d{2, 3});
 
   EXPECT_EQ(matrix.rows(), 2);
   EXPECT_EQ(matrix.cols(), 3);
@@ -72,12 +72,12 @@ TEST(TensorOutputTest, EnsureShapeRebuildsOwningTensorWithDefaultMapping)
   EXPECT_EQ(matrix.mapping().stride(1), 2);
 }
 
-TEST(TensorOutputTest, RequireShapeNeverResizesOwningTensor)
+TEST(TensorOutputTest, RequireOutputNeverResizesOwningTensor)
 {
   uni20::DenseMatrix<double> matrix(1, 1);
   ErrorModeGuard const error_mode;
 
-  EXPECT_THROW(uni20::require_shape(matrix, extents_2d{2, 3}), std::runtime_error);
+  EXPECT_THROW(uni20::require_output(matrix, extents_2d{2, 3}), std::runtime_error);
   EXPECT_EQ(matrix.rows(), 1);
   EXPECT_EQ(matrix.cols(), 1);
 }
@@ -87,11 +87,31 @@ TEST(TensorOutputTest, FixedTensorViewValidatesWithoutRebinding)
   double storage[6] = {};
   FixedTensorView view{.data = storage, .shape = extents_2d{2, 3}};
 
-  uni20::ensure_shape(view, extents_2d{2, 3});
+  uni20::prepare_output(view, extents_2d{2, 3});
   EXPECT_EQ(view.data, storage);
 
   ErrorModeGuard const error_mode;
-  EXPECT_THROW(uni20::ensure_shape(view, extents_2d{3, 2}), std::runtime_error);
+  EXPECT_THROW(uni20::prepare_output(view, extents_2d{3, 2}), std::runtime_error);
   EXPECT_EQ(view.extent(0), 2);
   EXPECT_EQ(view.extent(1), 3);
+}
+
+TEST(TensorOutputTest, ConstructedFixedSharedStorageUsesTensorViewPreparation)
+{
+  double data[6] = {};
+  auto storage =
+      uni20::async::make_shared_storage<FixedTensorView>(FixedTensorView{.data = data, .shape = extents_2d{2, 3}});
+
+  auto& output = uni20::prepare_output(storage, extents_2d{2, 3});
+
+  EXPECT_EQ(output.data, data);
+}
+
+TEST(TensorOutputTest, UnconstructedFixedSharedStorageReportsPreparationError)
+{
+  auto storage = uni20::async::make_unconstructed_shared_storage<FixedTensorView>();
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(uni20::prepare_output(storage, extents_2d{2, 3}), std::runtime_error);
+  EXPECT_FALSE(storage.constructed());
 }

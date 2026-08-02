@@ -1,8 +1,11 @@
+#include <uni20/linalg/cpu/gemv.hpp>
 #include <uni20/linalg/ops/gemv.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
+
+#include "deferred_host_tensor.hpp"
 
 #include <initializer_list>
 #include <limits>
@@ -51,8 +54,7 @@ TEST(CpuGemvBackendTest, SkipsProductReadsWhenAlphaIsZero)
   stdex::mdspan<double, extents_1d, stdex::layout_left> input(input_storage.data(), 2);
   stdex::mdspan<double, extents_1d, stdex::layout_left> output(output_storage.data(), 2);
 
-  uni20::linalg::dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::gemv_op{}, output, 0.0, matrix,
-                                 input, 2.0);
+  uni20::linalg::cpu::gemv(output, 0.0, matrix, input, 2.0);
   EXPECT_DOUBLE_EQ(output[0], 4.0);
   EXPECT_DOUBLE_EQ(output[1], -6.0);
 }
@@ -71,6 +73,19 @@ TEST(CpuGemvBackendTest, TensorOperandsAcceptExplicitSelector)
   uni20::linalg::gemv(uni20::linalg::CpuReferenceBackend{}, output, 1.0, matrix, input, 0.0);
   EXPECT_DOUBLE_EQ(output[0], 8.0);
   EXPECT_DOUBLE_EQ(output[1], 18.0);
+}
+
+TEST(CpuGemvBackendTest, DeferredTensorOperandsUseHostLeases)
+{
+  uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
+  uni20::test::DeferredHostTensor<double, 1> input(2);
+  uni20::test::DeferredHostTensor<double, 1> output(2);
+  matrix.storage() = {1.0, 3.0, 2.0, 4.0};
+  input.storage() = {2.0, 3.0};
+
+  uni20::linalg::gemv(uni20::linalg::CpuReferenceBackend{}, output, 1.0, matrix, input, 0.0);
+
+  EXPECT_EQ(output.storage(), (std::vector<double>{8.0, 18.0}));
 }
 
 #if !UNI20_BACKEND_BLAS

@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -179,6 +181,20 @@ TEST(SelfAdjointEighTest, InPlaceValueOnlySolveResizesEigenvalueOutput)
   EXPECT_EQ(eigenvalues.extent(0), 2);
   EXPECT_NEAR(eigenvalues[0], 2.0, 1e-13);
   EXPECT_NEAR(eigenvalues[1], 4.0, 1e-13);
+}
+
+TEST(SelfAdjointEighTest, InPlaceSolveAcquiresDeferredWritableOperands)
+{
+  uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
+  uni20::test::DeferredHostTensor<double, 1> eigenvalues(2);
+  matrix.storage() = {2.0, 1.0, 1.0, 2.0};
+
+  uni20::linalg::self_adjoint_eigh(uni20::linalg::LapackBackend{}, eigenvalues, matrix,
+                                   uni20::linalg::SelfAdjointEighOptions{
+                                       .compute_vectors = false, .triangle = uni20::linalg::MatrixTriangle::Upper});
+
+  EXPECT_NEAR(eigenvalues.storage()[0], 1.0, 1e-13);
+  EXPECT_NEAR(eigenvalues.storage()[1], 3.0, 1e-13);
 }
 
 TEST(SelfAdjointEighTest, DirectLapackBackendDeclinesRowMajorBeforeMutation)

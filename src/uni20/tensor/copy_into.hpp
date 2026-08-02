@@ -28,12 +28,12 @@ namespace uni20
 namespace detail
 {
 template <class Output, class Input>
-concept CopySpans = MutableSpanLike<Output> && SpanLike<Input> &&
+concept CopySpans = MutableMdspanLike<Output> && MdspanLike<Input> &&
                     (std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Input>::rank());
 
 template <class Output, class Input>
 concept CopyTensors = MutableTensorView<Output> && TensorView<Input> &&
-                      (tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank());
+                      (tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Input>::rank());
 
 #if UNI20_BACKEND_CUDA
 template <class Output, class Input>
@@ -43,7 +43,7 @@ inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_p
                                                    std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
 #endif
 
-template <SpanLike Output, SpanLike Input>
+template <MdspecLike Output, MdspecLike Input>
 [[nodiscard]] constexpr bool copy_extents_match(Output const& output, Input const& input) noexcept
 {
   if constexpr (std::remove_cvref_t<Output>::rank() != std::remove_cvref_t<Input>::rank())
@@ -63,19 +63,23 @@ template <SpanLike Output, SpanLike Input>
     return true;
   }
 }
+
 } // namespace detail
 
 /// \brief Copy between fixed-shape mdspan-like operands through an explicit selector.
 /// \details Accessor semantics are observed by the selected backend, so a
 ///          conjugating input remains a lazy view until this explicit copy.
+///          The operands enter operation-tag dispatch as normalized device
+///          mdspans.
 /// \pre Input and output do not destructively overlap.
 template <class BackendSelector, class OutputMdspan, class InputMdspan>
   requires detail::CopySpans<OutputMdspan, InputMdspan>
 void copy(BackendSelector&& selector, OutputMdspan&& output, InputMdspan&& input)
 {
   ERROR_IF(!detail::copy_extents_match(output, input), "copy output shape does not match input shape");
-  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{},
-                          std::forward<OutputMdspan>(output), std::forward<InputMdspan>(input));
+  auto output_span = std::forward<OutputMdspan>(output);
+  auto input_span = make_const_mdspan(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_span, input_span);
 }
 
 /// \brief Copy into a resizable or already-compatible tensor through an explicit selector.
@@ -85,10 +89,10 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
   requires detail::CopyTensors<OutputTensor, InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
-  ensure_shape(output, input.extents());
-  auto output_span = output.mdspan();
-  auto input_span = input.mdspan();
-  copy(std::forward<BackendSelector>(selector), output_span, input_span);
+  prepare_output(output, input.extents());
+  auto output_span = mdspec_of(output);
+  auto input_span = mdspec_of(input);
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::copy_op{}, output_span, input_span);
 }
 
 /// \brief Copy into a tensor using the operands' default backend selector.
@@ -96,19 +100,16 @@ template <class OutputTensor, class InputTensor>
   requires detail::CopyTensors<OutputTensor, InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
-  ensure_shape(output, input.extents());
-  auto output_span = output.mdspan();
-  auto input_span = input.mdspan();
 #if UNI20_BACKEND_CUDA
   if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
   {
-    copy(linalg::CudaReferenceBackend{}, output_span, input_span);
+    copy(linalg::CudaReferenceBackend{}, output, input);
   }
   else
 #endif
   {
     auto selector = linalg::select_backend(linalg::copy_op{}, output, input);
-    copy(selector, output_span, input_span);
+    copy(selector, output, input);
   }
 }
 
@@ -116,7 +117,7 @@ void copy(OutputTensor&& output, InputTensor const& input)
 /// \details Async alias assignment discovers this function through ADL. The
 ///          descriptor itself remains unchanged while `copy` writes its values.
 template <MutableTensorView Output, TensorView Input>
-  requires(tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank())
+  requires(tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Input>::rank())
 void assign_through(Output& output, Input const& input)
 {
   copy(output, input);

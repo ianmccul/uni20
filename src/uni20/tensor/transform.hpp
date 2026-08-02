@@ -12,10 +12,12 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -25,28 +27,34 @@ namespace detail
 {
 
 template <class Output, class... Inputs>
-concept OverwriteTransformSpans = MutableSpanLike<Output> && (sizeof...(Inputs) >= 1) && (SpanLike<Inputs> && ...) &&
-                                  ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
+concept OverwriteTransformSpans =
+    MutableMdspanLike<Output> && (sizeof...(Inputs) >= 1) && (MdspanLike<Inputs> && ...) &&
+    ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
-concept UpdateTransformSpans = MutableSpanLike<Output> && (SpanLike<Inputs> && ...) &&
+concept UpdateTransformSpans = MutableMdspanLike<Output> && (MdspanLike<Inputs> && ...) &&
                                ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
 concept OverwriteTransformTensors =
     MutableTensorView<Output> && (sizeof...(Inputs) >= 1) && (TensorView<Inputs> && ...) &&
-    ((mutable_tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Inputs>::rank()) && ...);
+    ((tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
 concept UpdateTransformTensors = MutableTensorView<Output> && (TensorView<Inputs> && ...) &&
-                                 ((mutable_tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Inputs>::rank()) && ...);
+                                 ((tensor_mdspec_t<Output>::rank() == tensor_mdspec_t<Inputs>::rank()) && ...);
 
 template <class Reference, class... Others>
 void require_transform_extents(Reference const& reference, Others const&... others)
 {
   if constexpr (sizeof...(Others) > 0)
   {
-    constexpr std::size_t Rank = static_cast<std::size_t>(std::remove_cvref_t<Reference>::rank());
+    constexpr std::size_t Rank = [] {
+      if constexpr (TensorView<Reference>)
+        return tensor_mdspec_t<Reference>::rank();
+      else
+        return std::remove_cvref_t<Reference>::rank();
+    }();
     if constexpr (Rank > 0)
     {
       auto require_equal = [&](auto const& other) {
@@ -79,8 +87,14 @@ void assign_transform(BackendSelector&& selector, OutputMdspan&& output, Functio
 {
   detail::require_transform_extents(output, inputs...);
   auto operation = linalg::transform_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation),
-                             std::forward<OutputMdspan>(output), std::forward<InputMdspans>(inputs)...);
+  auto output_descriptor = std::forward<OutputMdspan>(output);
+  auto input_descriptors = std::tuple{make_const_mdspan(inputs)...};
+  std::apply(
+      [&](auto&... input_descriptor) {
+        detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
+                                   input_descriptor...);
+      },
+      input_descriptors);
 }
 
 /// \brief Update a fixed-shape mdspan through an explicit backend selector.
@@ -93,8 +107,14 @@ void transform_inplace(BackendSelector&& selector, OutputMdspan&& output, Functi
 {
   detail::require_transform_extents(output, inputs...);
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation),
-                             std::forward<OutputMdspan>(output), std::forward<InputMdspans>(inputs)...);
+  auto output_descriptor = std::forward<OutputMdspan>(output);
+  auto input_descriptors = std::tuple{make_const_mdspan(inputs)...};
+  std::apply(
+      [&](auto&... input_descriptor) {
+        detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
+                                   input_descriptor...);
+      },
+      input_descriptors);
 }
 
 /// \brief Overwrite a Tensor output through an explicit backend selector.
@@ -108,10 +128,16 @@ void assign_transform(BackendSelector&& selector, OutputTensor&& output, Functio
                       FirstInputTensor const& first_input, RestInputTensors const&... rest_inputs)
 {
   detail::require_transform_extents(first_input, rest_inputs...);
-  ensure_shape(output, first_input.extents());
+  prepare_output(output, first_input.extents());
   auto operation = linalg::transform_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output.mdspan(),
-                             first_input.mdspan(), rest_inputs.mdspan()...);
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(first_input), mdspec_of(rest_inputs)...};
+  std::apply(
+      [&](auto&... inputs) {
+        detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
+                                   inputs...);
+      },
+      input_descriptors);
 }
 
 /// \brief Overwrite a Tensor output using its operands' default backend selector.
@@ -123,9 +149,14 @@ void assign_transform(OutputTensor&& output, Function&& function, FirstInputTens
   auto operation = linalg::transform_op{std::forward<Function>(function)};
   auto selector = linalg::select_backend(operation, output, first_input, rest_inputs...);
   detail::require_transform_extents(first_input, rest_inputs...);
-  ensure_shape(output, first_input.extents());
-  detail::dispatch_transform(selector, std::move(operation), output.mdspan(), first_input.mdspan(),
-                             rest_inputs.mdspan()...);
+  prepare_output(output, first_input.extents());
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(first_input), mdspec_of(rest_inputs)...};
+  std::apply(
+      [&](auto&... inputs) {
+        detail::dispatch_transform(selector, std::move(operation), output_descriptor, inputs...);
+      },
+      input_descriptors);
 }
 
 /// \brief Update a Tensor output through an explicit backend selector.
@@ -139,8 +170,14 @@ void transform_inplace(BackendSelector&& selector, OutputTensor&& output, Functi
 {
   detail::require_transform_extents(output, inputs...);
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
-  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output.mdspan(),
-                             inputs.mdspan()...);
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(inputs)...};
+  std::apply(
+      [&](auto&... input_descriptors) {
+        detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor,
+                                   input_descriptors...);
+      },
+      input_descriptors);
 }
 
 /// \brief Update a Tensor output using its operands' default backend selector.
@@ -151,7 +188,13 @@ void transform_inplace(OutputTensor&& output, Function&& function, InputTensors 
   auto operation = linalg::transform_inplace_op{std::forward<Function>(function)};
   auto selector = linalg::select_backend(operation, output, inputs...);
   detail::require_transform_extents(output, inputs...);
-  detail::dispatch_transform(selector, std::move(operation), output.mdspan(), inputs.mdspan()...);
+  auto output_descriptor = mdspec_of(output);
+  auto input_descriptors = std::tuple{mdspec_of(inputs)...};
+  std::apply(
+      [&](auto&... input_descriptors) {
+        detail::dispatch_transform(selector, std::move(operation), output_descriptor, input_descriptors...);
+      },
+      input_descriptors);
 }
 
 } // namespace uni20

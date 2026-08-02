@@ -40,20 +40,20 @@ template <uni20::TensorView Tensor>
 ///          epoch queue. Shape and layout validation occurs when the shared
 ///          parent epoch first becomes readable.
 template <uni20::MutableStridedTensorView Tensor, std::integral... Extents>
-  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspan_t<Tensor>::layout_type>
+  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspec_t<Tensor>::layout_type>
 [[nodiscard]] auto reshape_view(Async<Tensor>& tensor, Extents... requested_extents)
 {
-  using layout_type = typename uni20::tensor_mdspan_t<Tensor>::layout_type;
+  using layout_type = typename uni20::tensor_mdspec_t<Tensor>::layout_type;
   using view_type = uni20::IndirectReshapedTensorView<Tensor, layout_type, std::remove_cvref_t<Extents>...>;
   return make_async_alias_from_parent<view_type>(tensor, requested_extents...);
 }
 
 /// \brief Return a read-only structural reshape alias of an async tensor.
 template <uni20::StridedTensorView Tensor, std::integral... Extents>
-  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspan_t<Tensor>::layout_type>
+  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspec_t<Tensor>::layout_type>
 [[nodiscard]] auto reshape_view(Async<Tensor> const& tensor, Extents... requested_extents)
 {
-  using layout_type = typename uni20::tensor_mdspan_t<Tensor>::layout_type;
+  using layout_type = typename uni20::tensor_mdspec_t<Tensor>::layout_type;
   using view_type = uni20::IndirectReshapedTensorView<Tensor const, layout_type, std::remove_cvref_t<Extents>...>;
   return make_async_alias_from_parent<view_type>(tensor, requested_extents...);
 }

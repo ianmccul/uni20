@@ -5,12 +5,18 @@ operation tags. `CudaReferenceBackend` follows provider backends such as cuBLAS
 in `CudaStorage`'s ordered selector and handles operations that do not require a
 provider library.
 
-The initial `copy_op` implementation accepts only unique, exhaustive strided
-mdspans with matching physical order and default host or CUDA accessors. It
-uses blocking `cudaMemcpy` for pageable host transfers and stream-ordered
-device or peer copies for CUDA-to-CUDA transfers. Accessor transforms and
-layout conversion require a later CUDA elementwise kernel rather than a raw
-byte transfer.
+The `copy_op` implementation keeps runtime-copy fast paths for compatible raw
+contiguous mappings. Same-device positive-strided mappings through rank eight,
+including padding and differing physical order, use the reference backend's
+typed elementwise CUDA kernel. The kernel resolves persistent
+`uni20::complex<T>` storage through CUDA execution accessors and publishes its
+stream completion through the same buffer ledgers as the runtime copy path.
+Nonpositive strides on active axes cleanly decline; supporting a future
+negative-stride Uni20 layout requires a signed traversal plan rather than raw
+runtime copying.
+Distinct-offset views into one CUDA buffer use a single exclusive access and
+rely on the C++ copy precondition that the operands do not destructively
+overlap. Nontrivial same-offset transformations decline.
 
 ## Related Documentation
 

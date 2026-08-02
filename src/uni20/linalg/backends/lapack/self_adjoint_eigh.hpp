@@ -16,6 +16,8 @@
 #include <uni20/linalg/blas/mdspan_vector.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -39,17 +41,17 @@ inline char lapack_triangle(MatrixTriangle triangle)
   }
   PANIC("invalid MatrixTriangle", std::to_underlying(triangle));
 }
-} // namespace lapack_detail
 
-/// \brief Report compile-time eligibility for LAPACK self-adjoint eigenanalysis.
-template <uni20::MutableRankedStridedMdspan<1> EigenvalueMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
-consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueMdspan&, MatrixMdspan&)
+/// \brief Report compile-time eligibility for resolved LAPACK self-adjoint eigenanalysis.
+template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+consteval auto self_adjoint_eigh_acceptance()
 {
   using matrix_scalar = std::remove_cv_t<typename MatrixMdspan::element_type>;
   using eigenvalue_scalar = std::remove_cv_t<typename EigenvalueMdspan::element_type>;
   if constexpr (uni20::LapackScalar<matrix_scalar> && uni20::LapackReal<eigenvalue_scalar> &&
                 std::same_as<eigenvalue_scalar, uni20::make_real_t<matrix_scalar>> &&
-                uni20::DefaultAccessorMdspan<EigenvalueMdspan> && uni20::DefaultAccessorMdspan<MatrixMdspan>)
+                uni20::DefaultAccessorMdspanLike<EigenvalueMdspan> && uni20::DefaultAccessorMdspanLike<MatrixMdspan>)
   {
     return kernel_types_maybe;
   }
@@ -62,9 +64,10 @@ consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op c
 /// \brief Compute an in-place symmetric or Hermitian eigensystem through `syev` or `heev`.
 /// \details LAPACK overwrites `matrix_work`. When eigenvectors are requested,
 ///          its columns contain normalized eigenvectors on return.
-template <class EigenvalueMdspan, class MatrixMdspan>
-KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, EigenvalueMdspan&& eigenvalues,
-                         MatrixMdspan&& matrix_work)
+template <uni20::MutableRankedStridedMdspanLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspanLike<2> MatrixMdspan>
+KernelAttempt try_self_adjoint_eigh(self_adjoint_eigh_op const& op, EigenvalueMdspan& eigenvalues,
+                                    MatrixMdspan& matrix_work)
 {
   using matrix_type = std::remove_cvref_t<MatrixMdspan>;
   using matrix_scalar = std::remove_cv_t<typename matrix_type::element_type>;
@@ -124,6 +127,36 @@ KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& op, Eigenval
   }
 
   return KernelAttempt::success;
+}
+} // namespace lapack_detail
+
+/// \brief Report eligibility for host-accessible mdspec self-adjoint eigenanalysis.
+template <uni20::MutableRankedStridedMdspecLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<EigenvalueMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
+consteval auto kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&, EigenvalueMdspan&, MatrixMdspan&)
+{
+  using eigenvalue_span = uni20::host_write_mdspan_t<EigenvalueMdspan>;
+  using matrix_span = uni20::host_write_mdspan_t<MatrixMdspan>;
+  constexpr auto acceptance = lapack_detail::self_adjoint_eigh_acceptance<eigenvalue_span, matrix_span>();
+  if constexpr (acceptance == KernelTypeAcceptance::no)
+    return kernel_types_no;
+  else
+    return kernel_types_maybe;
+}
+
+/// \brief Resolve host access and run LAPACK self-adjoint eigenanalysis.
+template <uni20::MutableRankedStridedMdspecLike<1> EigenvalueMdspan,
+          uni20::MutableRankedStridedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<EigenvalueMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
+KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op const& operation, EigenvalueMdspan& eigenvalues,
+                         MatrixMdspan& matrix_work)
+{
+  return lapack_detail::with_host_write_mdspans(
+      [&](auto& eigenvalue_span, auto& matrix_span) {
+        return lapack_detail::try_self_adjoint_eigh(operation, eigenvalue_span, matrix_span);
+      },
+      eigenvalues, matrix_work);
 }
 
 } // namespace uni20::linalg

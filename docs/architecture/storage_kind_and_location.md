@@ -29,9 +29,10 @@ collapsed into one:
   `kernel_accepts_types`. It is also what keeps symmetry/QNum type guarantees
   intact.
 - **Location** — which device ordinal or process owns a storage object. A
-  **runtime** value attached to storage. For dense device spans, the accessor's
-  data handle should carry the device identity. Distributed block placement is
-  container metadata rather than a dense mdspan accessor concern.
+  **runtime** value attached to storage. For deferred dense device spans, the
+  data descriptor identifies storage whose resources carry the device identity;
+  the eventual leased pointer need not encode it. Distributed block placement
+  is container metadata rather than a dense mdspan accessor concern.
 
 Conflating them breaks the design in one of two ways:
 
@@ -50,12 +51,13 @@ So: kind is a type, location is a value.
   `CudaStorage` is the current device-resident policy. Other memory kinds
   should use the same type-level mechanism rather than becoming runtime tags.
 - **CUDA Tensor placement is implemented for owning dense tensors.**
-  `CudaStorage` owns a typed `CudaBuffer`, while its opaque mdspan handle
-  carries buffer identity and an element offset. The buffer resolves its device
-  through the `DeviceResources` it borrows. A scoped process-wide CUDA runtime
-  owns one canonical resource set for each enrolled device; ordinary Tensor
-  construction uses the configured default. The default backend selector
-  remains stateless.
+  `CudaStorage` owns a typed `CudaBuffer`, while `CudaTensor::mdspec()`
+  carries a `CudaBufferView` descriptor, mapping, and eventual pointer accessor.
+  The descriptor identifies the buffer and element offset without exposing a
+  usable data handle. The buffer resolves its device through the
+  `DeviceResources` it borrows. A scoped process-wide CUDA runtime owns one
+  canonical resource set for each enrolled device; ordinary Tensor construction
+  uses the configured default. The default backend selector remains stateless.
 - **The prototype validates the runtime-location model.** The vendored
   TensorContraction engine models location entirely at runtime:
   `DeviceMatrixView::deviceId_` (an `int`), device-local execution resources,

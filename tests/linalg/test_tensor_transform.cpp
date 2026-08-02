@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include "deferred_host_tensor.hpp"
+
 #include <array>
 #include <functional>
 #include <memory>
@@ -104,6 +106,20 @@ TEST(TensorTransformTest, UnaryTensorUpdateUsesExistingOutputValue)
   EXPECT_DOUBLE_EQ(values[3], 16.0);
 }
 
+TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)
+{
+  uni20::test::DeferredHostTensor<double, 1> lhs(3);
+  uni20::test::DeferredHostTensor<double, 1> rhs(3);
+  uni20::test::DeferredHostTensor<double, 1> output(3);
+  lhs.storage() = {1.0, 2.0, 3.0};
+  rhs.storage() = {4.0, 5.0, 6.0};
+
+  uni20::assign_transform(output, std::plus<>{}, lhs, rhs);
+  uni20::transform_inplace(output, [](double value) { return 2.0 * value; });
+
+  EXPECT_EQ(output.storage(), (std::vector<double>{10.0, 14.0, 18.0}));
+}
+
 TEST(TensorTransformTest, DispatchRetainsMoveOnlyCallableState)
 {
   uni20::Tensor<double, 1> input(3);
@@ -123,7 +139,7 @@ TEST(TensorTransformTest, TypeProbeRequiresConstCallable)
 {
   uni20::Tensor<double, 1> input(2);
   uni20::Tensor<double, 1> output(2);
-  auto input_span = input.mdspan();
+  auto input_span = std::as_const(input).mdspan();
   auto output_span = output.mdspan();
 
   auto const_callable = [](double value) { return value + 1.0; };

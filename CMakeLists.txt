@@ -291,7 +291,12 @@ function(relax_warnings target)
   endif()
 endfunction()
 
-add_compile_options(${UNI20_WARN_FLAGS_INTERNAL})
+foreach(_uni20_warning_flag IN LISTS UNI20_WARN_FLAGS_INTERNAL)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${_uni20_warning_flag}>)
+  if(NOT _uni20_warning_flag MATCHES "^-pedantic")
+    add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${_uni20_warning_flag}>)
+  endif()
+endforeach()
 
 if(UNI20_SANITIZE)
   message(STATUS "Enabling sanitizers: ${UNI20_SANITIZE}")
@@ -332,6 +337,10 @@ set(UNI20_BACKEND_CUDA_DEFAULT OFF)
 if(NOT UNI20_DOCS_WEB AND UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
   enable_language(CUDA)
+  # Execution descriptors retain one C++ type identity across host and CUDA
+  # translation units.  nvcc needs relaxed constexpr calls for value-semantic
+  # libstdc++ components such as std::array and std::tuple.
+  add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
   set(UNI20_BACKEND_CUDA_DEFAULT ON)
 endif()
 
@@ -550,10 +559,10 @@ if(NOT UNI20_DOCS_WEB)
   # oneTBB
   uni20_add_dependency(
     NAME TBB
-    VERSION 2021
+    VERSION 2022.3
     TARGET TBB::tbb
     REPO https://github.com/uxlfoundation/oneTBB
-    TAG v2022.2.0
+    TAG v2022.3.0
     COMPONENTS tbb
     SETTINGS
       "TBB_TEST=OFF"

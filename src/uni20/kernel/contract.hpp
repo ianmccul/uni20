@@ -14,9 +14,10 @@
 namespace uni20::kernel
 {
 
-template <typename T, StridedMdspan AType, StridedMdspan BType, std::size_t N, typename U, MutableStridedMdspan CType>
-  requires(AType::rank() + BType::rank() == CType::rank() + 2 * N) && DefaultAccessorMdspan<AType> &&
-          DefaultAccessorMdspan<BType> && DefaultAccessorMdspan<CType>
+template <typename T, StridedMdspanLike AType, StridedMdspanLike BType, std::size_t N, typename U,
+          MutableStridedMdspanLike CType>
+  requires(AType::rank() + BType::rank() == CType::rank() + 2 * N) && DefaultAccessorMdspanLike<AType> &&
+          DefaultAccessorMdspanLike<BType> && DefaultAccessorMdspanLike<CType>
 /// \brief Execute a tensor contraction with the always-available CPU reference kernel.
 /// \tparam T Scalar used for scaling the contraction inputs and output.
 /// \tparam AType Strided mdspan describing the left-hand tensor operand.
@@ -38,8 +39,9 @@ void contract(T const& alpha, AType A, BType B, std::array<std::pair<std::size_t
   contract_strided(Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle());
 }
 
-template <typename T, StridedMdspan AType, StridedMdspan BType, typename U, MutableStridedMdspan CType, std::size_t N>
-  requires DefaultAccessorMdspan<AType> && DefaultAccessorMdspan<BType> && DefaultAccessorMdspan<CType>
+template <typename T, StridedMdspanLike AType, StridedMdspanLike BType, typename U, MutableStridedMdspanLike CType,
+          std::size_t N>
+  requires DefaultAccessorMdspanLike<AType> && DefaultAccessorMdspanLike<BType> && DefaultAccessorMdspanLike<CType>
 /// \brief Forward compile-time dimension pairs to the CPU reference contraction.
 /// \tparam T Scalar used for scaling the contraction inputs and output.
 /// \tparam AType Strided mdspan describing the left-hand tensor operand.

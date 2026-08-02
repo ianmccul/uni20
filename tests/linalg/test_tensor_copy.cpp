@@ -3,11 +3,14 @@
 #include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/tensor/copy.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
 #include <concepts>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 
 namespace
@@ -33,6 +36,26 @@ void fill_complex_matrix(uni20::DenseMatrix<complex_type, uni20::RowMajor>& matr
   matrix[0, 1] = complex_type{3.0, -4.0};
   matrix[1, 0] = complex_type{-5.0, 6.0};
   matrix[1, 1] = complex_type{7.0, 8.0};
+}
+
+struct MdspecOnlyCopyBackend
+{
+    static constexpr std::string_view name = "mdspec_only_copy";
+    bool* called;
+};
+
+template <uni20::MutableMdspecLike Output, uni20::MdspecLike Input>
+consteval auto kernel_accepts_types(MdspecOnlyCopyBackend const&, uni20::linalg::copy_op const&, Output&, Input&)
+{
+  return uni20::linalg::kernel_types_yes;
+}
+
+template <uni20::MutableMdspecLike Output, uni20::MdspecLike Input>
+uni20::linalg::KernelAttempt try_kernel(MdspecOnlyCopyBackend const& backend, uni20::linalg::copy_op const&, Output&,
+                                        Input&)
+{
+  *backend.called = true;
+  return uni20::linalg::KernelAttempt::success;
 }
 } // namespace
 
@@ -108,6 +131,23 @@ TEST(TensorCopyTest, MakeTensorAcceptsExplicitLayoutAndBareMdspanSelector)
   EXPECT_EQ(result.mapping().stride(1), 2);
 }
 
+TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedMdspecs)
+{
+  uni20::Tensor<double, 1> input(3);
+  uni20::Tensor<double, 1> output(3);
+  auto input_span = input.mdspan();
+  auto output_span = output.mdspan();
+  bool called = false;
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(uni20::linalg::CpuReferenceBackend{}, uni20::linalg::copy_op{},
+                                                 output_span, input_span),
+            uni20::linalg::KernelTypeAcceptance::no);
+
+  uni20::copy(MdspecOnlyCopyBackend{.called = &called}, output_span, input_span);
+
+  EXPECT_TRUE(called);
+}
+
 TEST(TensorCopyTest, MakeTensorMaterializesStaticExtentsAsGeneralPurposeTensor)
 {
   using fixed_extents = stdex::extents<uni20::index_type, 2, 3>;
@@ -172,4 +212,15 @@ TEST(TensorCopyTest, CpuReferenceCopySupportsScalarConversion)
   EXPECT_DOUBLE_EQ(output[0], 1.25);
   EXPECT_DOUBLE_EQ(output[1], -2.5);
   EXPECT_DOUBLE_EQ(output[2], 4.0);
+}
+
+TEST(TensorCopyTest, CpuReferenceCopyAcquiresDeferredTensorViews)
+{
+  uni20::test::DeferredHostTensor<double, 1> input(3);
+  uni20::test::DeferredHostTensor<double, 1> output(3);
+  input.storage() = {1.25, -2.5, 4.0};
+
+  uni20::copy(output, input);
+
+  EXPECT_EQ(output.storage(), input.storage());
 }

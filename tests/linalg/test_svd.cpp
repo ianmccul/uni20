@@ -2,6 +2,8 @@
 #include <uni20/linalg/ops/svd.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -19,35 +21,45 @@ struct NormalOnlySvdBackend
     static constexpr std::string_view name = "normal_only_svd";
 };
 
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_left_op const&,
                                     SingularValueMdspan&, LeftMdspan&, MatrixMdspan&)
 {
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <class SingularValueMdspan, class LeftMdspan, class MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_left_op const& operation,
-                                        SingularValueMdspan&& singular_values, LeftMdspan&& left_singular_vectors,
-                                        MatrixMdspan&& matrix_work)
+                                        SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
+                                        MatrixMdspan& matrix_work)
 {
   return uni20::linalg::try_kernel(uni20::linalg::LapackBackend{}, operation, singular_values, left_singular_vectors,
                                    matrix_work);
 }
 
-template <uni20::MutableRankedStridedMdspan<1> SingularValueMdspan, uni20::MutableRankedStridedMdspan<2> LeftMdspan,
-          uni20::MutableRankedStridedMdspan<2> RightAdjointMdspan, uni20::MutableRankedStridedMdspan<2> MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> RightAdjointMdspan, uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<RightAdjointMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
 consteval auto kernel_accepts_types(NormalOnlySvdBackend const&, uni20::linalg::svd_op const&, SingularValueMdspan&,
                                     LeftMdspan&, RightAdjointMdspan&, MatrixMdspan&)
 {
   return uni20::linalg::kernel_types_maybe;
 }
 
-template <class SingularValueMdspan, class LeftMdspan, class RightAdjointMdspan, class MatrixMdspan>
+template <uni20::MutableRankedMdspecLike<1> SingularValueMdspan, uni20::MutableRankedMdspecLike<2> LeftMdspan,
+          uni20::MutableRankedMdspecLike<2> RightAdjointMdspan, uni20::MutableRankedMdspecLike<2> MatrixMdspan>
+  requires uni20::HostWritableMdspec<SingularValueMdspan> && uni20::HostWritableMdspec<LeftMdspan> &&
+           uni20::HostWritableMdspec<RightAdjointMdspan> && uni20::HostWritableMdspec<MatrixMdspan>
 uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd_op const& operation,
-                                        SingularValueMdspan&& singular_values, LeftMdspan&& left_singular_vectors,
-                                        RightAdjointMdspan&& right_singular_vectors_adjoint, MatrixMdspan&& matrix_work)
+                                        SingularValueMdspan& singular_values, LeftMdspan& left_singular_vectors,
+                                        RightAdjointMdspan& right_singular_vectors_adjoint, MatrixMdspan& matrix_work)
 {
   return uni20::linalg::try_kernel(uni20::linalg::LapackBackend{}, operation, singular_values, left_singular_vectors,
                                    right_singular_vectors_adjoint, matrix_work);
@@ -56,6 +68,20 @@ uni20::linalg::KernelAttempt try_kernel(NormalOnlySvdBackend, uni20::linalg::svd
 template <class Scalar> double scalar_error(Scalar const& actual, Scalar const& expected)
 {
   return static_cast<double>(std::abs(actual - expected));
+}
+
+TEST(SvdTest, DestructiveSvdAcquiresNormalizedDeferredOperands)
+{
+  uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
+  uni20::test::DeferredHostTensor<double, 1> values(2);
+  uni20::test::DeferredHostTensor<double, 2> left(2, 2);
+  uni20::test::DeferredHostTensor<double, 2> right(2, 2);
+  matrix.storage() = {3.0, 0.0, 0.0, 2.0};
+
+  uni20::linalg::singular_value_decomposition(uni20::linalg::LapackBackend{}, values, left, right, matrix);
+
+  EXPECT_NEAR(values.storage()[0], 3.0, 1.0e-13);
+  EXPECT_NEAR(values.storage()[1], 2.0, 1.0e-13);
 }
 
 template <class Matrix, class Result>

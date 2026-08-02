@@ -12,10 +12,14 @@ namespace uni20::linalg
 {
 
 /// \brief Result of one runtime kernel backend attempt.
-/// \details Every value other than `success` is a clean decline: the backend
-///          preserved all arguments and produced no externally visible side
-///          effect. Terminal execution failures are reported through the
-///          operation's ordinary error or exception mechanism instead.
+/// \details Every value other than `success` is a clean decline. The backend
+///          preserved all inputs and fixed or update outputs, submitted no
+///          work, and produced no externally visible result. An operation that
+///          declares an output replaceable may permit provisional output
+///          construction, resizing, or replacement before a decline; a later
+///          backend may reuse or replace that prepared output. Terminal
+///          execution failures are reported through the operation's ordinary
+///          error or exception mechanism instead.
 enum class KernelAttempt
 {
   success,
@@ -24,6 +28,7 @@ enum class KernelAttempt
   unsupported_layout,
   unsupported_accessor,
   unsupported_transform,
+  incompatible_devices,
   unavailable,
   insufficient_resources
 };
@@ -48,6 +53,8 @@ constexpr std::string_view kernel_attempt_name(KernelAttempt attempt) noexcept
       return "unsupported accessor";
     case KernelAttempt::unsupported_transform:
       return "unsupported transform";
+    case KernelAttempt::incompatible_devices:
+      return "incompatible devices";
     case KernelAttempt::unavailable:
       return "unavailable";
     case KernelAttempt::insufficient_resources:

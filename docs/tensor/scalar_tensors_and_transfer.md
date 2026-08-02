@@ -40,11 +40,21 @@ The corresponding concepts describe rank-zero tensor-level objects:
 
 ```cpp
 template <class T>
+concept ScalarImmediateTensorView = RankedImmediateTensorView<T, 0>;
+
+template <class T>
+concept MutableScalarImmediateTensorView = MutableRankedImmediateTensorView<T, 0>;
+
+template <class T>
 concept ScalarTensorView = RankedTensorView<T, 0>;
 
 template <class T>
-concept MutableScalarTensorView = MutableRankedTensorView<T, 0>;
+concept MutableScalarTensorView =
+    MutableRankedTensorView<T, 0>;
 ```
+
+The `Device` forms also accept descriptor-backed rank-zero tensors whose handle
+must be acquired before element access.
 
 `uni20::Scalar` continues to mean a numeric C++ scalar type. Reusing that name
 for a rank-zero tensor would erase a useful compile-time distinction.
@@ -307,7 +317,8 @@ runtime shape is not yet known.
 
 The current host implementation provides:
 
-1. `ScalarTensor`, `ScalarTensorView`, and `MutableScalarTensorView`;
+1. `ScalarTensor`, immediate scalar view concepts, and device scalar view
+   concepts;
 2. const and mutable `scalar[]` indexing;
 3. one shared output-first CPU reduction executor for full and partial
    reductions;

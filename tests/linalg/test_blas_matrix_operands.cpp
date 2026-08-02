@@ -120,9 +120,9 @@ TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)
   static_assert(!can_try_blas_readable_matrix<left_mdspan<int>>);
   static_assert(!can_try_lapack_writable_matrix<left_mdspan<int>>);
 
-  static_assert(uni20::StridedMdspan<value_transform_mdspan<double>>);
+  static_assert(uni20::StridedMdspanLike<value_transform_mdspan<double>>);
   static_assert(std::convertible_to<typename value_transform_mdspan<double>::data_handle_type, double*>);
-  static_assert(!uni20::DefaultAccessorMdspan<value_transform_mdspan<double>>);
+  static_assert(!uni20::DefaultAccessorMdspanLike<value_transform_mdspan<double>>);
   static_assert(!can_try_blas_writable_matrix<value_transform_mdspan<double>>);
   static_assert(!can_try_blas_readable_matrix<value_transform_mdspan<double>>);
   static_assert(!can_try_lapack_writable_matrix<value_transform_mdspan<double>>);

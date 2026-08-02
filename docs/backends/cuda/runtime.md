@@ -8,8 +8,9 @@ schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
 leaf. `CudaStorage` connects `Tensor` ownership to `CudaBuffer`, and async
 Tensor matrix products now lower through `CudaTask`, non-blocking resource
-admission, opaque mdspans, and `CublasBackend`. General CUDA Tensor operations
-remain incomplete; direct and `Async<CudaTensor>` GEMM paths are implemented.
+admission, descriptor-backed `TensorView` metadata, and `CublasBackend`. General
+CUDA Tensor operations remain incomplete; direct and `Async<CudaTensor>` GEMM
+paths are implemented.
 
 This document defines the resource-management contract beneath CUDA Tensor
 kernels and async lowering.
@@ -71,7 +72,7 @@ pools, or allocations, and does not change the calling thread's selected device.
 The scoped runtime creates one canonical `DeviceResources` instance for each
 enrolled device. `CudaTensor` construction from extents uses the default
 instance; passing an explicit resource set selects another enrolled device or
-an isolated test instance. Its `CudaBufferView` mdspan handles retain the buffer
+an isolated test instance. Its `CudaBufferView` descriptors retain the buffer
 whose resources record the allocation device.
 
 CUDA runtime calls that operate on device-local resources must select the
@@ -199,13 +200,14 @@ Ordinary `CublasBackend` uses the same storage and prepared leaf but calls the
 blocking pool interface. The operation entry point, rather than a second
 storage representation, selects blocking or suspending resource admission.
 
-The storage policy exposes a distinct mdspan accessor type so kernel dispatch
-can recognize opaque CUDA storage and reject host dereference. Blocking versus
-suspending resource admission is selected by the operation path, not by this
-accessor. The shared `CudaBufferView<T>` handle carries buffer identity and
-element offset without a raw pointer. Per-call leases
-such as streams, provider handles, and workspaces remain operation-local; they
-are not part of the backend selector.
+The storage policy exposes a `CudaBufferView<T>` descriptor carrying buffer
+identity and element offset without a raw pointer. Its actual accessor describes
+the pointer-valued data handle available after acquisition and returns `T&` from
+indexed access. The accessor must be evaluated only in an execution domain where
+the acquired CUDA pointer is directly accessible. Blocking versus suspending
+resource admission is selected by the operation path, not by this accessor.
+Per-call leases such as streams, provider handles, and workspaces remain
+operation-local; they are not part of the backend selector.
 
 A small configurable pool is expected. A reasonable initial heuristic is around
 twice the maximum useful device concurrency, but measured workload behavior

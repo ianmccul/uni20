@@ -21,11 +21,13 @@ TEST(MdspanConjugateAccessor, ComplexConjViewConjugatesValues)
   stdex::mdspan<complex_type, extents_2d, stdex::layout_left> span(storage.data(), 2, 2);
 
   auto conjugated = uni20::conj(span);
-  static_assert(uni20::StridedMdspan<decltype(conjugated)>);
-  static_assert(!uni20::MutableSpanLike<decltype(conjugated)>);
+  static_assert(uni20::StridedMdspanLike<decltype(conjugated)>);
+  static_assert(!uni20::MutableMdspanLike<decltype(conjugated)>);
   static_assert(std::is_const_v<typename decltype(conjugated)::element_type>);
   static_assert(uni20::accessor_applies_conjugation_v<typename decltype(conjugated)::accessor_type>);
   static_assert(uni20::mdspan_needs_conjugation_v<decltype(conjugated)>);
+  static_assert(uni20::HostAccessibleAccessor<typename decltype(conjugated)::accessor_type>);
+  static_assert(!uni20::CudaAccessibleAccessor<typename decltype(conjugated)::accessor_type>);
 
   EXPECT_EQ(conjugated.data_handle(), static_cast<complex_type const*>(storage.data()));
   EXPECT_EQ((conjugated[0, 0]), complex_type(1.0, -2.0));
@@ -44,8 +46,8 @@ TEST(MdspanConjugateAccessor, DoubleConjCancelsConjugatingAccessor)
   auto conjugated = uni20::conj(span);
   auto roundtrip = uni20::conj(conjugated);
 
-  static_assert(uni20::StridedMdspan<decltype(roundtrip)>);
-  static_assert(!uni20::MutableSpanLike<decltype(roundtrip)>);
+  static_assert(uni20::StridedMdspanLike<decltype(roundtrip)>);
+  static_assert(!uni20::MutableMdspanLike<decltype(roundtrip)>);
   static_assert(std::is_same_v<decltype(roundtrip), stdex::mdspan<complex_type const, extents_2d, stdex::layout_left>>);
   static_assert(!uni20::accessor_applies_conjugation_v<typename decltype(roundtrip)::accessor_type>);
   static_assert(!uni20::mdspan_needs_conjugation_v<decltype(roundtrip)>);
@@ -65,7 +67,7 @@ TEST(MdspanConjugateAccessor, NonComplexConjReturnsConstIdentityView)
   auto identity = uni20::conj(span);
 
   static_assert(std::is_same_v<decltype(identity), stdex::mdspan<double const, extents_1d, stdex::layout_left>>);
-  static_assert(!uni20::MutableSpanLike<decltype(identity)>);
+  static_assert(!uni20::MutableMdspanLike<decltype(identity)>);
   static_assert(!uni20::mdspan_needs_conjugation_v<decltype(identity)>);
 
   EXPECT_EQ(identity.data_handle(), static_cast<double const*>(storage.data()));

@@ -39,7 +39,7 @@ template <AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t In
   auto const required = reduction_output_extents(input, axes);
   if (storage.constructed())
   {
-    ensure_shape(*storage, required);
+    prepare_output(*storage, required);
     return *storage;
   }
 
@@ -57,18 +57,19 @@ template <AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t In
 
 template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t InputRank,
           std::size_t ReducedRank>
-async::AsyncTask async_sum_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                async::ReadBuffer<InputTensor> input,
-                                linalg::ReductionAxes<InputRank, ReducedRank> axes)
+async::AsyncTask co_sum(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                        async::ReadBuffer<InputTensor> input, linalg::ReductionAxes<InputRank, ReducedRank> axes)
 {
   if constexpr (async::is_async_alias_v<OutputTensor>)
   {
-    AsyncAliasWriteDescriptorAwaiter output_descriptor(output);
-    auto awaited = co_await async::all(output_descriptor, input);
+    AsyncAliasWriteDescriptorAwaiter output_descriptor_awaiter(output);
+    auto awaited = co_await async::all(output_descriptor_awaiter, input);
     auto mutable_output = std::get<0>(awaited);
     auto const& input_value = std::get<1>(awaited);
-    ensure_shape(mutable_output, reduction_output_extents(input_value, axes));
-    dispatch_sum(selector, mutable_output.mdspan(), input_value.mdspan(), std::move(axes));
+    prepare_output(mutable_output, reduction_output_extents(input_value, axes));
+    auto output_descriptor = mdspec_of(mutable_output);
+    auto input_descriptor = mdspec_of(input_value);
+    dispatch_sum(selector, output_descriptor, input_descriptor, std::move(axes));
   }
   else
   {
@@ -77,15 +78,16 @@ async::AsyncTask async_sum_task(BackendSelector const selector, async::WriteBuff
     auto& storage = std::get<0>(awaited);
     auto const& input_value = std::get<1>(awaited);
     auto& output_value = prepare_async_sum_output(storage, input_value, axes);
-    dispatch_sum(selector, output_value.mdspan(), input_value.mdspan(), std::move(axes));
+    auto output_descriptor = mdspec_of(output_value);
+    auto input_descriptor = mdspec_of(input_value);
+    dispatch_sum(selector, output_descriptor, input_descriptor, std::move(axes));
   }
   co_return;
 }
 
 template <class BackendSelector, TensorView InputTensor>
-async::AsyncTask async_sum_host_task(BackendSelector const selector,
-                                     async::WriteBuffer<tensor_element_t<InputTensor>> output,
-                                     async::ReadBuffer<InputTensor> input)
+async::AsyncTask co_sum_host(BackendSelector const selector, async::WriteBuffer<tensor_element_t<InputTensor>> output,
+                             async::ReadBuffer<InputTensor> input)
 {
   auto output_storage = output.storage();
   auto awaited = co_await async::all(output_storage, input);
@@ -102,7 +104,7 @@ void schedule_async_sum(BackendSelector selector, async::Async<OutputTensor>& ou
                         async::Async<InputTensor> const& input, linalg::ReductionAxes<InputRank, ReducedRank> axes)
 {
   validate_async_reduction_aliasing(output, input);
-  auto task = async_sum_task(std::move(selector), output.write(), input.read(), std::move(axes));
+  auto task = co_sum(std::move(selector), output.write(), input.read(), std::move(axes));
   task.debug_name("sum");
   async::schedule(std::move(task));
 }
@@ -112,7 +114,7 @@ template <class BackendSelector, TensorView InputTensor>
 {
   async::Async<tensor_element_t<InputTensor>> output;
   output.debug_name("sum_host.result");
-  auto task = async_sum_host_task(std::move(selector), output.write(), input.read());
+  auto task = co_sum_host(std::move(selector), output.write(), input.read());
   task.debug_name("sum_host");
   async::schedule(std::move(task));
   return output;
@@ -129,7 +131,7 @@ template <linalg::KernelBackendSelector BackendSelector, detail::AsyncTensorOutp
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
 void sum(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   detail::schedule_async_sum(std::move(selector), output, input, linalg::all_reduction_axes<input_rank>());
 }
 
@@ -140,7 +142,7 @@ template <detail::AsyncTensorOutput OutputTensor, TensorView InputTensor>
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
 void sum(async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   auto axes = linalg::all_reduction_axes<input_rank>();
   auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = axes};
   auto selector = linalg::select_backend_for<OutputTensor, InputTensor>(operation);
@@ -155,13 +157,13 @@ template <linalg::KernelBackendSelector BackendSelector, detail::AsyncTensorOutp
           linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
-           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
-           (mutable_tensor_mdspan_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
-            tensor_mdspan_t<InputTensor>::rank())
+           (1 + sizeof...(RestAxes) <= tensor_mdspec_t<InputTensor>::rank()) &&
+           (mutable_tensor_mdspec_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
+            tensor_mdspec_t<InputTensor>::rank())
 void sum(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<InputTensor> const& input,
          FirstAxis first_axis, RestAxes... rest_axes)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   detail::schedule_async_sum(std::move(selector), output, input, std::move(axes));
 }
@@ -172,13 +174,13 @@ template <detail::AsyncTensorOutput OutputTensor, TensorView InputTensor, linalg
           linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
-           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
-           (mutable_tensor_mdspan_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
-            tensor_mdspan_t<InputTensor>::rank())
+           (1 + sizeof...(RestAxes) <= tensor_mdspec_t<InputTensor>::rank()) &&
+           (mutable_tensor_mdspec_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
+            tensor_mdspec_t<InputTensor>::rank())
 void sum(async::Async<OutputTensor>& output, async::Async<InputTensor> const& input, FirstAxis first_axis,
          RestAxes... rest_axes)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   constexpr std::size_t reduced_rank = 1 + sizeof...(RestAxes);
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   auto operation = linalg::sum_reduction_op<input_rank, reduced_rank>{.axes = axes};
@@ -192,7 +194,7 @@ template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor>
            detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
 [[nodiscard]] auto sum(BackendSelector selector, async::Async<InputTensor> const& input)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   using result_type = detail::sum_reduction_result_t<InputTensor, input_rank>;
   async::Async<result_type> output;
   output.debug_name("sum.result");
@@ -206,7 +208,7 @@ template <TensorView InputTensor>
            detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
 [[nodiscard]] auto sum(async::Async<InputTensor> const& input)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   auto axes = linalg::all_reduction_axes<input_rank>();
   auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = axes};
   auto selector = linalg::select_backend_for<InputTensor>(operation);
@@ -218,12 +220,12 @@ template <TensorView InputTensor>
 template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor, linalg::ReductionAxis FirstAxis,
           linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
-           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspec_t<InputTensor>::rank()) &&
            detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
 [[nodiscard]] auto sum(BackendSelector selector, async::Async<InputTensor> const& input, FirstAxis first_axis,
                        RestAxes... rest_axes)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   constexpr std::size_t reduced_rank = 1 + sizeof...(RestAxes);
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   using result_type = detail::sum_reduction_result_t<InputTensor, reduced_rank>;
@@ -236,11 +238,11 @@ template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor,
 /// \brief Return an async storage-preserving sum over selected axes using storage policy.
 template <TensorView InputTensor, linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
-           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspec_t<InputTensor>::rank()) &&
            detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
 [[nodiscard]] auto sum(async::Async<InputTensor> const& input, FirstAxis first_axis, RestAxes... rest_axes)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   constexpr std::size_t reduced_rank = 1 + sizeof...(RestAxes);
   auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
   auto operation = linalg::sum_reduction_op<input_rank, reduced_rank>{.axes = axes};
@@ -261,7 +263,7 @@ template <TensorView InputTensor>
   requires RealOrComplex<tensor_element_t<InputTensor>>
 [[nodiscard]] auto sum_host(async::Async<InputTensor> const& input)
 {
-  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t input_rank = tensor_mdspec_t<InputTensor>::rank();
   auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
   auto selector = linalg::select_backend_for<InputTensor>(operation);
   return detail::schedule_async_sum_host(std::move(selector), input);

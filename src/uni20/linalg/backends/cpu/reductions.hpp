@@ -14,6 +14,8 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/access.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <array>
 #include <cmath>
@@ -37,13 +39,17 @@ template <class Span> consteval bool reduction_value_is_readable()
 template <class Output, class Scalar, std::size_t Rank> consteval bool reduction_output_is_supported()
 {
   using output_type = std::remove_cvref_t<Output>;
-  if constexpr (uni20::MutableRankedSpanLike<output_type, Rank>)
+  if constexpr (uni20::MutableRankedMdspanLike<output_type, Rank>)
   {
     return std::same_as<typename output_type::value_type, Scalar>;
   }
   else if constexpr (Rank == 0)
   {
-    return std::same_as<output_type, Scalar> && requires(Output& output, Scalar value) { output = value; };
+    return std::same_as<output_type, Scalar>&&
+      requires(Output & output, Scalar value)
+    {
+      output = value;
+    };
   }
   else
   {
@@ -54,7 +60,7 @@ template <class Output, class Scalar, std::size_t Rank> consteval bool reduction
 template <class Output> consteval bool reduction_output_is_column_major()
 {
   using output_type = std::remove_cvref_t<Output>;
-  if constexpr (uni20::SpanLike<output_type>)
+  if constexpr (uni20::MdspanLike<output_type>)
     return std::same_as<typename output_type::layout_type, stdex::layout_left>;
   else
     return false;
@@ -63,7 +69,7 @@ template <class Output> consteval bool reduction_output_is_column_major()
 template <class Output, class Index, class Scalar, std::size_t... Axis>
 void write_reduction_output(Output& output, Index const& index, Scalar value, std::index_sequence<Axis...>)
 {
-  if constexpr (uni20::MutableRankedSpanLike<std::remove_cvref_t<Output>, sizeof...(Axis)>)
+  if constexpr (uni20::MutableRankedMdspanLike<std::remove_cvref_t<Output>, sizeof...(Axis)>)
   {
     using output_type = std::remove_cvref_t<Output>;
     using index_type = typename output_type::index_type;
@@ -161,13 +167,13 @@ void reference_reduce_axes(Output& output, ReductionAxes<InputRank, ReducedRank>
   using first_type = std::remove_cvref_t<FirstSpan>;
   static_assert(first_type::rank() == InputRank);
   static_assert(((std::remove_cvref_t<RestSpans>::rank() == InputRank) && ...));
-  if constexpr (uni20::SpanLike<std::remove_cvref_t<Output>>)
+  if constexpr (uni20::MdspanLike<std::remove_cvref_t<Output>>)
     static_assert(std::remove_cvref_t<Output>::rank() == InputRank - ReducedRank);
 
   CHECK(reduction_axes_are_valid(axes));
   check_reduction_extents(first, rest...);
 
-  if constexpr (uni20::SpanLike<std::remove_cvref_t<Output>>)
+  if constexpr (uni20::MdspanLike<std::remove_cvref_t<Output>>)
   {
     for (std::size_t output_axis = 0; output_axis < InputRank - ReducedRank; ++output_axis)
       CHECK_EQUAL(output.extent(output_axis), first.extent(axes.surviving[output_axis]));
@@ -325,71 +331,156 @@ void reference_sum(Output& output, sum_reduction_op<InputRank, ReducedRank> cons
   reference_reduce_axes(output, operation.axes, initialize, accumulate, finalize, input);
 }
 
-} // namespace detail
-
-/// \brief Report compile-time eligibility for reference CPU inner products.
-template <class Output, uni20::SpanLike LhsSpan, uni20::SpanLike RhsSpan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op const&, Output&, LhsSpan&, RhsSpan&)
+template <class Output, class LhsSpan, class RhsSpan> consteval auto inner_product_acceptance()
 {
   using scalar_type = typename LhsSpan::value_type;
-  if constexpr (detail::inner_product_inputs_are_supported<LhsSpan, RhsSpan>() &&
-                detail::reduction_output_is_supported<Output, scalar_type, 0>())
+  if constexpr (inner_product_inputs_are_supported<LhsSpan, RhsSpan>() &&
+                reduction_output_is_supported<Output, scalar_type, 0>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Compute a conjugate-linear-left inner product through accessors.
-template <class Output, class LhsSpan, class RhsSpan>
-KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output&& output, LhsSpan&& lhs, RhsSpan&& rhs)
-{
-  detail::reference_inner_product(output, lhs, rhs);
-  return KernelAttempt::success;
-}
-
-/// \brief Report compile-time eligibility for reference CPU Euclidean norms.
-template <class Output, uni20::SpanLike InputSpan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, Output&, InputSpan&)
+template <class Output, class InputSpan> consteval auto norm_acceptance()
 {
   using scalar_type = typename InputSpan::value_type;
   using result_type = uni20::make_real_t<scalar_type>;
-  if constexpr (detail::norm_input_is_supported<InputSpan>() &&
-                detail::reduction_output_is_supported<Output, result_type, 0>())
+  if constexpr (norm_input_is_supported<InputSpan>() && reduction_output_is_supported<Output, result_type, 0>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Compute a stable Euclidean norm through the input accessor.
-template <class Output, class InputSpan>
-KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output&& output, InputSpan&& input)
-{
-  detail::reference_norm(output, input);
-  return KernelAttempt::success;
-}
-
-/// \brief Report compile-time eligibility for reference CPU sum reductions.
-template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::SpanLike InputSpan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op<InputRank, ReducedRank> const&,
-                                    Output&, InputSpan&)
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, class InputSpan> consteval auto sum_acceptance()
 {
   using input_type = std::remove_cvref_t<InputSpan>;
   using scalar_type = typename input_type::value_type;
-  if constexpr (input_type::rank() == InputRank && detail::sum_input_is_supported<InputSpan>() &&
-                detail::reduction_output_is_supported<Output, scalar_type, InputRank - ReducedRank>())
+  if constexpr (input_type::rank() == InputRank && sum_input_is_supported<InputSpan>() &&
+                reduction_output_is_supported<Output, scalar_type, InputRank - ReducedRank>())
     return kernel_types_yes;
   else
     return kernel_types_no;
 }
 
-/// \brief Sum selected input axes through the input accessor.
-template <class Output, std::size_t InputRank, std::size_t ReducedRank, class InputSpan>
-KernelAttempt try_kernel(CpuReferenceBackend, sum_reduction_op<InputRank, ReducedRank> const& operation,
-                         Output&& output, InputSpan&& input)
+template <class Output>
+concept HostReductionOutput = (!uni20::MdspecLike<Output>) || uni20::HostWritableMdspec<Output>;
+
+template <class Output, bool = uni20::MdspecLike<Output>> struct HostReductionOutputType
 {
-  CHECK(reduction_axes_are_valid(operation.axes));
-  detail::reference_sum(output, operation, input);
-  return KernelAttempt::success;
+    using type = std::remove_cvref_t<Output>;
+};
+
+template <class Output> struct HostReductionOutputType<Output, true>
+{
+    using type = uni20::host_write_mdspan_t<Output>;
+};
+
+template <class Output> using host_reduction_output_t = typename HostReductionOutputType<Output>::type;
+
+template <class Output, class Function> KernelAttempt with_host_reduction_output(Output& output, Function&& function)
+{
+  if constexpr (uni20::MdspecLike<Output>)
+  {
+    auto output_access = acquire_host_write_access_sync(output);
+    auto output_span = output_access.mdspan();
+    return std::invoke(std::forward<Function>(function), output_span);
+  }
+  else
+  {
+    return std::invoke(std::forward<Function>(function), output);
+  }
+}
+
+} // namespace detail
+
+/// \brief Report eligibility for a host-accessible mdspec inner product.
+template <class Output, uni20::MdspecLike LhsMdspan, uni20::MdspecLike RhsMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<LhsMdspan> &&
+           uni20::HostReadableMdspec<RhsMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, inner_product_op const&, Output&, LhsMdspan&,
+                                    RhsMdspan&)
+{
+  using output_type = detail::host_reduction_output_t<Output>;
+  using lhs_span = uni20::host_read_mdspan_t<LhsMdspan>;
+  using rhs_span = uni20::host_read_mdspan_t<RhsMdspan>;
+  constexpr auto acceptance = detail::inner_product_acceptance<output_type, lhs_span, rhs_span>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and compute an inner product.
+template <class Output, uni20::MdspecLike LhsMdspan, uni20::MdspecLike RhsMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<LhsMdspan> &&
+           uni20::HostReadableMdspec<RhsMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, inner_product_op const&, Output& output, LhsMdspan& lhs, RhsMdspan& rhs)
+{
+  auto lhs_access = acquire_host_read_access_sync(lhs);
+  auto rhs_access = acquire_host_read_access_sync(rhs);
+  auto lhs_span = lhs_access.mdspan();
+  auto rhs_span = rhs_access.mdspan();
+  return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
+    detail::reference_inner_product(resolved_output, lhs_span, rhs_span);
+    return KernelAttempt::success;
+  });
+}
+
+/// \brief Report eligibility for a host-accessible mdspec norm.
+template <class Output, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, norm_op const&, Output&, InputMdspan&)
+{
+  using output_type = detail::host_reduction_output_t<Output>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
+  constexpr auto acceptance = detail::norm_acceptance<output_type, input_span>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and compute a Euclidean norm.
+template <class Output, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, norm_op const&, Output& output, InputMdspan& input)
+{
+  auto input_access = acquire_host_read_access_sync(input);
+  auto input_span = input_access.mdspan();
+  return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
+    detail::reference_norm(resolved_output, input_span);
+    return KernelAttempt::success;
+  });
+}
+
+/// \brief Report eligibility for a host-accessible mdspec sum reduction.
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, sum_reduction_op<InputRank, ReducedRank> const&,
+                                    Output&, InputMdspan&)
+{
+  using output_type = detail::host_reduction_output_t<Output>;
+  using input_span = uni20::host_read_mdspan_t<InputMdspan>;
+  constexpr auto acceptance = detail::sum_acceptance<output_type, InputRank, ReducedRank, input_span>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Resolve host access and sum selected axes.
+template <class Output, std::size_t InputRank, std::size_t ReducedRank, uni20::MdspecLike InputMdspan>
+  requires detail::HostReductionOutput<Output> && uni20::HostReadableMdspec<InputMdspan>
+KernelAttempt try_kernel(CpuReferenceBackend, sum_reduction_op<InputRank, ReducedRank> const& operation, Output& output,
+                         InputMdspan& input)
+{
+  auto input_access = acquire_host_read_access_sync(input);
+  auto input_span = input_access.mdspan();
+  return detail::with_host_reduction_output(output, [&](auto& resolved_output) {
+    CHECK(reduction_axes_are_valid(operation.axes));
+    detail::reference_sum(resolved_output, operation, input_span);
+    return KernelAttempt::success;
+  });
 }
 
 } // namespace uni20::linalg
