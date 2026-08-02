@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <uni20/common/static_vector.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/core/types.hpp>
@@ -77,9 +78,17 @@ template <std::size_t N> struct extent_strides
     /// \ingroup mdspan_ext
     [[nodiscard]] constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
     {
+      auto const inner_extent = static_cast<std::ptrdiff_t>(inner.extent);
+      if (inner_extent < 0) return false;
+
       for (std::size_t i = 0; i < N; ++i)
       {
-        if (strides[i] != inner.strides[i] * static_cast<std::ptrdiff_t>(inner.extent)) return false;
+        auto const inner_stride = inner.strides[i];
+        if (inner_extent != 0 &&
+            ((inner_stride > 0 && inner_stride > std::numeric_limits<std::ptrdiff_t>::max() / inner_extent) ||
+             (inner_stride < 0 && inner_stride < std::numeric_limits<std::ptrdiff_t>::min() / inner_extent)))
+          return false;
+        if (strides[i] != inner_stride * inner_extent) return false;
       }
       return true;
     }

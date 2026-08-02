@@ -18,8 +18,9 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `generated_accessor.hpp` and `generated_layout.hpp`: read-only generated
   values with synthetic, non-strided logical offset mapping.
 - `strides.hpp`: stride inspection and stride utility helpers.
-- `iteration_plan.hpp`: backend-neutral iteration planning over strided
-  mappings.
+- `iteration_plan.hpp`: backend-neutral compact affine iteration planning over
+  one or more strided mappings, including element counts and reachable offset
+  ranges.
 - `transform_view.hpp`: lazy read-only unary and variadic elementwise views.
 - `zip_layout.hpp`: helpers for matching or combining view layouts.
 

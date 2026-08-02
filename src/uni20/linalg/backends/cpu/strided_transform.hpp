@@ -30,18 +30,19 @@ template <bool ReadsOutput, class Output, class Operation, class... Inputs> cons
   else if constexpr (ReadsOutput)
   {
     return std::invocable<Operation&, typename output_type::reference,
-                          typename std::remove_cvref_t<Inputs>::reference...> &&
-           requires(typename output_type::reference output, Operation& operation) {
-             output =
-                 std::invoke(operation, output, std::declval<typename std::remove_cvref_t<Inputs>::reference>()...);
-           };
+                          typename std::remove_cvref_t<Inputs>::reference...>&&
+      requires(typename output_type::reference output, Operation & operation)
+    {
+      output = std::invoke(operation, output, std::declval<typename std::remove_cvref_t<Inputs>::reference>()...);
+    };
   }
   else
   {
-    return sizeof...(Inputs) >= 1 && std::invocable<Operation&, typename std::remove_cvref_t<Inputs>::reference...> &&
-           requires(typename output_type::reference output, Operation& operation) {
-             output = std::invoke(operation, std::declval<typename std::remove_cvref_t<Inputs>::reference>()...);
-           };
+    return sizeof...(Inputs) >= 1 && std::invocable<Operation&, typename std::remove_cvref_t<Inputs>::reference...>&&
+             requires(typename output_type::reference output, Operation & operation)
+    {
+      output = std::invoke(operation, std::declval<typename std::remove_cvref_t<Inputs>::reference>()...);
+    };
   }
 }
 
@@ -147,11 +148,12 @@ template <bool ReadsOutput, class Output, class Operation, class... Inputs>
 void transform_strided(Output output, Operation&& operation, Inputs const&... inputs)
 {
   auto mappings = std::tuple{output.mapping(), inputs.mapping()...};
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(mappings);
+  auto plan = make_multi_iteration_plan(mappings);
+  CHECK(plan.representable, "elementwise iteration plan exceeds host index range");
 
   strided_transform_executor<ReadsOutput, Operation, Output, Inputs...> executor{std::forward<Operation>(operation),
                                                                                  output, inputs...};
-  executor.run(plan, offsets);
+  executor.run(plan.dimensions, plan.base_offsets);
 }
 
 } // namespace uni20::linalg::cpu::detail

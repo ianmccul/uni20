@@ -631,12 +631,15 @@ and provider resources, while its async path awaits them.
 
 Raw contiguous CUDA copies with matching physical order retain the
 `cudaMemcpyAsync` fast path. The CUDA reference elementwise executor handles
-same-device positive-strided mappings through rank eight, including differing
-input/output strides, padding, nonzero buffer-view offsets, and the compiled
-raw or conjugating accessor lowerings. It decodes each logical index and
-computes independent input and output offsets before evaluating the accessors.
-The operation publishes read/write completion through the same stream-ordered
-buffer access.
+same-device positive-strided mappings with compact rank through eight, including
+differing input/output strides, padding, nonzero buffer-view offsets, and the
+compiled raw or conjugating accessor lowerings. A backend-neutral host plan
+orders dimensions from the output mapping and coalesces only when every
+operand's strides are jointly adjacent. CUDA lowering selects 32-bit indices
+only when the logical count and every reachable operand offset fit, otherwise
+using a 64-bit payload. The kernel decodes the compact plan into independent
+input and output offsets before evaluating the accessors. The operation
+publishes read/write completion through the same stream-ordered buffer access.
 
 Non-strided mappings and unregistered stateful accessor compositions remain
 valid device-callable descriptors but are not yet part of this precompiled copy
