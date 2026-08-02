@@ -203,6 +203,43 @@ class InstrumentedTensorAccessState {
     bool active_ = true;
 };
 
+class ThrowingMoveTensorAccessState {
+  public:
+    ThrowingMoveTensorAccessState() = default;
+    ThrowingMoveTensorAccessState(ThrowingMoveTensorAccessState const&) = delete;
+    ThrowingMoveTensorAccessState& operator=(ThrowingMoveTensorAccessState const&) = delete;
+    ThrowingMoveTensorAccessState(ThrowingMoveTensorAccessState&&) noexcept(false) {}
+
+    void release() noexcept {}
+};
+
+struct ThrowingMoveAccessor
+{
+    using offset_policy = ThrowingMoveAccessor;
+    using element_type = int const;
+    using reference = element_type&;
+    using data_handle_type = element_type*;
+
+    ThrowingMoveAccessor() = default;
+    ThrowingMoveAccessor(ThrowingMoveAccessor const&) noexcept = default;
+    ThrowingMoveAccessor(ThrowingMoveAccessor&&) noexcept(false) {}
+
+    [[nodiscard]] reference access(data_handle_type handle, std::size_t offset) const noexcept
+    {
+      return handle[offset];
+    }
+
+    [[nodiscard]] data_handle_type offset(data_handle_type handle, std::size_t value) const noexcept
+    {
+      return handle + value;
+    }
+};
+
+using throwing_move_mdspan = stdex::mdspan<int const, extents_2d, stdex::layout_left, ThrowingMoveAccessor>;
+
+template <class Mdspan, class AccessState>
+concept CanFormReadMdspanLease = requires { typename read_mdspan_lease<Mdspan, AccessState>; };
+
 using access_test_selector = linalg::backend_list<linalg::CpuReferenceBackend>;
 using access_test_mutable_mdspan = stdex::mdspan<int, extents_2d>;
 using access_test_const_mdspan = stdex::mdspan<int const, extents_2d>;
@@ -328,6 +365,10 @@ static_assert(std::same_as<decltype(std::declval<read_only_tensor&>().mdspec()),
 static_assert(ReadTensorLease<storage_free_read_lease>);
 static_assert(WriteTensorLease<storage_free_write_lease>);
 static_assert(TensorAccessState<InstrumentedTensorAccessState>);
+static_assert(!TensorAccessState<ThrowingMoveTensorAccessState>);
+static_assert(MdspanLike<throwing_move_mdspan>);
+static_assert(!std::is_nothrow_move_constructible_v<throwing_move_mdspan>);
+static_assert(!CanFormReadMdspanLease<throwing_move_mdspan, InstrumentedTensorAccessState>);
 static_assert(ReadTensorLease<instrumented_read_tensor_lease>);
 static_assert(WriteTensorLease<instrumented_write_tensor_lease>);
 static_assert(sizeof(storage_free_read_lease) == sizeof(void*));

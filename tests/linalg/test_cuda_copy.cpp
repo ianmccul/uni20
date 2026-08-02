@@ -69,6 +69,16 @@ auto make_strided_matrix_mdspec(Tensor& tensor, std::size_t offset, std::array<u
                      base.accessor()};
 }
 
+template <class Tensor>
+auto make_vector_mdspec(Tensor& tensor, std::size_t offset, uni20::index_type extent)
+{
+  auto base = tensor.mdspec();
+  using base_type = decltype(base);
+  using mapping_type = typename base_type::mapping_type;
+  return base_type{base.data_descriptor().offset_by(offset),
+                   mapping_type{typename base_type::extents_type{extent}}, base.accessor()};
+}
+
 struct DescriptorSelectedStoragePolicy
 {
     [[nodiscard]] static constexpr auto backend_selector() noexcept
@@ -409,6 +419,36 @@ TEST_F(CudaCopyTest, EmptySameBufferDifferentOffsetCopySucceeds)
   EXPECT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
   EXPECT_FALSE(preparation.has_work);
   EXPECT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input), uni20::linalg::KernelAttempt::success);
+}
+
+TEST_F(CudaCopyTest, DisjointSameBufferCopyUsesOneAccessState)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+  uni20::Tensor<double, 1> host(6);
+  host[0] = 1.0;
+  host[1] = 2.0;
+  host[2] = 3.0;
+  host[3] = -1.0;
+  host[4] = -1.0;
+  host[5] = -1.0;
+  auto device = uni20::to_device(host, 0);
+  auto output = make_vector_mdspec(device, 3, 3);
+  auto input = make_vector_mdspec(std::as_const(device), 0, 3);
+
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(output, input);
+  ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  ASSERT_TRUE(preparation.has_work);
+  ASSERT_EQ(preparation.output_buffer, preparation.input_buffer);
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input),
+            uni20::linalg::KernelAttempt::success);
+
+  auto result = uni20::to_host(device);
+  EXPECT_DOUBLE_EQ(result[0], 1.0);
+  EXPECT_DOUBLE_EQ(result[1], 2.0);
+  EXPECT_DOUBLE_EQ(result[2], 3.0);
+  EXPECT_DOUBLE_EQ(result[3], 1.0);
+  EXPECT_DOUBLE_EQ(result[4], 2.0);
+  EXPECT_DOUBLE_EQ(result[5], 3.0);
 }
 
 TEST_F(CudaCopyTest, HostToDeviceCopyObservesConjugatingAccessor)

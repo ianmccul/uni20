@@ -332,8 +332,11 @@ template <class OutputMdspan, class InputMdspan>
         plan.attempt = KernelAttempt::success;
         return plan;
       }
-      plan.attempt = KernelAttempt::unsupported_instance;
-      return plan;
+      if (plan.output_offset == plan.input_offset)
+      {
+        plan.attempt = KernelAttempt::unsupported_instance;
+        return plan;
+      }
     }
 
     if (plan.execution == CopyExecution::elementwise_kernel &&
@@ -355,42 +358,54 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
         plan.input_buffer != nullptr);
   CHECK_EQUAL(stream.device(), plan.output_buffer->device().ordinal());
 
-  auto output = plan.output_buffer->write_synchronized_with(stream);
-  auto input = plan.input_buffer->read_synchronized_with(stream);
-  auto* output_data = output.data() + plan.output_offset;
-  auto const* input_data = input.data() + plan.input_offset;
-  std::size_t const bytes = plan.element_count * sizeof(Scalar);
   int const output_device = plan.output_buffer->device().ordinal();
   int const input_device = plan.input_buffer->device().ordinal();
   uni20::cuda::ScopedDevice guard(output_device);
 
-  if (plan.execution == CopyExecution::elementwise_kernel)
+  auto enqueue = [&](Scalar* output_data, Scalar const* input_data)
   {
-    CHECK_EQUAL(output_device, input_device);
-    if constexpr (supports_elementwise_copy<Scalar>)
+    if (plan.execution == CopyExecution::elementwise_kernel)
     {
-      enqueue_elementwise_copy(output_data, input_data, plan.elementwise_layout, plan.transform, stream.native_handle(),
-                               output_device);
-      return;
+      CHECK_EQUAL(output_device, input_device);
+      if constexpr (supports_elementwise_copy<Scalar>)
+      {
+        enqueue_elementwise_copy(output_data, input_data, plan.elementwise_layout, plan.transform,
+                                 stream.native_handle(), output_device);
+        return;
+      }
+      else
+      {
+        PANIC("unsupported scalar reached CUDA reference elementwise copy");
+      }
+    }
+
+    std::size_t const bytes = plan.element_count * sizeof(Scalar);
+    if (output_device == input_device)
+    {
+      uni20::cuda::check(
+          cudaMemcpyAsync(output_data, input_data, bytes, cudaMemcpyDeviceToDevice, stream.native_handle()),
+          "cudaMemcpyAsync device-to-device", output_device);
     }
     else
     {
-      PANIC("unsupported scalar reached CUDA reference elementwise copy");
+      uni20::cuda::check(
+          cudaMemcpyPeerAsync(output_data, output_device, input_data, input_device, bytes, stream.native_handle()),
+          "cudaMemcpyPeerAsync", output_device);
     }
+  };
+
+  if (plan.output_buffer == plan.input_buffer)
+  {
+    // C++ copy requires non-destructive overlap. One exclusive buffer access
+    // retains and orders both pointers when disjoint views share an allocation.
+    auto access = plan.output_buffer->write_synchronized_with(stream);
+    enqueue(access.data() + plan.output_offset, access.data() + plan.input_offset);
+    return;
   }
 
-  if (output_device == input_device)
-  {
-    uni20::cuda::check(
-        cudaMemcpyAsync(output_data, input_data, bytes, cudaMemcpyDeviceToDevice, stream.native_handle()),
-        "cudaMemcpyAsync device-to-device", output_device);
-  }
-  else
-  {
-    uni20::cuda::check(
-        cudaMemcpyPeerAsync(output_data, output_device, input_data, input_device, bytes, stream.native_handle()),
-        "cudaMemcpyPeerAsync", output_device);
-  }
+  auto output = plan.output_buffer->write_synchronized_with(stream);
+  auto input = plan.input_buffer->read_synchronized_with(stream);
+  enqueue(output.data() + plan.output_offset, input.data() + plan.input_offset);
 }
 
 template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)

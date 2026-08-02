@@ -107,21 +107,22 @@ template <TensorView InputTensor>
 #endif
 
 /// \brief Materialize an owning reshape of a non-owning or generated tensor view.
-/// \details Canonically laid-out strided sources are reshaped before copying,
-///          preserving their logical contiguous sequence. Layout-neutral and
-///          noncanonical sources are first materialized in the requested or
-///          default column-major layout, then reshaped by transferring that
-///          allocation. Compatible owning tensors use the move-aware
-///          overload in `reshape.hpp`.
-template <class RequestedLayout = void, ImmediateTensorView InputTensor, std::integral... Extents>
+/// \details Immediately accessible, canonically laid-out strided sources are
+///          reshaped before copying, preserving their logical contiguous
+///          sequence. Deferred, layout-neutral, and noncanonical sources are
+///          first materialized in the requested or inferred canonical layout,
+///          then reshaped by transferring that allocation. Compatible owning
+///          tensors use the move-aware overload in `reshape.hpp`.
+template <class RequestedLayout = void, TensorView InputTensor, std::integral... Extents>
   requires(!OwningTensor<InputTensor> &&
            (std::is_void_v<RequestedLayout> || detail::CanonicalReshapeLayout<RequestedLayout>) &&
-           (!std::is_void_v<RequestedLayout> || !StridedImmediateTensorView<InputTensor> ||
-            detail::CanonicalReshapeLayout<typename immediate_tensor_mdspan_t<InputTensor>::layout_type>))
+           (!std::is_void_v<RequestedLayout> || !StridedTensorView<InputTensor> ||
+            detail::CanonicalReshapeLayout<typename tensor_mdspec_t<InputTensor>::layout_type>))
 [[nodiscard]] auto reshape(InputTensor const& input, Extents... requested_extents)
 {
-  using input_layout = typename immediate_tensor_mdspan_t<InputTensor>::layout_type;
-  if constexpr (StridedImmediateTensorView<InputTensor> && detail::CanonicalReshapeLayout<input_layout>)
+  using input_layout = typename tensor_mdspec_t<InputTensor>::layout_type;
+  if constexpr (ImmediateTensorView<InputTensor> && StridedTensorView<InputTensor> &&
+                detail::CanonicalReshapeLayout<input_layout>)
   {
     auto view = reshape_view(input, requested_extents...);
     return make_tensor<RequestedLayout>(view);

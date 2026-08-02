@@ -440,8 +440,10 @@ The precompiled CUDA reference copy backend currently uses two lowering forms:
 The strided executor covers canonical layout conversion, padded mappings, and
 nonzero `CudaBufferView` offsets. It traverses logical indices and therefore
 does not require input and output physical order to match. It requires a unique
-output mapping and distinct buffers; same-buffer remapping or semantic
-transformation remains an aliasing case that declines.
+output mapping. Distinct-offset views into one buffer resolve through one
+exclusive buffer access and rely on the C++ copy precondition that the operands
+do not destructively overlap. A nontrivial same-offset transformation is proven
+to overlap and declines.
 
 Device-callability alone cannot make an arbitrary external accessor available
 to a precompiled library kernel. Generalization requires either a typed

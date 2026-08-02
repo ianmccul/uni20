@@ -142,10 +142,11 @@ As with consuming eigensolver overloads, `std::move` grants permission to reuse
 storage but is not a separate operation name. There is therefore no
 `reshape_move` or `reshape_copy` API.
 
-Canonical non-owning sources are reshaped before materialization so their
-contiguous sequence is preserved. Layout-neutral generated inputs are first
-materialized in the default or explicitly requested layout, then reshaped by
-transferring that allocation:
+Immediately accessible canonical non-owning sources are reshaped before
+materialization so their contiguous sequence is preserved. Deferred non-owning
+views are first materialized through their selected backend, then reshaped by
+transferring the resulting owning allocation. Layout-neutral generated inputs
+similarly materialize in the default or explicitly requested layout:
 
 ```cpp
 auto column_result = uni20::reshape(uni20::eye<double>(2, 3), 3, 2);

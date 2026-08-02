@@ -288,6 +288,10 @@ owner remains unavailable during the lease.
 Uni20 provides the generic `read_mdspan_lease`, `write_mdspan_lease`,
 `read_tensor_lease`, and `write_tensor_lease` class templates, but an
 acquisition backend may return any type satisfying the relevant concepts.
+Generic lease components must be nothrow move-constructible, and their move
+assignment participates only when every transferred component is nothrow
+move-assignable. This prevents a failed partial move from separating a resolved
+mdspan from the access state that keeps its handle valid.
 
 ### Execution-Domain Concepts
 
@@ -452,6 +456,8 @@ uni20::host_write_mdspan_t<Output>
 The concepts require the corresponding acquisition expression and lease
 contract; they do not expose the acquisition implementation. Access-state
 implementations satisfy the public `uni20::TensorAccessState` concept.
+Moving a `TensorAccessState` is required not to throw; moving an active state
+transfers its release responsibility and leaves the source inactive.
 CUDA-buffer-specific acquisition uses
 `uni20::cuda::BufferMdspec`, which identifies a CUDA-accessible
 descriptor backed by `cuda::CudaBufferView`. These are shared backend-author
@@ -635,9 +641,10 @@ buffer access.
 Non-strided mappings and unregistered stateful accessor compositions remain
 valid device-callable descriptors but are not yet part of this precompiled copy
 executor. They cleanly decline until a typed lowering registry or a sufficiently
-general execution plan is available. Transformed copies that alias one buffer
-also decline until the backend can resolve both operands under one mutable
-access state.
+general execution plan is available. Same-buffer copies with distinct
+descriptor offsets use one exclusive access state and rely on the public C++
+precondition that input and output do not destructively overlap. A transformed
+copy at the same descriptor offset is proven to overlap and declines.
 
 ## Data Descriptor Boundary
 

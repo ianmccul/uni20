@@ -21,10 +21,13 @@ namespace uni20
 /// \details `release()` must be idempotent: its first call ends active access,
 ///          and later calls have no effect. Moving an active state transfers
 ///          that responsibility and leaves the source inactive, so releasing
-///          or destroying the moved-from state has no effect.
+///          or destroying the moved-from state has no effect. Move construction
+///          must not throw because leases transfer this state together with the
+///          resolved mdspan that depends on it.
 /// \tparam State Access-state type under test.
 template <class State>
-concept TensorAccessState = std::move_constructible<State> && requires(State& state) {
+concept TensorAccessState = std::move_constructible<State> && std::is_nothrow_move_constructible_v<State> &&
+                            requires(State& state) {
   { state.release() } noexcept;
 };
 
@@ -166,31 +169,29 @@ template <MutableImmediateTensorView Tensor> class borrowed_write_tensor_lease {
 /// \tparam Mdspan Read-only resolved mdspan type.
 /// \tparam AccessState RAII state retaining the acquired data handle.
 template <MdspanLike Mdspan, TensorAccessState AccessState>
-  requires std::is_const_v<typename Mdspan::element_type>
+  requires std::is_const_v<typename Mdspan::element_type> && std::is_nothrow_move_constructible_v<Mdspan>
 class read_mdspan_lease {
   public:
     using mdspan_type = Mdspan;
     using access_state_type = AccessState;
 
     /// \brief Construct an active read lease.
-    read_mdspan_lease(access_state_type state, mdspan_type mdspan)
+    read_mdspan_lease(access_state_type state, mdspan_type mdspan) noexcept
         : state_(std::move(state)), mdspan_(std::move(mdspan))
     {}
 
     read_mdspan_lease(read_mdspan_lease const&) = delete;
     read_mdspan_lease& operator=(read_mdspan_lease const&) = delete;
 
-    read_mdspan_lease(read_mdspan_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
-                                                          std::is_nothrow_move_constructible_v<mdspan_type>)
+    read_mdspan_lease(read_mdspan_lease&& other) noexcept
         : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_))
     {
       other.mdspan_.reset();
     }
 
     read_mdspan_lease&
-    operator=(read_mdspan_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
-                                                  std::is_nothrow_move_assignable_v<mdspan_type>)
-      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type>)
+    operator=(read_mdspan_lease&& other) noexcept
+      requires(std::is_nothrow_move_assignable_v<access_state_type> && std::is_nothrow_move_assignable_v<mdspan_type>)
     {
       if (this != &other)
       {
@@ -240,30 +241,30 @@ class read_mdspan_lease {
 ///          mdspan so the mdspan is destroyed before access ends.
 /// \tparam Mdspan Writable resolved mdspan type.
 /// \tparam AccessState RAII state retaining the acquired data handle.
-template <MutableMdspanLike Mdspan, TensorAccessState AccessState> class write_mdspan_lease {
+template <MutableMdspanLike Mdspan, TensorAccessState AccessState>
+  requires std::is_nothrow_move_constructible_v<Mdspan>
+class write_mdspan_lease {
   public:
     using mdspan_type = Mdspan;
     using access_state_type = AccessState;
 
     /// \brief Construct an active write lease.
-    write_mdspan_lease(access_state_type state, mdspan_type mdspan)
+    write_mdspan_lease(access_state_type state, mdspan_type mdspan) noexcept
         : state_(std::move(state)), mdspan_(std::move(mdspan))
     {}
 
     write_mdspan_lease(write_mdspan_lease const&) = delete;
     write_mdspan_lease& operator=(write_mdspan_lease const&) = delete;
 
-    write_mdspan_lease(write_mdspan_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
-                                                            std::is_nothrow_move_constructible_v<mdspan_type>)
+    write_mdspan_lease(write_mdspan_lease&& other) noexcept
         : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_))
     {
       other.mdspan_.reset();
     }
 
     write_mdspan_lease&
-    operator=(write_mdspan_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
-                                                   std::is_nothrow_move_assignable_v<mdspan_type>)
-      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type>)
+    operator=(write_mdspan_lease&& other) noexcept
+      requires(std::is_nothrow_move_assignable_v<access_state_type> && std::is_nothrow_move_assignable_v<mdspan_type>)
     {
       if (this != &other)
       {
@@ -317,7 +318,8 @@ template <MutableMdspanLike Mdspan, TensorAccessState AccessState> class write_m
 /// \tparam BackendSelector Backend list copied from the source tensor view.
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
 template <MdspanLike Mdspan, TensorAccessState AccessState, class BackendSelector, class StoragePolicy>
-  requires std::is_const_v<typename Mdspan::element_type>
+  requires std::is_const_v<typename Mdspan::element_type> && std::is_nothrow_move_constructible_v<Mdspan> &&
+           std::is_nothrow_move_constructible_v<BackendSelector>
 class read_tensor_lease {
   public:
     using mdspan_type = Mdspan;
@@ -328,27 +330,23 @@ class read_tensor_lease {
     using index_type = typename mdspan_type::index_type;
 
     /// \brief Construct an active read lease.
-    read_tensor_lease(access_state_type state, mdspan_type mdspan, backend_selector_type selector)
+    read_tensor_lease(access_state_type state, mdspan_type mdspan, backend_selector_type selector) noexcept
         : state_(std::move(state)), mdspan_(std::move(mdspan)), selector_(std::move(selector))
     {}
 
     read_tensor_lease(read_tensor_lease const&) = delete;
     read_tensor_lease& operator=(read_tensor_lease const&) = delete;
 
-    read_tensor_lease(read_tensor_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
-                                                          std::is_nothrow_move_constructible_v<mdspan_type> &&
-                                                          std::is_nothrow_move_constructible_v<backend_selector_type>)
+    read_tensor_lease(read_tensor_lease&& other) noexcept
         : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_)), selector_(std::move(other.selector_))
     {
       other.mdspan_.reset();
     }
 
     read_tensor_lease&
-    operator=(read_tensor_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
-                                                  std::is_nothrow_move_assignable_v<mdspan_type> &&
-                                                  std::is_nothrow_move_assignable_v<backend_selector_type>)
-      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type> &&
-               std::is_move_assignable_v<backend_selector_type>)
+    operator=(read_tensor_lease&& other) noexcept
+      requires(std::is_nothrow_move_assignable_v<access_state_type> && std::is_nothrow_move_assignable_v<mdspan_type> &&
+               std::is_nothrow_move_assignable_v<backend_selector_type>)
     {
       if (this != &other)
       {
@@ -425,7 +423,10 @@ class read_tensor_lease {
 /// \tparam StoragePolicy Storage policy associated with the source tensor view.
 template <MutableMdspanLike MutableMdspan, MdspanLike ConstMdspan, TensorAccessState AccessState, class BackendSelector,
           class StoragePolicy>
-  requires std::is_const_v<typename ConstMdspan::element_type>
+  requires std::is_const_v<typename ConstMdspan::element_type> &&
+           std::is_nothrow_move_constructible_v<MutableMdspan> &&
+           std::is_nothrow_move_constructible_v<ConstMdspan> &&
+           std::is_nothrow_move_constructible_v<BackendSelector>
 class write_tensor_lease {
   public:
     using mdspan_type = MutableMdspan;
@@ -438,7 +439,7 @@ class write_tensor_lease {
 
     /// \brief Construct an active write lease.
     write_tensor_lease(access_state_type state, mdspan_type mdspan, const_mdspan_type const_mdspan,
-                       backend_selector_type selector)
+                       backend_selector_type selector) noexcept
         : state_(std::move(state)), mdspan_(std::move(mdspan)), const_mdspan_(std::move(const_mdspan)),
           selector_(std::move(selector))
     {}
@@ -446,10 +447,7 @@ class write_tensor_lease {
     write_tensor_lease(write_tensor_lease const&) = delete;
     write_tensor_lease& operator=(write_tensor_lease const&) = delete;
 
-    write_tensor_lease(write_tensor_lease&& other) noexcept(std::is_nothrow_move_constructible_v<access_state_type> &&
-                                                            std::is_nothrow_move_constructible_v<mdspan_type> &&
-                                                            std::is_nothrow_move_constructible_v<const_mdspan_type> &&
-                                                            std::is_nothrow_move_constructible_v<backend_selector_type>)
+    write_tensor_lease(write_tensor_lease&& other) noexcept
         : state_(std::move(other.state_)), mdspan_(std::move(other.mdspan_)),
           const_mdspan_(std::move(other.const_mdspan_)), selector_(std::move(other.selector_))
     {
@@ -458,12 +456,10 @@ class write_tensor_lease {
     }
 
     write_tensor_lease&
-    operator=(write_tensor_lease&& other) noexcept(std::is_nothrow_move_assignable_v<access_state_type> &&
-                                                   std::is_nothrow_move_assignable_v<mdspan_type> &&
-                                                   std::is_nothrow_move_assignable_v<const_mdspan_type> &&
-                                                   std::is_nothrow_move_assignable_v<backend_selector_type>)
-      requires(std::is_move_assignable_v<access_state_type> && std::is_move_assignable_v<mdspan_type> &&
-               std::is_move_assignable_v<const_mdspan_type> && std::is_move_assignable_v<backend_selector_type>)
+    operator=(write_tensor_lease&& other) noexcept
+      requires(std::is_nothrow_move_assignable_v<access_state_type> && std::is_nothrow_move_assignable_v<mdspan_type> &&
+               std::is_nothrow_move_assignable_v<const_mdspan_type> &&
+               std::is_nothrow_move_assignable_v<backend_selector_type>)
     {
       if (this != &other)
       {
