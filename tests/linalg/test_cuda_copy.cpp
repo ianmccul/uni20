@@ -2,6 +2,7 @@
 #include <uni20/backend/cuda/runtime.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/async.hpp>
+#include <uni20/mdspan/generated_layout.hpp>
 #include <uni20/tensor/async.hpp>
 #include <uni20/tensor/copy.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -9,11 +10,13 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <concepts>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 namespace
@@ -26,6 +29,7 @@ using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
 using complex_type = uni20::complex<double>;
 using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
 using complex_cuda_matrix_type = uni20::CudaTensor<complex_type, 2>;
+using cuda_vector_type = uni20::CudaTensor<double, 1>;
 using complex_cuda_conjugated_view = uni20::ConjugatedTensorView<complex_cuda_matrix_type>;
 using cuda_extents_type = stdex::dextents<uni20::index_type, 2>;
 using resolved_cuda_output_mdspan =
@@ -42,6 +46,28 @@ using conjugated_cuda_lease =
 using resolved_conjugated_cuda_mdspan = std::remove_cvref_t<decltype(std::declval<conjugated_cuda_lease&>().mdspan())>;
 
 using namespace std::chrono_literals;
+
+template <class Layout, class Mdspec>
+auto remap_mdspec(Mdspec const& source, typename Layout::template mapping<typename Mdspec::extents_type> mapping)
+{
+  using source_type = std::remove_cvref_t<Mdspec>;
+  using result_type = uni20::mdspec<typename source_type::element_type, typename source_type::extents_type, Layout,
+                                    typename source_type::accessor_type, typename source_type::data_descriptor_type>;
+  return result_type{source.data_descriptor(), std::move(mapping), source.accessor()};
+}
+
+template <class Tensor>
+auto make_strided_matrix_mdspec(Tensor& tensor, std::size_t offset, std::array<uni20::index_type, 2> const& strides)
+{
+  auto base = tensor.mdspec();
+  using base_type = decltype(base);
+  using layout_type = stdex::layout_stride;
+  using mapping_type = layout_type::mapping<cuda_extents_type>;
+  using result_type = uni20::mdspec<typename base_type::element_type, cuda_extents_type, layout_type,
+                                    typename base_type::accessor_type, typename base_type::data_descriptor_type>;
+  return result_type{base.data_descriptor().offset_by(offset), mapping_type{cuda_extents_type{2, 3}, strides},
+                     base.accessor()};
+}
 
 struct DescriptorSelectedStoragePolicy
 {
@@ -114,6 +140,12 @@ static_assert(std::same_as<typename resolved_conjugated_cuda_mdspan::accessor_ty
 static_assert(!uni20::cuda::BufferMdspec<resolved_cuda_output_mdspan>);
 static_assert(!uni20::linalg::detail::cuda_reference::SupportedCopyMdspans<resolved_cuda_output_mdspan,
                                                                            resolved_cuda_input_mdspan>);
+using generated_cuda_descriptor =
+    uni20::mdspec<double const, cuda_extents_type, uni20::GeneratedLayout,
+                  uni20::cuda::CudaPointerAccessor<double const>, uni20::cuda::CudaBufferView<double const>>;
+static_assert(uni20::CudaAccessibleMdspec<generated_cuda_descriptor>);
+static_assert(!uni20::linalg::detail::cuda_reference::SupportedCopyMdspans<resolved_cuda_output_mdspan,
+                                                                           generated_cuda_descriptor>);
 
 struct CopyGate
 {
@@ -197,6 +229,33 @@ class CudaCopyTest : public ::testing::Test {
 
     int device_count_ = 0;
 };
+
+TEST(CudaCopyPlanningTest, ElementwiseLayoutDecodesIndependentPaddedStrides)
+{
+  using mapping_type = stdex::layout_stride::mapping<cuda_extents_type>;
+  cuda_extents_type const extents{2, 3};
+  std::array<uni20::index_type, 2> const output_strides{1, 3};
+  std::array<uni20::index_type, 2> const input_strides{1, 2};
+  double output_storage[8]{};
+  double input_storage[6]{};
+  stdex::mdspan output{output_storage, mapping_type{extents, output_strides}};
+  stdex::mdspan input{input_storage, mapping_type{extents, input_strides}};
+  uni20::linalg::detail::cuda_reference::ElementwiseCopyLayout layout;
+
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_layout(output, input, layout));
+  EXPECT_EQ(layout.rank, 2);
+  EXPECT_EQ(layout.element_count, 6);
+  EXPECT_EQ(layout.offsets(0).output, 0);
+  EXPECT_EQ(layout.offsets(0).input, 0);
+  EXPECT_EQ(layout.offsets(1).output, 3);
+  EXPECT_EQ(layout.offsets(1).input, 2);
+  EXPECT_EQ(layout.offsets(2).output, 6);
+  EXPECT_EQ(layout.offsets(2).input, 4);
+  EXPECT_EQ(layout.offsets(3).output, 1);
+  EXPECT_EQ(layout.offsets(3).input, 1);
+  EXPECT_EQ(layout.offsets(5).output, 7);
+  EXPECT_EQ(layout.offsets(5).input, 5);
+}
 
 TEST_F(CudaCopyTest, PageableHostRoundTripUsesExplicitTransferFunctions)
 {
@@ -379,6 +438,64 @@ TEST_F(CudaCopyTest, SameDeviceCopyUsesCudaReferenceFallback)
   uni20::copy(destination, source);
 
   expect_matrix(uni20::to_host(destination));
+}
+
+TEST_F(CudaCopyTest, SameDeviceCopyConvertsBetweenColumnMajorAndRowMajorMappings)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  auto source = uni20::to_device(make_matrix(), 0);
+  cuda_matrix_type row_major_storage(runtime.device_resources(0), 2, 3);
+  cuda_matrix_type roundtrip(runtime.device_resources(0), 2, 3);
+
+  auto source_span = std::as_const(source).mdspec();
+  auto row_major_base = row_major_storage.mdspec();
+  using row_major_mapping = stdex::layout_right::mapping<cuda_extents_type>;
+  auto row_major_output = remap_mdspec<stdex::layout_right>(row_major_base, row_major_mapping{cuda_extents_type{2, 3}});
+
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(row_major_output, source_span);
+  ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  EXPECT_EQ(preparation.execution, uni20::linalg::detail::cuda_reference::CopyExecution::elementwise_kernel);
+  EXPECT_EQ(preparation.elementwise_layout.output_strides[0], 3);
+  EXPECT_EQ(preparation.elementwise_layout.output_strides[1], 1);
+  EXPECT_EQ(preparation.elementwise_layout.input_strides[0], 1);
+  EXPECT_EQ(preparation.elementwise_layout.input_strides[1], 2);
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(row_major_output, source_span),
+            uni20::linalg::KernelAttempt::success);
+
+  auto row_major_input_base = std::as_const(row_major_storage).mdspec();
+  auto row_major_input =
+      remap_mdspec<stdex::layout_right>(row_major_input_base, row_major_mapping{cuda_extents_type{2, 3}});
+  auto roundtrip_output = roundtrip.mdspec();
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(roundtrip_output, row_major_input),
+            uni20::linalg::KernelAttempt::success);
+
+  expect_matrix(uni20::to_host(roundtrip));
+}
+
+TEST_F(CudaCopyTest, SameDeviceCopyHandlesPaddedStridesAndBufferOffsets)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  auto source = uni20::to_device(make_matrix(), 0);
+  cuda_vector_type padded_storage(runtime.device_resources(0), 10);
+  cuda_matrix_type roundtrip(runtime.device_resources(0), 2, 3);
+  std::array<uni20::index_type, 2> const padded_strides{1, 3};
+
+  auto source_span = std::as_const(source).mdspec();
+  auto padded_output = make_strided_matrix_mdspec(padded_storage, 1, padded_strides);
+  auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(padded_output, source_span);
+  ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
+  EXPECT_EQ(preparation.execution, uni20::linalg::detail::cuda_reference::CopyExecution::elementwise_kernel);
+  EXPECT_EQ(preparation.output_offset, 1);
+  EXPECT_EQ(preparation.output_span_size, 8);
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(padded_output, source_span),
+            uni20::linalg::KernelAttempt::success);
+
+  auto padded_input = make_strided_matrix_mdspec(std::as_const(padded_storage), 1, padded_strides);
+  auto roundtrip_output = roundtrip.mdspec();
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(roundtrip_output, padded_input),
+            uni20::linalg::KernelAttempt::success);
+
+  expect_matrix(uni20::to_host(roundtrip));
 }
 
 TEST_F(CudaCopyTest, SameDeviceCopyOrdersPendingSourceAndDestinationReuse)

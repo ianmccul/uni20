@@ -59,4 +59,9 @@ if(TARGET uni20_backend_cuda)
     SOURCES test_cuda_copy.cpp
     LIBS uni20_linalg uni20_async uni20_backend_cuda
   )
+  target_sources(uni20_linalg_cuda_tests PRIVATE test_cuda_descriptor_compile.cu)
+  set_target_properties(uni20_linalg_cuda_tests PROPERTIES
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON
+  )
 endif()

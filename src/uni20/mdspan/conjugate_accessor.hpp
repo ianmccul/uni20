@@ -75,7 +75,9 @@ class conjugated_accessor {
     {}
 
     /// \brief Construct from the accessor whose values should be conjugated on read.
-    constexpr explicit conjugated_accessor(Accessor accessor) : accessor_(std::move(accessor)) {}
+    UNI20_HOST_DEVICE constexpr explicit conjugated_accessor(Accessor accessor)
+        : accessor_(static_cast<Accessor&&>(accessor))
+    {}
 
     /// \brief Return the conjugated value at a handle-relative offset.
     [[nodiscard]] UNI20_HOST_DEVICE constexpr reference access(data_handle_type ptr, offset_type offset) const
@@ -90,10 +92,13 @@ class conjugated_accessor {
     }
 
     /// \brief Return the wrapped accessor.
-    [[nodiscard]] constexpr auto wrapped_accessor() const& -> Accessor const& { return accessor_; }
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto wrapped_accessor() const& -> Accessor const& { return accessor_; }
 
     /// \brief Move out the wrapped accessor.
-    [[nodiscard]] constexpr auto wrapped_accessor() && -> Accessor { return std::move(accessor_); }
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto wrapped_accessor() && -> Accessor
+    {
+      return static_cast<Accessor&&>(accessor_);
+    }
 
   private:
     [[no_unique_address]] Accessor accessor_{};

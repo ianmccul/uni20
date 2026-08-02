@@ -327,7 +327,7 @@ contracts described later in this guide.
 | `reshape_view_left`, `reshape_view_right` | Explicitly ordered no-copy reshape of a general strided source. | Requires a unique, exhaustive canonical mapping in the selected order. | Matching async overloads retain the parent and queue. |
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; generated input materializes in the requested/default layout. | Not implemented. |
-| `copy(out, in)` | Overwrite while observing input accessor semantics. Canonical contiguous host/CUDA transfers use `CudaReferenceBackend`. | Resizes a resizable output or validates a fixed output. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
+| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings through rank eight use logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports differing physical order, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
 | `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
@@ -358,6 +358,12 @@ from storage policy. The CPU reference backend accepts arbitrary rank and input
 arity, respects accessor semantics, and uses logical-index traversal when an
 operand is not strided. Named callable types may gain optimized backend
 implementations without changing these front-end signatures.
+
+Uni20-owned tensor function objects intended for execution through an accessor
+use `UNI20_HOST_DEVICE`. A CUDA-accessible transform's stored callable must do
+the same. This makes the expression device-callable but does not install a
+precompiled CUDA backend specialization; the selected backend still needs an
+explicit typed lowering or a sufficient type-erased execution plan.
 
 The Async overloads keep the same argument order and require every Tensor
 operand to be `Async<T>`. The callable is not itself an async operand: it is

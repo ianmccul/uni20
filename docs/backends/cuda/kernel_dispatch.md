@@ -399,6 +399,57 @@ Once the backend has changed provider state or enqueued work, cancellation
 cannot turn the attempt into a backend decline or reclaim retained resources
 early. The submitted work must reach a completion/error boundary.
 
+## Execution Descriptor Lowering
+
+Backend selection happens while tensor storage policy is still available.
+After selection, fixed operands are normalized to mdspecs. The CUDA backend
+uses each data descriptor to acquire stream-ordered buffer access, then launches
+with the resolved handle plus the mapping, accessor, and any operation state
+needed by the leaf:
+
+```text
+TensorView
+  -> select CUDA backend
+  -> mdspec(data descriptor, mapping, accessor)
+  -> acquire buffer access on the selected stream
+  -> kernel(handle, mapping or lowered layout, accessor or compiled lowering)
+```
+
+Uni20-owned mapping, accessor, proxy-reference, generator, and transform
+execution functions use `UNI20_HOST_DEVICE`. This code-generation property is
+separate from the accessor-domain concepts. `CudaAccessibleAccessor` states that
+the acquired handle may be evaluated in CUDA; the compiler verifies that the
+concrete execution expressions are device-callable when a `.cu` translation
+unit instantiates them.
+
+Data descriptors are not kernel payloads by default. A `CudaBufferView` retains
+allocation identity and offset so the backend can order access, but the kernel
+receives the acquired pointer and the relevant execution metadata. Future file,
+MPI, or staged descriptors likewise remain in the control plane unless a
+specific kernel ABI requires lowered descriptor state.
+
+The precompiled CUDA reference copy backend currently uses two lowering forms:
+
+| Case | Lowering |
+|---|---|
+| Raw contiguous mappings with matching physical order | `cudaMemcpyAsync` or `cudaMemcpyPeerAsync` |
+| Same-device positive-strided mappings through rank eight | Compact extents and independent input/output stride arrays passed to an elementwise kernel |
+| Raw or conjugating CUDA input accessor | Explicitly compiled accessor lowering selected by the copy plan |
+| Non-strided mapping or other stateful accessor composition | Clean decline |
+
+The strided executor covers canonical layout conversion, padded mappings, and
+nonzero `CudaBufferView` offsets. It traverses logical indices and therefore
+does not require input and output physical order to match. It requires a unique
+output mapping and distinct buffers; same-buffer remapping or semantic
+transformation remains an aliasing case that declines.
+
+Device-callability alone cannot make an arbitrary external accessor available
+to a precompiled library kernel. Generalization requires either a typed
+registry with explicit CUDA instantiations or a type-erased plan that carries
+the complete operation state. An enum is appropriate only for a deliberately
+closed compiled lowering such as the current raw/conjugating pair; it must not
+be described as a generic executor for arbitrary accessor state.
+
 ## CUDA Graph Capture
 
 General CUDA Graph stream capture is unsupported in the initial runtime. The
@@ -464,8 +515,9 @@ diagnostic data rather than preformatting one terminal-only string.
    accounting, cancellation, exceptions, waits, and quiescence.
 4. Define cancellation and runtime-shutdown behavior for queued resource
    waiters.
-5. Extend `CudaReferenceBackend` beyond its initial contiguous Tensor copy path
-   with fill and accessor-respecting elementwise kernels.
+5. Extend the CUDA reference executor beyond positive-strided copy with
+   registered stateful accessor lowerings, non-strided mapping support, and
+   fill kernels.
 6. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
 7. Validate multi-device isolation and explicit migration between two device

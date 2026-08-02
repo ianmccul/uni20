@@ -55,9 +55,9 @@ template <class Real> class CudaComplexReference {
     }
 
     /// \brief Store a host logical value componentwise.
-    constexpr CudaComplexReference& operator=(logical_type const& value) noexcept
+    UNI20_HOST_DEVICE constexpr CudaComplexReference& operator=(logical_type const& value) noexcept
     {
-      auto const* components = reinterpret_cast<Real const*>(std::addressof(value));
+      auto const* components = reinterpret_cast<Real const*>(&value);
       components_[0] = components[0];
       components_[1] = components[1];
       return *this;
@@ -144,8 +144,8 @@ template <class Real> struct CudaPointerAccessor<uni20::complex<Real> const>
 struct CudaConjugate
 {
     template <class Real>
-    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto
-    operator()(::cuda::std::complex<Real> value) const noexcept -> ::cuda::std::complex<Real>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(::cuda::std::complex<Real> value) const noexcept
+        -> ::cuda::std::complex<Real>
     {
       return ::cuda::std::conj(value);
     }
@@ -176,7 +176,7 @@ template <class Real> struct CudaConjugatingPointerAccessor
 /// \brief Produce a read-only CUDA pointer accessor without a generic lvalue adaptor.
 template <class ElementType>
   requires(!std::is_const_v<ElementType>)
-[[nodiscard]] constexpr auto const_accessor(CudaPointerAccessor<ElementType> const&)
+[[nodiscard]] UNI20_HOST_DEVICE constexpr auto const_accessor(CudaPointerAccessor<ElementType> const&)
 {
   return CudaPointerAccessor<ElementType const>{};
 }

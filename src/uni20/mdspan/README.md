@@ -73,6 +73,15 @@ small helpers used by dense kernels and layout-aware algorithms.
   `UNI20_HOST_DEVICE`; CUDA kernel compilation validates that contract. Eager
   overwrite and update use the dispatched tensor operations `assign_transform`
   and `transform_inplace`.
+- Uni20-owned mapping, accessor, proxy-reference, generator, and transform
+  execution surfaces are `UNI20_HOST_DEVICE`. This is independent of accessor
+  domain registration: annotations make code compilable for a device, while
+  `enable_accessor_in_domain` states where an acquired handle may be evaluated.
+  Data descriptors and acquisition state remain backend-side control objects
+  unless a leaf kernel explicitly defines a lowered descriptor ABI.
+- A device-callable mapping or accessor is not automatically supported by every
+  precompiled CUDA backend. Such a backend must carry a sufficient type-erased
+  plan, provide an explicitly instantiated typed lowering, or cleanly decline.
 
 ## Related Documentation
 

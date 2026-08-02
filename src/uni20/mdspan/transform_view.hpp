@@ -40,7 +40,7 @@ template <class Function, MdspanLike Span> class unary_transform_accessor {
     using offset_policy = unary_transform_accessor;
 
     template <class FwdFunction>
-    constexpr unary_transform_accessor(FwdFunction&& function, span_type const& span)
+    UNI20_HOST_DEVICE constexpr unary_transform_accessor(FwdFunction&& function, span_type const& span)
         : function_(std::forward<FwdFunction>(function)), accessor_(span.accessor())
     {}
 
@@ -74,7 +74,7 @@ template <class Function, MdspanLike... Spans> class transform_accessor {
     using offset_policy = transform_accessor;
 
     template <class FwdFunction>
-    constexpr transform_accessor(FwdFunction&& function, Spans const&... spans)
+    UNI20_HOST_DEVICE constexpr transform_accessor(FwdFunction&& function, Spans const&... spans)
         : function_(std::forward<FwdFunction>(function)), accessors_(spans.accessor()...)
     {}
 

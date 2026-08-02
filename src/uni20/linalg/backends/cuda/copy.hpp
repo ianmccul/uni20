@@ -114,6 +114,9 @@ template <class Scalar> struct CopyPlan
     std::size_t output_offset = 0;
     std::size_t input_offset = 0;
     std::size_t element_count = 0;
+    std::size_t output_span_size = 0;
+    std::size_t input_span_size = 0;
+    ElementwiseCopyLayout elementwise_layout;
     std::vector<Scalar> input_staging;
     bool conjugate_host_output = false;
     bool has_work = false;
@@ -132,6 +135,44 @@ template <class OutputMdspan, class InputMdspan>
     if (output.extent(axis) > 1 && output.stride(axis) != input.stride(axis)) return false;
   }
   return true;
+}
+
+template <class OutputMdspan, class InputMdspan>
+[[nodiscard]] bool try_make_elementwise_layout(OutputMdspan const& output, InputMdspan const& input,
+                                               ElementwiseCopyLayout& layout)
+{
+  constexpr std::size_t rank = std::remove_cvref_t<OutputMdspan>::rank();
+  if constexpr (rank > ElementwiseCopyLayout::maximum_rank)
+  {
+    return false;
+  }
+  else
+  {
+    layout.rank = rank;
+    layout.element_count = 1;
+    for (std::size_t axis = 0; axis < rank; ++axis)
+    {
+      auto const extent = output.extent(axis);
+      if (std::cmp_less(extent, 0) ||
+          (layout.element_count != 0 && extent != 0 &&
+           std::cmp_greater(extent, std::numeric_limits<std::size_t>::max() / layout.element_count)))
+      {
+        return false;
+      }
+      layout.extents[axis] = static_cast<std::size_t>(extent);
+      if (layout.element_count != 0) layout.element_count *= layout.extents[axis];
+
+      if (extent > 1)
+      {
+        auto const output_stride = output.stride(axis);
+        auto const input_stride = input.stride(axis);
+        if (output_stride <= 0 || input_stride <= 0) return false;
+        layout.output_strides[axis] = static_cast<std::size_t>(output_stride);
+        layout.input_strides[axis] = static_cast<std::size_t>(input_stride);
+      }
+    }
+    return true;
+  }
 }
 
 template <class Scalar>
@@ -160,57 +201,20 @@ template <class OutputMdspan, class InputMdspan>
       plan.attempt = KernelAttempt::unsupported_shape;
       return plan;
     }
-    if (output.extent(axis) > 1 && (output.stride(axis) <= 0 || input.stride(axis) <= 0))
-    {
-      plan.attempt = KernelAttempt::unsupported_layout;
-      return plan;
-    }
   }
 
-  if (!mapping_is_contiguous(output.mapping()) || !mapping_is_contiguous(input.mapping()) ||
-      !physical_orders_match(output, input))
-  {
-    plan.attempt = KernelAttempt::unsupported_layout;
-    return plan;
-  }
-
-  auto const required_span = output.mapping().required_span_size();
-  if (required_span != input.mapping().required_span_size() || std::cmp_less(required_span, 0) ||
-      std::cmp_greater(required_span, std::numeric_limits<std::size_t>::max()))
+  auto const output_required_span = output.mapping().required_span_size();
+  auto const input_required_span = input.mapping().required_span_size();
+  if (std::cmp_less(output_required_span, 0) ||
+      std::cmp_greater(output_required_span, std::numeric_limits<std::size_t>::max()) ||
+      std::cmp_less(input_required_span, 0) ||
+      std::cmp_greater(input_required_span, std::numeric_limits<std::size_t>::max()))
   {
     plan.attempt = KernelAttempt::unsupported_shape;
     return plan;
   }
-
-  plan.element_count = static_cast<std::size_t>(required_span);
-  CHECK(plan.element_count <= std::numeric_limits<std::size_t>::max() / sizeof(scalar_type), plan.element_count,
-        sizeof(scalar_type));
-
-  if constexpr (is_cuda_mdspan<OutputMdspan>)
-  {
-    auto output_handle = cuda_buffer_view(output);
-    plan.output_buffer = std::addressof(output_handle.buffer());
-    plan.output_offset = output_handle.element_offset();
-    validate_cuda_range(*plan.output_buffer, plan.output_offset, plan.element_count);
-  }
-  else
-  {
-    plan.output_host = output.data_handle();
-    CHECK(plan.element_count == 0 || plan.output_host != nullptr);
-  }
-
-  if constexpr (is_cuda_mdspan<InputMdspan>)
-  {
-    auto input_handle = cuda_buffer_view(input);
-    plan.input_buffer = std::addressof(input_handle.buffer());
-    plan.input_offset = input_handle.element_offset();
-    validate_cuda_range(*plan.input_buffer, plan.input_offset, plan.element_count);
-  }
-  else
-  {
-    plan.input_host = input.data_handle();
-    CHECK(plan.element_count == 0 || plan.input_host != nullptr);
-  }
+  plan.output_span_size = static_cast<std::size_t>(output_required_span);
+  plan.input_span_size = static_cast<std::size_t>(input_required_span);
 
   if constexpr (is_cuda_mdspan<OutputMdspan> && is_cuda_mdspan<InputMdspan>)
   {
@@ -225,33 +229,90 @@ template <class OutputMdspan, class InputMdspan>
     plan.direction = CopyDirection::device_to_host;
   }
 
+  bool const runtime_copy_eligible = mapping_is_contiguous(output.mapping()) &&
+                                     mapping_is_contiguous(input.mapping()) && physical_orders_match(output, input);
+  bool needs_elementwise_kernel = false;
+  if (!runtime_copy_eligible)
+  {
+    if constexpr (is_cuda_mdspan<OutputMdspan> && is_cuda_mdspan<InputMdspan>)
+      needs_elementwise_kernel = true;
+    else
+    {
+      plan.attempt = KernelAttempt::unsupported_layout;
+      return plan;
+    }
+  }
+
+  if constexpr (is_conjugated_cuda_mdspan<InputMdspan>)
+  {
+    if (plan.direction == CopyDirection::device_to_device)
+      needs_elementwise_kernel = true;
+    else
+      plan.conjugate_host_output = true;
+  }
+
+  if (needs_elementwise_kernel)
+  {
+    if constexpr (!supports_elementwise_copy<scalar_type>)
+    {
+      plan.attempt = KernelAttempt::unsupported_transform;
+      return plan;
+    }
+    if (!output.mapping().is_unique() || !try_make_elementwise_layout(output, input, plan.elementwise_layout))
+    {
+      plan.attempt = KernelAttempt::unsupported_layout;
+      return plan;
+    }
+    plan.execution = CopyExecution::elementwise_kernel;
+    plan.element_count = plan.elementwise_layout.element_count;
+    if constexpr (is_conjugated_cuda_mdspan<InputMdspan>) plan.transform = ElementwiseCopyTransform::conjugate;
+  }
+  else
+  {
+    if (plan.output_span_size != plan.input_span_size)
+    {
+      plan.attempt = KernelAttempt::unsupported_shape;
+      return plan;
+    }
+    plan.element_count = plan.output_span_size;
+  }
+
+  CHECK(plan.element_count <= std::numeric_limits<std::size_t>::max() / sizeof(scalar_type), plan.element_count,
+        sizeof(scalar_type));
+
+  if constexpr (is_cuda_mdspan<OutputMdspan>)
+  {
+    auto output_handle = cuda_buffer_view(output);
+    plan.output_buffer = std::addressof(output_handle.buffer());
+    plan.output_offset = output_handle.element_offset();
+    validate_cuda_range(*plan.output_buffer, plan.output_offset, plan.output_span_size);
+  }
+  else
+  {
+    plan.output_host = output.data_handle();
+    CHECK(plan.element_count == 0 || plan.output_host != nullptr);
+  }
+
+  if constexpr (is_cuda_mdspan<InputMdspan>)
+  {
+    auto input_handle = cuda_buffer_view(input);
+    plan.input_buffer = std::addressof(input_handle.buffer());
+    plan.input_offset = input_handle.element_offset();
+    validate_cuda_range(*plan.input_buffer, plan.input_offset, plan.input_span_size);
+  }
+  else
+  {
+    plan.input_host = input.data_handle();
+    CHECK(plan.element_count == 0 || plan.input_host != nullptr);
+  }
+
   if (plan.element_count == 0)
   {
     plan.attempt = KernelAttempt::success;
     return plan;
   }
 
-  if constexpr (is_conjugated_cuda_mdspan<InputMdspan>)
-  {
-    if (plan.direction == CopyDirection::device_to_device)
-    {
-      if constexpr (supports_elementwise_copy<scalar_type>)
-      {
-        plan.execution = CopyExecution::elementwise_kernel;
-        plan.transform = ElementwiseCopyTransform::conjugate;
-      }
-      else
-      {
-        plan.attempt = KernelAttempt::unsupported_transform;
-        return plan;
-      }
-    }
-    else
-    {
-      plan.conjugate_host_output = true;
-    }
-  }
-  else if constexpr (is_conjugated_host_mdspan<InputMdspan>)
+  if constexpr (is_conjugated_host_mdspan<InputMdspan>)
   {
     CHECK(plan.direction == CopyDirection::host_to_device);
     plan.input_staging.resize(plan.element_count);
@@ -308,7 +369,7 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
     CHECK_EQUAL(output_device, input_device);
     if constexpr (supports_elementwise_copy<Scalar>)
     {
-      enqueue_elementwise_copy(output_data, input_data, plan.element_count, plan.transform, stream.native_handle(),
+      enqueue_elementwise_copy(output_data, input_data, plan.elementwise_layout, plan.transform, stream.native_handle(),
                                output_device);
       return;
     }

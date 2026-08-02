@@ -229,7 +229,7 @@ DMRG calculations.
   `reference` alias. `MutableMdspanLike` uses const `element_type` together with
   indexed assignment validity to reject ordinary mutation. An opaque
   device-memory accessor without assignable element semantics does not model
-  `MutableMdspanLike` or `MutableDeviceMdspanLike`; resolve it to an accessor with
+  `MutableMdspanLike` or `MutableMdspecLike`; resolve it to an accessor with
   the required reference semantics before mutation.
 * A tensor view's const interface must resolve an mdspan with const
   `element_type`. Mutable access belongs on the non-const `mdspan()` overload;
@@ -243,6 +243,16 @@ DMRG calculations.
   and other proxy accessors as semantic views that require explicit lowering,
   materialization, or a generic elementwise path. A pointer data handle does not
   make them BLAS-addressable.
+* Mark Uni20-owned mapping, accessor, proxy-reference, generator, and tensor
+  transform execution surfaces with `UNI20_HOST_DEVICE`. Stored function
+  objects invoked through CUDA-accessible accessors must annotate the invoked
+  call operator the same way. Do not add a separate function- or mapping-domain
+  trait: an actual CUDA compilation probe is the check for device-callability.
+* Keep device-callability separate from memory-domain semantics.
+  `enable_accessor_in_domain` states where an acquired handle may be evaluated;
+  `UNI20_HOST_DEVICE` only makes the execution code available to both
+  compilers. A device-callable accessor still needs an explicit precompiled
+  backend lowering or a sufficiently general execution plan.
 * Uni20's lazy conjugation follows the C++26 `std::linalg::conjugated_accessor`
   model from WG21 P3050R3, but the user-facing helper is `uni20::conj(span)`.
   Do not use `std::conj` to decide real-mdspan behavior: `uni20::conj` is the

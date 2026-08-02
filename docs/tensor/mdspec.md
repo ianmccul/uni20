@@ -337,6 +337,56 @@ must not be inferred from the handle type. An accessor for unified or mapped
 memory may opt into both domains; its adapted forms then inherit both
 registrations.
 
+### Execution-Descriptor Callability
+
+Mappings and accessors form the value-semantic execution descriptor that a
+backend may eventually pass to a leaf kernel. Uni20-owned execution surfaces
+are therefore host/device-callable:
+
+- mapping construction, observation, and multidimensional offset calculation;
+- accessor construction, `access(...)`, `offset(...)`, and accessor-state
+  observation;
+- proxy-reference conversion and assignment used by an accessor;
+- stored generator and transform function objects invoked by those accessors.
+
+These functions use `UNI20_HOST_DEVICE`. A stored function object must apply
+the same annotation to the call operator that the accessor invokes. Uni20 does
+not add a function-domain registration trait: an omitted annotation is a code
+generation error, and an actual CUDA compilation probe is the authoritative
+diagnostic.
+
+Device-callability and memory-domain accessibility remain independent. A
+mapping performs index arithmetic and needs no execution-domain registration.
+An accessor still opts into `host_access_domain`, `cuda_access_domain`, or both,
+because that declaration says where its acquired handle may be evaluated.
+Annotating `access(...)` does not make a host pointer CUDA-accessible or a CUDA
+pointer host-accessible.
+
+Execution-descriptor state must be safely copyable into the selected leaf
+kernel and must not retain host-only temporary state. The data descriptor is
+different: it belongs to backend acquisition and may retain buffers, files,
+communicators, or other host-side control state. The backend resolves or lowers
+that descriptor before launch; it does not pass the descriptor itself to a
+kernel merely because the mapping and accessor are device-callable.
+
+Uni20 keeps the same C++ descriptor types in host and CUDA translation units.
+CUDA builds enable nvcc's relaxed constexpr mode so value-semantic
+`std::array` and `std::tuple` members remain usable without conditionally
+changing public types to `cuda::std` equivalents.
+
+A device-callable descriptor is not automatically accepted by every
+precompiled backend. Ordinary C++ callers cannot instantiate an arbitrary new
+CUDA kernel specialization inside an already-built Uni20 library. A backend
+that ships precompiled CUDA code must either:
+
+1. use a type-erased execution plan with sufficient semantics;
+2. register and explicitly instantiate a typed lowering; or
+3. cleanly decline the descriptor.
+
+This distinction lets external mappings and accessors participate in CUDA
+compilation without pretending that every installed backend already contains
+their execution code.
+
 ### Access-State Lifetime Contract
 
 An acquired lease and the access state retained inside it follow the same
@@ -573,12 +623,21 @@ through `dispatch_kernel` or `co_dispatch_kernel`. CPU reference GEMM uses the
 host descriptor lease interface. The cuBLAS synchronous path blocks for stream
 and provider resources, while its async path awaits them.
 
-Raw contiguous CUDA copies retain the `cudaMemcpyAsync` fast path. A
-same-device conjugating copy is lowered to the CUDA reference backend's typed
-elementwise kernel after buffer acceptance. The kernel evaluates the lowered
-CUDA accessors and publishes read/write completion through the same stream
-ordered leases. Transformed copies that alias one buffer still decline until
-the backend can resolve both operands under one mutable access state.
+Raw contiguous CUDA copies with matching physical order retain the
+`cudaMemcpyAsync` fast path. The CUDA reference elementwise executor handles
+same-device positive-strided mappings through rank eight, including differing
+input/output strides, padding, nonzero buffer-view offsets, and the compiled
+raw or conjugating accessor lowerings. It decodes each logical index and
+computes independent input and output offsets before evaluating the accessors.
+The operation publishes read/write completion through the same stream-ordered
+buffer access.
+
+Non-strided mappings and unregistered stateful accessor compositions remain
+valid device-callable descriptors but are not yet part of this precompiled copy
+executor. They cleanly decline until a typed lowering registry or a sufficiently
+general execution plan is available. Transformed copies that alias one buffer
+also decline until the backend can resolve both operands under one mutable
+access state.
 
 ## Data Descriptor Boundary
 
@@ -647,10 +706,15 @@ automatically change its type, state, or constness.
 - [`test_mdspec.cpp`](../../tests/mdspan/test_mdspec.cpp)
 - [`test_tensor.cpp`](../../tests/tensor/test_tensor.cpp)
 - [`test_cuda_tensor.cpp`](../../tests/backend/cuda/test_cuda_tensor.cpp)
+- [`test_cuda_descriptor_compile.cu`](../../tests/linalg/test_cuda_descriptor_compile.cu)
+- [`test_cuda_copy.cpp`](../../tests/linalg/test_cuda_copy.cpp)
 
 The tests cover concrete storage of stateful descriptor/mapping/accessor
 objects, independent structural models, ordinary-mdspan compatibility, ranked
 and strided refinements, move-only descriptors, the absence of premature handle
 access, immediate tensor leases, idempotent generic release, access-state
 transfer across lease moves, and CUDA pointer resolution through synchronized
-and stream-ordered leases.
+and stream-ordered leases. CUDA compilation probes cover canonical, generated,
+zipped, const-adapted, conjugated, and stateful transform descriptor
+compositions. CUDA copy tests cover physical-order conversion, padded strides,
+and nonzero buffer offsets in addition to contiguous and conjugating transfers.

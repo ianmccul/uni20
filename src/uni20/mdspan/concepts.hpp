@@ -12,9 +12,11 @@
  * \brief Additional concepts, adaptors, and helpers that extend the reference mdspan implementation.
  */
 
+#include <uni20/core/compiler_attributes.hpp>
+#include <uni20/mdspan/mdspan.hpp>
+
 #include <concepts>
 #include <type_traits>
-#include <uni20/mdspan/mdspan.hpp>
 #include <utility>
 
 namespace uni20
@@ -124,11 +126,17 @@ class const_accessor_adaptor {
     using offset_policy = const_accessor_adaptor;
     using offset_type = span_offset_t<Accessor>;
 
-    const_accessor_adaptor(Accessor const& to_be_wrapped) : wrapped_{to_be_wrapped} {}
+    UNI20_HOST_DEVICE constexpr const_accessor_adaptor(Accessor const& to_be_wrapped) : wrapped_{to_be_wrapped} {}
 
-    constexpr reference access(data_handle_type p, offset_type i) const { return wrapped_.access(p, i); }
+    UNI20_HOST_DEVICE constexpr reference access(data_handle_type p, offset_type i) const
+    {
+      return wrapped_.access(p, i);
+    }
 
-    constexpr data_handle_type offset(data_handle_type p, offset_type i) const { return wrapped_.offset(p, i); }
+    UNI20_HOST_DEVICE constexpr data_handle_type offset(data_handle_type p, offset_type i) const
+    {
+      return wrapped_.offset(p, i);
+    }
 
   private:
     Accessor wrapped_;

@@ -337,6 +337,10 @@ set(UNI20_BACKEND_CUDA_DEFAULT OFF)
 if(NOT UNI20_DOCS_WEB AND UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
   enable_language(CUDA)
+  # Execution descriptors retain one C++ type identity across host and CUDA
+  # translation units.  nvcc needs relaxed constexpr calls for value-semantic
+  # libstdc++ components such as std::array and std::tuple.
+  add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
   set(UNI20_BACKEND_CUDA_DEFAULT ON)
 endif()
 
