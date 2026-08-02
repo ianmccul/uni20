@@ -11,6 +11,9 @@ including padding and differing physical order, use the reference backend's
 typed elementwise CUDA kernel. The kernel resolves persistent
 `uni20::complex<T>` storage through CUDA execution accessors and publishes its
 stream completion through the same buffer ledgers as the runtime copy path.
+Nonpositive strides on active axes cleanly decline; supporting a future
+negative-stride Uni20 layout requires a signed traversal plan rather than raw
+runtime copying.
 Distinct-offset views into one CUDA buffer use a single exclusive access and
 rely on the C++ copy precondition that the operands do not destructively
 overlap. Nontrivial same-offset transformations decline.

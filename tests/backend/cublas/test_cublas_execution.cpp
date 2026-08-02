@@ -718,6 +718,56 @@ TEST_F(CublasExecutionTest, TensorProductDeviceMismatchDeclinesBeforeReplacingOu
   EXPECT_EQ(download_tensor(output), (std::vector<double>{5}));
 }
 
+TEST_F(CublasExecutionTest, EmptyTensorProductAcceptsCrossDeviceInputs)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
+
+  using matrix_type = uni20::CudaMatrix<double>;
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .default_device = 0, .streams_per_device = 1});
+  auto& lhs_resources = runtime.device_resources(0);
+  auto& rhs_resources = runtime.device_resources(1);
+  matrix_type lhs(lhs_resources, 0, 2);
+  matrix_type rhs(rhs_resources, 2, 3);
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+
+  matrix_type output(rhs_resources, 1, 1);
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, output, 1.0,
+                                      lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::success);
+  EXPECT_EQ(output.rows(), 0);
+  EXPECT_EQ(output.cols(), 3);
+  EXPECT_EQ(output.storage().device().ordinal(), 0);
+
+  auto blocking_storage = uni20::async::make_unconstructed_shared_storage<matrix_type>();
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{},
+                                      blocking_storage, 1.0, lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::success);
+  ASSERT_TRUE(blocking_storage.constructed());
+  EXPECT_EQ(blocking_storage->rows(), 0);
+  EXPECT_EQ(blocking_storage->cols(), 3);
+  EXPECT_EQ(blocking_storage->storage().device().ordinal(), 0);
+
+  matrix_type task_output(rhs_resources, 1, 1);
+  auto task_attempt = uni20::linalg::try_make_kernel_task(
+      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, task_output, 1.0, lhs_span, rhs_span);
+  EXPECT_EQ(task_attempt.attempt(), uni20::linalg::KernelAttempt::success);
+  EXPECT_FALSE(task_attempt.has_task());
+  EXPECT_EQ(task_output.rows(), 0);
+  EXPECT_EQ(task_output.cols(), 3);
+  EXPECT_EQ(task_output.storage().device().ordinal(), 0);
+
+  auto task_storage = uni20::async::make_unconstructed_shared_storage<matrix_type>();
+  auto storage_task_attempt = uni20::linalg::try_make_kernel_task(
+      uni20::linalg::CublasBackend{}, uni20::linalg::assign_product_op{}, task_storage, 1.0, lhs_span, rhs_span);
+  EXPECT_EQ(storage_task_attempt.attempt(), uni20::linalg::KernelAttempt::success);
+  EXPECT_FALSE(storage_task_attempt.has_task());
+  ASSERT_TRUE(task_storage.constructed());
+  EXPECT_EQ(task_storage->rows(), 0);
+  EXPECT_EQ(task_storage->cols(), 3);
+  EXPECT_EQ(task_storage->storage().device().ordinal(), 0);
+}
+
 TEST_F(CublasExecutionTest, ComputesColumnMajorRealGemm)
 {
   check_column_major_gemm<float>(device_);

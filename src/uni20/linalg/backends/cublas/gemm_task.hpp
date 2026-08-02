@@ -70,8 +70,9 @@ auto try_make_kernel_task(CublasBackend, assign_product_op const&, OutputTensor&
                           LhsMdspan& lhs, RhsMdspan& rhs) -> KernelTaskAttempt<async::CudaTask>
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
+  bool const output_is_empty = detail::cublas_backend::product_output_is_empty(shape);
   auto const lhs_device = detail::cublas_backend::span_device(lhs);
-  if (detail::cublas_backend::span_device(rhs) != lhs_device)
+  if (!output_is_empty && detail::cublas_backend::span_device(rhs) != lhs_device)
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
 
   if constexpr (requires { uni20::prepare_output(output, shape, lhs_device); })
@@ -84,7 +85,7 @@ auto try_make_kernel_task(CublasBackend, assign_product_op const&, OutputTensor&
   }
 
   auto output_span = uni20::mdspec_of(output);
-  if (detail::cublas_backend::span_device(output_span) != lhs_device)
+  if (!output_is_empty && detail::cublas_backend::span_device(output_span) != lhs_device)
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
   return detail::cublas_backend::try_make_gemm_task(output_span, alpha, lhs, rhs, Scalar{});
 }
@@ -99,8 +100,9 @@ auto try_make_kernel_task(CublasBackend, assign_product_op const&, async::shared
                           Scalar const& alpha, LhsMdspan& lhs, RhsMdspan& rhs) -> KernelTaskAttempt<async::CudaTask>
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
+  bool const output_is_empty = detail::cublas_backend::product_output_is_empty(shape);
   auto const lhs_device = detail::cublas_backend::span_device(lhs);
-  if (detail::cublas_backend::span_device(rhs) != lhs_device)
+  if (!output_is_empty && detail::cublas_backend::span_device(rhs) != lhs_device)
     return KernelTaskAttempt<async::CudaTask>{KernelAttempt::incompatible_devices};
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);

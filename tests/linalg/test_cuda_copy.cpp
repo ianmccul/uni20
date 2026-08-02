@@ -69,14 +69,13 @@ auto make_strided_matrix_mdspec(Tensor& tensor, std::size_t offset, std::array<u
                      base.accessor()};
 }
 
-template <class Tensor>
-auto make_vector_mdspec(Tensor& tensor, std::size_t offset, uni20::index_type extent)
+template <class Tensor> auto make_vector_mdspec(Tensor& tensor, std::size_t offset, uni20::index_type extent)
 {
   auto base = tensor.mdspec();
   using base_type = decltype(base);
   using mapping_type = typename base_type::mapping_type;
-  return base_type{base.data_descriptor().offset_by(offset),
-                   mapping_type{typename base_type::extents_type{extent}}, base.accessor()};
+  return base_type{base.data_descriptor().offset_by(offset), mapping_type{typename base_type::extents_type{extent}},
+                   base.accessor()};
 }
 
 struct DescriptorSelectedStoragePolicy
@@ -85,6 +84,16 @@ struct DescriptorSelectedStoragePolicy
     {
       return uni20::linalg::backend_list<uni20::linalg::CpuReferenceBackend>{uni20::linalg::CpuReferenceBackend{}};
     }
+};
+
+template <std::size_t Rank> struct StrideProbe
+{
+    [[nodiscard]] static constexpr std::size_t rank() noexcept { return Rank; }
+    [[nodiscard]] constexpr uni20::index_type extent(std::size_t axis) const noexcept { return extents_[axis]; }
+    [[nodiscard]] constexpr uni20::index_type stride(std::size_t axis) const noexcept { return strides_[axis]; }
+
+    std::array<uni20::index_type, Rank> extents_{};
+    std::array<uni20::index_type, Rank> strides_{};
 };
 
 class CudaDescriptorMatrixView {
@@ -267,6 +276,18 @@ TEST(CudaCopyPlanningTest, ElementwiseLayoutDecodesIndependentPaddedStrides)
   EXPECT_EQ(layout.offsets(5).input, 5);
 }
 
+TEST(CudaCopyPlanningTest, NonpositiveActiveStridesDecline)
+{
+  using uni20::linalg::detail::cuda_reference::active_strides_are_positive;
+
+  EXPECT_TRUE(active_strides_are_positive(StrideProbe<1>{.extents_ = {3}, .strides_ = {1}}));
+  EXPECT_FALSE(active_strides_are_positive(StrideProbe<1>{.extents_ = {3}, .strides_ = {0}}));
+  EXPECT_FALSE(active_strides_are_positive(StrideProbe<1>{.extents_ = {3}, .strides_ = {-1}}));
+  EXPECT_TRUE(active_strides_are_positive(StrideProbe<1>{.extents_ = {1}, .strides_ = {-1}}));
+  EXPECT_TRUE(active_strides_are_positive(StrideProbe<1>{.extents_ = {0}, .strides_ = {-1}}));
+  EXPECT_TRUE(active_strides_are_positive(StrideProbe<2>{.extents_ = {0, 3}, .strides_ = {1, -1}}));
+}
+
 TEST_F(CudaCopyTest, PageableHostRoundTripUsesExplicitTransferFunctions)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
@@ -439,8 +460,7 @@ TEST_F(CudaCopyTest, DisjointSameBufferCopyUsesOneAccessState)
   ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
   ASSERT_TRUE(preparation.has_work);
   ASSERT_EQ(preparation.output_buffer, preparation.input_buffer);
-  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input),
-            uni20::linalg::KernelAttempt::success);
+  ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(output, input), uni20::linalg::KernelAttempt::success);
 
   auto result = uni20::to_host(device);
   EXPECT_DOUBLE_EQ(result[0], 1.0);

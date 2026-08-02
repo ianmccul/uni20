@@ -127,6 +127,19 @@ template <class Mapping> [[nodiscard]] bool mapping_is_contiguous(Mapping const&
   return mapping.is_unique() && mapping.is_exhaustive();
 }
 
+template <class Mdspan> [[nodiscard]] bool active_strides_are_positive(Mdspan const& span)
+{
+  for (std::size_t axis = 0; axis < std::remove_cvref_t<Mdspan>::rank(); ++axis)
+  {
+    if (span.extent(axis) == 0) return true;
+  }
+  for (std::size_t axis = 0; axis < std::remove_cvref_t<Mdspan>::rank(); ++axis)
+  {
+    if (span.extent(axis) > 1 && span.stride(axis) <= 0) return false;
+  }
+  return true;
+}
+
 template <class OutputMdspan, class InputMdspan>
 [[nodiscard]] bool physical_orders_match(OutputMdspan const& output, InputMdspan const& input)
 {
@@ -201,6 +214,12 @@ template <class OutputMdspan, class InputMdspan>
       plan.attempt = KernelAttempt::unsupported_shape;
       return plan;
     }
+  }
+
+  if (!active_strides_are_positive(output) || !active_strides_are_positive(input))
+  {
+    plan.attempt = KernelAttempt::unsupported_layout;
+    return plan;
   }
 
   auto const output_required_span = output.mapping().required_span_size();
@@ -362,8 +381,7 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
   int const input_device = plan.input_buffer->device().ordinal();
   uni20::cuda::ScopedDevice guard(output_device);
 
-  auto enqueue = [&](Scalar* output_data, Scalar const* input_data)
-  {
+  auto enqueue = [&](Scalar* output_data, Scalar const* input_data) {
     if (plan.execution == CopyExecution::elementwise_kernel)
     {
       CHECK_EQUAL(output_device, input_device);

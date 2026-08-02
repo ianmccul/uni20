@@ -26,6 +26,11 @@ template <uni20::MdspecLike Mdspan> [[nodiscard]] uni20::cuda::Device span_devic
   return blas::detail::span_data(span).buffer().device();
 }
 
+[[nodiscard]] inline bool product_output_is_empty(detail::matrix_product_extents const& shape) noexcept
+{
+  return shape.extent(0) == 0 || shape.extent(1) == 0;
+}
+
 } // namespace detail::cublas_backend
 
 /// \brief Report cuBLAS eligibility for normalized mdspec GEMM operands.
@@ -69,8 +74,10 @@ KernelAttempt try_kernel(CublasBackend, assign_product_op const&, OutputTensor& 
                          RhsMdspan& rhs)
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
+  bool const output_is_empty = detail::cublas_backend::product_output_is_empty(shape);
   auto const lhs_device = detail::cublas_backend::span_device(lhs);
-  if (detail::cublas_backend::span_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
+  if (!output_is_empty && detail::cublas_backend::span_device(rhs) != lhs_device)
+    return KernelAttempt::incompatible_devices;
 
   if constexpr (requires { uni20::prepare_output(output, shape, lhs_device); })
   {
@@ -82,7 +89,8 @@ KernelAttempt try_kernel(CublasBackend, assign_product_op const&, OutputTensor& 
   }
 
   auto output_span = uni20::mdspec_of(output);
-  if (detail::cublas_backend::span_device(output_span) != lhs_device) return KernelAttempt::incompatible_devices;
+  if (!output_is_empty && detail::cublas_backend::span_device(output_span) != lhs_device)
+    return KernelAttempt::incompatible_devices;
   return detail::cublas_backend::try_gemm(output_span, alpha, lhs, rhs, Scalar{});
 }
 
@@ -110,8 +118,10 @@ KernelAttempt try_kernel(CublasBackend, assign_product_op const&, async::shared_
                          Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs)
 {
   auto const shape = detail::matrix_product_shape(lhs, rhs);
+  bool const output_is_empty = detail::cublas_backend::product_output_is_empty(shape);
   auto const lhs_device = detail::cublas_backend::span_device(lhs);
-  if (detail::cublas_backend::span_device(rhs) != lhs_device) return KernelAttempt::incompatible_devices;
+  if (!output_is_empty && detail::cublas_backend::span_device(rhs) != lhs_device)
+    return KernelAttempt::incompatible_devices;
 
   auto& output = uni20::prepare_output(output_storage, shape, lhs_device);
   auto output_span = uni20::mdspec_of(output);
