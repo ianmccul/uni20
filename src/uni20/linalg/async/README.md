@@ -36,8 +36,11 @@ linear-algebra operations over `Async<Tensor>` values.
 - Wrappers pass buffer handles and all other task state into coroutines by
   value; coroutine lambdas must be captureless and `static`.
 - Default selectors are resolved statically from Tensor/storage types before
-  scheduling. The runtime backend walk occurs after awaiting and resolving the
-  Tensor mdspans.
+  scheduling. The runtime backend walk occurs after awaiting the Tensor values
+  and normalizing their fixed operands to mdspecs.
+- Async wrapper signatures use `TensorView` and `MutableTensorView`; immediate
+  accessibility is an internal backend or storage-reuse optimization, not an
+  async API precondition.
 - Immediate and async scalar operands are normalized with `async::read(...)`;
   the former uses an always-ready `ValueAwaiter` and the latter a real buffer.
 - Elementwise callables are immediate operation state. They are moved into the

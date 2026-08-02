@@ -18,6 +18,9 @@ namespace
 using matrix_type = uni20::DenseMatrix<double>;
 using async_matrix_type = uni20::async::Async<matrix_type>;
 using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
+using async_deferred_matrix_type = uni20::async::Async<deferred_matrix_type>;
+
+static_assert(requires(async_deferred_matrix_type&& matrix) { uni20::linalg::truncated_svd(std::move(matrix)); });
 
 matrix_type make_matrix()
 {
@@ -132,6 +135,22 @@ TEST(AsyncTruncatedSvdTest, ConsumingCallConsumesInputAndPublishesFourResults)
   EXPECT_EQ(singular_values.get_wait(scheduler).extent(0), 1);
   EXPECT_EQ(right_adjoint.get_wait(scheduler).rows(), 1);
   EXPECT_EQ(truncation.get_wait(scheduler).retained_rank, 1);
+}
+
+TEST(AsyncTruncatedSvdTest, ConsumingDeferredTensorMaterializesAfterTakingInput)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_deferred_matrix_type matrix = make_deferred_matrix();
+
+  auto [left, singular_values, right_adjoint, truncation] = uni20::linalg::truncated_svd(
+      std::move(matrix), uni20::linalg::SvdTruncationPolicy<double>{.maximum_retained_extent = 2});
+
+  EXPECT_EQ(left.get_wait(scheduler).cols(), 2);
+  EXPECT_EQ(singular_values.get_wait(scheduler).extent(0), 2);
+  EXPECT_EQ(right_adjoint.get_wait(scheduler).rows(), 2);
+  EXPECT_EQ(truncation.get_wait(scheduler).retained_rank, 2);
+  EXPECT_THROW((void)matrix.get_wait(scheduler), uni20::async::buffer_read_uninitialized);
 }
 
 TEST(AsyncTruncatedSvdTest, DispatchFailurePropagatesToInputAndAllOutputs)

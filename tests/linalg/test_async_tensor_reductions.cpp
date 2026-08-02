@@ -5,6 +5,8 @@
 #include <uni20/tensor/generated.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <concepts>
@@ -19,6 +21,9 @@ using tensor_type = uni20::Tensor<double, 3>;
 using async_tensor_type = uni20::async::Async<tensor_type>;
 using scalar_tensor_type = uni20::ScalarTensor<double>;
 using async_scalar_tensor_type = uni20::async::Async<scalar_tensor_type>;
+using deferred_tensor_type = uni20::test::DeferredHostTensor<double, 3>;
+using deferred_scalar_type = uni20::test::DeferredHostTensor<double, 0>;
+using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
 
 template <class Output, class Input>
 concept CanSumInto = requires(Output& output, Input const& input) { uni20::sum(output, input); };
@@ -58,6 +63,17 @@ tensor_type make_input()
     for (uni20::index_type j = 0; j < 3; ++j)
       for (uni20::index_type k = 0; k < 4; ++k)
         input[i, j, k] = static_cast<double>(100 * i + 10 * j + k);
+  return input;
+}
+
+deferred_tensor_type make_deferred_input()
+{
+  deferred_tensor_type input(2, 3, 4);
+  auto lease = uni20::test::acquire_host_write_access_sync(input);
+  for (uni20::index_type i = 0; i < 2; ++i)
+    for (uni20::index_type j = 0; j < 3; ++j)
+      for (uni20::index_type k = 0; k < 4; ++k)
+        lease.mdspan()[i, j, k] = static_cast<double>(100 * i + 10 * j + k);
   return input;
 }
 
@@ -141,6 +157,29 @@ TEST(AsyncTensorReductionTest, GeneratedInputUsesStorageFallbackAndAccessorSeman
   for (uni20::index_type i = 0; i < 2; ++i)
     for (uni20::index_type k = 0; k < 4; ++k)
       EXPECT_DOUBLE_EQ((reduced[i, k]), 3.0);
+}
+
+TEST(AsyncTensorReductionTest, DeferredInputAndOutputsUseMdspecDispatch)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<deferred_tensor_type> input = make_deferred_input();
+  uni20::async::Async<deferred_scalar_type> scalar_output =
+      deferred_scalar_type(typename deferred_scalar_type::extents_type{});
+  uni20::async::Async<deferred_matrix_type> partial_output = deferred_matrix_type(2, 4);
+
+  uni20::sum(scalar_output, input);
+  uni20::sum(uni20::linalg::CpuReferenceBackend{}, partial_output, input, 1);
+  auto host_output = uni20::sum_host(input);
+
+  auto scalar_lease = uni20::test::acquire_host_read_access_sync(scalar_output.get_wait(scheduler));
+  EXPECT_DOUBLE_EQ(scalar_lease.mdspan()[], 1476.0);
+  EXPECT_DOUBLE_EQ(host_output.get_wait(scheduler), 1476.0);
+
+  auto partial_lease = uni20::test::acquire_host_read_access_sync(partial_output.get_wait(scheduler));
+  for (uni20::index_type i = 0; i < 2; ++i)
+    for (uni20::index_type k = 0; k < 4; ++k)
+      EXPECT_DOUBLE_EQ((partial_lease.mdspan()[i, k]), static_cast<double>(300 * i + 30 + 3 * k));
 }
 
 TEST(AsyncTensorReductionTest, MutableAliasOutputWritesThroughItsParent)

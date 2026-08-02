@@ -9,6 +9,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/mdspan.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/shape.hpp>
@@ -137,7 +138,7 @@ void require_canonical_contiguous_mapping(Span const& span)
   }
 }
 
-template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span, std::integral... Extents>
+template <CanonicalReshapeLayout LayoutPolicy, StridedMdspecLike Span, std::integral... Extents>
 [[nodiscard]] auto make_reshape_view(Span&& source, Extents... requested_extents)
 {
   using source_type = std::remove_cvref_t<Span>;
@@ -147,9 +148,18 @@ template <CanonicalReshapeLayout LayoutPolicy, StridedMdspanLike Span, std::inte
   using extents_type = decltype(new_extents);
   using accessor_type = typename source_type::accessor_type;
   using element_type = typename source_type::element_type;
-  using result_type = stdex::mdspan<element_type, extents_type, LayoutPolicy, accessor_type>;
   using mapping_type = typename LayoutPolicy::template mapping<extents_type>;
-  return result_type{source.data_handle(), mapping_type{new_extents}, source.accessor()};
+  if constexpr (MdspanLike<source_type>)
+  {
+    using result_type = stdex::mdspan<element_type, extents_type, LayoutPolicy, accessor_type>;
+    return result_type{source.data_handle(), mapping_type{new_extents}, source.accessor()};
+  }
+  else
+  {
+    using descriptor_type = typename source_type::data_descriptor_type;
+    using result_type = mdspec<element_type, extents_type, LayoutPolicy, accessor_type, descriptor_type>;
+    return result_type{source.data_descriptor(), mapping_type{new_extents}, source.accessor()};
+  }
 }
 
 template <CanonicalReshapeLayout LayoutPolicy, ImmediateTensorView Tensor, std::integral... Extents>
@@ -254,30 +264,30 @@ template <MdspanLike Mdspan, class StoragePolicy, class BackendSelector> class R
 ///          preserves source mutability. Parent indirection allows an async
 ///          alias to bind reserved storage before the parent value is constructed.
 template <class Tensor, detail::CanonicalReshapeLayout LayoutPolicy, std::integral... RequestedExtents>
-  requires ImmediateTensorView<Tensor> && StridedImmediateTensorView<Tensor>
+  requires TensorView<Tensor> && StridedTensorView<Tensor>
 class IndirectReshapedTensorView {
   public:
     using tensor_type = std::remove_reference_t<Tensor>;
     using storage_policy = tensor_storage_policy_t<std::remove_cv_t<tensor_type>>;
     using backend_selector_type = std::remove_cvref_t<decltype(std::declval<tensor_type const&>().backend_selector())>;
     using requested_extents_type = std::tuple<RequestedExtents...>;
-    using mdspan_type = decltype(detail::make_reshape_view<LayoutPolicy>(std::declval<tensor_type&>().mdspan(),
+    using mdspec_type = decltype(detail::make_reshape_view<LayoutPolicy>(mdspec_of(std::declval<tensor_type&>()),
                                                                          std::declval<RequestedExtents>()...));
-    using const_mdspan_type = decltype(detail::make_reshape_view<LayoutPolicy>(
-        std::declval<tensor_type const&>().mdspan(), std::declval<RequestedExtents>()...));
+    using const_mdspec_type = decltype(detail::make_reshape_view<LayoutPolicy>(
+        mdspec_of(std::declval<tensor_type const&>()), std::declval<RequestedExtents>()...));
     using async_alias_tag = void;
-    using element_type = typename mdspan_type::element_type;
-    using value_type = typename mdspan_type::value_type;
-    using extents_type = typename mdspan_type::extents_type;
-    using index_type = typename mdspan_type::index_type;
-    using layout_type = typename mdspan_type::layout_type;
-    using mapping_type = typename mdspan_type::mapping_type;
+    using element_type = typename mdspec_type::element_type;
+    using value_type = typename mdspec_type::value_type;
+    using extents_type = typename mdspec_type::extents_type;
+    using index_type = typename mdspec_type::index_type;
+    using layout_type = typename mdspec_type::layout_type;
+    using mapping_type = typename mdspec_type::mapping_type;
 
     /// \brief Bind and immediately validate a reshape of an existing tensor.
     IndirectReshapedTensorView(tensor_type& tensor, RequestedExtents... requested_extents)
         : IndirectReshapedTensorView(std::addressof(tensor), requested_extents...)
     {
-      static_cast<void>(this->mdspan());
+      static_cast<void>(this->mdspec());
     }
 
     /// \brief Bind a reshape to externally retained tensor storage.
@@ -292,35 +302,49 @@ class IndirectReshapedTensorView {
     /// \brief Return the source storage's backend selector.
     [[nodiscard]] constexpr decltype(auto) backend_selector() const { return this->base().backend_selector(); }
 
-    /// \brief Resolve the reshaped mdspan descriptor with source mutability.
-    [[nodiscard]] auto mdspan() & -> mdspan_type
+    /// \brief Return the reshaped immediate or deferred metadata with source mutability.
+    [[nodiscard]] auto mdspec() & -> mdspec_type
     {
       return std::apply(
           [this](auto... requested_extents) {
-            return detail::make_reshape_view<LayoutPolicy>(this->base().mdspan(), requested_extents...);
+            return detail::make_reshape_view<LayoutPolicy>(mdspec_of(this->base()), requested_extents...);
           },
           requested_extents_);
     }
 
-    /// \brief Resolve the reshaped mdspan descriptor for read-only access.
-    [[nodiscard]] auto mdspan() const& -> const_mdspan_type
+    /// \brief Return the reshaped immediate or deferred metadata for read-only access.
+    [[nodiscard]] auto mdspec() const& -> const_mdspec_type
     {
       return std::apply(
           [this](auto... requested_extents) {
-            return detail::make_reshape_view<LayoutPolicy>(this->base().mdspan(), requested_extents...);
+            return detail::make_reshape_view<LayoutPolicy>(mdspec_of(this->base()), requested_extents...);
           },
           requested_extents_);
+    }
+
+    /// \brief Resolve the reshaped mdspan when the parent is immediately accessible.
+    [[nodiscard]] auto mdspan() & -> mdspec_type
+      requires MdspanLike<mdspec_type>
+    {
+      return this->mdspec();
+    }
+
+    /// \brief Resolve the read-only reshaped mdspan when the parent is immediately accessible.
+    [[nodiscard]] auto mdspan() const& -> const_mdspec_type
+      requires MdspanLike<const_mdspec_type>
+    {
+      return this->mdspec();
     }
 
     /// \brief Return the reshaped extents.
-    [[nodiscard]] auto extents() const -> extents_type { return this->mdspan().extents(); }
+    [[nodiscard]] auto extents() const -> extents_type { return this->mdspec().extents(); }
 
     /// \brief Return one reshaped extent.
-    [[nodiscard]] auto extent(std::size_t axis) const -> index_type { return this->mdspan().extent(axis); }
+    [[nodiscard]] auto extent(std::size_t axis) const -> index_type { return this->mdspec().extent(axis); }
 
     /// \brief Evaluate or assign one reshaped element according to source mutability.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires MdspanLike<mdspec_type> && (sizeof...(Index) == extents_type::rank())
     decltype(auto) operator[](Index... indices)
     {
       return this->mdspan()[indices...];
@@ -328,7 +352,7 @@ class IndirectReshapedTensorView {
 
     /// \brief Evaluate one reshaped element through the read-only accessor.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires MdspanLike<const_mdspec_type> && (sizeof...(Index) == extents_type::rank())
     decltype(auto) operator[](Index... indices) const
     {
       return this->mdspan()[indices...];

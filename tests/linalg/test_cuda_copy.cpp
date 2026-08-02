@@ -80,8 +80,23 @@ concept CanPreserveAsyncDenseDecompositions = requires(AsyncTensor const& matrix
   uni20::linalg::truncated_svd(matrix);
 };
 
+template <class AsyncTensor>
+concept CanConsumeAsyncDenseDecompositions = requires(AsyncTensor&& matrix) {
+  uni20::linalg::singular_values(std::move(matrix));
+  uni20::linalg::svd_left(std::move(matrix));
+  uni20::linalg::svd_right(std::move(matrix));
+  uni20::linalg::svd(std::move(matrix));
+  uni20::linalg::eigh(std::move(matrix));
+  uni20::linalg::truncated_svd(std::move(matrix));
+};
+
+template <class AsyncTensor>
+concept CanFormDeferredAsyncReshape = requires(AsyncTensor& tensor) { uni20::async::reshape_view(tensor, 4); };
+
 static_assert(uni20::TensorView<CudaDescriptorMatrixView>);
 static_assert(CanPreserveAsyncDenseDecompositions<async_cuda_matrix_type>);
+static_assert(CanConsumeAsyncDenseDecompositions<async_cuda_matrix_type>);
+static_assert(CanFormDeferredAsyncReshape<async_cuda_matrix_type>);
 static_assert(!std::same_as<typename CudaDescriptorMatrixView::storage_policy, uni20::CudaStorage>);
 static_assert(uni20::cuda::BufferMdspec<uni20::tensor_mdspec_t<CudaDescriptorMatrixView>>);
 static_assert(uni20::CudaAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);

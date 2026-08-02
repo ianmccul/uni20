@@ -164,3 +164,13 @@ static_assert(HostReadableTensor<DeferredHostTensor<double, 2>>);
 static_assert(HostWritableTensor<DeferredHostTensor<double, 2>>);
 
 } // namespace uni20::test
+
+namespace uni20
+{
+
+template <class Element, std::size_t Rank, class Layout>
+inline constexpr bool enable_owning_tensor<test::DeferredHostTensor<Element, Rank, Layout>> = true;
+
+static_assert(OwningTensor<test::DeferredHostTensor<double, 2>>);
+
+} // namespace uni20

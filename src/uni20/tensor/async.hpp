@@ -39,27 +39,27 @@ template <uni20::TensorView Tensor>
 /// \details The descriptor retains the parent storage and shares its exact
 ///          epoch queue. Shape and layout validation occurs when the shared
 ///          parent epoch first becomes readable.
-template <uni20::MutableStridedImmediateTensorView Tensor, std::integral... Extents>
-  requires uni20::detail::CanonicalReshapeLayout<typename uni20::immediate_tensor_mdspan_t<Tensor>::layout_type>
+template <uni20::MutableStridedTensorView Tensor, std::integral... Extents>
+  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspec_t<Tensor>::layout_type>
 [[nodiscard]] auto reshape_view(Async<Tensor>& tensor, Extents... requested_extents)
 {
-  using layout_type = typename uni20::immediate_tensor_mdspan_t<Tensor>::layout_type;
+  using layout_type = typename uni20::tensor_mdspec_t<Tensor>::layout_type;
   using view_type = uni20::IndirectReshapedTensorView<Tensor, layout_type, std::remove_cvref_t<Extents>...>;
   return make_async_alias_from_parent<view_type>(tensor, requested_extents...);
 }
 
 /// \brief Return a read-only structural reshape alias of an async tensor.
-template <uni20::StridedImmediateTensorView Tensor, std::integral... Extents>
-  requires uni20::detail::CanonicalReshapeLayout<typename uni20::immediate_tensor_mdspan_t<Tensor>::layout_type>
+template <uni20::StridedTensorView Tensor, std::integral... Extents>
+  requires uni20::detail::CanonicalReshapeLayout<typename uni20::tensor_mdspec_t<Tensor>::layout_type>
 [[nodiscard]] auto reshape_view(Async<Tensor> const& tensor, Extents... requested_extents)
 {
-  using layout_type = typename uni20::immediate_tensor_mdspan_t<Tensor>::layout_type;
+  using layout_type = typename uni20::tensor_mdspec_t<Tensor>::layout_type;
   using view_type = uni20::IndirectReshapedTensorView<Tensor const, layout_type, std::remove_cvref_t<Extents>...>;
   return make_async_alias_from_parent<view_type>(tensor, requested_extents...);
 }
 
 /// \brief Return a mutable column-major structural reshape alias.
-template <uni20::MutableStridedImmediateTensorView Tensor, std::integral... Extents>
+template <uni20::MutableStridedTensorView Tensor, std::integral... Extents>
 [[nodiscard]] auto reshape_view_left(Async<Tensor>& tensor, Extents... requested_extents)
 {
   using view_type = uni20::IndirectReshapedTensorView<Tensor, stdex::layout_left, std::remove_cvref_t<Extents>...>;
@@ -67,7 +67,7 @@ template <uni20::MutableStridedImmediateTensorView Tensor, std::integral... Exte
 }
 
 /// \brief Return a read-only column-major structural reshape alias.
-template <uni20::StridedImmediateTensorView Tensor, std::integral... Extents>
+template <uni20::StridedTensorView Tensor, std::integral... Extents>
 [[nodiscard]] auto reshape_view_left(Async<Tensor> const& tensor, Extents... requested_extents)
 {
   using view_type =
@@ -76,7 +76,7 @@ template <uni20::StridedImmediateTensorView Tensor, std::integral... Extents>
 }
 
 /// \brief Return a mutable row-major structural reshape alias.
-template <uni20::MutableStridedImmediateTensorView Tensor, std::integral... Extents>
+template <uni20::MutableStridedTensorView Tensor, std::integral... Extents>
 [[nodiscard]] auto reshape_view_right(Async<Tensor>& tensor, Extents... requested_extents)
 {
   using view_type = uni20::IndirectReshapedTensorView<Tensor, stdex::layout_right, std::remove_cvref_t<Extents>...>;
@@ -84,7 +84,7 @@ template <uni20::MutableStridedImmediateTensorView Tensor, std::integral... Exte
 }
 
 /// \brief Return a read-only row-major structural reshape alias.
-template <uni20::StridedImmediateTensorView Tensor, std::integral... Extents>
+template <uni20::StridedTensorView Tensor, std::integral... Extents>
 [[nodiscard]] auto reshape_view_right(Async<Tensor> const& tensor, Extents... requested_extents)
 {
   using view_type =

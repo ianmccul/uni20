@@ -54,7 +54,7 @@ async::AsyncTask co_preserving_eigh(BackendSelector const selector, async::Write
 }
 
 template <class BackendSelector, class EigenvalueTensor, class EigenvectorTensor,
-          uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+          uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask co_consuming_eigh(BackendSelector const selector, async::WriteBuffer<EigenvalueTensor> eigenvalues,
                                    async::WriteBuffer<EigenvectorTensor> eigenvectors,
@@ -90,7 +90,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return outputs;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_eigh(BackendSelector selector, async::Async<MatrixTensor>& matrix,
                                            MatrixTriangle triangle)
@@ -135,7 +135,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 ///          its allocation to the eigenvector output. The input writer and both
 ///          output writers receive any failure that occurs after enrollment.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto eigh(BackendSelector selector, async::Async<MatrixTensor>&& matrix,
                         MatrixTriangle triangle = MatrixTriangle::Upper)
 {
@@ -147,7 +147,7 @@ template <class BackendSelector, class MatrixTensor>
 ///          its stored owning value. On success, that input timeline no longer
 ///          contains a readable matrix.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto eigh(async::Async<MatrixTensor>&& matrix, MatrixTriangle triangle = MatrixTriangle::Upper)
 {
   using result_type = detail::consuming_eigh_result_t<MatrixTensor>;

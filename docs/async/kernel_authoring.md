@@ -155,9 +155,10 @@ moved into the coroutine. An explicit selector follows the same ownership
 rule and may carry immutable operation context.
 
 This does not mean a concrete backend has run or accepted the operation before
-scheduling. The coroutine awaits the Tensors, resolves their mdspans, and only
-then enters the normal runtime backend walk. Layout- and accessor-dependent
-declines therefore remain valid.
+scheduling. The coroutine awaits the Tensors, normalizes their fixed operands
+to mdspecs, and only then enters the normal runtime backend walk. The selected
+backend acquires any execution-domain leases and resolves mdspans. Layout- and
+accessor-dependent declines therefore remain valid.
 
 A future async block handle may expose a synchronous descriptor outside its
 data epoch. Such a wrapper may perform more layout-dependent planning before
@@ -343,7 +344,7 @@ updates, or produces a differently typed result.
 - Simple output/input queue aliasing is rejected before enrollment when it
   would self-block.
 - Static selector resolution happens before scheduling; the runtime backend
-  walk happens after awaited mdspans are available.
+  walk happens after awaited mdspecs are available.
 - Empty-output construction and update-output requirements are explicit.
 - Unhandled failures reach every output epoch.
 - Tests cover pending-input lifetime, numerical behavior, aliases, output
@@ -351,7 +352,7 @@ updates, or produces a differently typed result.
 
 Keep operation-specific Tensor wrappers explicit because output construction,
 mutation, and multi-output exception routing differ materially between
-algorithms. Once the wrapper has awaited its values and resolved stable mdspan
+algorithms. Once the wrapper has awaited its values and normalized stable mdspec
 operands, use generic `co_dispatch_kernel`. Blocking backends require no
 coroutine wrapper; individual backend/operation pairs add `try_make_kernel_task`
 only when resource admission or execution must suspend.

@@ -64,7 +64,7 @@ co_preserving_truncated_svd(BackendSelector const selector, async::WriteBuffer<L
 }
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
-          class TruncationInfo, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+          class TruncationInfo, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask
 co_consuming_truncated_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
@@ -110,7 +110,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return outputs;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_truncated_svd(BackendSelector selector, async::Async<MatrixTensor>& matrix,
                                                     svd_truncation_policy_t<MatrixTensor> policy)
@@ -151,7 +151,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 
 /// \brief Schedule a consuming truncated SVD through an explicit selector.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto truncated_svd(BackendSelector selector, async::Async<MatrixTensor>&& matrix,
                                  detail::svd_truncation_policy_t<MatrixTensor> policy = {})
 {
@@ -160,7 +160,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Schedule a consuming truncated SVD using the static Tensor selector.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto truncated_svd(async::Async<MatrixTensor>&& matrix,
                                  detail::svd_truncation_policy_t<MatrixTensor> policy = {})
 {

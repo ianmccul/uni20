@@ -409,8 +409,17 @@ Preserving Async `eigh`, exact SVD, and truncated SVD overloads accept
 `Async<Tensor>` whenever `Tensor` models the appropriate ranked `TensorView`.
 This includes deferred views: the preserving synchronous operation materializes
 its work tensor through ordinary backend-dispatched copy. Consuming overloads
-remain restricted to mutable immediate owners because they may reuse or
-transfer the stored allocation as destructive workspace.
+require a mutable owning `TensorView`, but not immediate access. Taking the
+stored async value is the semantic consumption; compatible immediate owners may
+additionally reuse or transfer their allocation as an optimization.
+
+Async tensor wrappers constrain fixed operands at the `TensorView` or
+`MutableTensorView` level. They must not require `ImmediateTensorView` merely
+because the currently selected backend eventually needs an mdspan. After the
+stored values become readable, the wrapper preserves their mdspecs through
+dispatch and the selected backend acquires the execution-domain leases.
+Whether a backend implementation exists for a particular storage domain is a
+separate kernel-acceptance question.
 
 The fixed-output `gemm` and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,

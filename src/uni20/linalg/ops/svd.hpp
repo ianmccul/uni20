@@ -183,14 +183,18 @@ using svd_reuse_factor_t =
 template <class MatrixTensor> consteval bool can_transfer_svd_storage()
 {
   using matrix_type = std::remove_cvref_t<MatrixTensor>;
-  if constexpr (requires {
-                  typename matrix_type::storage_policy;
-                  typename matrix_type::layout_type;
-                  typename matrix_type::accessor_factory_type;
-                  typename matrix_type::storage_type;
-                  typename matrix_type::extents_type;
-                  typename matrix_type::template rebind_layout_type<stdex::layout_stride>;
-                })
+  if constexpr (!uni20::MutableRankedImmediateTensorView<matrix_type, 2>)
+  {
+    return false;
+  }
+  else if constexpr (requires {
+                       typename matrix_type::storage_policy;
+                       typename matrix_type::layout_type;
+                       typename matrix_type::accessor_factory_type;
+                       typename matrix_type::storage_type;
+                       typename matrix_type::extents_type;
+                       typename matrix_type::template rebind_layout_type<stdex::layout_stride>;
+                     })
   {
     using factor_type = svd_reuse_factor_t<matrix_type>;
     return matrix_type::extents_type::rank_dynamic() == 2 &&

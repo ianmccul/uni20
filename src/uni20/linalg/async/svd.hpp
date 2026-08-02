@@ -138,7 +138,7 @@ async::AsyncTask co_preserving_singular_values(BackendSelector const selector,
   co_return;
 }
 
-template <class BackendSelector, class SingularValueTensor, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, class SingularValueTensor, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask co_consuming_singular_values(BackendSelector const selector,
                                               async::WriteBuffer<SingularValueTensor> singular_values,
@@ -170,7 +170,7 @@ async::AsyncTask co_preserving_svd_left(BackendSelector const selector,
 }
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor,
-          uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+          uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask co_consuming_svd_left(BackendSelector const selector,
                                        async::WriteBuffer<LeftTensor> left_singular_vectors,
@@ -209,7 +209,7 @@ async::AsyncTask co_preserving_svd_right(BackendSelector const selector,
 }
 
 template <class BackendSelector, class SingularValueTensor, class RightAdjointTensor,
-          uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+          uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask co_consuming_svd_right(BackendSelector const selector,
                                         async::WriteBuffer<SingularValueTensor> singular_values,
@@ -251,7 +251,7 @@ async::AsyncTask co_preserving_svd(BackendSelector const selector, async::WriteB
 }
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
-          uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+          uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 async::AsyncTask co_consuming_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
                                   async::WriteBuffer<SingularValueTensor> singular_values,
@@ -287,7 +287,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return output;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_singular_values(BackendSelector selector, async::Async<MatrixTensor>& matrix)
 {
@@ -314,7 +314,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return outputs;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_svd_left(BackendSelector selector, async::Async<MatrixTensor>& matrix,
                                                SvdVectorExtent extent)
@@ -345,7 +345,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return outputs;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_svd_right(BackendSelector selector, async::Async<MatrixTensor>& matrix,
                                                 SvdVectorExtent extent)
@@ -379,7 +379,7 @@ template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
   return outputs;
 }
 
-template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::MutableRankedTensorView<2> MatrixTensor>
   requires uni20::OwningTensor<MatrixTensor>
 [[nodiscard]] auto schedule_consuming_svd(BackendSelector selector, async::Async<MatrixTensor>& matrix,
                                           SvdOptions options)
@@ -417,7 +417,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 
 /// \brief Schedule consuming exact singular values through an explicit selector.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto singular_values(BackendSelector selector, async::Async<MatrixTensor>&& matrix)
 {
   return detail::schedule_consuming_singular_values(std::move(selector), matrix);
@@ -425,7 +425,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Schedule consuming exact singular values using the static Tensor selector.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto singular_values(async::Async<MatrixTensor>&& matrix)
 {
   using result_type = detail::consuming_singular_values_result_t<MatrixTensor>;
@@ -452,7 +452,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 
 /// \brief Schedule consuming left singular vectors through an explicit selector.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_left(BackendSelector selector, async::Async<MatrixTensor>&& matrix,
                             SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
@@ -461,7 +461,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Schedule consuming left singular vectors using the static Tensor selector.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_left(async::Async<MatrixTensor>&& matrix, SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
   using result_type = detail::consuming_svd_left_result_t<MatrixTensor>;
@@ -489,7 +489,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 
 /// \brief Schedule consuming right singular vectors through an explicit selector.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_right(BackendSelector selector, async::Async<MatrixTensor>&& matrix,
                              SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
@@ -498,7 +498,7 @@ template <class BackendSelector, class MatrixTensor>
 
 /// \brief Schedule consuming right singular vectors using the static Tensor selector.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd_right(async::Async<MatrixTensor>&& matrix, SvdVectorExtent extent = SvdVectorExtent::Reduced)
 {
   using result_type = detail::consuming_svd_right_result_t<MatrixTensor>;
@@ -529,7 +529,7 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 
 /// \brief Schedule a consuming exact SVD through an explicit selector.
 template <class BackendSelector, class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd(BackendSelector selector, async::Async<MatrixTensor>&& matrix, SvdOptions options = {})
 {
   return detail::schedule_consuming_svd(std::move(selector), matrix, options);
@@ -540,7 +540,7 @@ template <class BackendSelector, class MatrixTensor>
 ///          reduced factors may adopt that allocation, and the input timeline
 ///          no longer contains a readable matrix on success.
 template <class MatrixTensor>
-  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedImmediateTensorView<MatrixTensor, 2>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2>
 [[nodiscard]] auto svd(async::Async<MatrixTensor>&& matrix, SvdOptions options = {})
 {
   using result_type = detail::consuming_svd_result_t<MatrixTensor>;
