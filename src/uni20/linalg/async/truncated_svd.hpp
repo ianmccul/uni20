@@ -37,7 +37,7 @@ using async_truncated_svd_result_t =
                        async::Async<typename Result::truncation_info_type>>;
 
 template <class BackendSelector, class LeftTensor, class SingularValueTensor, class RightAdjointTensor,
-          class TruncationInfo, uni20::RankedImmediateTensorView<2> MatrixTensor>
+          class TruncationInfo, uni20::RankedTensorView<2> MatrixTensor>
 async::AsyncTask
 co_preserving_truncated_svd(BackendSelector const selector, async::WriteBuffer<LeftTensor> left_singular_vectors,
                             async::WriteBuffer<SingularValueTensor> singular_values,
@@ -91,7 +91,7 @@ co_consuming_truncated_svd(BackendSelector const selector, async::WriteBuffer<Le
   co_return;
 }
 
-template <class BackendSelector, uni20::RankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
 [[nodiscard]] auto schedule_preserving_truncated_svd(BackendSelector selector, async::Async<MatrixTensor> const& matrix,
                                                      svd_truncation_policy_t<MatrixTensor> policy)
 {
@@ -132,7 +132,7 @@ template <class BackendSelector, uni20::MutableRankedImmediateTensorView<2> Matr
 } // namespace detail
 
 /// \brief Schedule a preserving truncated SVD through an explicit selector.
-template <class BackendSelector, uni20::RankedImmediateTensorView<2> MatrixTensor>
+template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
 [[nodiscard]] auto truncated_svd(BackendSelector selector, async::Async<MatrixTensor> const& matrix,
                                  detail::svd_truncation_policy_t<MatrixTensor> policy = {})
 {
@@ -140,7 +140,7 @@ template <class BackendSelector, uni20::RankedImmediateTensorView<2> MatrixTenso
 }
 
 /// \brief Schedule a preserving truncated SVD using the static Tensor selector.
-template <uni20::RankedImmediateTensorView<2> MatrixTensor>
+template <uni20::RankedTensorView<2> MatrixTensor>
 [[nodiscard]] auto truncated_svd(async::Async<MatrixTensor> const& matrix,
                                  detail::svd_truncation_policy_t<MatrixTensor> policy = {})
 {

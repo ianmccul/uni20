@@ -405,6 +405,13 @@ mdspans or spans.
 | `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | Not implemented. |
 | `symmetric_tridiagonal_eigen` | Tridiagonal eigensystem over caller-provided spans and tensor output. | LAPACK-style mutable work/output buffers. | Not implemented. |
 
+Preserving Async `eigh`, exact SVD, and truncated SVD overloads accept
+`Async<Tensor>` whenever `Tensor` models the appropriate ranked `TensorView`.
+This includes deferred views: the preserving synchronous operation materializes
+its work tensor through ordinary backend-dispatched copy. Consuming overloads
+remain restricted to mutable immediate owners because they may reuse or
+transfer the stored allocation as destructive workspace.
+
 The fixed-output `gemm` and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is

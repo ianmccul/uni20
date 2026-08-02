@@ -3,6 +3,8 @@
 #include <uni20/linalg/async.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "deferred_host_tensor.hpp"
+
 #include <gtest/gtest.h>
 
 #include <concepts>
@@ -14,6 +16,7 @@ namespace
 using matrix_type = uni20::DenseMatrix<double>;
 using eigenvalue_type = uni20::Tensor<double, 1>;
 using async_matrix_type = uni20::async::Async<matrix_type>;
+using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
 
 matrix_type make_symmetric_matrix()
 {
@@ -22,6 +25,18 @@ matrix_type make_symmetric_matrix()
   matrix[0, 1] = 1.0;
   matrix[1, 0] = 1.0;
   matrix[1, 1] = 2.0;
+  return matrix;
+}
+
+deferred_matrix_type make_deferred_symmetric_matrix()
+{
+  deferred_matrix_type matrix(2, 2);
+  auto lease = uni20::test::acquire_host_write_access_sync(matrix);
+  auto& span = lease.mdspan();
+  span[0, 0] = 2.0;
+  span[0, 1] = 1.0;
+  span[1, 0] = 1.0;
+  span[1, 1] = 2.0;
   return matrix;
 }
 
@@ -66,6 +81,19 @@ TEST(AsyncSelfAdjointEighTest, PreservingSolveReturnsIndependentAsyncOutputs)
   static_assert(std::same_as<decltype(eigenvectors), uni20::async::Async<matrix_type>>);
   expect_eigensystem(eigenvalues.get_wait(scheduler), eigenvectors.get_wait(scheduler));
   EXPECT_DOUBLE_EQ((matrix.get_wait(scheduler)[0, 1]), 1.0);
+}
+
+TEST(AsyncSelfAdjointEighTest, PreservingSolveAcceptsDeferredTensorViews)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<deferred_matrix_type> matrix = make_deferred_symmetric_matrix();
+
+  auto [eigenvalues, eigenvectors] = uni20::linalg::eigh(uni20::linalg::LapackBackend{}, matrix);
+
+  expect_eigensystem(eigenvalues.get_wait(scheduler), eigenvectors.get_wait(scheduler));
+  auto preserved = uni20::test::acquire_host_read_access_sync(matrix.get_wait(scheduler));
+  EXPECT_DOUBLE_EQ((preserved.mdspan()[0, 1]), 1.0);
 }
 
 TEST(AsyncSelfAdjointEighTest, ConsumingSolveReusesInputAllocation)

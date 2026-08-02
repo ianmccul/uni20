@@ -21,6 +21,7 @@ namespace
 
 using host_matrix_type = uni20::Tensor<double, 2>;
 using cuda_matrix_type = uni20::CudaTensor<double, 2>;
+using async_cuda_matrix_type = uni20::async::Async<cuda_matrix_type>;
 using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
 using complex_type = uni20::complex<double>;
 using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
@@ -69,7 +70,18 @@ class CudaDescriptorMatrixView {
     cuda_matrix_type const* tensor_;
 };
 
+template <class AsyncTensor>
+concept CanPreserveAsyncDenseDecompositions = requires(AsyncTensor const& matrix) {
+  uni20::linalg::singular_values(matrix);
+  uni20::linalg::svd_left(matrix);
+  uni20::linalg::svd_right(matrix);
+  uni20::linalg::svd(matrix);
+  uni20::linalg::eigh(matrix);
+  uni20::linalg::truncated_svd(matrix);
+};
+
 static_assert(uni20::TensorView<CudaDescriptorMatrixView>);
+static_assert(CanPreserveAsyncDenseDecompositions<async_cuda_matrix_type>);
 static_assert(!std::same_as<typename CudaDescriptorMatrixView::storage_policy, uni20::CudaStorage>);
 static_assert(uni20::cuda::BufferMdspec<uni20::tensor_mdspec_t<CudaDescriptorMatrixView>>);
 static_assert(uni20::CudaAccessibleAccessor<uni20::cuda::CudaPointerAccessor<double>>);
