@@ -273,62 +273,65 @@ template <typename... Mappings> auto make_multi_iteration_plan(std::tuple<Mappin
 
   multi_iteration_plan<N, Rank> plan;
 
-  for (size_type i = 0; i < Rank; ++i)
+  if constexpr (Rank > 0)
   {
-    size_type const extent = base_extents.extent(i);
-
-    // A zero-extent dimension makes the whole iteration empty (0 elements):
-    // retain a single extent-0 dim so the loop nest runs zero times, and reset
-    // the offset corrections (unused once nothing is visited). Distinct from an
-    // empty plan, which denotes a single element (rank-0 scalar).
-    if (extent == 0)
+    for (size_type i = 0; i < Rank; ++i)
     {
-      plan.dimensions.clear();
-      plan.dimensions.emplace_back(size_type{0}, std::array<index_type, N>{});
-      plan.base_offsets = std::array<index_type, N>{};
-      detail::finish_iteration_plan(plan);
-      return plan;
-    }
+      size_type const extent = base_extents.extent(i);
 
-    if (std::cmp_greater(extent, std::numeric_limits<std::ptrdiff_t>::max()) ||
-        logical_element_count > std::numeric_limits<std::ptrdiff_t>::max() / static_cast<std::size_t>(extent))
-    {
-      plan.representable = false;
-      return plan;
-    }
-    logical_element_count *= static_cast<std::size_t>(extent);
-
-    // Size-1 dimensions span index 0 only (0*stride, count factor 1), so drop
-    // them; they coalesce with anything by vanishing.
-    if (extent == 1) continue;
-
-    auto strides = std::apply(
-        [i](auto const&... mapping) {
-          return std::array<index_type, N>{static_cast<index_type>(mapping.stride(i))...};
-        },
-        mappings);
-
-    if (strides[0] < 0)
-    {
-      for (std::size_t k = 0; k < N; ++k)
+      // A zero-extent dimension makes the whole iteration empty (0 elements):
+      // retain a single extent-0 dim so the loop nest runs zero times, and reset
+      // the offset corrections (unused once nothing is visited). Distinct from an
+      // empty plan, which denotes a single element (rank-0 scalar).
+      if (extent == 0)
       {
-        index_type delta = 0;
-        if (!detail::checked_iteration_multiply(strides[k], static_cast<index_type>(extent - 1), delta) ||
-            !detail::checked_iteration_add(plan.base_offsets[k], delta, plan.base_offsets[k]))
-        {
-          plan.representable = false;
-          return plan;
-        }
-        if (strides[k] == std::numeric_limits<index_type>::min())
-        {
-          plan.representable = false;
-          return plan;
-        }
-        strides[k] = -strides[k];
+        plan.dimensions.clear();
+        plan.dimensions.emplace_back(size_type{0}, std::array<index_type, N>{});
+        plan.base_offsets = std::array<index_type, N>{};
+        detail::finish_iteration_plan(plan);
+        return plan;
       }
-    }
 
-    plan.dimensions.emplace_back(extent, strides);
+      if (std::cmp_greater(extent, std::numeric_limits<std::ptrdiff_t>::max()) ||
+          logical_element_count > std::numeric_limits<std::ptrdiff_t>::max() / static_cast<std::size_t>(extent))
+      {
+        plan.representable = false;
+        return plan;
+      }
+      logical_element_count *= static_cast<std::size_t>(extent);
+
+      // Size-1 dimensions span index 0 only (0*stride, count factor 1), so drop
+      // them; they coalesce with anything by vanishing.
+      if (extent == 1) continue;
+
+      auto strides = std::apply(
+          [i](auto const&... mapping) {
+            return std::array<index_type, N>{static_cast<index_type>(mapping.stride(i))...};
+          },
+          mappings);
+
+      if (strides[0] < 0)
+      {
+        for (std::size_t k = 0; k < N; ++k)
+        {
+          index_type delta = 0;
+          if (!detail::checked_iteration_multiply(strides[k], static_cast<index_type>(extent - 1), delta) ||
+              !detail::checked_iteration_add(plan.base_offsets[k], delta, plan.base_offsets[k]))
+          {
+            plan.representable = false;
+            return plan;
+          }
+          if (strides[k] == std::numeric_limits<index_type>::min())
+          {
+            plan.representable = false;
+            return plan;
+          }
+          strides[k] = -strides[k];
+        }
+      }
+
+      plan.dimensions.emplace_back(extent, strides);
+    }
   }
 
   // Empty plan => single element at the base offset (rank-0 scalar).

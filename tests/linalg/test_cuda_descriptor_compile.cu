@@ -128,6 +128,13 @@ transform_accessor_probe(typename unary_transform_span::accessor_type unary,
   if (unary_value == binary_value && complex_value.real() == 0.0F) return;
 }
 
+[[maybe_unused]] __global__ void conjugate_proxy_probe(uni20::cfloat* value)
+{
+  uni20::cuda::CudaPointerAccessor<uni20::cfloat> accessor;
+  auto reference = accessor.access(value, 0);
+  reference = uni20::cuda::CudaConjugate{}(reference);
+}
+
 } // namespace
 
 TEST(CudaDescriptorCompileTest, ExecutionDescriptorCompositionsCompileForDevice) { SUCCEED(); }

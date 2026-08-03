@@ -1,11 +1,11 @@
+#include "elementwise_conjugate.hpp"
 #include "elementwise_copy.hpp"
+#include "elementwise_kernel.cuh"
 
-#include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/storage/cuda_accessor.hpp>
 
 #include <concepts>
-#include <cstddef>
 #include <type_traits>
 
 namespace uni20::linalg::detail::cuda_reference
@@ -13,38 +13,21 @@ namespace uni20::linalg::detail::cuda_reference
 namespace
 {
 
-template <class Plan, class OutputAccessor, class InputAccessor>
-__global__ void elementwise_copy_kernel(typename OutputAccessor::data_handle_type output,
-                                        typename InputAccessor::data_handle_type input, Plan plan)
+struct AssignElement
 {
-  OutputAccessor output_accessor{};
-  InputAccessor input_accessor{};
-  using logical_index_type = typename Plan::logical_index_type;
-  using output_offset_type = typename OutputAccessor::offset_type;
-  using input_offset_type = typename InputAccessor::offset_type;
-  auto index = static_cast<logical_index_type>(blockIdx.x * blockDim.x + threadIdx.x);
-  auto const grid_stride = static_cast<logical_index_type>(blockDim.x * gridDim.x);
-  while (index < plan.element_count)
-  {
-    auto const offsets = plan.offsets(index);
-    output_accessor.access(output, static_cast<output_offset_type>(offsets[0])) =
-        input_accessor.access(input, static_cast<input_offset_type>(offsets[1]));
-    index += grid_stride;
-  }
-}
+    template <class Value> [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Value value) const
+    {
+      return value;
+    }
+};
 
 template <class Scalar, class InputAccessor, class Plan>
 void launch_elementwise_copy(Scalar* output, Scalar const* input, Plan const& plan, cudaStream_t stream, int device)
 {
-  if (plan.element_count == 0) return;
-
   using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
-  constexpr unsigned int threads = 256;
-  auto required_blocks = (plan.element_count + threads - 1) / threads;
-  constexpr std::size_t maximum_blocks = 65535;
-  auto const blocks = static_cast<unsigned int>(required_blocks < maximum_blocks ? required_blocks : maximum_blocks);
-  elementwise_copy_kernel<Plan, output_accessor, InputAccessor><<<blocks, threads, 0, stream>>>(output, input, plan);
-  uni20::cuda::check(cudaGetLastError(), "launch CUDA reference elementwise copy", device);
+  launch_elementwise_kernel<false>(plan, AssignElement{}, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                   "launch CUDA reference elementwise copy",
+                                   ElementwiseOperand{input, InputAccessor{}});
 }
 
 template <class Scalar, class Plan>
@@ -64,6 +47,14 @@ void enqueue_elementwise_copy_impl(Scalar* output, Scalar const* input, Plan con
   }
 
   launch_elementwise_copy<Scalar, input_accessor>(output, input, plan, stream, device);
+}
+
+template <class Scalar, class Plan>
+void enqueue_elementwise_conjugate_impl(Scalar* output, Plan const& plan, cudaStream_t stream, int device)
+{
+  using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
+  launch_elementwise_kernel<true>(plan, uni20::cuda::CudaConjugate{}, ElementwiseOperand{output, output_accessor{}},
+                                  stream, device, "launch CUDA reference elementwise conjugation");
 }
 
 } // namespace
@@ -87,5 +78,23 @@ UNI20_DEFINE_ELEMENTWISE_COPY(uni20::cfloat)
 UNI20_DEFINE_ELEMENTWISE_COPY(uni20::cdouble)
 
 #undef UNI20_DEFINE_ELEMENTWISE_COPY
+
+#define UNI20_DEFINE_ELEMENTWISE_CONJUGATE(Scalar)                                                                     \
+  void enqueue_elementwise_conjugate(Scalar* output, ElementwiseConjugatePlan32 const& plan, cudaStream_t stream,      \
+                                     int device)                                                                       \
+  {                                                                                                                    \
+    enqueue_elementwise_conjugate_impl(output, plan, stream, device);                                                  \
+  }                                                                                                                    \
+                                                                                                                       \
+  void enqueue_elementwise_conjugate(Scalar* output, ElementwiseConjugatePlan64 const& plan, cudaStream_t stream,      \
+                                     int device)                                                                       \
+  {                                                                                                                    \
+    enqueue_elementwise_conjugate_impl(output, plan, stream, device);                                                  \
+  }
+
+UNI20_DEFINE_ELEMENTWISE_CONJUGATE(uni20::cfloat)
+UNI20_DEFINE_ELEMENTWISE_CONJUGATE(uni20::cdouble)
+
+#undef UNI20_DEFINE_ELEMENTWISE_CONJUGATE
 
 } // namespace uni20::linalg::detail::cuda_reference

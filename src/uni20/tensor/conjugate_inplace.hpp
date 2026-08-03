@@ -14,17 +14,21 @@
 #include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 
+#if UNI20_BACKEND_CUDA
+#include <uni20/linalg/backends/cuda/conjugate_inplace.hpp>
+#endif
+
 #include <utility>
 
 namespace uni20
 {
 
-/// \brief Conjugate a mutable mdspan-like object through an explicit backend selector.
-template <class BackendSelector, MutableMdspanLike Mdspan>
-void conjugate_inplace(BackendSelector&& selector, Mdspan&& span)
+/// \brief Conjugate a mutable mdspec-like object through an explicit backend selector.
+template <class BackendSelector, MutableMdspecLike Mdspec>
+void conjugate_inplace(BackendSelector&& selector, Mdspec&& span)
 {
   linalg::dispatch_kernel(std::forward<BackendSelector>(selector), linalg::conjugate_inplace_op{},
-                          std::forward<Mdspan>(span));
+                          std::forward<Mdspec>(span));
 }
 
 /// \brief Conjugate a mutable tensor view through an explicit backend selector.

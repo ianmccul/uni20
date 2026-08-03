@@ -149,6 +149,14 @@ struct CudaConjugate
     {
       return ::cuda::std::conj(value);
     }
+
+    template <class Real>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(CudaComplexReference<Real> value) const noexcept
+        -> ::cuda::std::complex<Real>
+    {
+      using execution_type = ::cuda::std::complex<Real>;
+      return ::cuda::std::conj(static_cast<execution_type>(value));
+    }
 };
 
 /// \brief Read-only CUDA accessor that conjugates persistent complex storage.

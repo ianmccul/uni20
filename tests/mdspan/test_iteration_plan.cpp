@@ -153,6 +153,20 @@ TEST(MakeMultiIterationPlanTest, SimpleMatchingLayouts)
   EXPECT_EQ(plan.reachable_offsets[1].maximum, 190);
 }
 
+TEST(MakeMultiIterationPlanTest, RankZeroMappingProducesOneScalarElement)
+{
+  using extents_type = stdex::dextents<index_t, 0>;
+  using mapping_type = stdex::layout_left::mapping<extents_type>;
+  auto plan = make_multi_iteration_plan(std::tuple{mapping_type{extents_type{}}});
+
+  EXPECT_EQ(plan.rank(), 0);
+  EXPECT_FALSE(plan.empty());
+  EXPECT_EQ(plan.element_count, 1);
+  EXPECT_EQ(plan.base_offsets[0], 0);
+  EXPECT_EQ(plan.reachable_offsets[0].minimum, 0);
+  EXPECT_EQ(plan.reachable_offsets[0].maximum, 0);
+}
+
 TEST(MakeMultiIterationPlanTest, MismatchedButMergeable)
 {
   auto output = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{4, 1});
