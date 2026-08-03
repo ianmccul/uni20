@@ -121,6 +121,30 @@ TEST(TensorTransformTest, NamedNegateFunctorUsesTheGenericCpuBackend)
   EXPECT_DOUBLE_EQ(output[2], -3.0);
 }
 
+TEST(TensorTransformTest, NamedScaleAndAddFunctorsUseTheGenericCpuBackend)
+{
+  uni20::Tensor<double, 1> lhs(3);
+  uni20::Tensor<double, 1> rhs(3);
+  uni20::Tensor<double, 1> scaled;
+  uni20::Tensor<double, 1> sum;
+  lhs[0] = 1.0;
+  lhs[1] = -2.0;
+  lhs[2] = 3.0;
+  rhs[0] = 4.0;
+  rhs[1] = 5.0;
+  rhs[2] = -6.0;
+
+  uni20::assign_transform(scaled, uni20::linalg::scale{2.5}, lhs);
+  uni20::assign_transform(sum, uni20::linalg::add{}, scaled, rhs);
+
+  EXPECT_DOUBLE_EQ(scaled[0], 2.5);
+  EXPECT_DOUBLE_EQ(scaled[1], -5.0);
+  EXPECT_DOUBLE_EQ(scaled[2], 7.5);
+  EXPECT_DOUBLE_EQ(sum[0], 6.5);
+  EXPECT_DOUBLE_EQ(sum[1], 0.0);
+  EXPECT_DOUBLE_EQ(sum[2], 1.5);
+}
+
 TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)
 {
   uni20::test::DeferredHostTensor<double, 1> lhs(3);

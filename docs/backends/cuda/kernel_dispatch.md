@@ -436,6 +436,8 @@ The precompiled CUDA reference copy backend currently uses two lowering forms:
 | Same-device positive-strided mappings with compact rank through eight | Backend-neutral affine iteration plan lowered to a 32- or 64-bit CUDA payload |
 | Raw or conjugating CUDA input accessor | Explicitly compiled accessor lowering selected by the copy plan |
 | Named unary `linalg::negate` transform | Explicitly registered one-input overwrite lowering over the same affine plan |
+| Stateful unary `linalg::scale<Factor>` transform | Explicitly registered factor payload and one independently strided input |
+| Named binary `linalg::add` transform | Explicitly registered two-input overwrite lowering with three operand mappings |
 | Non-strided mapping or other stateful accessor composition | Clean decline |
 
 The host planner removes size-one dimensions, orders dimensions by the output
@@ -459,10 +461,10 @@ access and rely on the C++ copy precondition that the operands do not
 destructively overlap. A nontrivial same-offset transformation is proven to
 overlap and declines.
 
-The plan representation is arity-generic, but the currently compiled CUDA
-executor still instantiates only the two-operand copy operation. Unary update,
-binary, ternary, and general fixed-arity executors build on the same plan rather
-than introducing operation-specific layout algorithms.
+The plan and overwrite executor are arity-generic. Current compiled
+instantiations cover one-input copy, negate, and scale plus two-input addition.
+Unary update, ternary, and further fixed-arity operations should build on the
+same plan rather than introducing operation-specific layout algorithms.
 
 Device-callability alone cannot make an arbitrary external accessor available
 to a precompiled library kernel. Generalization requires either a typed

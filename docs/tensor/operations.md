@@ -328,7 +328,7 @@ contracts described later in this guide.
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Not implemented. |
 | `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings with compact rank through eight use 32- or 64-bit logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports jointly compacted differing layouts, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
-| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. The CUDA reference backend currently registers the named unary `linalg::negate` callable for positive-strided raw CUDA operands. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
+| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. The CUDA reference backend registers unary `linalg::negate`, stateful `linalg::scale<Factor>`, and binary `linalg::add` for positive-strided raw CUDA operands. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. CPU accessors are evaluated directly; positive-strided CUDA `cfloat` and `cdouble` storage uses the CUDA reference elementwise executor. Real and integer values return as a no-op. | Reuses existing storage and takes one exclusive execution-domain access when work is required. | Not implemented. |
@@ -364,9 +364,9 @@ use `UNI20_HOST_DEVICE`. A CUDA-accessible transform's stored callable must do
 the same. This makes the expression device-callable but does not install a
 precompiled CUDA backend specialization; the selected backend still needs an
 explicit typed lowering or a sufficient type-erased execution plan.
-`linalg::negate` is the first such registered callable: ordinary host code uses
-the same function object, while the CUDA reference backend lowers it to a
-precompiled one-input overwrite kernel.
+`linalg::negate`, `linalg::scale<Factor>`, and `linalg::add` are registered this
+way. Ordinary host code uses the same function objects, while the CUDA reference
+backend lowers supported scalar combinations to precompiled overwrite kernels.
 
 The Async overloads keep the same argument order and require every Tensor
 operand to be `Async<T>`. The callable is not itself an async operand: it is

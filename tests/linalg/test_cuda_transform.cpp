@@ -91,13 +91,51 @@ TEST(CudaTransformPlanningTest, RankZeroUnaryPlanVisitsOneElement)
   EXPECT_EQ(plan.plan_32.offsets(0), (std::array<std::int32_t, 2>{0, 0}));
 }
 
-TEST(CudaTransformPlanningTest, OnlyRegisteredCallableHasCudaTypeAcceptance)
+TEST(CudaTransformPlanningTest, BinaryPlanDecodesThreeIndependentMappings)
 {
-  using operation_type = uni20::linalg::transform_op<uni20::linalg::negate>;
-  auto const registered =
-      uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, operation_type,
-                                                     mutable_real_cuda_mdspec, const_real_cuda_mdspec>();
-  EXPECT_EQ(registered, uni20::linalg::KernelTypeAcceptance::maybe);
+  using mapping_type = stdex::layout_stride::mapping<extents_type>;
+  extents_type const extents{2, 3};
+  mapping_type output_mapping{extents, std::array<uni20::index_type, 2>{1, 3}};
+  mapping_type lhs_mapping{extents, std::array<uni20::index_type, 2>{4, 1}};
+  mapping_type rhs_mapping{extents, std::array<uni20::index_type, 2>{5, 2}};
+  double value = 0.0;
+  stdex::mdspan output{&value, output_mapping};
+  stdex::mdspan lhs{&value, lhs_mapping};
+  stdex::mdspan rhs{&value, rhs_mapping};
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseAddPlan plan;
+
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_transform_plan<
+              uni20::linalg::detail::cuda_reference::elementwise_add_maximum_rank>(output, plan, lhs, rhs));
+  ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
+  auto const& layout = plan.plan_32;
+  EXPECT_EQ(layout.compact_rank, 2);
+  EXPECT_EQ(layout.element_count, 6);
+  EXPECT_EQ(layout.offsets(0), (std::array<std::int32_t, 3>{0, 0, 0}));
+  EXPECT_EQ(layout.offsets(1), (std::array<std::int32_t, 3>{1, 4, 5}));
+  EXPECT_EQ(layout.offsets(2), (std::array<std::int32_t, 3>{3, 1, 2}));
+  EXPECT_EQ(layout.offsets(5), (std::array<std::int32_t, 3>{7, 6, 9}));
+}
+
+TEST(CudaTransformPlanningTest, RegisteredCallablesHaveExactCudaTypeAcceptance)
+{
+  using negate_operation = uni20::linalg::transform_op<uni20::linalg::negate>;
+  using scale_operation = uni20::linalg::transform_op<uni20::linalg::scale<double>>;
+  using integer_scale_operation = uni20::linalg::transform_op<uni20::linalg::scale<int>>;
+  using add_operation = uni20::linalg::transform_op<uni20::linalg::add>;
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, negate_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, scale_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ(
+      (uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, integer_scale_operation,
+                                                      mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
+      uni20::linalg::KernelTypeAcceptance::no);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, add_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec,
+                                                            const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
 
   auto function = [](double value) { return 2.0 * value; };
   using unregistered_operation = uni20::linalg::transform_op<decltype(function)>;
@@ -105,6 +143,89 @@ TEST(CudaTransformPlanningTest, OnlyRegisteredCallableHasCudaTypeAcceptance)
       uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, unregistered_operation,
                                                      mutable_real_cuda_mdspec, const_real_cuda_mdspec>();
   EXPECT_EQ(unregistered, uni20::linalg::KernelTypeAcceptance::no);
+}
+
+TEST_F(CudaTransformTest, ScalesByRetainedFactor)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<double, 1> host_input(3);
+  host_input[0] = 1.0;
+  host_input[1] = -2.0;
+  host_input[2] = 3.5;
+
+  auto input = uni20::to_device(host_input, 0);
+  uni20::CudaTensor<double, 1> output(runtime.device_resources(0), 3);
+
+  uni20::assign_transform(output, uni20::linalg::scale{2.5}, input);
+
+  auto result = uni20::to_host(output);
+  EXPECT_DOUBLE_EQ(result[0], 2.5);
+  EXPECT_DOUBLE_EQ(result[1], -5.0);
+  EXPECT_DOUBLE_EQ(result[2], 8.75);
+}
+
+TEST_F(CudaTransformTest, ScalesComplexValuesByRealAndComplexFactors)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<uni20::cfloat, 1> host_input(2);
+  host_input[0] = uni20::cfloat{1.0F, 2.0F};
+  host_input[1] = uni20::cfloat{-3.0F, 4.0F};
+
+  auto input = uni20::to_device(host_input, 0);
+  uni20::CudaTensor<uni20::cfloat, 1> real_scaled(runtime.device_resources(0), 2);
+  uni20::CudaTensor<uni20::cfloat, 1> complex_scaled(runtime.device_resources(0), 2);
+
+  uni20::assign_transform(real_scaled, uni20::linalg::scale{2.0F}, input);
+  uni20::assign_transform(complex_scaled, uni20::linalg::scale{uni20::cfloat{0.0F, 1.0F}}, input);
+
+  auto real_result = uni20::to_host(real_scaled);
+  auto complex_result = uni20::to_host(complex_scaled);
+  EXPECT_EQ(real_result[0], (uni20::cfloat{2.0F, 4.0F}));
+  EXPECT_EQ(real_result[1], (uni20::cfloat{-6.0F, 8.0F}));
+  EXPECT_EQ(complex_result[0], (uni20::cfloat{-2.0F, 1.0F}));
+  EXPECT_EQ(complex_result[1], (uni20::cfloat{-4.0F, -3.0F}));
+}
+
+TEST_F(CudaTransformTest, AddsInputsWithDifferentCanonicalLayouts)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<double, 2> host_lhs(2, 3);
+  uni20::RowMajorTensor<double, 2> host_rhs(2, 3);
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 3; ++column)
+    {
+      host_lhs[row, column] = 10.0 * row + column;
+      host_rhs[row, column] = 100.0 + 2.0 * row + 3.0 * column;
+    }
+
+  auto lhs = uni20::to_device(host_lhs, 0);
+  auto rhs = uni20::to_device(host_rhs, 0);
+  real_cuda_matrix output(runtime.device_resources(0), 2, 3);
+
+  uni20::assign_transform(output, uni20::linalg::add{}, lhs, rhs);
+
+  auto result = uni20::to_host(output);
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 3; ++column)
+      EXPECT_DOUBLE_EQ((result[row, column]), (100.0 + 12.0 * row + 4.0 * column));
+}
+
+TEST_F(CudaTransformTest, BinaryAddSharesOneLeaseForRepeatedInput)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+  uni20::Tensor<double, 1> host_input(3);
+  host_input[0] = 1.0;
+  host_input[1] = 2.0;
+  host_input[2] = 3.0;
+
+  auto input = uni20::to_device(host_input, 0);
+  uni20::CudaTensor<double, 1> output(runtime.device_resources(0), 3);
+  uni20::assign_transform(output, uni20::linalg::add{}, input, input);
+
+  auto result = uni20::to_host(output);
+  EXPECT_DOUBLE_EQ(result[0], 2.0);
+  EXPECT_DOUBLE_EQ(result[1], 4.0);
+  EXPECT_DOUBLE_EQ(result[2], 6.0);
 }
 
 TEST_F(CudaTransformTest, NegatesDifferentCanonicalLayouts)

@@ -22,11 +22,12 @@ without acquiring a stream or launching because it is semantically the identity.
 Complex conjugation supports persistent `uni20::cfloat` and `uni20::cdouble`
 storage through CUDA execution proxies.
 
-`transform_op<linalg::negate>` is the first registered callable lowering. It
-uses the same two-operand plan as semantic copy but evaluates a named
-backend-neutral function object. The output and input may have different
-positive-strided mappings. Other callable types are not assumed to be available
-inside the precompiled library and therefore remain ineligible for this backend.
+The CUDA reference backend explicitly registers `linalg::negate`,
+`linalg::scale<Factor>`, and `linalg::add` overwrite transforms. Scaling carries
+its factor in the operation value; binary addition carries two independently
+strided input operands. Supported real and complex combinations are compiled
+into the library. Other callable types are not assumed to be available inside
+the precompiled library and therefore remain ineligible for this backend.
 
 The kernels publish stream completion through the same buffer ledgers as the
 runtime copy path. Nonpositive strides on active axes cleanly decline for
