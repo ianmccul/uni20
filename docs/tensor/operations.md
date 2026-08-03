@@ -359,6 +359,10 @@ arity, respects accessor semantics, and uses logical-index traversal when an
 operand is not strided. Named callable types may gain optimized backend
 implementations without changing these front-end signatures.
 
+Overwrite and update transforms require the output not to overlap any separate
+input operand. Backends may share one allocation access for views proven or
+assumed disjoint, but they do not make destructive overlap element-order safe.
+
 Uni20-owned tensor function objects intended for execution through an accessor
 use `UNI20_HOST_DEVICE`. A CUDA-accessible transform's stored callable must do
 the same. This makes the expression device-callable but does not install a

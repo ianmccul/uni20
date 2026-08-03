@@ -292,6 +292,19 @@ TEST(CudaCopyPlanningTest, ElementwisePlanUses64BitOffsetsWhenAReachableOffsetEx
   EXPECT_EQ(plan.plan_64.offsets(1), (std::array<std::int64_t, 2>{static_cast<std::int64_t>(large_stride), 1}));
 }
 
+TEST(CudaCopyPlanningTest, LoweredPlanVisitsOnlyTheSelectedPayload)
+{
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
+  plan.plan_32.element_count = 7;
+  plan.plan_64.element_count = 11;
+
+  plan.index_kind = uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32;
+  EXPECT_EQ(plan.visit([](auto const& selected) { return static_cast<std::size_t>(selected.element_count); }), 7);
+
+  plan.index_kind = uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_64;
+  EXPECT_EQ(plan.visit([](auto const& selected) { return static_cast<std::size_t>(selected.element_count); }), 11);
+}
+
 TEST(CudaCopyPlanningTest, EmptyIterationLowersToAZeroRank32BitPayload)
 {
   using extents_type = stdex::dextents<uni20::index_type, 1>;

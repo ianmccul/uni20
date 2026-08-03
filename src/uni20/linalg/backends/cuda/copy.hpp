@@ -10,6 +10,7 @@
 #include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cuda/elementwise_copy.hpp>
+#include <uni20/linalg/backends/cuda/mdspec_traits.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -46,17 +47,12 @@ enum class CopyExecution
   elementwise_kernel
 };
 
-template <class Accessor> struct IsRawCudaAccessor : std::false_type
-{};
-
-template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type
-{};
-
 template <class Accessor> struct IsConjugatedCudaAccessor : std::false_type
 {};
 
 template <class Accessor>
-struct IsConjugatedCudaAccessor<uni20::conjugated_accessor<Accessor>> : IsRawCudaAccessor<Accessor>
+struct IsConjugatedCudaAccessor<uni20::conjugated_accessor<Accessor>>
+    : std::bool_constant<RawCudaAccessorTraits<Accessor>::is_raw>
 {};
 
 template <class Accessor> struct IsConjugatedHostAccessor : std::false_type
@@ -70,15 +66,11 @@ struct IsConjugatedHostAccessor<uni20::conjugated_accessor<Accessor>>
 template <class Mdspan> inline constexpr bool is_cuda_mdspan = uni20::cuda::BufferMdspec<Mdspan>;
 
 template <class Mdspan>
-inline constexpr bool is_raw_cuda_mdspan =
-    is_cuda_mdspan<Mdspan> && IsRawCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
-
-template <class Mdspan>
 inline constexpr bool is_conjugated_cuda_mdspan =
     is_cuda_mdspan<Mdspan> && IsConjugatedCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
 
 template <class Mdspan>
-inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspan<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
+inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspec<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
 
 template <class Mdspan>
 inline constexpr bool is_raw_host_mdspan = uni20::DefaultAccessorMdspanLike<std::remove_cvref_t<Mdspan>>;
@@ -98,7 +90,7 @@ concept SupportedCopyMdspans =
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&
-    ((is_raw_cuda_mdspan<OutputMdspan> &&
+    ((is_raw_cuda_mdspec<OutputMdspan> &&
       (is_supported_cuda_mdspan<InputMdspan> || is_supported_host_mdspan<InputMdspan>)) ||
      (is_raw_host_mdspan<OutputMdspan> && is_supported_cuda_mdspan<InputMdspan>));
 
@@ -358,12 +350,10 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
       CHECK_EQUAL(output_device, input_device);
       if constexpr (supports_elementwise_copy<Scalar>)
       {
-        if (plan.elementwise_plan.index_kind == ElementwiseIndexKind::index_32)
-          enqueue_elementwise_copy(output_data, input_data, plan.elementwise_plan.plan_32, plan.transform,
-                                   stream.native_handle(), output_device);
-        else
-          enqueue_elementwise_copy(output_data, input_data, plan.elementwise_plan.plan_64, plan.transform,
-                                   stream.native_handle(), output_device);
+        plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+          enqueue_elementwise_copy(output_data, input_data, elementwise_plan, plan.transform, stream.native_handle(),
+                                   output_device);
+        });
         return;
       }
       else

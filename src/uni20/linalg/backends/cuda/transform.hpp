@@ -9,6 +9,7 @@
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/linalg/backends/cuda/elementwise_arithmetic.hpp>
 #include <uni20/linalg/backends/cuda/elementwise_scale.hpp>
+#include <uni20/linalg/backends/cuda/mdspec_traits.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/elementwise_functions.hpp>
 #include <uni20/linalg/operation_tags.hpp>
@@ -31,39 +32,13 @@ namespace uni20::linalg
 namespace detail::cuda_reference
 {
 
-template <class Accessor> struct IsRawCudaOutputAccessor : std::false_type
-{};
-
-template <class ElementType>
-struct IsRawCudaOutputAccessor<uni20::cuda::CudaPointerAccessor<ElementType>>
-    : std::bool_constant<!std::is_const_v<ElementType>>
-{};
-
-template <class Accessor> struct IsRawCudaInputAccessor : std::false_type
-{};
-
-template <class ElementType>
-struct IsRawCudaInputAccessor<uni20::cuda::CudaPointerAccessor<ElementType>>
-    : std::bool_constant<std::is_const_v<ElementType>>
-{};
-
-template <class Mdspec>
-inline constexpr bool is_raw_cuda_output_mdspec =
-    uni20::cuda::BufferMdspec<Mdspec> &&
-    IsRawCudaOutputAccessor<typename std::remove_cvref_t<Mdspec>::accessor_type>::value;
-
-template <class Mdspec>
-inline constexpr bool is_raw_cuda_input_mdspec =
-    uni20::cuda::BufferMdspec<Mdspec> &&
-    IsRawCudaInputAccessor<typename std::remove_cvref_t<Mdspec>::accessor_type>::value;
-
 template <class Mdspec> using transform_scalar_t = std::remove_cv_t<typename std::remove_cvref_t<Mdspec>::element_type>;
 
 template <class OutputMdspec, class... InputMdspecs>
 concept RawCudaOverwriteMdspecs =
     (sizeof...(InputMdspecs) > 0) && uni20::MutableMdspecLike<OutputMdspec> &&
-    (uni20::MdspecLike<InputMdspecs> && ...) && is_raw_cuda_output_mdspec<OutputMdspec> &&
-    (is_raw_cuda_input_mdspec<InputMdspecs> && ...) &&
+    (uni20::MdspecLike<InputMdspecs> && ...) && is_raw_mutable_cuda_mdspec<OutputMdspec> &&
+    (is_raw_const_cuda_mdspec<InputMdspecs> && ...) &&
     ((std::remove_cvref_t<OutputMdspec>::rank() == std::remove_cvref_t<InputMdspecs>::rank()) && ...) &&
     (std::same_as<transform_scalar_t<OutputMdspec>, transform_scalar_t<InputMdspecs>> && ...) &&
     (std::remove_cvref_t<OutputMdspec>::rank() == 0 ||
@@ -305,10 +280,9 @@ void execute_stateless_unary(UnaryArithmeticPlan<Scalar> const& plan, Function f
   execute_overwrite_transform(plan, [&](Scalar* output, auto const& inputs, cudaStream_t stream, int device) {
     if constexpr (supports_elementwise_arithmetic<Scalar>)
     {
-      if (plan.elementwise_plan.index_kind == ElementwiseIndexKind::index_32)
-        enqueue_elementwise_unary(output, inputs[0], function, plan.elementwise_plan.plan_32, stream, device);
-      else
-        enqueue_elementwise_unary(output, inputs[0], function, plan.elementwise_plan.plan_64, stream, device);
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_unary(output, inputs[0], function, elementwise_plan, stream, device);
+      });
     }
     else
     {
@@ -322,10 +296,9 @@ template <class Scalar, class Factor> void execute_scale(ScalePlan<Scalar, Facto
   execute_overwrite_transform(plan, [&](Scalar* output, auto const& inputs, cudaStream_t stream, int device) {
     if constexpr (supports_elementwise_scale<Scalar, Factor>)
     {
-      if (plan.elementwise_plan.index_kind == ElementwiseIndexKind::index_32)
-        enqueue_elementwise_scale(output, inputs[0], plan.factor, plan.elementwise_plan.plan_32, stream, device);
-      else
-        enqueue_elementwise_scale(output, inputs[0], plan.factor, plan.elementwise_plan.plan_64, stream, device);
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_scale(output, inputs[0], plan.factor, elementwise_plan, stream, device);
+      });
     }
     else
     {
@@ -340,12 +313,9 @@ void execute_stateless_binary(BinaryArithmeticPlan<Scalar> const& plan, Function
   execute_overwrite_transform(plan, [&](Scalar* output, auto const& inputs, cudaStream_t stream, int device) {
     if constexpr (supports_elementwise_arithmetic<Scalar>)
     {
-      if (plan.elementwise_plan.index_kind == ElementwiseIndexKind::index_32)
-        enqueue_elementwise_binary(output, inputs[0], inputs[1], function, plan.elementwise_plan.plan_32, stream,
-                                   device);
-      else
-        enqueue_elementwise_binary(output, inputs[0], inputs[1], function, plan.elementwise_plan.plan_64, stream,
-                                   device);
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_binary(output, inputs[0], inputs[1], function, elementwise_plan, stream, device);
+      });
     }
     else
     {

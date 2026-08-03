@@ -92,6 +92,15 @@ template <std::size_t OperandCount, std::size_t MaximumRank> struct LoweredStrid
       if (index_kind == ElementwiseIndexKind::index_32) return plan_32.element_count;
       return static_cast<std::size_t>(plan_64.element_count);
     }
+
+    /// \brief Invoke a callable with the selected 32- or 64-bit payload.
+    /// \param visitor Callable accepting either concrete plan type.
+    /// \return The callable result.
+    template <class Visitor> decltype(auto) visit(Visitor&& visitor) const
+    {
+      if (index_kind == ElementwiseIndexKind::index_32) return std::forward<Visitor>(visitor)(plan_32);
+      return std::forward<Visitor>(visitor)(plan_64);
+    }
 };
 
 namespace elementwise_plan_detail

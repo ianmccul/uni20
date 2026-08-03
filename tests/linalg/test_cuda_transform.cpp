@@ -21,6 +21,10 @@ using real_cuda_matrix = uni20::CudaTensor<double, 2>;
 using const_real_cuda_mdspec = decltype(std::declval<real_cuda_matrix const&>().mdspec());
 using mutable_real_cuda_mdspec = decltype(std::declval<real_cuda_matrix&>().mdspec());
 
+static_assert(uni20::linalg::detail::cuda_reference::is_raw_mutable_cuda_mdspec<mutable_real_cuda_mdspec>);
+static_assert(uni20::linalg::detail::cuda_reference::is_raw_const_cuda_mdspec<const_real_cuda_mdspec>);
+static_assert(!uni20::linalg::detail::cuda_reference::is_raw_const_cuda_mdspec<mutable_real_cuda_mdspec>);
+static_assert(!uni20::linalg::detail::cuda_reference::is_raw_mutable_cuda_mdspec<const_real_cuda_mdspec>);
 static_assert(uni20::linalg::detail::cuda_reference::SupportedStatelessUnaryMdspecs<
               mutable_real_cuda_mdspec, const_real_cuda_mdspec, uni20::linalg::negate>);
 

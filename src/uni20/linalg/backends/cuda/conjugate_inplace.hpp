@@ -9,6 +9,7 @@
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cuda/elementwise_conjugate.hpp>
+#include <uni20/linalg/backends/cuda/mdspec_traits.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -27,19 +28,6 @@ namespace uni20::linalg
 {
 namespace detail::cuda_reference
 {
-
-template <class Accessor> struct IsRawMutableCudaAccessor : std::false_type
-{};
-
-template <class ElementType>
-struct IsRawMutableCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>>
-    : std::bool_constant<!std::is_const_v<ElementType>>
-{};
-
-template <class Mdspec>
-inline constexpr bool is_raw_mutable_cuda_mdspec =
-    uni20::cuda::BufferMdspec<Mdspec> &&
-    IsRawMutableCudaAccessor<typename std::remove_cvref_t<Mdspec>::accessor_type>::value;
 
 template <class Mdspec> using conjugate_scalar_t = std::remove_cv_t<typename std::remove_cvref_t<Mdspec>::element_type>;
 
@@ -132,10 +120,9 @@ template <class Scalar> void execute_conjugate_inplace(ConjugatePlan<Scalar> con
 
   if constexpr (supports_elementwise_conjugate<Scalar>)
   {
-    if (plan.elementwise_plan.index_kind == ElementwiseIndexKind::index_32)
-      enqueue_elementwise_conjugate(output, plan.elementwise_plan.plan_32, stream.native_handle(), device);
-    else
-      enqueue_elementwise_conjugate(output, plan.elementwise_plan.plan_64, stream.native_handle(), device);
+    plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+      enqueue_elementwise_conjugate(output, elementwise_plan, stream.native_handle(), device);
+    });
   }
   else
   {
