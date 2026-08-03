@@ -106,6 +106,21 @@ TEST(TensorTransformTest, UnaryTensorUpdateUsesExistingOutputValue)
   EXPECT_DOUBLE_EQ(values[3], 16.0);
 }
 
+TEST(TensorTransformTest, NamedNegateFunctorUsesTheGenericCpuBackend)
+{
+  uni20::Tensor<double, 1> input(3);
+  uni20::Tensor<double, 1> output;
+  input[0] = 1.0;
+  input[1] = -2.0;
+  input[2] = 3.0;
+
+  uni20::assign_transform(output, uni20::linalg::negate{}, input);
+
+  EXPECT_DOUBLE_EQ(output[0], -1.0);
+  EXPECT_DOUBLE_EQ(output[1], 2.0);
+  EXPECT_DOUBLE_EQ(output[2], -3.0);
+}
+
 TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)
 {
   uni20::test::DeferredHostTensor<double, 1> lhs(3);

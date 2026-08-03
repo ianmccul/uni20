@@ -26,6 +26,13 @@ template <class Accessor> struct ElementwiseOperand
     {
       return accessor.access(handle, static_cast<offset_type>(offset));
     }
+
+    template <class Offset> [[nodiscard]] __device__ constexpr auto load(Offset offset) const
+    {
+      auto&& reference = this->access(offset);
+      using reference_type = std::remove_cvref_t<decltype(reference)>;
+      return static_cast<reference_type>(reference);
+    }
 };
 
 template <class Handle, class Accessor>
@@ -41,9 +48,9 @@ __device__ void apply(Operation const& operation, OutputOperand const& output, O
 {
   auto&& output_value = output.access(offsets[0]);
   if constexpr (ReadsOutput)
-    output_value = operation(output_value, inputs.access(offsets[Input + 1])...);
+    output_value = operation(output.load(offsets[0]), inputs.load(offsets[Input + 1])...);
   else
-    output_value = operation(inputs.access(offsets[Input + 1])...);
+    output_value = operation(inputs.load(offsets[Input + 1])...);
 }
 
 template <bool ReadsOutput, class Plan, class Operation, class OutputOperand, class... InputOperands>

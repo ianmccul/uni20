@@ -16,6 +16,10 @@
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
+#if UNI20_BACKEND_CUDA
+#include <uni20/linalg/backends/cuda/transform.hpp>
+#endif
+
 #include <cstddef>
 #include <tuple>
 #include <type_traits>

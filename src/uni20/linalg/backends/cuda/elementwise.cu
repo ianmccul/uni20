@@ -1,8 +1,10 @@
 #include "elementwise_conjugate.hpp"
 #include "elementwise_copy.hpp"
 #include "elementwise_kernel.cuh"
+#include "elementwise_negate.hpp"
 
 #include <uni20/core/scalar_concepts.hpp>
+#include <uni20/linalg/elementwise_functions.hpp>
 #include <uni20/storage/cuda_accessor.hpp>
 
 #include <concepts>
@@ -57,6 +59,17 @@ void enqueue_elementwise_conjugate_impl(Scalar* output, Plan const& plan, cudaSt
                                   stream, device, "launch CUDA reference elementwise conjugation");
 }
 
+template <class Scalar, class Plan>
+void enqueue_elementwise_negate_impl(Scalar* output, Scalar const* input, Plan const& plan, cudaStream_t stream,
+                                     int device)
+{
+  using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
+  using input_accessor = uni20::cuda::CudaPointerAccessor<Scalar const>;
+  launch_elementwise_kernel<false>(plan, uni20::linalg::negate{}, ElementwiseOperand{output, output_accessor{}}, stream,
+                                   device, "launch CUDA reference elementwise negation",
+                                   ElementwiseOperand{input, input_accessor{}});
+}
+
 } // namespace
 
 #define UNI20_DEFINE_ELEMENTWISE_COPY(Scalar)                                                                          \
@@ -96,5 +109,25 @@ UNI20_DEFINE_ELEMENTWISE_CONJUGATE(uni20::cfloat)
 UNI20_DEFINE_ELEMENTWISE_CONJUGATE(uni20::cdouble)
 
 #undef UNI20_DEFINE_ELEMENTWISE_CONJUGATE
+
+#define UNI20_DEFINE_ELEMENTWISE_NEGATE(Scalar)                                                                        \
+  void enqueue_elementwise_negate(Scalar* output, Scalar const* input, ElementwiseNegatePlan32 const& plan,            \
+                                  cudaStream_t stream, int device)                                                     \
+  {                                                                                                                    \
+    enqueue_elementwise_negate_impl(output, input, plan, stream, device);                                              \
+  }                                                                                                                    \
+                                                                                                                       \
+  void enqueue_elementwise_negate(Scalar* output, Scalar const* input, ElementwiseNegatePlan64 const& plan,            \
+                                  cudaStream_t stream, int device)                                                     \
+  {                                                                                                                    \
+    enqueue_elementwise_negate_impl(output, input, plan, stream, device);                                              \
+  }
+
+UNI20_DEFINE_ELEMENTWISE_NEGATE(float)
+UNI20_DEFINE_ELEMENTWISE_NEGATE(double)
+UNI20_DEFINE_ELEMENTWISE_NEGATE(uni20::cfloat)
+UNI20_DEFINE_ELEMENTWISE_NEGATE(uni20::cdouble)
+
+#undef UNI20_DEFINE_ELEMENTWISE_NEGATE
 
 } // namespace uni20::linalg::detail::cuda_reference

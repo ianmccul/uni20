@@ -649,6 +649,11 @@ descriptor offsets use one exclusive access state and rely on the public C++
 precondition that input and output do not destructively overlap. A transformed
 copy at the same descriptor offset is proven to overlap and declines.
 
+The same affine executor also provides a registered
+`transform_op<linalg::negate>` lowering for raw CUDA input and output accessors.
+This is an explicit typed registration, not evidence that arbitrary callable
+state can cross the precompiled library boundary.
+
 ## Data Descriptor Boundary
 
 A data descriptor is an opaque description of the logical region associated

@@ -435,6 +435,7 @@ The precompiled CUDA reference copy backend currently uses two lowering forms:
 | Raw contiguous mappings with matching physical order | `cudaMemcpyAsync` or `cudaMemcpyPeerAsync` |
 | Same-device positive-strided mappings with compact rank through eight | Backend-neutral affine iteration plan lowered to a 32- or 64-bit CUDA payload |
 | Raw or conjugating CUDA input accessor | Explicitly compiled accessor lowering selected by the copy plan |
+| Named unary `linalg::negate` transform | Explicitly registered one-input overwrite lowering over the same affine plan |
 | Non-strided mapping or other stateful accessor composition | Clean decline |
 
 The host planner removes size-one dimensions, orders dimensions by the output

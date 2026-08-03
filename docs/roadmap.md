@@ -125,6 +125,9 @@ See the [Async Documentation Index](async/) and
   in-place conjugation for complex storage. This zero-input update path acquires
   one exclusive buffer access; trivial real and integer conjugation does not
   launch.
+- A registered `linalg::negate` callable exercises the one-input overwrite
+  transform path across different positive-strided CUDA mappings. Other callable
+  types continue to require an explicit compiled lowering.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and
