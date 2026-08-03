@@ -125,10 +125,11 @@ See the [Async Documentation Index](async/) and
   in-place conjugation for complex storage. This zero-input update path acquires
   one exclusive buffer access; trivial real and integer conjugation does not
   launch.
-- Registered `linalg::negate`, stateful `linalg::scale<Factor>`, and binary
-  `linalg::add` callables exercise one- and two-input overwrite transforms
-  across independently positive-strided CUDA mappings. Other callable types
-  continue to require an explicit compiled lowering.
+- Registered same-element-type arithmetic callables exercise one- and two-input
+  overwrite transforms across independently positive-strided CUDA mappings:
+  unary negate, square, and reciprocal; stateful scale; and binary addition,
+  subtraction, multiplication, and division. Other callable types continue to
+  require an explicit compiled lowering.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and

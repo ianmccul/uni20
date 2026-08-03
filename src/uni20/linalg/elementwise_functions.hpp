@@ -27,6 +27,28 @@ struct negate
     }
 };
 
+/// \brief Return the product of one element value with itself.
+struct square
+{
+    template <class Value>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Value value) const noexcept(noexcept(value * value))
+        -> decltype(value * value)
+    {
+      return value * value;
+    }
+};
+
+/// \brief Return the multiplicative inverse of one element value.
+struct reciprocal
+{
+    template <class Value>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Value value) const noexcept(noexcept(Value{1} / value))
+        -> decltype(Value{1} / value)
+    {
+      return Value{1} / value;
+    }
+};
+
 /// \brief Multiply one element value by a retained scalar factor.
 /// \details The factor is part of the operation payload carried through
 ///          dispatch. Precompiled backends explicitly register supported
@@ -54,6 +76,39 @@ struct add
         noexcept(noexcept(left + right)) -> decltype(left + right)
     {
       return left + right;
+    }
+};
+
+/// \brief Return the difference of two element values.
+struct subtract
+{
+    template <class Left, class Right>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Left left, Right right) const
+        noexcept(noexcept(left - right)) -> decltype(left - right)
+    {
+      return left - right;
+    }
+};
+
+/// \brief Return the product of two element values.
+struct multiply
+{
+    template <class Left, class Right>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Left left, Right right) const
+        noexcept(noexcept(left * right)) -> decltype(left * right)
+    {
+      return left * right;
+    }
+};
+
+/// \brief Return the quotient of two element values.
+struct divide
+{
+    template <class Left, class Right>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Left left, Right right) const
+        noexcept(noexcept(left / right)) -> decltype(left / right)
+    {
+      return left / right;
     }
 };
 

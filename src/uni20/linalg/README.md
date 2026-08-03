@@ -65,9 +65,9 @@ before they lower to backend wrappers and kernels.
 - `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
   callable through dispatch. The CPU reference backend supports arbitrary rank
   and input arity. The CUDA reference backend explicitly registers
-  `linalg::negate`, stateful `linalg::scale<Factor>`, and binary `linalg::add`
-  overwrite lowerings; other optimized callable/layout combinations belong in
-  specialized backends.
+  same-element-type unary and binary arithmetic function objects plus stateful
+  `linalg::scale<Factor>`; other optimized callable/layout combinations belong
+  in specialized backends.
 - `sum_reduction_op<R, N>` carries normalized reduced and surviving axes.
   Tensor front ends remove the selected axes, preserve canonical result layout,
   and use the generic CPU reference executor when no earlier backend accepts.

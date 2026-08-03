@@ -21,8 +21,8 @@ using real_cuda_matrix = uni20::CudaTensor<double, 2>;
 using const_real_cuda_mdspec = decltype(std::declval<real_cuda_matrix const&>().mdspec());
 using mutable_real_cuda_mdspec = decltype(std::declval<real_cuda_matrix&>().mdspec());
 
-static_assert(
-    uni20::linalg::detail::cuda_reference::SupportedNegateMdspecs<mutable_real_cuda_mdspec, const_real_cuda_mdspec>);
+static_assert(uni20::linalg::detail::cuda_reference::SupportedStatelessUnaryMdspecs<
+              mutable_real_cuda_mdspec, const_real_cuda_mdspec, uni20::linalg::negate>);
 
 template <class Tensor>
 auto make_strided_mdspec(Tensor& tensor, std::size_t offset, extents_type extents,
@@ -62,9 +62,10 @@ TEST(CudaTransformPlanningTest, UnaryPlanDecodesDifferentPaddedStrides)
   double value = 0.0;
   stdex::mdspan output{&value, output_mapping};
   stdex::mdspan input{&value, input_mapping};
-  uni20::linalg::detail::cuda_reference::LoweredElementwiseNegatePlan plan;
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseUnaryPlan plan;
 
-  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_negate_plan(output, input, plan));
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_transform_plan<
+              uni20::linalg::detail::cuda_reference::elementwise_arithmetic_maximum_rank>(output, plan, input));
   ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
   auto const& layout = plan.plan_32;
   EXPECT_EQ(layout.compact_rank, 2);
@@ -82,9 +83,10 @@ TEST(CudaTransformPlanningTest, RankZeroUnaryPlanVisitsOneElement)
   double input_value = 1.0;
   stdex::mdspan<double, scalar_extents> output{&output_value};
   stdex::mdspan<double const, scalar_extents> input{&input_value};
-  uni20::linalg::detail::cuda_reference::LoweredElementwiseNegatePlan plan;
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseUnaryPlan plan;
 
-  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_negate_plan(output, input, plan));
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_transform_plan<
+              uni20::linalg::detail::cuda_reference::elementwise_arithmetic_maximum_rank>(output, plan, input));
   ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
   EXPECT_EQ(plan.plan_32.compact_rank, 0);
   EXPECT_EQ(plan.plan_32.element_count, 1);
@@ -102,10 +104,10 @@ TEST(CudaTransformPlanningTest, BinaryPlanDecodesThreeIndependentMappings)
   stdex::mdspan output{&value, output_mapping};
   stdex::mdspan lhs{&value, lhs_mapping};
   stdex::mdspan rhs{&value, rhs_mapping};
-  uni20::linalg::detail::cuda_reference::LoweredElementwiseAddPlan plan;
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseBinaryPlan plan;
 
   ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_transform_plan<
-              uni20::linalg::detail::cuda_reference::elementwise_add_maximum_rank>(output, plan, lhs, rhs));
+              uni20::linalg::detail::cuda_reference::elementwise_arithmetic_maximum_rank>(output, plan, lhs, rhs));
   ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
   auto const& layout = plan.plan_32;
   EXPECT_EQ(layout.compact_rank, 2);
@@ -119,13 +121,24 @@ TEST(CudaTransformPlanningTest, BinaryPlanDecodesThreeIndependentMappings)
 TEST(CudaTransformPlanningTest, RegisteredCallablesHaveExactCudaTypeAcceptance)
 {
   using negate_operation = uni20::linalg::transform_op<uni20::linalg::negate>;
+  using square_operation = uni20::linalg::transform_op<uni20::linalg::square>;
+  using reciprocal_operation = uni20::linalg::transform_op<uni20::linalg::reciprocal>;
   using scale_operation = uni20::linalg::transform_op<uni20::linalg::scale<double>>;
   using integer_scale_operation = uni20::linalg::transform_op<uni20::linalg::scale<int>>;
   using add_operation = uni20::linalg::transform_op<uni20::linalg::add>;
+  using subtract_operation = uni20::linalg::transform_op<uni20::linalg::subtract>;
+  using multiply_operation = uni20::linalg::transform_op<uni20::linalg::multiply>;
+  using divide_operation = uni20::linalg::transform_op<uni20::linalg::divide>;
   EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, negate_operation,
                                                             mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
             uni20::linalg::KernelTypeAcceptance::maybe);
   EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, scale_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, square_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, reciprocal_operation,
                                                             mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
             uni20::linalg::KernelTypeAcceptance::maybe);
   EXPECT_EQ(
@@ -133,6 +146,18 @@ TEST(CudaTransformPlanningTest, RegisteredCallablesHaveExactCudaTypeAcceptance)
                                                       mutable_real_cuda_mdspec, const_real_cuda_mdspec>()),
       uni20::linalg::KernelTypeAcceptance::no);
   EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, add_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec,
+                                                            const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, subtract_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec,
+                                                            const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, multiply_operation,
+                                                            mutable_real_cuda_mdspec, const_real_cuda_mdspec,
+                                                            const_real_cuda_mdspec>()),
+            uni20::linalg::KernelTypeAcceptance::maybe);
+  EXPECT_EQ((uni20::linalg::detail::backend_type_acceptance<uni20::linalg::CudaReferenceBackend, divide_operation,
                                                             mutable_real_cuda_mdspec, const_real_cuda_mdspec,
                                                             const_real_cuda_mdspec>()),
             uni20::linalg::KernelTypeAcceptance::maybe);
@@ -184,6 +209,100 @@ TEST_F(CudaTransformTest, ScalesComplexValuesByRealAndComplexFactors)
   EXPECT_EQ(real_result[1], (uni20::cfloat{-6.0F, 8.0F}));
   EXPECT_EQ(complex_result[0], (uni20::cfloat{-2.0F, 1.0F}));
   EXPECT_EQ(complex_result[1], (uni20::cfloat{-4.0F, -3.0F}));
+}
+
+TEST_F(CudaTransformTest, AppliesRegisteredUnaryArithmetic)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<double, 1> host_input(3);
+  host_input[0] = 2.0;
+  host_input[1] = -4.0;
+  host_input[2] = 0.5;
+
+  auto input = uni20::to_device(host_input, 0);
+  uni20::CudaTensor<double, 1> squared(runtime.device_resources(0), 3);
+  uni20::CudaTensor<double, 1> reciprocals(runtime.device_resources(0), 3);
+  uni20::assign_transform(squared, uni20::linalg::square{}, input);
+  uni20::assign_transform(reciprocals, uni20::linalg::reciprocal{}, input);
+
+  auto squared_result = uni20::to_host(squared);
+  auto reciprocal_result = uni20::to_host(reciprocals);
+  EXPECT_DOUBLE_EQ(squared_result[0], 4.0);
+  EXPECT_DOUBLE_EQ(squared_result[1], 16.0);
+  EXPECT_DOUBLE_EQ(squared_result[2], 0.25);
+  EXPECT_DOUBLE_EQ(reciprocal_result[0], 0.5);
+  EXPECT_DOUBLE_EQ(reciprocal_result[1], -0.25);
+  EXPECT_DOUBLE_EQ(reciprocal_result[2], 2.0);
+}
+
+TEST_F(CudaTransformTest, AppliesRegisteredBinaryArithmetic)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<double, 1> host_lhs(3);
+  uni20::Tensor<double, 1> host_rhs(3);
+  host_lhs[0] = 2.0;
+  host_lhs[1] = -4.0;
+  host_lhs[2] = 8.0;
+  host_rhs[0] = 0.5;
+  host_rhs[1] = 2.0;
+  host_rhs[2] = -4.0;
+
+  auto lhs = uni20::to_device(host_lhs, 0);
+  auto rhs = uni20::to_device(host_rhs, 0);
+  uni20::CudaTensor<double, 1> differences(runtime.device_resources(0), 3);
+  uni20::CudaTensor<double, 1> products(runtime.device_resources(0), 3);
+  uni20::CudaTensor<double, 1> quotients(runtime.device_resources(0), 3);
+  uni20::assign_transform(differences, uni20::linalg::subtract{}, lhs, rhs);
+  uni20::assign_transform(products, uni20::linalg::multiply{}, lhs, rhs);
+  uni20::assign_transform(quotients, uni20::linalg::divide{}, lhs, rhs);
+
+  auto difference_result = uni20::to_host(differences);
+  auto product_result = uni20::to_host(products);
+  auto quotient_result = uni20::to_host(quotients);
+  EXPECT_DOUBLE_EQ(difference_result[0], 1.5);
+  EXPECT_DOUBLE_EQ(difference_result[1], -6.0);
+  EXPECT_DOUBLE_EQ(difference_result[2], 12.0);
+  EXPECT_DOUBLE_EQ(product_result[0], 1.0);
+  EXPECT_DOUBLE_EQ(product_result[1], -8.0);
+  EXPECT_DOUBLE_EQ(product_result[2], -32.0);
+  EXPECT_DOUBLE_EQ(quotient_result[0], 4.0);
+  EXPECT_DOUBLE_EQ(quotient_result[1], -2.0);
+  EXPECT_DOUBLE_EQ(quotient_result[2], -2.0);
+}
+
+TEST_F(CudaTransformTest, AppliesRegisteredComplexArithmetic)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<uni20::cfloat, 1> host_lhs(2);
+  uni20::Tensor<uni20::cfloat, 1> host_rhs(2);
+  host_lhs[0] = uni20::cfloat{0.0F, 1.0F};
+  host_lhs[1] = uni20::cfloat{2.0F, 0.0F};
+  host_rhs[0] = uni20::cfloat{0.0F, -1.0F};
+  host_rhs[1] = uni20::cfloat{0.5F, 0.0F};
+
+  auto lhs = uni20::to_device(host_lhs, 0);
+  auto rhs = uni20::to_device(host_rhs, 0);
+  uni20::CudaTensor<uni20::cfloat, 1> squared(runtime.device_resources(0), 2);
+  uni20::CudaTensor<uni20::cfloat, 1> reciprocals(runtime.device_resources(0), 2);
+  uni20::CudaTensor<uni20::cfloat, 1> products(runtime.device_resources(0), 2);
+  uni20::CudaTensor<uni20::cfloat, 1> quotients(runtime.device_resources(0), 2);
+  uni20::assign_transform(squared, uni20::linalg::square{}, lhs);
+  uni20::assign_transform(reciprocals, uni20::linalg::reciprocal{}, lhs);
+  uni20::assign_transform(products, uni20::linalg::multiply{}, lhs, rhs);
+  uni20::assign_transform(quotients, uni20::linalg::divide{}, lhs, rhs);
+
+  auto squared_result = uni20::to_host(squared);
+  auto reciprocal_result = uni20::to_host(reciprocals);
+  auto product_result = uni20::to_host(products);
+  auto quotient_result = uni20::to_host(quotients);
+  EXPECT_EQ(squared_result[0], (uni20::cfloat{-1.0F, 0.0F}));
+  EXPECT_EQ(squared_result[1], (uni20::cfloat{4.0F, 0.0F}));
+  EXPECT_EQ(reciprocal_result[0], (uni20::cfloat{0.0F, -1.0F}));
+  EXPECT_EQ(reciprocal_result[1], (uni20::cfloat{0.5F, 0.0F}));
+  EXPECT_EQ(product_result[0], (uni20::cfloat{1.0F, 0.0F}));
+  EXPECT_EQ(product_result[1], (uni20::cfloat{1.0F, 0.0F}));
+  EXPECT_EQ(quotient_result[0], (uni20::cfloat{-1.0F, 0.0F}));
+  EXPECT_EQ(quotient_result[1], (uni20::cfloat{4.0F, 0.0F}));
 }
 
 TEST_F(CudaTransformTest, AddsInputsWithDifferentCanonicalLayouts)
@@ -307,7 +426,7 @@ TEST_F(CudaTransformTest, SameOffsetOverwriteDeclinesBeforeAccess)
   auto output = tensor.mdspec();
   auto input = std::as_const(tensor).mdspec();
 
-  auto plan = uni20::linalg::detail::cuda_reference::prepare_negate(output, input);
+  auto plan = uni20::linalg::detail::cuda_reference::prepare_stateless_unary<uni20::linalg::negate>(output, input);
 
   EXPECT_EQ(plan.attempt, uni20::linalg::KernelAttempt::unsupported_instance);
   EXPECT_TRUE(plan.has_work);

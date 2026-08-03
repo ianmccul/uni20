@@ -22,12 +22,13 @@ without acquiring a stream or launching because it is semantically the identity.
 Complex conjugation supports persistent `uni20::cfloat` and `uni20::cdouble`
 storage through CUDA execution proxies.
 
-The CUDA reference backend explicitly registers `linalg::negate`,
-`linalg::scale<Factor>`, and `linalg::add` overwrite transforms. Scaling carries
-its factor in the operation value; binary addition carries two independently
-strided input operands. Supported real and complex combinations are compiled
-into the library. Other callable types are not assumed to be available inside
-the precompiled library and therefore remain ineligible for this backend.
+The CUDA reference backend explicitly registers stateless unary `negate`,
+`square`, and `reciprocal` transforms; stateful `scale<Factor>`; and stateless
+binary `add`, `subtract`, `multiply`, and `divide` transforms. Binary operations
+carry two independently strided input operands. Supported real and complex
+combinations are compiled into the library. Other callable types are not
+assumed to be available inside the precompiled library and therefore remain
+ineligible for this backend.
 
 The kernels publish stream completion through the same buffer ledgers as the
 runtime copy path. Nonpositive strides on active axes cleanly decline for

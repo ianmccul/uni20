@@ -1,8 +1,7 @@
-#include "elementwise_add.hpp"
+#include "elementwise_arithmetic.hpp"
 #include "elementwise_conjugate.hpp"
 #include "elementwise_copy.hpp"
 #include "elementwise_kernel.cuh"
-#include "elementwise_negate.hpp"
 #include "elementwise_scale.hpp"
 
 #include <uni20/core/scalar_concepts.hpp>
@@ -61,14 +60,14 @@ void enqueue_elementwise_conjugate_impl(Scalar* output, Plan const& plan, cudaSt
                                   stream, device, "launch CUDA reference elementwise conjugation");
 }
 
-template <class Scalar, class Plan>
-void enqueue_elementwise_negate_impl(Scalar* output, Scalar const* input, Plan const& plan, cudaStream_t stream,
-                                     int device)
+template <class Scalar, class Operation, class Plan>
+void enqueue_elementwise_unary_impl(Scalar* output, Scalar const* input, Operation operation, Plan const& plan,
+                                    cudaStream_t stream, int device)
 {
   using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
   using input_accessor = uni20::cuda::CudaPointerAccessor<Scalar const>;
-  launch_elementwise_kernel<false>(plan, uni20::linalg::negate{}, ElementwiseOperand{output, output_accessor{}}, stream,
-                                   device, "launch CUDA reference elementwise negation",
+  launch_elementwise_kernel<false>(plan, operation, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                   "launch CUDA reference unary arithmetic",
                                    ElementwiseOperand{input, input_accessor{}});
 }
 
@@ -91,19 +90,46 @@ void enqueue_elementwise_scale_impl(Scalar* output, Scalar const* input, Factor 
                                    ElementwiseOperand{input, input_accessor{}});
 }
 
-template <class Scalar, class Plan>
-void enqueue_elementwise_add_impl(Scalar* output, Scalar const* lhs, Scalar const* rhs, Plan const& plan,
-                                  cudaStream_t stream, int device)
+template <class Scalar, class Operation, class Plan>
+void enqueue_elementwise_binary_impl(Scalar* output, Scalar const* lhs, Scalar const* rhs, Operation operation,
+                                     Plan const& plan, cudaStream_t stream, int device)
 {
   using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
   using input_accessor = uni20::cuda::CudaPointerAccessor<Scalar const>;
-  launch_elementwise_kernel<false>(plan, uni20::linalg::add{}, ElementwiseOperand{output, output_accessor{}}, stream,
-                                   device, "launch CUDA reference elementwise addition",
-                                   ElementwiseOperand{lhs, input_accessor{}},
+  launch_elementwise_kernel<false>(plan, operation, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                   "launch CUDA reference binary arithmetic", ElementwiseOperand{lhs, input_accessor{}},
                                    ElementwiseOperand{rhs, input_accessor{}});
 }
 
 } // namespace
+
+template <RegisteredStatelessUnary Function, class Scalar>
+void enqueue_elementwise_unary(Scalar* output, Scalar const* input, Function function,
+                               ElementwiseUnaryPlan32 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_unary_impl(output, input, function, plan, stream, device);
+}
+
+template <RegisteredStatelessUnary Function, class Scalar>
+void enqueue_elementwise_unary(Scalar* output, Scalar const* input, Function function,
+                               ElementwiseUnaryPlan64 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_unary_impl(output, input, function, plan, stream, device);
+}
+
+template <RegisteredStatelessBinary Function, class Scalar>
+void enqueue_elementwise_binary(Scalar* output, Scalar const* lhs, Scalar const* rhs, Function function,
+                                ElementwiseBinaryPlan32 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_binary_impl(output, lhs, rhs, function, plan, stream, device);
+}
+
+template <RegisteredStatelessBinary Function, class Scalar>
+void enqueue_elementwise_binary(Scalar* output, Scalar const* lhs, Scalar const* rhs, Function function,
+                                ElementwiseBinaryPlan64 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_binary_impl(output, lhs, rhs, function, plan, stream, device);
+}
 
 #define UNI20_DEFINE_ELEMENTWISE_COPY(Scalar)                                                                          \
   void enqueue_elementwise_copy(Scalar* output, Scalar const* input, ElementwiseCopyPlan32 const& plan,                \
@@ -143,26 +169,6 @@ UNI20_DEFINE_ELEMENTWISE_CONJUGATE(uni20::cdouble)
 
 #undef UNI20_DEFINE_ELEMENTWISE_CONJUGATE
 
-#define UNI20_DEFINE_ELEMENTWISE_NEGATE(Scalar)                                                                        \
-  void enqueue_elementwise_negate(Scalar* output, Scalar const* input, ElementwiseNegatePlan32 const& plan,            \
-                                  cudaStream_t stream, int device)                                                     \
-  {                                                                                                                    \
-    enqueue_elementwise_negate_impl(output, input, plan, stream, device);                                              \
-  }                                                                                                                    \
-                                                                                                                       \
-  void enqueue_elementwise_negate(Scalar* output, Scalar const* input, ElementwiseNegatePlan64 const& plan,            \
-                                  cudaStream_t stream, int device)                                                     \
-  {                                                                                                                    \
-    enqueue_elementwise_negate_impl(output, input, plan, stream, device);                                              \
-  }
-
-UNI20_DEFINE_ELEMENTWISE_NEGATE(float)
-UNI20_DEFINE_ELEMENTWISE_NEGATE(double)
-UNI20_DEFINE_ELEMENTWISE_NEGATE(uni20::cfloat)
-UNI20_DEFINE_ELEMENTWISE_NEGATE(uni20::cdouble)
-
-#undef UNI20_DEFINE_ELEMENTWISE_NEGATE
-
 #define UNI20_DEFINE_ELEMENTWISE_SCALE(Scalar, Factor)                                                                 \
   void enqueue_elementwise_scale(Scalar* output, Scalar const* input, Factor factor,                                   \
                                  ElementwiseScalePlan32 const& plan, cudaStream_t stream, int device)                  \
@@ -185,24 +191,43 @@ UNI20_DEFINE_ELEMENTWISE_SCALE(uni20::cdouble, uni20::cdouble)
 
 #undef UNI20_DEFINE_ELEMENTWISE_SCALE
 
-#define UNI20_DEFINE_ELEMENTWISE_ADD(Scalar)                                                                           \
-  void enqueue_elementwise_add(Scalar* output, Scalar const* lhs, Scalar const* rhs, ElementwiseAddPlan32 const& plan, \
-                               cudaStream_t stream, int device)                                                        \
-  {                                                                                                                    \
-    enqueue_elementwise_add_impl(output, lhs, rhs, plan, stream, device);                                              \
-  }                                                                                                                    \
-                                                                                                                       \
-  void enqueue_elementwise_add(Scalar* output, Scalar const* lhs, Scalar const* rhs, ElementwiseAddPlan64 const& plan, \
-                               cudaStream_t stream, int device)                                                        \
-  {                                                                                                                    \
-    enqueue_elementwise_add_impl(output, lhs, rhs, plan, stream, device);                                              \
-  }
+#define UNI20_INSTANTIATE_UNARY(Function, Scalar)                                                                      \
+  template void enqueue_elementwise_unary(Scalar*, Scalar const*, Function, ElementwiseUnaryPlan32 const&,             \
+                                          cudaStream_t, int);                                                          \
+  template void enqueue_elementwise_unary(Scalar*, Scalar const*, Function, ElementwiseUnaryPlan64 const&,             \
+                                          cudaStream_t, int)
 
-UNI20_DEFINE_ELEMENTWISE_ADD(float)
-UNI20_DEFINE_ELEMENTWISE_ADD(double)
-UNI20_DEFINE_ELEMENTWISE_ADD(uni20::cfloat)
-UNI20_DEFINE_ELEMENTWISE_ADD(uni20::cdouble)
+#define UNI20_INSTANTIATE_UNARY_SCALARS(Function)                                                                      \
+  UNI20_INSTANTIATE_UNARY(Function, float);                                                                            \
+  UNI20_INSTANTIATE_UNARY(Function, double);                                                                           \
+  UNI20_INSTANTIATE_UNARY(Function, uni20::cfloat);                                                                    \
+  UNI20_INSTANTIATE_UNARY(Function, uni20::cdouble)
 
-#undef UNI20_DEFINE_ELEMENTWISE_ADD
+UNI20_INSTANTIATE_UNARY_SCALARS(uni20::linalg::negate);
+UNI20_INSTANTIATE_UNARY_SCALARS(uni20::linalg::square);
+UNI20_INSTANTIATE_UNARY_SCALARS(uni20::linalg::reciprocal);
+
+#undef UNI20_INSTANTIATE_UNARY_SCALARS
+#undef UNI20_INSTANTIATE_UNARY
+
+#define UNI20_INSTANTIATE_BINARY(Function, Scalar)                                                                     \
+  template void enqueue_elementwise_binary(Scalar*, Scalar const*, Scalar const*, Function,                            \
+                                           ElementwiseBinaryPlan32 const&, cudaStream_t, int);                         \
+  template void enqueue_elementwise_binary(Scalar*, Scalar const*, Scalar const*, Function,                            \
+                                           ElementwiseBinaryPlan64 const&, cudaStream_t, int)
+
+#define UNI20_INSTANTIATE_BINARY_SCALARS(Function)                                                                     \
+  UNI20_INSTANTIATE_BINARY(Function, float);                                                                           \
+  UNI20_INSTANTIATE_BINARY(Function, double);                                                                          \
+  UNI20_INSTANTIATE_BINARY(Function, uni20::cfloat);                                                                   \
+  UNI20_INSTANTIATE_BINARY(Function, uni20::cdouble)
+
+UNI20_INSTANTIATE_BINARY_SCALARS(uni20::linalg::add);
+UNI20_INSTANTIATE_BINARY_SCALARS(uni20::linalg::subtract);
+UNI20_INSTANTIATE_BINARY_SCALARS(uni20::linalg::multiply);
+UNI20_INSTANTIATE_BINARY_SCALARS(uni20::linalg::divide);
+
+#undef UNI20_INSTANTIATE_BINARY_SCALARS
+#undef UNI20_INSTANTIATE_BINARY
 
 } // namespace uni20::linalg::detail::cuda_reference

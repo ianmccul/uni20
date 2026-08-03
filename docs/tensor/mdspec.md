@@ -650,10 +650,10 @@ precondition that input and output do not destructively overlap. A transformed
 copy at the same descriptor offset is proven to overlap and declines.
 
 The same affine executor also provides registered `transform_op` lowerings for
-raw CUDA input and output accessors: unary `linalg::negate`, stateful
-`linalg::scale<Factor>`, and binary `linalg::add`. These are explicit typed
-registrations, not evidence that arbitrary callable state can cross the
-precompiled library boundary.
+raw CUDA input and output accessors: unary `negate`, `square`, and `reciprocal`;
+stateful `scale<Factor>`; and binary `add`, `subtract`, `multiply`, and `divide`.
+These are explicit typed registrations, not evidence that arbitrary callable
+state can cross the precompiled library boundary.
 
 ## Data Descriptor Boundary
 

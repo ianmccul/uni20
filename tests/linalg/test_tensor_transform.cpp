@@ -145,6 +145,35 @@ TEST(TensorTransformTest, NamedScaleAndAddFunctorsUseTheGenericCpuBackend)
   EXPECT_DOUBLE_EQ(sum[2], 1.5);
 }
 
+TEST(TensorTransformTest, NamedArithmeticFunctorsUseTheGenericCpuBackend)
+{
+  uni20::Tensor<double, 1> lhs(3);
+  uni20::Tensor<double, 1> rhs(3);
+  lhs[0] = 2.0;
+  lhs[1] = -4.0;
+  lhs[2] = 8.0;
+  rhs[0] = 0.5;
+  rhs[1] = 2.0;
+  rhs[2] = -4.0;
+
+  uni20::Tensor<double, 1> squared;
+  uni20::Tensor<double, 1> reciprocals;
+  uni20::Tensor<double, 1> differences;
+  uni20::Tensor<double, 1> products;
+  uni20::Tensor<double, 1> quotients;
+  uni20::assign_transform(squared, uni20::linalg::square{}, lhs);
+  uni20::assign_transform(reciprocals, uni20::linalg::reciprocal{}, lhs);
+  uni20::assign_transform(differences, uni20::linalg::subtract{}, lhs, rhs);
+  uni20::assign_transform(products, uni20::linalg::multiply{}, lhs, rhs);
+  uni20::assign_transform(quotients, uni20::linalg::divide{}, lhs, rhs);
+
+  EXPECT_EQ(squared.storage(), (std::vector<double>{4.0, 16.0, 64.0}));
+  EXPECT_EQ(reciprocals.storage(), (std::vector<double>{0.5, -0.25, 0.125}));
+  EXPECT_EQ(differences.storage(), (std::vector<double>{1.5, -6.0, 12.0}));
+  EXPECT_EQ(products.storage(), (std::vector<double>{1.0, -8.0, -32.0}));
+  EXPECT_EQ(quotients.storage(), (std::vector<double>{4.0, -2.0, -2.0}));
+}
+
 TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)
 {
   uni20::test::DeferredHostTensor<double, 1> lhs(3);
