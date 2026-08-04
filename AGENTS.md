@@ -12,7 +12,7 @@
 sudo apt-get update -y && \
 sudo apt-get install -y \
     cmake ninja-build g++ \
-    libopenblas-dev liblapack-dev libbenchmark-dev libfmt-dev libgtest-dev
+    libopenblas-dev liblapack-dev libbenchmark-dev libgtest-dev
 ```
 
 **Notes for hosted environments:**
@@ -22,18 +22,22 @@ sudo apt-get install -y \
 * Uni20 requires oneTBB 2022.3 or newer. CMake fetches the pinned oneTBB
   source when no compatible system installation is available. Ubuntu 24.04's
   `libtbb-dev` 2021.11 package is below the supported minimum.
+* Uni20 requires fmt 11.1 or newer. CMake fetches the pinned fmt source when no
+  compatible system installation is available. Ubuntu 24.04's `libfmt-dev`
+  9.1 package is below the supported minimum.
 * Codex-like agents should always execute this block before attempting a build.
 
 **Optional packages**
 
 These packages are automatically fetched from GitHub if they are not detected.
 ```
-sudo apt-get install -y libbenchmark-dev libfmt-dev libgtest-dev
+sudo apt-get install -y libbenchmark-dev libgtest-dev
 ```
 
 Install `libtbb-dev` only when the distribution provides oneTBB 2022.3 or
-newer. In network-restricted environments, provide a compatible `TBB_DIR` or
-pre-populate the CMake FetchContent source instead.
+newer, and install `libfmt-dev` only when it provides fmt 11.1 or newer. In
+network-restricted environments, provide compatible package directories or
+pre-populate the CMake FetchContent sources instead.
 
 ---
 

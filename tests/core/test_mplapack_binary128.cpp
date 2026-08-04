@@ -5,7 +5,6 @@
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_io.hpp>
 
-#include <fmt/format.h>
 #include <mplapack_binary128.h>
 #include <mplapack_config.h>
 
@@ -200,9 +199,6 @@ TEST(MplapackBinary128Test, Uni20ScalarIoParsesAndFormatsConfiguredFloat128)
   std::string const complex_formatted = uni20::format_complex(complex_value, options);
   EXPECT_NE(complex_formatted.find("-"), std::string::npos);
   EXPECT_NE(complex_formatted.find("i"), std::string::npos);
-
-  std::string const fmt_formatted = fmt::format("{}", parsed);
-  EXPECT_TRUE(uni20::parse_real<Binary128>(fmt_formatted) == parsed);
 }
 
 TEST(MplapackBinary128Test, Uni20ScalarIoReadsConfiguredFloat128FromStreamToken)

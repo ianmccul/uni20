@@ -44,7 +44,6 @@ jobs:
             libopenblas-dev \
             liblapack-dev \
             libbenchmark-dev \
-            libfmt-dev \
             libgtest-dev
 
       - name: Configure
@@ -56,7 +55,7 @@ jobs:
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
             -DUNI20_USE_SYSTEM_TBB=OFF \
-            -DUNI20_USE_SYSTEM_FMT=ON \
+            -DUNI20_USE_SYSTEM_FMT=OFF \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \
             -DUNI20_USE_SYSTEM_NANOBIND=OFF \
@@ -95,7 +94,6 @@ jobs:
             libopenblas-dev \
             liblapack-dev \
             libbenchmark-dev \
-            libfmt-dev \
             libgtest-dev
 
       - name: Configure
@@ -107,7 +105,7 @@ jobs:
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
             -DUNI20_USE_SYSTEM_TBB=OFF \
-            -DUNI20_USE_SYSTEM_FMT=ON \
+            -DUNI20_USE_SYSTEM_FMT=OFF \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \
             -DUNI20_USE_SYSTEM_NANOBIND=OFF \
@@ -148,7 +146,6 @@ jobs:
             libopenblas-dev \
             liblapack-dev \
             libbenchmark-dev \
-            libfmt-dev \
             libgtest-dev
 
       - name: Configure
@@ -161,7 +158,7 @@ jobs:
             -DUNI20_BUILD_BENCH=OFF \
             -DUNI20_BUILD_ASM=OFF \
             -DUNI20_USE_SYSTEM_TBB=OFF \
-            -DUNI20_USE_SYSTEM_FMT=ON \
+            -DUNI20_USE_SYSTEM_FMT=OFF \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \
             -DUNI20_USE_SYSTEM_GTEST=ON \
             -DUNI20_USE_SYSTEM_NANOBIND=OFF \

@@ -550,9 +550,9 @@ inline FormattingOptions& get_formatting_options(const std::string& module)
   }
 }
 
-// Concept for a type that has an fmt::formatter specialization.
+// Concept for a type that fmt can format.
 template <typename T>
-concept HasFmtFormatter = fmt::has_formatter<std::remove_cvref_t<T>, fmt::format_context>::value;
+concept HasFmtFormatter = fmt::is_formattable<std::remove_cvref_t<T>, char>::value;
 
 // NVCC 12.x cannot parse libstdc++'s std::formattable implementation. CUDA
 // translation units retain the fmt path and omit this optional host formatter.
