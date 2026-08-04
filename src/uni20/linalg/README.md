@@ -10,6 +10,8 @@ before they lower to backend wrappers and kernels.
 - `operation_tags.hpp`: central catalogue of dispatchable operation values and
   their diagnostic names, including callable-carrying elementwise operation
   descriptors.
+- `elementwise_functions.hpp`: named backend-neutral function objects that may
+  have explicit precompiled backend lowerings.
 - `reduction_axes.hpp`: normalized reduced/surviving axis descriptors shared by
   reduction front ends and backends.
 - `backend_selector.hpp`: ordered backend selector values and the stateless
@@ -55,15 +57,17 @@ before they lower to backend wrappers and kernels.
   storage-preserving async Tensor or a nonblocking `Async<Element>` host result.
 - `copy_op` is the semantic element-copy operation used by Tensor `copy` and
   `make_tensor`. Its CPU backend respects accessors. `CudaReferenceBackend`
-  handles canonical contiguous host/device and device/device transfers, while
-  accessor transforms still require materialization or a future CUDA
-  elementwise kernel. Future BLAS matrix-copy extensions may accept
+  handles canonical contiguous host/device and device/device transfers plus
+  registered same-device positive-strided accessor lowerings. Future BLAS
+  matrix-copy extensions may accept
   representable rank-two layouts and conjugating views; strict BLAS/LAPACK
   compute wrappers still do not materialize implicitly.
 - `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
   callable through dispatch. The CPU reference backend supports arbitrary rank
-  and input arity; optimized callable/layout combinations belong in earlier
-  specialized backends.
+  and input arity. The CUDA reference backend explicitly registers
+  same-element-type unary and binary arithmetic function objects plus stateful
+  `linalg::scale<Factor>`; other optimized callable/layout combinations belong
+  in specialized backends.
 - `sum_reduction_op<R, N>` carries normalized reduced and surviving axes.
   Tensor front ends remove the selected axes, preserve canonical result layout,
   and use the generic CPU reference executor when no earlier backend accepts.

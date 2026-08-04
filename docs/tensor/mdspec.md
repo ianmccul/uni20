@@ -631,12 +631,15 @@ and provider resources, while its async path awaits them.
 
 Raw contiguous CUDA copies with matching physical order retain the
 `cudaMemcpyAsync` fast path. The CUDA reference elementwise executor handles
-same-device positive-strided mappings through rank eight, including differing
-input/output strides, padding, nonzero buffer-view offsets, and the compiled
-raw or conjugating accessor lowerings. It decodes each logical index and
-computes independent input and output offsets before evaluating the accessors.
-The operation publishes read/write completion through the same stream-ordered
-buffer access.
+same-device positive-strided mappings with compact rank through eight, including
+differing input/output strides, padding, nonzero buffer-view offsets, and the
+compiled raw or conjugating accessor lowerings. A backend-neutral host plan
+orders dimensions from the output mapping and coalesces only when every
+operand's strides are jointly adjacent. CUDA lowering selects 32-bit indices
+only when the logical count and every reachable operand offset fit, otherwise
+using a 64-bit payload. The kernel decodes the compact plan into independent
+input and output offsets before evaluating the accessors. The operation
+publishes read/write completion through the same stream-ordered buffer access.
 
 Non-strided mappings and unregistered stateful accessor compositions remain
 valid device-callable descriptors but are not yet part of this precompiled copy
@@ -645,6 +648,12 @@ general execution plan is available. Same-buffer copies with distinct
 descriptor offsets use one exclusive access state and rely on the public C++
 precondition that input and output do not destructively overlap. A transformed
 copy at the same descriptor offset is proven to overlap and declines.
+
+The same affine executor also provides registered `transform_op` lowerings for
+raw CUDA input and output accessors: unary `negate`, `square`, and `reciprocal`;
+stateful `scale<Factor>`; and binary `add`, `subtract`, `multiply`, and `divide`.
+These are explicit typed registrations, not evidence that arbitrary callable
+state can cross the precompiled library boundary.
 
 ## Data Descriptor Boundary
 

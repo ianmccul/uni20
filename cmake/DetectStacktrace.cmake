@@ -35,14 +35,25 @@ function(uni20_detect_stacktrace)
     set(_libraries "")
     set(_provider "standard library")
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    find_library(
+      _uni20_stdcxxexp_library
+      NAMES stdc++exp
+      PATHS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES}
+      NO_DEFAULT_PATH
+      NO_CACHE
+    )
+    if(NOT _uni20_stdcxxexp_library)
+      set(_uni20_stdcxxexp_library stdc++exp)
+    endif()
+
     cmake_push_check_state(RESET)
-    set(CMAKE_REQUIRED_LIBRARIES stdc++exp)
+    set(CMAKE_REQUIRED_LIBRARIES "${_uni20_stdcxxexp_library}")
     check_cxx_source_compiles("${_stacktrace_probe}" _UNI20_STACKTRACE_WITH_STDCXXEXP)
     cmake_pop_check_state()
 
     if(_UNI20_STACKTRACE_WITH_STDCXXEXP)
       set(_available ON)
-      set(_libraries stdc++exp)
+      set(_libraries "${_uni20_stdcxxexp_library}")
       set(_provider "stdc++exp")
     endif()
   endif()

@@ -10,11 +10,16 @@
 #include <uni20/linalg/backend_selector.hpp>
 #include <uni20/linalg/backends/cpu/transform.hpp>
 #include <uni20/linalg/dispatch.hpp>
+#include <uni20/linalg/elementwise_functions.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
+
+#if UNI20_BACKEND_CUDA
+#include <uni20/linalg/backends/cuda/transform.hpp>
+#endif
 
 #include <cstddef>
 #include <tuple>

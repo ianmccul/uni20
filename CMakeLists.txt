@@ -528,10 +528,10 @@ if(NOT UNI20_DOCS_WEB)
 
   uni20_add_dependency(
     NAME fmt
-    VERSION 8.1.1
+    VERSION 11.1.0
     TARGET fmt::fmt
     REPO https://github.com/fmtlib/fmt.git
-    TAG 10.2.1
+    TAG 11.1.4
   )
   if(TARGET fmt)
     relax_warnings(fmt)

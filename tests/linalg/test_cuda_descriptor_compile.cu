@@ -77,6 +77,15 @@ using const_cuda_accessor = uni20::const_accessor_adaptor<cuda_output_accessor>;
 using complex_input_accessor = uni20::cuda::CudaPointerAccessor<uni20::cdouble const>;
 using conjugated_input_accessor = uni20::conjugated_accessor<complex_input_accessor>;
 
+// NVCC 12.9 cannot lower a completely empty composed accessor as a bare
+// kernel parameter. Real kernels carry accessors inside non-empty operand
+// payloads, so mirror that ABI shape in this compile probe.
+template <class T> struct KernelParameter
+{
+    T value;
+    unsigned char nonempty;
+};
+
 template <class Mapping> __device__ auto evaluate_mapping(Mapping const& mapping)
 {
   return mapping(uni20::index_type{1}, uni20::index_type{2});
@@ -105,10 +114,12 @@ template <class Mapping> __device__ auto evaluate_mapping(Mapping const& mapping
   if (std::get<0>(strided_offsets) == std::get<0>(general_offsets)) return;
 }
 
-[[maybe_unused]] __global__ void accessor_adaptor_probe(const_cuda_accessor adapted,
-                                                        conjugated_input_accessor conjugated, double* output,
-                                                        uni20::cdouble const* complex_input)
+[[maybe_unused]] __global__ void accessor_adaptor_probe(KernelParameter<const_cuda_accessor> adapted_parameter,
+                                                        KernelParameter<conjugated_input_accessor> conjugated_parameter,
+                                                        double* output, uni20::cdouble const* complex_input)
 {
+  auto const& adapted = adapted_parameter.value;
+  auto const& conjugated = conjugated_parameter.value;
   auto const value = adapted.access(output, 0);
   auto const complex_value = conjugated.access(complex_input, 0);
   if (value == complex_value.real()) return;
@@ -116,16 +127,24 @@ template <class Mapping> __device__ auto evaluate_mapping(Mapping const& mapping
 
 [[maybe_unused]] __global__ void
 transform_accessor_probe(typename unary_transform_span::accessor_type unary,
-                         typename binary_transform_span::accessor_type binary,
+                         KernelParameter<typename binary_transform_span::accessor_type> binary_parameter,
                          typename conjugated_complex_transform_span::accessor_type complex_transform, double const* lhs,
                          double const* rhs, uni20::cfloat const* complex_input)
 {
+  auto const& binary = binary_parameter.value;
   auto unary_value = unary.access(lhs, 0);
   typename binary_transform_span::data_handle_type handles{lhs, rhs};
   typename binary_transform_span::accessor_type::offset_type offsets{0, 0};
   auto binary_value = binary.access(handles, offsets);
   auto complex_value = complex_transform.access(complex_input, 0);
   if (unary_value == binary_value && complex_value.real() == 0.0F) return;
+}
+
+[[maybe_unused]] __global__ void conjugate_proxy_probe(uni20::cfloat* value)
+{
+  uni20::cuda::CudaPointerAccessor<uni20::cfloat> accessor;
+  auto reference = accessor.access(value, 0);
+  reference = uni20::cuda::CudaConjugate{}(reference);
 }
 
 } // namespace

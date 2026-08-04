@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -46,6 +47,13 @@
 // stringize helper (two levels needed so that macro args expand first)
 #define TRACE_STRINGIZE_IMPL(x) #x
 #define TRACE_STRINGIZE(x) TRACE_STRINGIZE_IMPL(x)
+
+namespace trace::detail
+{
+
+[[nodiscard]] constexpr bool is_constant_evaluation() noexcept { return std::is_constant_evaluated(); }
+
+} // namespace trace::detail
 
 // COMPILER_NOTE emits an information message during compilation. msg must be a string literal.
 #if defined(_MSC_VER)
@@ -81,7 +89,7 @@
 #define TRACE(...)                                                                                                     \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -98,7 +106,7 @@
 #define TRACE_IF(cond, ...)                                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -106,7 +114,7 @@
       {}                                                                                                               \
       else if (cond)                                                                                                   \
       {                                                                                                                \
-        if consteval                                                                                                   \
+        if (::trace::detail::is_constant_evaluation())                                                                 \
         {}                                                                                                             \
         else                                                                                                           \
         {                                                                                                              \
@@ -120,7 +128,7 @@
 #define TRACE_ONCE(...)                                                                                                \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -141,7 +149,7 @@
 #define TRACE_MODULE(m, ...)                                                                                           \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -161,7 +169,7 @@
 #define TRACE_MODULE_IF(m, cond, ...)                                                                                  \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -184,7 +192,7 @@
 #define TRACE_STACK(...)                                                                                               \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -201,7 +209,7 @@
 #define TRACE_IF_STACK(cond, ...)                                                                                      \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -209,7 +217,7 @@
       {}                                                                                                               \
       else if (cond)                                                                                                   \
       {                                                                                                                \
-        if consteval                                                                                                   \
+        if (::trace::detail::is_constant_evaluation())                                                                 \
         {}                                                                                                             \
         else                                                                                                           \
         {                                                                                                              \
@@ -223,7 +231,7 @@
 #define TRACE_ONCE_STACK(...)                                                                                          \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -244,7 +252,7 @@
 #define TRACE_MODULE_STACK(m, ...)                                                                                     \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -264,7 +272,7 @@
 #define TRACE_MODULE_IF_STACK(m, cond, ...)                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -474,7 +482,7 @@
 #define DEBUG_TRACE_ONCE(...)                                                                                          \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
@@ -544,7 +552,7 @@
 #define DEBUG_TRACE_ONCE_STACK(...)                                                                                    \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
+    if (::trace::detail::is_constant_evaluation())                                                                     \
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \

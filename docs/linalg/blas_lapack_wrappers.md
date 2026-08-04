@@ -450,11 +450,13 @@ future prepared GEMM fallback may:
 
 When `beta == 0`, the pre-call output conjugation can be skipped because the old
 output is not read. Uni20 provides the accessor-respecting
-`conjugate_inplace_op` CPU kernel for this eager storage rewrite. The fallback
-must still be used only when the transformed readable operands are all
-representable by the selected provider. If conjugating everything merely moves
-an unsupported conjugate-only transform from one input to another, the prepared
-wrapper still needs input materialization or must decline.
+`conjugate_inplace_op` CPU and CUDA reference kernels for this eager storage
+rewrite. The CUDA path supports positive-strided `cfloat` and `cdouble` storage;
+real and integer conjugation is a no-op. The fallback must still be used only
+when the transformed readable operands are all representable by the selected
+provider. If conjugating everything merely moves an unsupported conjugate-only
+transform from one input to another, the prepared wrapper still needs input
+materialization or must decline.
 
 Direct no-copy wrappers should not silently materialize output temporaries. If a
 future backend cannot implement the required provider transform directly, that

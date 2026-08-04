@@ -14,6 +14,8 @@
 #include <atomic>
 #include <chrono>
 #include <concepts>
+#include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -249,7 +251,7 @@ class CudaCopyTest : public ::testing::Test {
     int device_count_ = 0;
 };
 
-TEST(CudaCopyPlanningTest, ElementwiseLayoutDecodesIndependentPaddedStrides)
+TEST(CudaCopyPlanningTest, ElementwisePlanCompactsAndDecodesIndependentPaddedStrides)
 {
   using mapping_type = stdex::layout_stride::mapping<cuda_extents_type>;
   cuda_extents_type const extents{2, 3};
@@ -259,21 +261,78 @@ TEST(CudaCopyPlanningTest, ElementwiseLayoutDecodesIndependentPaddedStrides)
   double input_storage[6]{};
   stdex::mdspan output{output_storage, mapping_type{extents, output_strides}};
   stdex::mdspan input{input_storage, mapping_type{extents, input_strides}};
-  uni20::linalg::detail::cuda_reference::ElementwiseCopyLayout layout;
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
 
-  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_layout(output, input, layout));
-  EXPECT_EQ(layout.rank, 2);
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_plan(output, input, plan));
+  ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
+  auto const& layout = plan.plan_32;
+  EXPECT_EQ(layout.compact_rank, 2);
   EXPECT_EQ(layout.element_count, 6);
-  EXPECT_EQ(layout.offsets(0).output, 0);
-  EXPECT_EQ(layout.offsets(0).input, 0);
-  EXPECT_EQ(layout.offsets(1).output, 3);
-  EXPECT_EQ(layout.offsets(1).input, 2);
-  EXPECT_EQ(layout.offsets(2).output, 6);
-  EXPECT_EQ(layout.offsets(2).input, 4);
-  EXPECT_EQ(layout.offsets(3).output, 1);
-  EXPECT_EQ(layout.offsets(3).input, 1);
-  EXPECT_EQ(layout.offsets(5).output, 7);
-  EXPECT_EQ(layout.offsets(5).input, 5);
+  EXPECT_EQ(layout.offsets(0), (std::array<std::int32_t, 2>{0, 0}));
+  EXPECT_EQ(layout.offsets(1), (std::array<std::int32_t, 2>{1, 1}));
+  EXPECT_EQ(layout.offsets(2), (std::array<std::int32_t, 2>{3, 2}));
+  EXPECT_EQ(layout.offsets(3), (std::array<std::int32_t, 2>{4, 3}));
+  EXPECT_EQ(layout.offsets(5), (std::array<std::int32_t, 2>{7, 5}));
+}
+
+TEST(CudaCopyPlanningTest, ElementwisePlanUses64BitOffsetsWhenAReachableOffsetExceeds32Bits)
+{
+  using extents_type = stdex::dextents<uni20::index_type, 1>;
+  using mapping_type = stdex::layout_stride::mapping<extents_type>;
+  auto const large_stride = static_cast<uni20::index_type>(std::numeric_limits<std::int32_t>::max()) + 1;
+  mapping_type output_mapping{extents_type{2}, std::array<uni20::index_type, 1>{large_stride}};
+  mapping_type input_mapping{extents_type{2}, std::array<uni20::index_type, 1>{1}};
+  double value = 0;
+  stdex::mdspan output{&value, output_mapping};
+  stdex::mdspan input{&value, input_mapping};
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
+
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_plan(output, input, plan));
+  ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_64);
+  EXPECT_EQ(plan.plan_64.offsets(1), (std::array<std::int64_t, 2>{static_cast<std::int64_t>(large_stride), 1}));
+}
+
+TEST(CudaCopyPlanningTest, LoweredPlanVisitsOnlyTheSelectedPayload)
+{
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
+  plan.plan_32.element_count = 7;
+  plan.plan_64.element_count = 11;
+
+  plan.index_kind = uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32;
+  EXPECT_EQ(plan.visit([](auto const& selected) { return static_cast<std::size_t>(selected.element_count); }), 7);
+
+  plan.index_kind = uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_64;
+  EXPECT_EQ(plan.visit([](auto const& selected) { return static_cast<std::size_t>(selected.element_count); }), 11);
+}
+
+TEST(CudaCopyPlanningTest, EmptyIterationLowersToAZeroRank32BitPayload)
+{
+  using extents_type = stdex::dextents<uni20::index_type, 1>;
+  using mapping_type = stdex::layout_stride::mapping<extents_type>;
+  mapping_type mapping{extents_type{0}, std::array<uni20::index_type, 1>{1}};
+  double value = 0;
+  stdex::mdspan output{&value, mapping};
+  stdex::mdspan input{&value, mapping};
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
+
+  ASSERT_TRUE(uni20::linalg::detail::cuda_reference::try_make_elementwise_plan(output, input, plan));
+  ASSERT_EQ(plan.index_kind, uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
+  EXPECT_EQ(plan.plan_32.element_count, 0);
+  EXPECT_EQ(plan.plan_32.compact_rank, 0);
+}
+
+TEST(CudaCopyPlanningTest, ElementwisePlanDeclinesNegativeStridesUntilCudaRebasingIsDefined)
+{
+  using extents_type = stdex::dextents<uni20::index_type, 1>;
+  using mapping_type = stdex::layout_stride::mapping<extents_type>;
+  mapping_type output_mapping{extents_type{2}, std::array<uni20::index_type, 1>{-1}};
+  mapping_type input_mapping{extents_type{2}, std::array<uni20::index_type, 1>{1}};
+  double value = 0;
+  stdex::mdspan output{&value, output_mapping};
+  stdex::mdspan input{&value, input_mapping};
+  uni20::linalg::detail::cuda_reference::LoweredElementwiseCopyPlan plan;
+
+  EXPECT_FALSE(uni20::linalg::detail::cuda_reference::try_make_elementwise_plan(output, input, plan));
 }
 
 TEST(CudaCopyPlanningTest, NonpositiveActiveStridesDecline)
@@ -515,10 +574,12 @@ TEST_F(CudaCopyTest, SameDeviceCopyConvertsBetweenColumnMajorAndRowMajorMappings
   auto preparation = uni20::linalg::detail::cuda_reference::prepare_copy(row_major_output, source_span);
   ASSERT_EQ(preparation.attempt, uni20::linalg::KernelAttempt::success);
   EXPECT_EQ(preparation.execution, uni20::linalg::detail::cuda_reference::CopyExecution::elementwise_kernel);
-  EXPECT_EQ(preparation.elementwise_layout.output_strides[0], 3);
-  EXPECT_EQ(preparation.elementwise_layout.output_strides[1], 1);
-  EXPECT_EQ(preparation.elementwise_layout.input_strides[0], 1);
-  EXPECT_EQ(preparation.elementwise_layout.input_strides[1], 2);
+  ASSERT_EQ(preparation.elementwise_plan.index_kind,
+            uni20::linalg::detail::cuda_reference::ElementwiseIndexKind::index_32);
+  auto const& elementwise_plan = preparation.elementwise_plan.plan_32;
+  ASSERT_EQ(elementwise_plan.compact_rank, 2);
+  EXPECT_EQ(elementwise_plan.strides[0], (std::array<std::int32_t, 2>{1, 2}));
+  EXPECT_EQ(elementwise_plan.strides[1], (std::array<std::int32_t, 2>{3, 1}));
   ASSERT_EQ(uni20::linalg::detail::cuda_reference::copy(row_major_output, source_span),
             uni20::linalg::KernelAttempt::success);
 

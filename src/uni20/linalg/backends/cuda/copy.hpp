@@ -10,10 +10,12 @@
 #include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cuda/elementwise_copy.hpp>
+#include <uni20/linalg/backends/cuda/mdspec_traits.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/conjugate_accessor.hpp>
+#include <uni20/mdspan/iteration_plan.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 #include <uni20/tensor/concepts.hpp>
 
@@ -45,17 +47,12 @@ enum class CopyExecution
   elementwise_kernel
 };
 
-template <class Accessor> struct IsRawCudaAccessor : std::false_type
-{};
-
-template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type
-{};
-
 template <class Accessor> struct IsConjugatedCudaAccessor : std::false_type
 {};
 
 template <class Accessor>
-struct IsConjugatedCudaAccessor<uni20::conjugated_accessor<Accessor>> : IsRawCudaAccessor<Accessor>
+struct IsConjugatedCudaAccessor<uni20::conjugated_accessor<Accessor>>
+    : std::bool_constant<RawCudaAccessorTraits<Accessor>::is_raw>
 {};
 
 template <class Accessor> struct IsConjugatedHostAccessor : std::false_type
@@ -69,15 +66,11 @@ struct IsConjugatedHostAccessor<uni20::conjugated_accessor<Accessor>>
 template <class Mdspan> inline constexpr bool is_cuda_mdspan = uni20::cuda::BufferMdspec<Mdspan>;
 
 template <class Mdspan>
-inline constexpr bool is_raw_cuda_mdspan =
-    is_cuda_mdspan<Mdspan> && IsRawCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
-
-template <class Mdspan>
 inline constexpr bool is_conjugated_cuda_mdspan =
     is_cuda_mdspan<Mdspan> && IsConjugatedCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
 
 template <class Mdspan>
-inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspan<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
+inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspec<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
 
 template <class Mdspan>
 inline constexpr bool is_raw_host_mdspan = uni20::DefaultAccessorMdspanLike<std::remove_cvref_t<Mdspan>>;
@@ -97,7 +90,7 @@ concept SupportedCopyMdspans =
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&
-    ((is_raw_cuda_mdspan<OutputMdspan> &&
+    ((is_raw_cuda_mdspec<OutputMdspan> &&
       (is_supported_cuda_mdspan<InputMdspan> || is_supported_host_mdspan<InputMdspan>)) ||
      (is_raw_host_mdspan<OutputMdspan> && is_supported_cuda_mdspan<InputMdspan>));
 
@@ -116,7 +109,7 @@ template <class Scalar> struct CopyPlan
     std::size_t element_count = 0;
     std::size_t output_span_size = 0;
     std::size_t input_span_size = 0;
-    ElementwiseCopyLayout elementwise_layout;
+    LoweredElementwiseCopyPlan elementwise_plan;
     std::vector<Scalar> input_staging;
     bool conjugate_host_output = false;
     bool has_work = false;
@@ -151,41 +144,11 @@ template <class OutputMdspan, class InputMdspan>
 }
 
 template <class OutputMdspan, class InputMdspan>
-[[nodiscard]] bool try_make_elementwise_layout(OutputMdspan const& output, InputMdspan const& input,
-                                               ElementwiseCopyLayout& layout)
+[[nodiscard]] bool try_make_elementwise_plan(OutputMdspan const& output, InputMdspan const& input,
+                                             LoweredElementwiseCopyPlan& plan)
 {
-  constexpr std::size_t rank = std::remove_cvref_t<OutputMdspan>::rank();
-  if constexpr (rank > ElementwiseCopyLayout::maximum_rank)
-  {
-    return false;
-  }
-  else
-  {
-    layout.rank = rank;
-    layout.element_count = 1;
-    for (std::size_t axis = 0; axis < rank; ++axis)
-    {
-      auto const extent = output.extent(axis);
-      if (std::cmp_less(extent, 0) ||
-          (layout.element_count != 0 && extent != 0 &&
-           std::cmp_greater(extent, std::numeric_limits<std::size_t>::max() / layout.element_count)))
-      {
-        return false;
-      }
-      layout.extents[axis] = static_cast<std::size_t>(extent);
-      if (layout.element_count != 0) layout.element_count *= layout.extents[axis];
-
-      if (extent > 1)
-      {
-        auto const output_stride = output.stride(axis);
-        auto const input_stride = input.stride(axis);
-        if (output_stride <= 0 || input_stride <= 0) return false;
-        layout.output_strides[axis] = static_cast<std::size_t>(output_stride);
-        layout.input_strides[axis] = static_cast<std::size_t>(input_stride);
-      }
-    }
-    return true;
-  }
+  auto host_plan = make_multi_iteration_plan(std::tuple{output.mapping(), input.mapping()});
+  return try_lower_strided_elementwise_plan<elementwise_copy_maximum_rank>(host_plan, plan);
 }
 
 template <class Scalar>
@@ -277,13 +240,13 @@ template <class OutputMdspan, class InputMdspan>
       plan.attempt = KernelAttempt::unsupported_transform;
       return plan;
     }
-    if (!output.mapping().is_unique() || !try_make_elementwise_layout(output, input, plan.elementwise_layout))
+    if (!output.mapping().is_unique() || !try_make_elementwise_plan(output, input, plan.elementwise_plan))
     {
       plan.attempt = KernelAttempt::unsupported_layout;
       return plan;
     }
     plan.execution = CopyExecution::elementwise_kernel;
-    plan.element_count = plan.elementwise_layout.element_count;
+    plan.element_count = plan.elementwise_plan.element_count();
     if constexpr (is_conjugated_cuda_mdspan<InputMdspan>) plan.transform = ElementwiseCopyTransform::conjugate;
   }
   else
@@ -387,8 +350,10 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
       CHECK_EQUAL(output_device, input_device);
       if constexpr (supports_elementwise_copy<Scalar>)
       {
-        enqueue_elementwise_copy(output_data, input_data, plan.elementwise_layout, plan.transform,
-                                 stream.native_handle(), output_device);
+        plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+          enqueue_elementwise_copy(output_data, input_data, elementwise_plan, plan.transform, stream.native_handle(),
+                                   output_device);
+        });
         return;
       }
       else

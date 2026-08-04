@@ -121,6 +121,15 @@ See the [Async Documentation Index](async/) and
   same-device semantic copies. Raw contiguous storage retains the
   `cudaMemcpyAsync` path; conjugated complex storage is evaluated through
   device-callable accessors and CUDA execution-value proxies.
+- The same arity-generic CUDA elementwise executor implements positive-strided
+  in-place conjugation for complex storage. This zero-input update path acquires
+  one exclusive buffer access; trivial real and integer conjugation does not
+  launch.
+- Registered same-element-type arithmetic callables exercise one- and two-input
+  overwrite transforms across independently positive-strided CUDA mappings:
+  unary negate, square, and reciprocal; stateful scale; and binary addition,
+  subtraction, multiplication, and division. Other callable types continue to
+  require an explicit compiled lowering.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and

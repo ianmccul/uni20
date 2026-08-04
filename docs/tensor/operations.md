@@ -327,11 +327,11 @@ contracts described later in this guide.
 | `reshape_view_left`, `reshape_view_right` | Explicitly ordered no-copy reshape of a general strided source. | Requires a unique, exhaustive canonical mapping in the selected order. | Matching async overloads retain the parent and queue. |
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Not implemented. |
-| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings through rank eight use logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports differing physical order, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
-| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
+| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings with compact rank through eight use 32- or 64-bit logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports jointly compacted differing layouts, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
+| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. The CUDA reference backend registers same-element-type unary and binary arithmetic function objects plus stateful `linalg::scale<Factor>` for positive-strided raw CUDA operands. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
-| `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
+| `conjugate_inplace(x)` | Eager element mutation. CPU accessors are evaluated directly; positive-strided CUDA `cfloat` and `cdouble` storage uses the CUDA reference elementwise executor. Real and integer values return as a no-op. | Reuses existing storage and takes one exclusive execution-domain access when work is required. | Not implemented. |
 | `sum(input)` | Full reduction returning a same-element-type `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Implemented; returns `Async<ScalarTensor>` or writes an explicit async scalar output. |
 | `sum(input, axes...)` | Remove one or more runtime-selected axes; negative axes are accepted. | Allocates rank `R - sizeof...(axes)`, preserves canonical input layout, and retains surviving-axis order. Explicit outputs may resize. | Implemented; returns an async storage-preserving result or writes an explicit async output. |
 | `sum_host(input)` | Full sum returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Implemented; returns `Async<Element>` without blocking submission. |
@@ -359,11 +359,22 @@ arity, respects accessor semantics, and uses logical-index traversal when an
 operand is not strided. Named callable types may gain optimized backend
 implementations without changing these front-end signatures.
 
+Overwrite and update transforms require the output not to overlap any separate
+input operand. Backends may share one allocation access for views proven or
+assumed disjoint, but they do not make destructive overlap element-order safe.
+
 Uni20-owned tensor function objects intended for execution through an accessor
 use `UNI20_HOST_DEVICE`. A CUDA-accessible transform's stored callable must do
 the same. This makes the expression device-callable but does not install a
 precompiled CUDA backend specialization; the selected backend still needs an
 explicit typed lowering or a sufficient type-erased execution plan.
+The named unary `negate`, `square`, and `reciprocal`; stateful `scale<Factor>`;
+and binary `add`, `subtract`, `multiply`, and `divide` function objects are
+registered this way. Ordinary host code uses the same objects, while the CUDA
+reference backend lowers supported scalar combinations to precompiled overwrite
+kernels. This initial CUDA set preserves the input element type. Comparisons and
+complex-to-real functions such as magnitude require a heterogeneous output
+contract and are intentionally separate.
 
 The Async overloads keep the same argument order and require every Tensor
 operand to be `Async<T>`. The callable is not itself an async operand: it is

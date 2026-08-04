@@ -433,19 +433,39 @@ The precompiled CUDA reference copy backend currently uses two lowering forms:
 | Case | Lowering |
 |---|---|
 | Raw contiguous mappings with matching physical order | `cudaMemcpyAsync` or `cudaMemcpyPeerAsync` |
-| Same-device positive-strided mappings through rank eight | Compact extents and independent input/output stride arrays passed to an elementwise kernel |
+| Same-device positive-strided mappings with compact rank through eight | Backend-neutral affine iteration plan lowered to a 32- or 64-bit CUDA payload |
 | Raw or conjugating CUDA input accessor | Explicitly compiled accessor lowering selected by the copy plan |
+| Named unary arithmetic transforms | Explicit registrations for `negate`, `square`, and `reciprocal` over one independently strided input |
+| Stateful unary `linalg::scale<Factor>` transform | Explicitly registered factor payload and one independently strided input |
+| Named binary arithmetic transforms | Explicit registrations for `add`, `subtract`, `multiply`, and `divide` with three operand mappings |
 | Non-strided mapping or other stateful accessor composition | Clean decline |
 
-The strided executor covers canonical layout conversion, padded mappings, and
-nonzero `CudaBufferView` offsets. It traverses logical indices and therefore
-does not require input and output physical order to match. It requires a unique
-output mapping and positive strides on every active axis. Negative-stride
-mappings remain valid candidates for future Uni20 layout policies, but this
-precompiled executor cleanly declines them. Distinct-offset views into one
-buffer resolve through one exclusive buffer access and rely on the C++ copy
-precondition that the operands do not destructively overlap. A nontrivial
-same-offset transformation is proven to overlap and declines.
+The host planner removes size-one dimensions, orders dimensions by the output
+mapping, and coalesces adjacent dimensions only when the affine adjacency
+relation holds for every operand. It also records the logical element count and
+each operand's reachable handle-relative offset range. CUDA lowering uses a
+32-bit logical-index and signed-offset payload when the element count, strides,
+base offsets, and reachable ranges all fit; otherwise it uses the corresponding
+64-bit payload. Invalid ranges and negative strides decline before access
+acquisition.
+
+The strided executor covers canonical layout conversion, padded mappings,
+nonzero `CudaBufferView` offsets, rank-zero scalars, and empty tensors. Its
+compact dimensions are stored innermost first and decoded into independent
+input and output offsets. It therefore does not require input and output
+physical order to match. It requires a unique output mapping and positive
+strides on every active axis. Negative-stride mappings remain valid candidates
+for future Uni20 layout policies, but this precompiled executor cleanly declines
+them. Distinct-offset views into one buffer resolve through one exclusive buffer
+access and rely on the C++ copy precondition that the operands do not
+destructively overlap. A nontrivial same-offset transformation is proven to
+overlap and declines.
+
+The plan and overwrite executor are arity-generic. Current compiled
+instantiations cover one-input copy, unary arithmetic, and scale plus binary
+arithmetic. Unary update, ternary, and further fixed-arity operations should
+build on the same plan rather than introducing operation-specific layout
+algorithms.
 
 Device-callability alone cannot make an arbitrary external accessor available
 to a precompiled library kernel. Generalization requires either a typed
