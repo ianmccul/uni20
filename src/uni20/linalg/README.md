@@ -28,6 +28,8 @@ before they lower to backend wrappers and kernels.
 - [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - [`cublas/`](cublas/): provider-ready cuBLAS operations over staged CUDA
   mdspans and synchronized buffer access.
+- [`cpu/`](cpu/): accessor-respecting reference GEMM and GEMV leaves over
+  resolved host mdspans.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
 - [`backends/`](backends/): operation-tag backend implementations.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
