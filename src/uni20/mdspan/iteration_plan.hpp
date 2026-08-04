@@ -275,6 +275,13 @@ template <typename... Mappings> auto make_multi_iteration_plan(std::tuple<Mappin
 
   if constexpr (Rank > 0)
   {
+    auto make_empty_plan = [&] {
+      plan.dimensions.clear();
+      plan.dimensions.emplace_back(size_type{0}, std::array<index_type, N>{});
+      plan.base_offsets = std::array<index_type, N>{};
+      detail::finish_iteration_plan(plan);
+    };
+
     for (size_type i = 0; i < Rank; ++i)
     {
       size_type const extent = base_extents.extent(i);
@@ -285,16 +292,23 @@ template <typename... Mappings> auto make_multi_iteration_plan(std::tuple<Mappin
       // empty plan, which denotes a single element (rank-0 scalar).
       if (extent == 0)
       {
-        plan.dimensions.clear();
-        plan.dimensions.emplace_back(size_type{0}, std::array<index_type, N>{});
-        plan.base_offsets = std::array<index_type, N>{};
-        detail::finish_iteration_plan(plan);
+        make_empty_plan();
         return plan;
       }
 
       if (std::cmp_greater(extent, std::numeric_limits<std::ptrdiff_t>::max()) ||
           logical_element_count > std::numeric_limits<std::ptrdiff_t>::max() / static_cast<std::size_t>(extent))
       {
+        // Only the exceptional overflow path scans ahead. A later zero extent
+        // still makes the complete logical iteration space empty.
+        for (size_type remaining = i + 1; remaining < Rank; ++remaining)
+        {
+          if (base_extents.extent(remaining) == 0)
+          {
+            make_empty_plan();
+            return plan;
+          }
+        }
         plan.representable = false;
         return plan;
       }

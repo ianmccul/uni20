@@ -259,6 +259,23 @@ TEST(MakeMultiIterationPlanTest, ZeroExtentProducesRetainedZeroDim)
   EXPECT_TRUE(plan.reachable_offsets[1].empty());
 }
 
+TEST(MakeMultiIterationPlanTest, OverflowingPrefixScansForALaterZeroExtent)
+{
+  constexpr auto maximum = std::numeric_limits<index_t>::max();
+  auto const extents = std::array<std::size_t, 3>{static_cast<std::size_t>(maximum), 2, 0};
+  auto const strides = std::array<index_t, 3>{1, maximum, 1};
+  auto output = make_mapping(extents, strides);
+  auto input = make_mapping(extents, strides);
+  auto plan = make_multi_iteration_plan(std::tuple{output, input});
+
+  EXPECT_TRUE(plan.representable);
+  ASSERT_EQ(plan.rank(), 1);
+  EXPECT_EQ(plan.dimensions[0].extent, 0);
+  EXPECT_EQ(plan.element_count, 0);
+  EXPECT_TRUE(plan.reachable_offsets[0].empty());
+  EXPECT_TRUE(plan.reachable_offsets[1].empty());
+}
+
 TEST(MakeMultiIterationPlanTest, AllSizeOneIsScalarEmptyPlan)
 {
   auto output = make_mapping(std::array<std::size_t, 2>{1, 1}, std::array<index_t, 2>{7, 3});
