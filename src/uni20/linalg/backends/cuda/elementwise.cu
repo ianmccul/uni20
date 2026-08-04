@@ -103,31 +103,35 @@ void enqueue_elementwise_binary_impl(Scalar* output, Scalar const* lhs, Scalar c
 
 } // namespace
 
-template <RegisteredStatelessUnary Function, class Scalar>
+template <class Function, class Scalar>
 void enqueue_elementwise_unary(Scalar* output, Scalar const* input, Function function,
                                ElementwiseUnaryPlan32 const& plan, cudaStream_t stream, int device)
 {
+  static_assert(RegisteredStatelessUnary<Function>);
   enqueue_elementwise_unary_impl(output, input, function, plan, stream, device);
 }
 
-template <RegisteredStatelessUnary Function, class Scalar>
+template <class Function, class Scalar>
 void enqueue_elementwise_unary(Scalar* output, Scalar const* input, Function function,
                                ElementwiseUnaryPlan64 const& plan, cudaStream_t stream, int device)
 {
+  static_assert(RegisteredStatelessUnary<Function>);
   enqueue_elementwise_unary_impl(output, input, function, plan, stream, device);
 }
 
-template <RegisteredStatelessBinary Function, class Scalar>
+template <class Function, class Scalar>
 void enqueue_elementwise_binary(Scalar* output, Scalar const* lhs, Scalar const* rhs, Function function,
                                 ElementwiseBinaryPlan32 const& plan, cudaStream_t stream, int device)
 {
+  static_assert(RegisteredStatelessBinary<Function>);
   enqueue_elementwise_binary_impl(output, lhs, rhs, function, plan, stream, device);
 }
 
-template <RegisteredStatelessBinary Function, class Scalar>
+template <class Function, class Scalar>
 void enqueue_elementwise_binary(Scalar* output, Scalar const* lhs, Scalar const* rhs, Function function,
                                 ElementwiseBinaryPlan64 const& plan, cudaStream_t stream, int device)
 {
+  static_assert(RegisteredStatelessBinary<Function>);
   enqueue_elementwise_binary_impl(output, lhs, rhs, function, plan, stream, device);
 }
 

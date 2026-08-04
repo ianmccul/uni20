@@ -162,6 +162,7 @@ TEST(MatrixProductTest, CpuBackendPreparesConstructedFixedShapeStorage)
   EXPECT_DOUBLE_EQ((parent[0, 3]), 154.0);
 }
 
+#if UNI20_BACKEND_BLAS
 TEST(MatrixProductTest, BlasLayoutDeclineLeavesWrongShapedOutputForCpuFallback)
 {
   using strided_matrix = uni20::StridedTensor<double, 2>;
@@ -243,6 +244,7 @@ TEST(MatrixProductTest, BlasTransformDeclineLeavesWrongShapedOutputUntouched)
   EXPECT_EQ(output.cols(), 2);
   EXPECT_EQ((output[0, 0]), scalar_type{-7.0});
 }
+#endif
 
 TEST(MatrixProductTest, AlphaZeroDoesNotReadProductOperands)
 {
