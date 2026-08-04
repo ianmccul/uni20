@@ -272,21 +272,27 @@ These items are intentionally deferred rather than part of the current public
 API, but they are likely to be the next symmetry-side tasks once the first U(1)
 DMRG prototype is underway.
 
-### Leg-direction wrapper
+### Identity-bearing spaces and morphism boundaries
 
-We eventually want an explicit tensor-leg direction wrapper:
+The next tensor-network layer needs immutable identity-bearing spaces over the
+structural decompositions implemented here. It also needs two independent
+categorical axes:
 
-- `conjugate<T>`
-- short alias `co<T>`
+- `Space` versus `DualSpace`;
+- membership in an ordered `Domain<...>` versus `Codomain<...>`.
 
-The first AMatrix prototype does not need to wait for that wrapper. It can be
-implemented with the understanding that it behaves like a 3-leg tensor on:
+The earlier `conjugate<T>` / `co<T>` direction-wrapper proposal conflated these
+axes and is no longer the intended design. Moving a leg between domain and
+codomain is an explicit wire-bending operation that toggles object duality.
+See [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md).
 
-- `conjugate<BlockSpace>`
-- `QNumList`
-- `BlockSpace`
+The first U(1) three-leg tensor can therefore be modeled as a morphism such as:
 
-without introducing the actual `conjugate<T>` type yet.
+```text
+left_bond tensor local_space -> right_bond
+```
+
+This does not require direction variants of `BlockSpace` or `QNumList`.
 
 ### Space-level helpers
 
@@ -300,15 +306,13 @@ Likely next convenience helpers on spaces:
 These are expected to become useful as soon as the MPO and AMatrix compiler code
 is written.
 
-### Space conjugation and dualization
+### Space dualization
 
-Once `conjugate<T>` exists, Uni20 should define the corresponding space-level
-operations for:
-
-- `QNumList`
-- `BlockSpace`
-
-This must remain distinct from value-level `dual(QNum)`.
+The identity-bearing space layer must define `DualSpace<X>` using the
+symmetry's value-level `dual(QNum)` operation while preserving the primal
+`SpaceId`. A dual space is not a separately allocated isomorphic space with
+negated sectors. Dualization of `QNumList` and `BlockSpace` decompositions is
+therefore an implementation detail of that layer, not a new leg-direction type.
 
 ### Inverse regularization metadata
 

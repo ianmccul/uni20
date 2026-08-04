@@ -1,0 +1,749 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\emergencystretch=2em
+\Urlmuskip=0mu plus 2mu
+
+\title{Planar Tensor Networks, Braiding, and Interface Invariants}
+\author{}
+\date{\today}
+
+\newcommand{\catC}{\mathcal{C}}
+\newcommand{\Hom}{\operatorname{Hom}}
+\newcommand{\id}{\operatorname{id}}
+\newcommand{\Space}{\mathsf{Space}}
+\newcommand{\CoSpace}{\mathsf{CoSpace}}
+\newcommand{\Leg}{\mathsf{Leg}}
+\newcommand{\Tensor}{\mathsf{Tensor}}
+\newcommand{\Network}{\mathsf{Network}}
+\newcommand{\Plan}{\mathsf{Plan}}
+\newcommand{\cod}{\operatorname{cod}}
+\newcommand{\dom}{\operatorname{dom}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This note records the design consequences of supporting non-Abelian
+symmetries, fermionic signs, and general braiding in a tensor-network
+library.  The main point is simple: once braiding or nontrivial
+recoupling is present, a tensor expression is not determined by the
+set of labels on its legs.  It is determined by an ordered and
+possibly planar diagram.  A robust interface therefore needs explicit
+objects for spaces, dual spaces, ordered legs, fusion trees, planar
+network geometry, and contraction plans.  Mutable labels may remain as
+display metadata or as local notation inside a contraction expression,
+but they cannot be the canonical identity of tensor legs.
+\end{abstract}
+
+\tableofcontents
+
+\section{Purpose}
+
+The immediate motivation is the failure mode of Cytnx-style tensor
+labels.  In Cytnx, labels are persistent mutable strings attached to
+tensor legs, and many contractions use those labels to decide which
+legs to contract.  This can be convenient for dense tensors, but it is
+not a sound foundation for tensor categories with nontrivial
+associators, fermionic signs, or braiding.
+
+The target design here is closer to what a future \texttt{uni20}
+interface should enforce.  It is not a proposal to reproduce the
+Cytnx C++ object model.  In particular:
+
+\begin{itemize}[nosep]
+  \item dense arrays should be ordinary array objects, not the central
+        tensor-network abstraction;
+  \item tensor-network correctness should be expressed in terms of
+        spaces, dual spaces, ordered legs, morphisms, and diagrams;
+  \item high-level notation may look like einsum, but it must compile
+        to a checked contraction plan;
+  \item labels are useful for display and diagnostics, but they should
+        not be the authority on mathematical identity.
+\end{itemize}
+
+\section{Minimal Categorical Model}
+
+A tensor-network library with symmetries is not merely an ndarray
+library with labels.  It is manipulating morphisms in a monoidal
+category \(\catC\).  The objects of \(\catC\) are spaces, and tensors
+are maps between tensor products of spaces.
+
+For a tensor \(A\), write
+\[
+  A : X_1 \otimes X_2 \otimes \cdots \otimes X_m
+      \longrightarrow
+      Y_1 \otimes Y_2 \otimes \cdots \otimes Y_n .
+\]
+Equivalently,
+\[
+  A \in \Hom_{\catC}
+       (X_1 \otimes \cdots \otimes X_m,
+        Y_1 \otimes \cdots \otimes Y_n).
+\]
+
+The distinction between domain and codomain is not optional.  A
+contraction pairs a space with a compatible dual space.  For ordinary
+finite-dimensional vector spaces, this distinction can be flattened
+away by choosing bases, but tensor-network code with symmetries should
+not erase it.
+
+\subsection{Strict and Symmetric Cases}
+
+Dense tensors over ordinary vector spaces live in a symmetric monoidal
+category.  In this setting:
+
+\begin{itemize}[nosep]
+  \item associators can usually be treated as identities;
+  \item swapping two factors is represented by an ordinary permutation;
+  \item there is no sign, \(R\)-matrix, or recoupling coefficient;
+  \item many illegal-looking relabellings accidentally produce the
+        intended dense numerical answer.
+\end{itemize}
+
+This is the misleading special case.  It trains users to believe that
+``if the labels are right, the order does not matter.''  That is not a
+valid rule in the general setting.
+
+\subsection{Non-Abelian and Braided Cases}
+
+For non-Abelian symmetries, a basis for a multi-leg tensor depends on
+the fusion tree.  For example,
+\[
+  ((a \otimes b) \otimes c) \to d
+\]
+and
+\[
+  (a \otimes (b \otimes c)) \to d
+\]
+are related by an \(F\)-move.  They are not the same basis with
+different leg names.
+
+For braided tensor categories, exchanging two objects applies an
+\(R\)-move:
+\[
+  R_{a,b}: a \otimes b \to b \otimes a .
+\]
+For fermionic tensors this may reduce to parity signs, but the same
+interface lesson applies: a swap is a mathematical operation, not a
+metadata edit.
+
+\section{What ``Planar'' Means}
+
+In this note, a planar tensor network is not just a graph.  It is a
+graph with enough embedding data to say which tensor legs are adjacent
+and whether a proposed contraction crosses another strand.
+
+At minimum, a planar network needs:
+
+\begin{itemize}
+  \item vertices, each representing a tensor or elementary morphism;
+  \item half-edges attached to ordered tensor legs;
+  \item internal edges pairing compatible half-edges;
+  \item external boundary legs, in a specified boundary order;
+  \item a cyclic order of half-edges around every vertex;
+  \item enough embedding information to decide whether adding or
+        reordering an edge introduces a crossing;
+  \item explicit crossing or braiding nodes when crossings are intended.
+\end{itemize}
+
+For a dense bosonic tensor network, most of this can be ignored.  For a
+braided category, it is part of the expression.
+
+\subsection{Local Order vs Global Planarity}
+
+A single tensor can store a local ordered list of legs:
+\[
+  [\ell_0,\ell_1,\ldots,\ell_{r-1}].
+\]
+That is necessary, but not sufficient.  It says the order around that
+one tensor.  It does not fully determine the embedding of a multi-tensor
+network.
+
+The global network must additionally know how tensor vertices are
+placed relative to each other, or at least an equivalent combinatorial
+embedding.  Without this information, the library cannot distinguish
+between these two cases:
+
+\[
+  \text{two non-crossing contractions}
+  \qquad\text{vs.}\qquad
+  \text{the same pairings with one crossing}.
+\]
+
+In a symmetric category those two diagrams are equivalent after an
+ordinary permutation.  In a braided category they differ by \(R\)-moves.
+
+\subsection{Why a Tensor Alone Cannot Know Whether a Braid Is Needed}
+
+Whether a braid is needed is not a property of one tensor in isolation.
+It depends on the larger expression.
+
+For example, suppose tensor \(A\) has outgoing boundary order
+\[
+  [a,b]
+\]
+and tensor \(B\) has incoming boundary order
+\[
+  [a^\ast,b^\ast].
+\]
+Contracting \(a\) with \(a^\ast\) and \(b\) with \(b^\ast\) may be
+planar in one embedding.  Contracting \(a\) with \(b^\ast\) and \(b\)
+with \(a^\ast\) requires a crossing unless the tensors are embedded
+differently or explicit braids have been inserted.
+
+The individual tensors only know their local boundary orders.  The
+network or contraction planner must decide whether the pairings are
+planar.
+
+\section{Three-Layer Design}
+
+A robust implementation should separate three layers.
+
+\subsection{Layer 1: Tensor Objects}
+
+A tensor object stores local categorical data:
+
+\begin{itemize}
+  \item an ordered domain list;
+  \item an ordered codomain list;
+  \item the corresponding spaces and dual spaces;
+  \item optional display labels attached to spaces or legs;
+  \item symmetry-sector data and degeneracy data;
+  \item fusion-tree data, if the category is non-Abelian;
+  \item reduced numerical blocks.
+\end{itemize}
+
+This layer can answer questions such as:
+
+\begin{itemize}[nosep]
+  \item What is the \(i\)-th leg?
+  \item Is this leg a \(\Space\) or \(\CoSpace\)?
+  \item What sectors live on this leg?
+  \item What fusion tree defines the basis?
+  \item Does this tensor have the same boundary type as another tensor?
+\end{itemize}
+
+It cannot, by itself, decide all global planarity questions.
+
+\subsection{Layer 2: Planar Network Objects}
+
+A network object stores a diagram:
+
+\begin{itemize}
+  \item tensor vertices;
+  \item internal pairings;
+  \item external boundary order;
+  \item cyclic orders around vertices;
+  \item explicit braid/crossing vertices if present;
+  \item optional geometric coordinates for display, not as the
+        authority on topology.
+\end{itemize}
+
+The network object is the right place to ask:
+
+\begin{itemize}[nosep]
+  \item Is this proposed contraction planar?
+  \item Would contracting these two legs cross an existing edge?
+  \item What is the boundary order after contraction?
+  \item Is an explicit braid required?
+  \item Can this diagram be simplified by isotopy?
+\end{itemize}
+
+\subsection{Layer 3: Contraction Plans}
+
+A contraction plan is an executable sequence of local operations.  It
+may be produced from a network after checking the diagram.
+
+The plan records:
+
+\begin{itemize}
+  \item which local contractions are performed;
+  \item which tensor products are formed;
+  \item which transposes are merely cyclic reorders;
+  \item which \(F\)-moves are inserted;
+  \item which \(R\)-moves are inserted;
+  \item which traces include twists or supertraces;
+  \item the expected final boundary order and spaces.
+\end{itemize}
+
+This is the layer that can optimize.  The tensor object should not
+silently optimize away categorical distinctions.
+
+\section{Planar Invariants}
+
+The following invariants are the core of the design.  They are the
+rules that should remain true after every operation.
+
+\subsection{Boundary Invariant}
+
+Every tensor and every network has a well-defined ordered boundary.
+For a tensor this is the ordered domain and codomain.  For a network it
+is the ordered list of uncontracted external legs.
+
+An operation must specify the boundary it produces.  It is not enough
+to produce numerically shaped data.
+
+\subsection{Dual Compatibility Invariant}
+
+A contraction can only pair compatible dual spaces.  In the simplest
+case this means \(V\) with \(V^\ast\).  With symmetries it also means
+compatible charge sectors, degeneracies, and orientations.
+
+Equal total dimension is not sufficient.  Equal label string is not
+sufficient.
+
+\subsection{Space Identity Invariant}
+
+Two spaces may have the same dimension and the same charge sectors but
+still represent different positions in a tensor network.  For example,
+two MPS bond spaces at different cuts may both have dimension \(32\).
+They should not be interchangeable unless the library has explicit
+evidence that they are the same space.
+
+This is where labels are useful if they label spaces, not tensor-leg
+positions.  A finite MPS can label its bond spaces
+\[
+  b_0,b_1,\ldots,b_L,
+\]
+and then contractions over the wrong bond fail even in the dense case.
+
+\subsection{Cyclic Order Invariant}
+
+At every tensor vertex, the cyclic or linear order of legs is
+structural data.  Reordering legs changes the tensor expression unless
+the operation is explicitly known to be valid.
+
+Dense tensors may implement this as a cheap axis permutation.  Braided
+or non-Abelian tensors cannot treat it as mere bookkeeping.
+
+\subsection{No Implicit Crossing Invariant}
+
+No operation may introduce a crossing silently.
+
+If a proposed contraction is non-planar, the operation should fail with
+a diagnostic such as:
+
+\begin{quote}
+This contraction is not planar in the current diagram.  Insert an
+explicit braid, or use a contraction planner that is allowed to insert
+braids.
+\end{quote}
+
+The important point is that the user learns what mathematical operation
+is missing.
+
+\subsection{Fusion-Tree Invariant}
+
+For non-Abelian categories, every tensor basis is defined relative to a
+fusion tree or an equivalent canonical representation.
+
+If an operation changes the parenthesization of a tensor product, it
+must either:
+
+\begin{itemize}[nosep]
+  \item prove that no recoupling is needed;
+  \item apply the appropriate \(F\)-move;
+  \item or fail.
+\end{itemize}
+
+Changing labels must never be able to bypass this.
+
+\subsection{Braid Accounting Invariant}
+
+If two strands are exchanged in a braided category, the corresponding
+\(R\)-move must appear in the tensor expression, either as an explicit
+operation or as an explicit node in the contraction plan.
+
+The library should distinguish:
+
+\begin{itemize}[nosep]
+  \item a permutation in a symmetric category;
+  \item a fermionic swap with parity signs;
+  \item a genuine anyonic braid with an \(R\)-matrix;
+  \item a display-only reorder.
+\end{itemize}
+
+\subsection{Trace and Twist Invariant}
+
+Closing a line into a trace is not always the same operation as a
+matrix trace.  In fermionic or braided settings, trace-like operations
+may require twists, signs, or categorical traces.
+
+The interface should therefore distinguish ordinary dense traces from
+categorical traces.  A planner should not silently replace one with
+the other.
+
+\subsection{Decomposition Invariant}
+
+SVD, QR, LQ, polar decomposition, and related operations are not just
+matrix factorizations.  In a tensor-network context they create new
+intermediate spaces.
+
+For an SVD of
+\[
+  A : X \to Y,
+\]
+the decomposition
+\[
+  A = U S V
+\]
+creates an intermediate space \(B\).  The singular-value object \(S\)
+is an endomorphism of \(B\):
+\[
+  S : B \to B.
+\]
+Thus \(S\) naturally has the same space label on its two sides.  A
+global rule that tensor labels must be unique is incompatible with this
+mathematical structure.
+
+\subsection{Metadata Is Not Semantics}
+
+Display labels, names, colors, and diagram coordinates help humans.
+They are not the authority on which operations are legal.
+
+Changing a display label should never alter contraction legality.
+Changing a space identity or applying a braid should be a separate,
+checked operation.
+
+\section{Operation Taxonomy}
+
+The interface should split operations that dense tensor libraries often
+conflate.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Operation & Dense interpretation & General categorical interpretation \\
+\midrule
+\texttt{relabel} & rename an axis & display metadata only \\
+\texttt{permute} & reorder axes & may require braid or recoupling \\
+\texttt{transpose} & swap matrix axes & cyclic/domain-codomain move, if valid \\
+\texttt{reshape} & reinterpret shape & usually not meaningful for spaces \\
+\texttt{contract} & sum over axes & compose compatible morphisms \\
+\texttt{trace} & sum diagonal & categorical trace may need twist/sign \\
+\texttt{svd} & matrix SVD & factorization creating a new bond space \\
+\texttt{get\_block} & array slice & reduced block in a chosen fusion basis \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Reorder Operations}
+
+At least four operations should be distinct:
+
+\begin{description}
+  \item[\texttt{relabel}] Change display names only.
+  \item[\texttt{repartition}] Move the domain/codomain boundary without
+        changing the cyclic order, when categorically valid.
+  \item[\texttt{transpose}] Perform a cyclic reorder that introduces no
+        crossing.
+  \item[\texttt{braid}] Exchange adjacent strands using an \(R\)-move.
+\end{description}
+
+Dense libraries collapse these into one or two functions.  That is
+exactly what should be avoided in a category-aware tensor-network
+interface.
+
+\section{TensorKit.jl as a Useful Reference Point}
+
+TensorKit.jl provides a useful example of this separation.  I am not
+claiming uni20 should copy its interface exactly, but its design
+validates the main point of this note: once braiding matters, ordinary
+implicit tensor notation is not enough.
+
+The TensorKit documentation describes tensors as \texttt{TensorMap}
+objects, i.e. maps from a domain to a codomain.  It also has explicit
+fusion trees, with uncoupled sectors, coupled sectors, duality flags,
+inner fusion channels, and vertex labels.  This is precisely the kind
+of information that a Cytnx-style leg label cannot encode.
+
+\subsection{Fusion Trees}
+
+TensorKit's fusion-tree data stores the basis structure of a symmetric
+tensor.  The important lesson is that block sparsity is not just a
+dictionary keyed by quantum numbers.  It is block data together with a
+choice of fusion basis.
+
+For uni20, this suggests:
+
+\begin{itemize}[nosep]
+  \item tensor blocks should be reduced data;
+  \item fusion paths should be explicit or canonical;
+  \item recoupling should be an operation on the basis, not an
+        accidental consequence of permuting axes.
+\end{itemize}
+
+\subsection{TensorKit's Hierarchy of Reordering Operations}
+
+TensorKit distinguishes several index manipulations:
+
+\begin{description}
+  \item[\texttt{braid}] The most general operation.  It can represent
+        crossings and needs information about over/under order.
+  \item[\texttt{permute}] A restricted operation for sector types with
+        symmetric braiding, where over/under crossings are equivalent.
+  \item[\texttt{transpose}] Cyclic permutations that do not introduce
+        crossings.
+  \item[\texttt{repartition}] Moving the boundary between domain and
+        codomain without arbitrary reordering.
+\end{description}
+
+This is a useful vocabulary.  It explicitly prevents the common dense
+tensor mistake of treating every leg reorder as an axis permutation.
+
+\subsection{\texttt{@tensor}, \texttt{@planar}, and \texttt{@plansor}}
+
+TensorKit's contraction macros make the planar issue concrete.
+
+For bosonic or symmetric cases, ordinary tensor notation can be enough.
+TensorKit's \texttt{@tensor} macro handles implicit contractions in
+that setting.
+
+For anyonic or braided cases, the same implicit notation is not
+sufficient.  TensorKit provides a \texttt{@planar} macro where the
+expression must describe a planar diagram.  Crossings are not silently
+inferred; they are represented explicitly by a reserved braiding tensor
+such as \(\tau\), with \(\tau'\) for the inverse crossing.
+
+TensorKit also provides \texttt{@plansor}, which dispatches to the
+ordinary tensor machinery in bosonic cases and to planar machinery when
+the category requires it.
+
+The design lesson is strong: there are two different languages.
+
+\begin{itemize}
+  \item A non-planar indexed expression language, acceptable only when
+        the category is symmetric enough.
+  \item A planar diagram language, required when crossings have
+        mathematical content.
+\end{itemize}
+
+\section{A Possible uni20 Interface Shape}
+
+The following sketches are illustrative, not final API.
+
+\subsection{Spaces and Legs}
+
+\begin{verbatim}
+phys = Space("SpinHalf", symmetry=SU2, sectors=[j(1,2)])
+b0   = Space("bond-0", symmetry=SU2, sectors=[j(0)])
+b1   = Space("bond-1", symmetry=SU2, sectors=[j(0), j(1)])
+
+A = Tensor(
+    codomain=[b1],
+    domain=[b0, phys],
+    fusion_tree=...
+)
+\end{verbatim}
+
+The key point is that the tensor is a morphism.  Its boundary is
+ordered.  Labels such as \texttt{"bond-0"} are attached to spaces for
+diagnostics and compatibility checks.
+
+\subsection{Contraction by Explicit Legs}
+
+\begin{verbatim}
+C = contract(A, B, pairs=[(A.codomain[0], B.domain[0])])
+\end{verbatim}
+
+This operation checks:
+
+\begin{itemize}[nosep]
+  \item dual compatibility;
+  \item space identity or allowed isomorphism;
+  \item sector compatibility;
+  \item fusion-tree compatibility;
+  \item planarity in the current network context.
+\end{itemize}
+
+\subsection{Network-Level Planar Contraction}
+
+\begin{verbatim}
+N = PlanarNetwork()
+N.add_tensor("A", A)
+N.add_tensor("B", B)
+N.connect(("A", 0), ("B", 1))
+
+plan = N.compile(boundary=[...])
+C = plan.evaluate()
+\end{verbatim}
+
+If a crossing is needed, compilation fails unless it is present in the
+diagram or explicitly authorized:
+
+\begin{verbatim}
+N.braid(("A", 1), ("B", 0), over=True)
+\end{verbatim}
+
+\subsection{Einsum-Like Syntax as a Front End}
+
+An einsum-like expression can still exist:
+
+\begin{verbatim}
+C = einsum("lir,rjs->lijs", A, B)
+\end{verbatim}
+
+but this should be a notation parser.  It should produce a contraction
+plan and then check that the local labels agree with the tensors'
+actual spaces.  The labels in the expression should not mutate the
+tensors.
+
+\section{Diagnostics}
+
+The error messages matter.  The library should tell users which
+categorical condition failed.
+
+Examples:
+
+\begin{quote}
+Cannot contract leg 2 of \(A\) with leg 0 of \(B\): spaces have equal
+dimension but different identities, \texttt{bond-4} vs \texttt{bond-5}.
+\end{quote}
+
+\begin{quote}
+Cannot contract these legs in the current planar diagram: the pairing
+would cross an existing strand.  Insert an explicit braid or use a
+planner with braiding enabled.
+\end{quote}
+
+\begin{quote}
+Cannot reorder legs by metadata relabel.  This reorder changes the
+fusion tree.  Apply an explicit \(F\)-move or call \texttt{recouple}.
+\end{quote}
+
+\begin{quote}
+Cannot use ordinary trace on this fermionic/braided tensor.  Use the
+categorical trace operation and specify the required twist convention.
+\end{quote}
+
+These diagnostics are not just niceties.  They are part of the
+correctness model.  A useful tensor-network library should make the
+wrong operation fail at the point where the wrong assumption is made.
+
+\section{Testing the Invariants}
+
+The invariants above should be testable.
+
+\subsection{Dense Space Identity Tests}
+
+Even with no symmetry, create two spaces with the same dimension but
+different identities:
+\[
+  V = \mathbb{C}^{32}, \qquad W = \mathbb{C}^{32}.
+\]
+Contraction of \(V\) with \(W^\ast\) should fail unless an explicit
+isomorphism is supplied.  This catches many MPS bond-index mistakes
+that dense tensor libraries silently allow.
+
+\subsection{SVD Bond Creation Tests}
+
+SVD should create a new bond space \(B\).  The singular-value object
+should be an endomorphism \(B \to B\).  Tests should verify that the
+two sides of \(S\) carry the same space identity and that \(U S V\)
+reconstructs the original tensor with the expected boundary.
+
+\subsection{Relabel Non-Effect Tests}
+
+Changing display labels must not change which contractions are legal.
+If a contraction fails before relabelling, and no space identity,
+duality, braid, or recoupling operation has been applied, it should
+still fail after relabelling.
+
+\subsection{Braiding Tests}
+
+In a category with nontrivial \(R\)-symbols, compare:
+
+\begin{itemize}[nosep]
+  \item a planar contraction with no crossing;
+  \item the same pairings with one explicit braid;
+  \item a rejected attempt to produce the second result by relabelling
+        or ordinary permutation.
+\end{itemize}
+
+The first two may both be legal, but they should generally produce
+different morphisms.  The third should fail.
+
+\subsection{Fusion Recoupling Tests}
+
+Construct tensors in two different fusion bases,
+\[
+  ((a b)c)d
+  \qquad\text{and}\qquad
+  (a(b c))d.
+\]
+Verify that direct comparison or contraction fails unless an explicit
+\(F\)-move or canonical recoupling is applied.
+
+\section{Consequences for Cytnx Compatibility}
+
+A Cytnx-compatible migration layer can preserve some surface spelling,
+but it should not preserve unsafe semantics.
+
+\begin{itemize}
+  \item Persistent labels can be read as display labels.
+  \item Label-based contractions can be parsed into explicit leg
+        contractions, then checked.
+  \item Duplicate labels should not be globally forbidden, because
+        endomorphisms naturally have the same space on both sides.
+  \item Relabelling should not make a previously illegal contraction
+        legal.
+  \item Rowrank-style positional decomposition should be replaced by
+        explicit left/right leg groups.
+  \item Block access should be expert-level and described as reduced
+        basis access, not ordinary ndarray slicing.
+\end{itemize}
+
+This means a fully bug-compatible shim is neither possible nor
+desirable.  The useful compatibility target is:
+
+\begin{quote}
+Old scripts either run with the intended semantics, or fail with a
+diagnostic that tells the user what mathematical structure was missing.
+\end{quote}
+
+\section{Conclusion}
+
+Planarity is not decoration.  In a braided or non-Abelian tensor
+category, the diagram is part of the expression.  A tensor object knows
+its local ordered boundary, but the network or planner must know the
+global planar embedding.  Any interface that lets users repair
+contractions by mutating labels has already lost the essential
+correctness property.
+
+The practical design rule is:
+
+\begin{quote}
+Use labels for notation and diagnostics.  Use spaces, duals, ordered
+legs, fusion trees, and planar diagrams for semantics.
+\end{quote}
+
+\begin{thebibliography}{9}
+
+\bibitem{TensorKitDocs}
+TensorKit.jl documentation.
+\newblock \url{https://quantumkithub.github.io/TensorKit.jl/stable/}
+
+\bibitem{TensorKitFusionTrees}
+TensorKit.jl manual: fusion trees.
+\newblock \url{https://quantumkithub.github.io/TensorKit.jl/stable/man/fusiontrees/}
+
+\bibitem{TensorKitIndexManipulations}
+TensorKit.jl manual: index manipulations.
+\newblock \url{https://quantumkithub.github.io/TensorKit.jl/stable/man/indexmanipulations/}
+
+\bibitem{TensorKitContractions}
+TensorKit.jl manual: contractions, including \texttt{@tensor},
+\texttt{@planar}, and \texttt{@plansor}.
+\newblock \url{https://quantumkithub.github.io/TensorKit.jl/stable/man/contractions/}
+
+\end{thebibliography}
+
+\end{document}

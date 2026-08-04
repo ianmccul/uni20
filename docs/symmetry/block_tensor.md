@@ -14,6 +14,8 @@ behavior.
 
 Related notes:
 
+- `docs/symmetry/spaces_duals_and_morphisms.md` — the canonical space,
+  duality, domain/codomain, and contraction model.
 - `docs/symmetry/block_sparse_tensor.md` — the two-level tensor + layout linchpin (this note refines it).
 - `docs/symmetry/axis_labels_and_braiding.md` — user-facing axis-label policy and explicit braid semantics.
 - `docs/architecture/storage_kind_and_location.md` — memory kind (compile-time) vs location (runtime).
@@ -38,12 +40,14 @@ Storage is split across **two policies** (§1): a compile-time leaf `TensorStora
 (memory kind, `Cpu`/`Cuda`) on the dense blocks, and the container's
 `BlockTensorStorage` (the `Storage` parameter), which fixes the form of the
 per-block metadata record — including, for `Mpi<…>` policies, distribution.
-**Location** values and the per-block scalar are runtime. Transpose, conjugate,
-and scaling are **views** — a compile-time
-`LegList` transform plus lazy per-block op-state and scalars that lower directly to
-the BLAS `op` (`N`/`T`/`C`/`R`) and `alpha`. The per-block scalar is the
+**Location** values and the per-block scalar are runtime. Boundary-preserving
+transforms are **views** when their categorical lowering permits it: a
+compile-time morphism-boundary transform plus lazy per-block op-state and
+scalars that lower directly to the BLAS `op` (`N`/`T`/`C`/`R`) and `alpha`.
+The per-block scalar is the
 multiplicity-free abelian shadow of fusion-tree recoupling, so the same slot that
-carries a conjugation phase today carries a recoupling transform later. The
+carries a category-defined bend or adjoint phase today carries a recoupling
+transform later. The
 mechanism is designed for CPU + CUDA + MPI from day one; the first implementation
 target is `HostOnly`, with immutable host replication (MPO/environment tensors) as
 the first MPI use, ahead of device residence.
@@ -110,40 +114,55 @@ user-facing dense `Tensor` owner or its Tensor-view concepts. Dense `Tensor` is
 a sibling owner over the same buffer kind, not the thing the container is made
 of.
 
-## 3. Leg-kind taxonomy
+## 3. Morphism boundary and space kinds
 
-**Terminology.** An individual typed index is a **leg** (`LegList`, leg kinds);
-the index count is the tensor's **order**. The word "rank" is avoided on the
-tensor side — it survives only in mdspan's own `rank()` (which means the order)
-— and **"MPI rank" is always written qualified**, never bare.
+**Terminology.** An individual ordered index occurrence is a **leg**; the total
+leg count is the tensor's **order**. The word "rank" is avoided on the tensor
+side — it survives only in mdspan's own `rank()` (which means the order) — and
+**"MPI rank" is always written qualified**, never bare.
 
-Legs are typed by symmetry role. Each kind is a thin typing layer over the
-symmetry types that already exist (`Symmetry`, `QNum`, `QNumList`, `BlockSpace`):
+`BlockTensor` is a morphism with an ordered `Domain<...>` and ordered
+`Codomain<...>`. Membership in either list is independent of whether the object
+is a `Space` or `DualSpace`. The obsolete `CoBlockSpace`, `CoLocalSpace`, and
+`CoQNumSpace` proposal conflated these two axes and is not part of this design.
+See [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md) for the
+canonical rules, including wire bending and all-out boundary orientation.
 
-| Leg kind | Sectors | Degeneracy | Grounded on | Example use |
+The structural decomposition of each identity-bearing space is grounded on the
+symmetry types that already exist:
+
+| Space decomposition | Sectors | Degeneracy | Grounded on | Example use |
 |---|---|---|---|---|
-| `BlockSpace` / `CoBlockSpace` | many `(QNum, dim)` | dim ≥ 1, varies | `BlockSpace` | MPS virtual bond |
-| `LocalSpace` / `CoLocalSpace` | list of QNums (repeats allowed) | 1 (length-1 blocks) | `QNumList` | physical site index |
-| `QNumSpace` / `CoQNumSpace` | exactly one QNum | 1 | a single `QNum` | irrep label of an irreducible operator |
-| `Dense` | — | dense extent | mdspan extent | plain dense axis (degenerate case) |
+| `BlockSpace` | many `(QNum, dim)` | dim ≥ 1, varies | implemented `BlockSpace` | MPS virtual bond |
+| `LocalSpace` | list of QNums (repeats allowed) | 1 (length-1 blocks) | `QNumList` | physical site index |
+| `QNumSpace` | exactly one QNum | 1 | a single `QNum` | irrep label of an irreducible operator |
+| `DenseSpace` | — | dense extent | mdspan extent | plain dense axis (degenerate case) |
 
-The `Co…` form of each kind carries the dual **leg direction** intrinsically (this
-resolves the "where does leg orientation live" open question in
-`block_sparse_tensor.md`: on the leg, as a distinct co-type). Worked examples:
+The exact C++ wrapper around these decompositions remains open. Conceptually,
+each value has an immutable `SpaceId`; copies preserve that identity, while a
+new isomorphic space receives a distinct identity. Worked boundary
+specifications are:
 
 ```cpp
-// MPS A-tensor: in-bond, physical, out-bond
-BlockTensor<double, LegList<CoBlockSpace, CoLocalSpace, BlockSpace>>
+// MPS A-tensor: left_bond tensor physical -> right_bond
+using MpsSiteSpec = MorphismSpec<
+    Domain<BlockSpace, LocalSpace>,
+    Codomain<BlockSpace>>;
 
-// Hamiltonian MPO: two physical-in, two physical-out, purely sparse, host-only
-BlockTensor<double, LegList<CoLocalSpace, CoLocalSpace, LocalSpace, LocalSpace>, HostOnly>
+// MPO site: left_bond tensor ket -> right_bond tensor bra
+using MpoSiteSpec = MorphismSpec<
+    Domain<BlockSpace, LocalSpace>,
+    Codomain<BlockSpace, LocalSpace>>;
 
-// Irreducible tensor operator (middle leg carries the operator irrep)
-BlockTensor<double, LegList<CoBlockSpace, QNumSpace, BlockSpace>>
-
-// Its conjugate (co-flip every leg; see §7)
-BlockTensor<double, LegList<BlockSpace, CoQNumSpace, CoBlockSpace>>
+// Irreducible tensor operator carrying one explicit operator irrep
+using IrreducibleOperatorSpec = MorphismSpec<
+    Domain<BlockSpace, QNumSpace>,
+    Codomain<BlockSpace>>;
 ```
+
+The spec fixes decomposition kinds and boundary order. Each tensor value carries
+the actual identity-bearing spaces, so the same `MpsSiteSpec` describes every
+site while adjacent tensors share exactly the intended bond `SpaceId`.
 
 `LocalSpace` blocks are length-1 in their axis (no degeneracy index). `LocalSpace`
 is also the natural **coalescing axis** (`block_coalescing.md`): small, regular, and
@@ -170,17 +189,22 @@ batched/bundled symmetric tensors.
 ## 4. The BlockTensor template and its type family
 
 ```cpp
-template <class T, class LegSpec, class Storage = HostOnly, class Coupling = Trivial>
+template <
+    class T,
+    class MorphismSpec,
+    class Storage = HostOnly,
+    class Coupling = Trivial>
 class BlockTensor;
 ```
 
 - `T` — element scalar type (real or complex).
-- `LegSpec` — the leg specification, `LegList<Legs…>`. The leg count (the tensor's
-  order) and the leg kinds are **always compile-time** — the order is part of the
-  mdspan type (its `rank()`), so there is no real choice here. A runtime-order
-  tensor for the Python surface is a later, *different class* behind the same
-  dispatch (plausibly a variant over a small maximum order, or an mdspan extension
-  with runtime rank), not a mode of `BlockTensor`.
+- `MorphismSpec` — ordered `Domain<...>` and `Codomain<...>` decomposition
+  kinds. The tensor's order and kinds are **always compile-time** — the order is
+  part of the mdspan type (its `rank()`), so there is no real choice here. The
+  identity-bearing space values are runtime metadata. A runtime-order tensor for
+  the Python surface is a later, *different class* behind the same dispatch
+  (plausibly a variant over a small maximum order, or an mdspan extension with
+  runtime rank), not a mode of `BlockTensor`.
 - `Storage` — the container storage policy (`BlockTensorStorage`, §1/§5),
   defaulted to `HostOnly`.
 - `Coupling` — the **symmetry-capability policy** (below), defaulted to `Trivial`
@@ -210,7 +234,7 @@ is *additive* — a new policy value plus its codepath, existing working code un
 deferred to when each capability is actually added. It is the compile-time selector
 for the §8 seams.
 
-A small type family shares `LegSpec`/`Storage`, varying only on ownership and
+A small type family shares `MorphismSpec`/`Storage`, varying only on ownership and
 view-state (mirroring the existing `Tensor` / `TensorView` split):
 
 - **`BlockTensor`** — owning; holds the buffers.
@@ -226,7 +250,7 @@ view-state (mirroring the existing `Tensor` / `TensorView` split):
   commit point after which blocks are immutable — so replicas need no coherence
   protocol: the immutable-⇒-free-replication invariant of the persistent-object
   model (`../backends/mpi/persistent_dispatch.md`). It takes the **same**
-  `LegSpec`/`Storage` as its source, and its implementation may resemble
+  `MorphismSpec`/`Storage` as its source, and its implementation may resemble
   `BlockTensor`, but it is a separate class: mutable-vs-immutable is the
   load-bearing distinction, and the type is what enforces it.
 
@@ -320,8 +344,9 @@ tradeoff); it stays an internal perf detail.
 **Global structure vs local residency (distributed case).** Block *structure* is
 replicated on every MPI rank; block *storage* is local. Replicated everywhere — so block
 identity is globally deterministic and tags agree without communication
-(`../architecture/ordering_and_backend_lowering.md`) — are the `LegList`, the
-`BlockSpace`/`QNumList` sector dimensions, the fusion/coupling layout, and the
+(`../architecture/ordering_and_backend_lowering.md`) — are the morphism
+boundary, identity-bearing spaces, structural sector dimensions, the
+fusion/coupling layout, and the
 **location map** (block → owning `(MPI rank, device)`). Local to each node is only the
 buffer binding `(buffer, offset, strides)`, materialized for blocks actually resident
 there (owned, or cached read-only replicas). A block "not present on this node"
@@ -332,18 +357,22 @@ per-block records only for present blocks, over a globally-replicated shape.
 
 ## 7. Views: transpose, conjugate, scale
 
-Transpose, conjugate, hermitian conjugate, and scaling are **views** of the same
-underlying buffers — partly a compile-time `LegList` transform, partly lazy runtime
-op-state and per-block scalars — never a data copy.
+Numerical conjugation, compatible boundary transformations, adjoint, and scaling
+can be **views** of the same underlying buffers when the category's lowering
+permits it. Such a view combines a compile-time morphism-boundary transform,
+lazy runtime op-state, and per-block scalars rather than copying data.
 
 We are **inspired by** the C++26 `std::linalg` view adaptors (`transposed`,
 `conjugated`, `conjugate_transposed`, `scaled`) but do **not** use them: they are
 designed for the general user and do not give enough control over the backend BLAS
 library. We roll our own view adaptors so we own the lowering.
 
-- **Compile-time part.** `conj` co-flips every leg of the `LegList` (`BlockSpace ↔
-  CoBlockSpace`, etc.) — a `LegList` metafunction, type-safe. `transpose` permutes
-  (e.g. reverses) the `LegList`. Hermitian conjugate composes both.
+- **Compile-time part.** Numerical `conj` preserves the morphism boundary.
+  `repartition` bends selected legs across the domain/codomain boundary and
+  toggles their explicit `Space`/`DualSpace` status. `adjoint` reverses the
+  morphism according to the category. Permutations and transposes update the
+  ordered boundary through the recoupling/braiding rules rather than raw
+  `LegList` manipulation.
 - **Runtime part.** A lazy per-operand **op-state** and the per-block scalars. The
   op-state defers the actual data transpose/conjugate to the kernel.
 
@@ -361,9 +390,10 @@ develop-branch Fortran GEMM `R` spelling, or else requires materialization:
 
 The per-block scalar lowers to the GEMM **`alpha`** — and it is genuinely
 **per-block**, not one uniform alpha as in stdBLAS `scaled`, because the phases are
-`QNum`-dependent. Conjugation and hermitian conjugation are read through these
-scalars (conjugation involves `QNum`-dependent factors); a normalization-convention
-change is just a different set of per-block scalars over the same data.
+`QNum`-dependent. Category-defined adjoint, repartition, and recoupling factors
+are read through these scalars when they reduce to blockwise phases; a
+normalization-convention change is just a different set of per-block scalars
+over the same data.
 
 **GEMM lowering.** A contraction `A ⊗ B → C` lowers to per-block GEMMs with `op`
 from each operand's op-state and `alpha = s_A · s_B / s_C`. A freshly produced output
@@ -404,8 +434,9 @@ rewrite:
    degeneracy extents. A block is logically `degeneracy dims × fusion-multiplicity`;
    the abelian fusion extent is 1 and collapses to a plain dense block, but the shape
    descriptor must not *assume* it absent.
-5. **Leg direction is intrinsic** (the co-types, §3) — exactly the dual object fusion
-   needs; duals/adjoints are well-defined before any fusion code exists.
+5. **Morphism side and object duality are explicit and independent** (§3) —
+   ordered `Domain`/`Codomain` boundaries and `Space`/`DualSpace` provide exactly
+   the information that fusion, wire bending, and adjoint operations need.
 6. **`QNumSpace` stores a label, not a 1-D space** (§3) — so a non-abelian irrep's
    internal dimension is a fusion concern, not a baked-in degeneracy of 1.
 
@@ -415,12 +446,13 @@ so the entire recoupling/F-move effect collapses to one scalar per block — exa
 the §7 coupling factor. Later, with μ > 1, it generalizes to a small `μ×μ` recoupling
 matrix on the fusion-multiplicity extent; the scalar is the 1×1 case. So
 `block.coupling_factor()` returns a scalar today and can return/apply a small matrix
-later, and conjugation, hermitian conjugation, and normalization views are all just
-*different coupling factors* on the same buffer.
+later. Adjoint, repartition, recoupling, and normalization views may therefore
+present different coupling factors over the same buffer; numerical conjugation
+remains a separate accessor/op-state transformation.
 
 **Bake the interface, trivial values first.** The lowering consumes `op` + per-block
 `alpha` from day one; the `HostOnly` first pass can ship with all scalars ≡ 1 and
-only transpose implemented, adding conjugation phases and non-trivial coupling
+only transpose implemented, adding category-defined phases and non-trivial coupling
 factors as *data*, not a code-path change. The `Coupling` policy (§4) is the
 compile-time face of this: the `Trivial` default compiles only the scalar-factor
 path, and richer tiers add their `CouplingDescriptor` and recoupling codepaths
@@ -428,20 +460,23 @@ without touching it.
 
 ## 9. Decisions made
 
-- Name `BlockTensor`; general order-N with **typed legs**
-  (`BlockSpace`/`LocalSpace`/`QNumSpace` and their `Co…` duals, plus `Dense`). `Dense`
-  is both the dense degenerate case and the batched/bundled-tensor tool (block
-  Lanczos, tangent vectors), avoiding `vector<BlockTensor>`'s metadata duplication.
-- Leg vocabulary: an individual typed index is a **leg** (`LegList`, `LegSpec`, leg
-  kinds); the count is the tensor's **order**; "rank" is reserved for MPI (always
-  written "MPI rank") and for mdspan's own `rank()`.
+- Name `BlockTensor`; general order-N with a typed morphism boundary over
+  `BlockSpace`/`LocalSpace`/`QNumSpace`/`DenseSpace` decompositions.
+  `Domain`/`Codomain` is independent of `Space`/`DualSpace`; there are no
+  `Co...` leg kinds. `DenseSpace` is both the dense degenerate case and the
+  batched/bundled-tensor tool (block Lanczos, tangent vectors), avoiding
+  `vector<BlockTensor>`'s metadata duplication.
+- Leg vocabulary: an individual ordered index occurrence is a **leg**; the count
+  is the tensor's **order**; "rank" is reserved for MPI (always written "MPI
+  rank") and for mdspan's own `rank()`.
 - Two-level: lightweight `mdspan` dense-block leaf (one device, no cross-device
   slicing) + block-sparse container of `layout_stride` views over shared buffers,
   on the buffer-with-subviews + completion-token foundation.
-- `BlockTensor<T, LegList<…>, Storage = HostOnly>`; leg count (order) and leg kinds
-  are always compile-time (the order is part of the mdspan type); a runtime-order
+- `BlockTensor<T, MorphismSpec<Domain<...>, Codomain<...>>, Storage =
+  HostOnly>`; boundary order and decomposition kinds are compile-time, while
+  identity-bearing space values are runtime metadata. A runtime-order
   Python-facing tensor is a later, separate class behind the same dispatch.
-- Type family over shared `LegSpec`/`Storage`: owning `BlockTensor`, non-owning
+- Type family over shared `MorphismSpec`/`Storage`: owning `BlockTensor`, non-owning
   `BlockTensorView`, const `ReplicatedBlockTensor` (separate class; move-in commit;
   canonical block location + on-demand cached replicas; mutable ⇒ singleton
   location / replicated ⇒ immutable).
@@ -460,10 +495,11 @@ without touching it.
   `LocalSpace` interleave permitted for zero-copy coalescing. Distributed: structure
   + location map replicated everywhere, local sparse buffer map for present blocks
   only ("not present" = omitted, no explicit label).
-- Transpose/conjugate/scale are views = compile-time `LegList` transform + lazy
-  op-state + per-block scalars; **inspired by but not using** C++26 `std::linalg`;
-  op set `N`/`T`/`C` plus provider-specific or prepared `R`; per-block `alpha`;
-  scaled/conjugated views read-only, transposed possibly assignable.
+- Compatible transforms are views = compile-time morphism-boundary transform +
+  lazy op-state + per-block scalars; **inspired by but not using** C++26
+  `std::linalg`; op set `N`/`T`/`C` plus provider-specific or prepared `R`;
+  per-block `alpha`; scaled/conjugated views read-only, transposed possibly
+  assignable.
 - Six forward-compat seams; the per-block scalar is the abelian recoupling case;
   bake the `op`/`alpha` interface now with trivial values, add factors as data.
 

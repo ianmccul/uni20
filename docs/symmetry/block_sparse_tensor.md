@@ -161,6 +161,8 @@ reverse-mode AD, must be replicated/deterministic — see
 - **Block-index identity for MPI.** What canonical, replication-stable identity is
   used to derive tags (sector quantum numbers + per-leg sector indices?), and how it
   survives truncation/growth across DMRG sweeps.
-- ~~**Where leg orientation lives**~~ — *resolved* in `block_tensor.md` §3:
-  intrinsically on the leg, as distinct co-types (`CoBlockSpace`, `CoLocalSpace`,
-  `CoQNumSpace`).
+- ~~**How leg orientation is represented**~~ — *resolved* in
+  [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md):
+  `Space`/`DualSpace` object duality is independent of an occurrence's position
+  in the ordered `Domain` or `Codomain`. Moving between sides is explicit wire
+  bending, not a metadata flip.

@@ -37,12 +37,19 @@ In the prototype, `LocalSpace` was used for both:
 ## LocalOperator
 
 `uni20::LocalOperator`
-is conceptually the first realization of
+is conceptually the first realization of a symmetry-aware morphism whose
+domain contains the ket local space and whose codomain contains the bra local
+space, with the operator irrep as a second domain factor:
 
-`Tensor<co<LocalSpace>, QNum, LocalSpace>`
+```text
+ket_space tensor operator_irrep -> bra_space
+```
 
 but the prototype used a dedicated class rather than a generic tensor
-instantiation.
+instantiation. This follows the independent `Space`/`DualSpace` and
+`Domain`/`Codomain` model in
+[Spaces, Duals, and Tensor Morphisms](../symmetry/spaces_duals_and_morphisms.md);
+it does not require a `co<LocalSpace>` direction wrapper.
 
 It stores:
 

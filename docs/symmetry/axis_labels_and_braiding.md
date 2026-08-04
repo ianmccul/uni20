@@ -3,7 +3,9 @@
 Status: design note. This is intended to fix the core policy before Python
 bindings and higher-level tensor-network interfaces acquire accidental
 semantics. It complements the block-sparse tensor and symmetry design in
-[BlockTensor](block_tensor.md).
+[BlockTensor](block_tensor.md). The ordered `Domain`/`Codomain` boundary and
+independent `Space`/`DualSpace` semantics are defined in
+[Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md).
 
 ## Problem
 
@@ -30,6 +32,12 @@ Consequences:
 - `label="right"` is metadata attached to whichever axis currently carries that label.
 - Labels move with axes under permutation.
 - Relabeling does not change algebraic structure.
+
+For `BlockTensor`, each canonical axis position is one ordered occurrence in
+the tensor's domain or codomain. The occurrence refers to an identity-bearing
+space, possibly through `DualSpace`. Axis position, morphism side, object
+duality, and display label are distinct properties; none can be reconstructed
+from another.
 
 This is deliberately stricter than label-driven tensor contraction systems. It is less magical, but it is inspectable, testable, and compatible with braided tensor categories.
 
