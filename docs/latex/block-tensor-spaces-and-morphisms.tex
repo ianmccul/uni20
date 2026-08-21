@@ -3,6 +3,7 @@
 \usepackage[a4paper,margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{array}
 \usepackage{booktabs}
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
@@ -16,17 +17,10 @@
 
 \newcommand{\catC}{\mathcal{C}}
 \newcommand{\Hom}{\operatorname{Hom}}
-\newcommand{\id}{\operatorname{id}}
 \newcommand{\dual}[1]{#1^{\vee}}
-\newcommand{\Space}{\mathsf{Space}}
-\newcommand{\DualSpace}{\mathsf{DualSpace}}
 \newcommand{\Domain}{\mathsf{Domain}}
 \newcommand{\Codomain}{\mathsf{Codomain}}
-\newcommand{\MorphismSpec}{\mathsf{MorphismSpec}}
 \newcommand{\BlockTensor}{\mathsf{BlockTensor}}
-\newcommand{\SpaceId}{\mathsf{SpaceId}}
-\newcommand{\BlockKey}{\mathsf{BlockKey}}
-\newcommand{\CouplingDescriptor}{\mathsf{CouplingDescriptor}}
 
 \begin{document}
 
@@ -35,143 +29,154 @@
 \begin{abstract}
 This note refines the local tensor model in
 \emph{Planar Tensor Networks, Braiding, and Interface Invariants}.
-The planar paper established that a symmetry-aware tensor is a morphism
-with an ordered boundary and that global contraction semantics belong to
-a checked planar diagram or contraction plan.  The refinement here
-separates two distinctions that the earlier \(\Space/\mathsf{CoSpace}\)
-spelling conflated: categorical object duality,
-\(\Space/\DualSpace\), and morphism side,
-\(\Domain/\Codomain\).  Moving a boundary factor from one side of a
-morphism to the other is consequently an explicit wire-bending operation
-that toggles object duality.  This model applies unchanged to the first
-bosonic U(1) \(\BlockTensor\), where it reduces to signed charge
-bookkeeping, and to later non-Abelian or braided implementations, where
-it carries fusion, pivotal, and braid data.
+Concrete Uni20 values now model the \texttt{Space} concept directly:
+\texttt{BlockSpace}, \texttt{IrregularSpace}, \texttt{LocalSpace},
+\texttt{QNumSpace}, and \texttt{DenseSpace}.  Ordered
+\texttt{Domain<...>} and \texttt{Codomain<...>} values are also implemented.
+Space structural data is immutable, while each leg space carries a mutable
+string label used by exact compatibility checks.  There is no wrapper such as
+\texttt{Space<LocalSpace>} and no globally generated space identifier.  The
+categorical distinction between a space and its dual remains independent of
+the distinction between a morphism's domain and codomain.  This model reduces
+to signed charge bookkeeping for bosonic U(1), while retaining the boundary
+data needed by later non-Abelian and braided implementations.
 \end{abstract}
 
 \tableofcontents
 
 \section{Relationship to the Planar-Network Design}
 
-The earlier planar-network note supplies the global architecture:
+The earlier planar-network note established that:
 
 \begin{enumerate}[nosep]
   \item a tensor stores a local ordered domain and codomain;
-  \item a planar network stores the embedding and external boundary;
-  \item a contraction plan inserts and lowers the required local
-        compositions, recouplings, braids, and traces.
+  \item a network or contraction plan stores global embedding and
+        crossing information;
+  \item contraction lowers checked compositions, recouplings, braids,
+        and traces to block worklists and numerical kernels.
 \end{enumerate}
 
-Those conclusions remain unchanged.  This note corrects and completes
-the local boundary vocabulary.  The earlier term
-\(\mathsf{CoSpace}\) attempted to encode ``the other direction'' in one
-type.  There are, however, two independent questions:
+Those conclusions remain.  This note refines the local boundary
+vocabulary and removes two unnecessary ideas: a templated
+\texttt{Space<...>} ownership wrapper and a globally coordinated
+\texttt{SpaceId}.
+
+Two categorical questions remain independent:
 
 \begin{enumerate}[nosep]
-  \item Is the categorical object \(X\) or its dual \(\dual{X}\)?
+  \item Is the object \(X\) or its dual \(\dual{X}\)?
   \item Does this occurrence appear in the domain or codomain?
 \end{enumerate}
 
-The answers must not be collapsed.  A domain may contain either \(X\)
-or \(\dual{X}\), and so may a codomain.  The durable vocabulary is
-therefore \(\Space/\DualSpace\) for object duality and
-\(\Domain/\Codomain\) for morphism side.
+A domain and a codomain may each contain primal or dual objects.
 
-\section{Five Pieces of Boundary Data}
+\section{Concrete Space Values}
 
-A symmetry-aware tensor boundary contains five different forms of
-information.  Keeping them separate prevents structural metadata from
-silently acquiring mathematical semantics.
-
-\subsection{Symmetry or Tensor Category}
-
-The symmetry context supplies the category \(\catC\).  It owns:
-
-\begin{itemize}[nosep]
-  \item sector fusion and the tensor unit;
-  \item object duality;
-  \item invariant-channel multiplicities;
-  \item evaluation and coevaluation maps;
-  \item eventually associators, pivotal data, twists, and braiding.
-\end{itemize}
-
-For bosonic U(1), most of this structure is trivial.  Fusion is charge
-addition, the tensor unit has charge zero, duality negates charge, and
-every allowed invariant channel has multiplicity one.  This is a
-specialization of the interface, not a different interface.
-
-\subsection{Structural Decomposition}
-
-A decomposition records which sectors and degeneracy dimensions a
-space contains.  The currently implemented Uni20 types provide useful
-structural forms:
+\texttt{Space} is a C++ concept.  A concrete model has copyable value
+semantics, exact equality, a string label, and an operation for
+replacing that label.  Five models establish the initial vocabulary:
 
 \begin{center}
-\begin{tabular}{lll}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.38\textwidth}
+                    >{\raggedright\arraybackslash}p{0.28\textwidth}@{}}
 \toprule
-Form & Structural data & Typical role \\
+Type & Structural data & Typical role \\
 \midrule
-\texttt{BlockSpace} & \((q,d_q)\) sectors & MPS virtual bond \\
-\texttt{QNumList} & ordered local charges & physical site \\
-\texttt{QNum} & one irrep label & irreducible operator \\
-dense extent & no symmetry sectors & bundled dense axis \\
+\texttt{BlockSpace}
+  & canonical unique \((q,d_q)\) sectors
+  & MPS virtual bond \\
+\texttt{IrregularSpace}
+  & ordered \((q,d_q)\) blocks, including repeats
+  & projected bond before repacking \\
+\texttt{LocalSpace}
+  & ordered local-state charges
+  & physical site \\
+\texttt{QNumSpace}
+  & one irrep label
+  & irreducible operator leg \\
+\texttt{DenseSpace}
+  & symmetry-neutral extent
+  & batch or bundled tensor axis \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Structural equality is not semantic identity.  Two MPS bonds can have
-the same U(1) sectors and degeneracies while belonging to different
-cuts of the chain.
+\texttt{BlockSpace}, \texttt{IrregularSpace}, \texttt{LocalSpace}, and
+\texttt{QNumSpace} also model \texttt{SymmetrySpace}.
+\texttt{DenseSpace} deliberately does not: it contributes no quantum
+number to the selection rule.
 
-\subsection{Identity-Bearing Space}
+\subsection{Structural immutability}
 
-A \(\Space\) is an immutable semantic object over one decomposition.
-It carries a \(\SpaceId\).
+Sector content, local-state order, irrep, and dense extent are fixed at
+construction.  A tensor can therefore retain a space value without
+its shape or block interpretation changing behind the storage map.
 
-\begin{itemize}[nosep]
-  \item Copying a space preserves its identity.
-  \item Constructing an isomorphic space creates a distinct identity.
-  \item Exact composition normally requires the same identity.
-  \item Composition through distinct isomorphic spaces requires an
-        explicit isomorphism.
-  \item A display label is not the identity.
-\end{itemize}
+\texttt{BlockSpace} requires an explicit valid symmetry even when
+empty.  It accepts a range of \((q,d_q)\) sectors, requires positive
+dimensions and matching symmetries, sorts sectors canonically, and
+rejects duplicate quantum numbers.
 
-The implementation should expose the conceptual distinction
+\texttt{IrregularSpace} also requires an explicit valid symmetry, but
+preserves the supplied block order and permits repeated quantum
+numbers.  It is useful when projecting out part of a symmetry causes
+previously distinct sectors to acquire the same remaining charge.
+Regularization coalesces those blocks into a canonical
+\texttt{BlockSpace} and records the destination block and degeneracy
+range of every original segment.
+
+\texttt{LocalSpace} also requires an explicit valid symmetry.  It
+preserves input order and repeated charges because different basis
+states may transform in the same sector.  Explicit regularization
+coalesces those states into a \texttt{BlockSpace} and records each
+state's block index and within-block offset.
+
+\texttt{QNumSpace} carries one valid \texttt{QNum}.  Its symmetry
+follows from that value.  \texttt{DenseSpace} carries only a
+nonnegative extent.
+
+\subsection{Labels and exact equality}
+
+Every concrete space carries a \texttt{std::string} label.  The empty
+string is a valid unlabelled value.  Labels need not be unique,
+interned, generated, or coordinated between MPI ranks.
+
+Exact equality compares both structure and label:
 \[
-  \operatorname{same\_space}(X,Y)
-  \qquad\hbox{versus}\qquad
-  \operatorname{isomorphic\_space}(X,Y).
-\]
-The first checks identity; the second checks compatible categorical and
-structural data.
-
-A process-local address is not a sufficient \(\SpaceId\).  MPI
-construction and distributed decompositions require an identity that
-can be serialized or deterministically reproduced on every
-participating MPI rank.
-
-\subsection{Object Duality}
-
-For a space \(X\), \(\dual{X}\) is represented by
-\(\DualSpace\langle X\rangle\).  It retains the identity of its primal
-space:
-\[
-  \dual{(\dual{X})} \cong X,
-  \qquad
-  \operatorname{primal\_id}(\dual{X})
-    = \operatorname{space\_id}(X).
+  X = Y
+  \quad\Longleftrightarrow\quad
+  \operatorname{structure}(X)=\operatorname{structure}(Y)
+  \ \land\
+  \operatorname{label}(X)=\operatorname{label}(Y).
 \]
 
-The dual is not a newly allocated, unrelated space whose decomposition
-happens to contain dual sectors.  For U(1), its sector \(q\) is
-represented by \(-q\).  In a richer category the symmetry context also
-supplies the evaluation, coevaluation, and normalization data required
-to use the dual.
+Changing a label does not alter extent, sectors, local-state order, or
+stored tensor data.  It does change exact space compatibility.  A
+network operation which labels a bond must update both endpoint leg
+occurrences.  For example, an MPS may initialize all spaces and then
+assign labels \texttt{"0"}, \texttt{"1"}, and so on to the
+corresponding bond endpoints.
 
-\subsection{Morphism Side and Leg Occurrence}
+A future structural relation such as
+\texttt{isomorphic\_space(X,Y)} may deliberately ignore labels.
+Algorithms must choose exact equality or structural compatibility
+explicitly.
 
-A tensor is a morphism
+\subsection{Why there is no global identifier}
+
+A global identifier would require generation, serialization, and
+distributed agreement.  It would also make independently
+reconstructed but intentionally compatible spaces unequal unless the
+identifier were threaded through every construction path.
+
+The required semantics are already represented by immutable structure
+and a user-controlled label.  Values are naturally copyable and
+serializable, and an operation may request either exact equality or an
+explicit structural conversion.
+
+\section{Object Duality and Morphism Side}
+
+A symmetry-aware tensor is a morphism
 \[
   A :
   X_0 \otimes \cdots \otimes X_{m-1}
@@ -185,449 +190,280 @@ Its local boundary is the ordered pair
   \Codomain[Y_0,\ldots,Y_{n-1}].
 \]
 
-Every entry is one leg occurrence.  Several occurrences may refer to
-the same space, just as an identity map has the same space in its
-domain and codomain.  Occurrence identity, position, display label,
-space identity, and object duality are distinct.
+The implemented \texttt{Domain<Spaces...>} and
+\texttt{Codomain<Spaces...>} templates are distinct heterogeneous value
+types.  They retain their concrete space types and ordered values, expose
+space structure read-only, and permit an individual label to be changed with
+\texttt{set\_label<I>()}.  Exact equality includes those labels.  Empty
+boundaries represent the tensor unit.
 
-\section{The All-Out Boundary}
+The current factor vocabulary contains concrete \texttt{Space} values.  A
+future generic \texttt{Dual<S>} adaptor may extend it once the required
+categorical operations are established.  Parallel concrete families such as
+\texttt{DualBlockSpace} and \texttt{DualLocalSpace} are unnecessary
+unless a future category demonstrates that a generic adaptor cannot
+express its semantics.
 
-Fusion and block legality are most naturally expressed by orienting
-every boundary strand outward.  Under this convention,
+Duality is involutive:
 \[
-  \Codomain[X] \longmapsto X,
-  \qquad
-  \Domain[X] \longmapsto \dual{X}.
+  \dual{(\dual{X})} \cong X.
 \]
-If an entry already names a dual object, the two dualities cancel.
-Effective outward duality is therefore the exclusive-or of the
-domain-side flag and the explicit dual-object flag.
+For U(1), duality negates charge.  A richer category also owns the
+evaluation, coevaluation, pivotal, normalization, and braid data
+required to use dual objects.
 
-For the morphism above, the all-out boundary is
+Every boundary entry is one ordered leg occurrence.  Several
+occurrences may carry equal copies of the same space value.  Position,
+morphism side, object duality, and label remain distinct properties.
+
+\section{All-Out Boundary and Block Selection}
+
+Selection rules are easiest to state after orienting every boundary
+leg outward:
+
+\begin{itemize}[nosep]
+  \item a codomain factor \(X\) contributes \(X\);
+  \item a domain factor \(X\) contributes \(\dual{X}\).
+\end{itemize}
+
+Dualizing a tensor product reverses order.  One canonical all-out
+ordering is
 \[
-  \dual{X}_{m-1} \otimes \cdots \otimes \dual{X}_0
-  \otimes
-  Y_0 \otimes \cdots \otimes Y_{n-1},
+  \dual{X}_{m-1}\otimes\cdots\otimes\dual{X}_0
+  \otimes Y_0\otimes\cdots\otimes Y_{n-1}.
 \]
-where the reversal of the dualized product records
-\[
-  \dual{(X_0 \otimes \cdots \otimes X_{m-1})}
-  \cong
-  \dual{X}_{m-1} \otimes \cdots \otimes \dual{X}_0.
-\]
-An implementation may use a different canonical cyclic starting point,
-but it must choose and document one order and preserve it through every
-operation.
 
-A populated block corresponds to an invariant channel
+For bosonic U(1), a block is legal when
 \[
-  \Hom_{\catC}
-  \left(
-    \mathbf{1},
-    \dual{X}_{m-1}\otimes\cdots\otimes\dual{X}_0
-    \otimes Y_0\otimes\cdots\otimes Y_{n-1}
-  \right).
-\]
-The generic selection query is consequently a category operation over
-oriented sectors, not a hard-coded arithmetic predicate.
-
-\subsection{U(1) Selection Rule}
-
-For bosonic U(1), the invariant-channel query reduces to
-\[
-  \sum_{j=0}^{n-1} q(Y_j)
-  -
-  \sum_{i=0}^{m-1} q(X_i)
-  = 0.
+  \sum_j q(Y_j)-\sum_i q(X_i)=0.
 \]
 For an MPS site
 \[
-  A : L \otimes P \longrightarrow R,
+  A:L\otimes P\longrightarrow R,
 \]
-this is
+this is the familiar
 \[
-  q_R = q_L + q_P.
-\]
-For an MPO site
-\[
-  W : L \otimes K \longrightarrow R \otimes B,
-\]
-it becomes
-\[
-  q_L + q_K = q_R + q_B.
-\]
-These are instances of one oriented-boundary rule.
-
-\section{Repartition Is an Explicit Bend}
-
-Changing which side of a morphism contains a leg is not a relabel or a
-bit flip.  It is a rigid-category isomorphism built from evaluation or
-coevaluation:
-\[
-  \Hom_{\catC}(A\otimes X,B)
-  \cong
-  \Hom_{\catC}(A,B\otimes\dual{X}),
-\]
-\[
-  \Hom_{\catC}(A,B\otimes X)
-  \cong
-  \Hom_{\catC}(A\otimes\dual{X},B).
+  q_R=q_L+q_P.
 \]
 
-The operation is provisionally named \texttt{repartition}.  Moving an
-occurrence across the boundary toggles its explicit
-\(\Space/\DualSpace\) status so that the all-out boundary is preserved.
+The generic implementation asks the category for invariant channels;
+it does not hardcode charge addition.  Multiplicity-free U(1) returns
+zero or one channel, while non-Abelian categories may return several
+channels and a non-empty coupling descriptor.
 
-Moving several factors also exposes the contravariant ordering rule:
+\section{Repartition Is Wire Bending}
+
+Moving a factor between domain and codomain is not a raw metadata edit.
+It is an explicit wire-bending operation, provisionally
+\texttt{repartition}, based on rigid-category isomorphisms such as
+\[
+  \Hom(A\otimes X,B)
+    \cong
+  \Hom(A,B\otimes\dual{X}).
+\]
+
+The move toggles object duality and may reverse order when several
+factors move:
 \[
   \dual{(X\otimes Y)}
-  \cong
+    \cong
   \dual{Y}\otimes\dual{X}.
 \]
-The repartition API must therefore specify the resulting ordered
-boundary, not only a new domain size.
 
-In bosonic U(1), a bend can normally be implemented as checked metadata
-and an axis-order view.  In a nontrivial pivotal category it may carry
-normalization maps or twists.  It must always route through the
-category hook even when that hook returns the identity.
+For bosonic U(1), this is normally a checked boundary and axis-order
+operation.  Other categories may attach phases, twists, pivotal maps,
+or recoupling transformations.
 
-\subsection{Operations That Must Remain Distinct}
+Relabeling is separate: it changes exact leg compatibility but does
+not bend, braid, permute, or numerically transform a tensor.
 
-\begin{itemize}
-  \item \texttt{relabel}: changes diagnostic metadata only.
-  \item \texttt{conj}: changes numerical value semantics while
-        preserving the morphism boundary.
-  \item \texttt{repartition}: bends selected strands and toggles
-        object duality.
-  \item \texttt{adjoint}: reverses the morphism and applies the
-        category's adjoint and recoupling rules.
-  \item \texttt{braid}: exchanges strands using the category's
-        braiding.
-\end{itemize}
+\section{Composition and Partial Contraction}
 
-These operations can have similarly shaped dense-array
-implementations in the trivial case.  That does not make their
-contracts interchangeable.
-
-\section{Contraction as Tensor Product and Composition}
-
-Full contraction is composition.  Given
+Full contraction is morphism composition:
 \[
-  A:X\longrightarrow Y,
-  \qquad
-  B:Y\longrightarrow Z,
-\]
-the result is
-\[
+  A:X\longrightarrow Y,\qquad
+  B:Y\longrightarrow Z
+  \quad\Rightarrow\quad
   B\circ A:X\longrightarrow Z.
 \]
-Composition checks ordered boundary compatibility and space identity,
-not only dimensions or sectors.
 
-\subsection{Partial Contraction}
+Ordinary composition checks exact equality of the joined space
+values, including labels.  A named conversion may instead accept
+structurally compatible spaces and introduce an explicit isomorphism.
 
 Partial contraction is tensor product with identities followed by
-composition.  Suppose
-\[
-  A:L\longrightarrow M\otimes X,
-  \qquad
-  B:X\otimes R\longrightarrow N.
-\]
-Construct conceptually
-\[
-  A\otimes\id_R:
-  L\otimes R
-  \longrightarrow
-  M\otimes X\otimes R,
-\]
-\[
-  \id_M\otimes B:
-  M\otimes X\otimes R
-  \longrightarrow
-  M\otimes N.
-\]
-Their composition is the requested contraction:
-\[
-  (\id_M\otimes B)\circ(A\otimes\id_R):
-  L\otimes R
-  \longrightarrow
-  M\otimes N.
-\]
+composition.  A checked planner proves this construction and lowers it
+without materializing identity tensors.  Axis positions and explicit
+contraction pairs determine which occurrences are joined; labels
+validate the intended pairing but do not address or reorder axes.
 
-Uni20 does not need to materialize either identity tensor.  The checked
-planner proves the categorical expression, determines the external
-boundary, and lowers directly to block worklists.
+Global networks use the same primitives: tensor product, association,
+recoupling, repartition, symmetric permutation or explicit braid,
+composition, and categorical trace.
 
-\subsection{General Planar Networks}
+\section{\texttt{BlockTensor} Consequences}
 
-A planar network can be sliced into layers of tensor products followed
-by compositions.  The general planner may additionally require:
-
-\begin{itemize}[nosep]
-  \item associators and \(F\)-moves;
-  \item repartition bends;
-  \item symmetric permutations or explicit \(R\)-moves;
-  \item categorical traces for closed strands.
-\end{itemize}
-
-The local \(\BlockTensor\) owns its ordered morphism boundary.  The
-network owns cyclic orders, global adjacency, and crossings.  A local
-tensor cannot decide whether a proposed pairing is planar without that
-network context.
-
-\section{Why Bosonic Abelian Tensors Use the Full Model}
-
-It is tempting to implement U(1) as a flat list of signed legs and add
-the categorical model later.  That would make the first implementation
-smaller only by postponing its central invariants.
-
-The full model immediately provides:
-
-\begin{itemize}[nosep]
-  \item exact bond-space identity checks;
-  \item explicit input and output boundaries;
-  \item one contraction language for U(1) and richer categories;
-  \item correct creation and sharing of decomposition spaces;
-  \item a category-shaped selection-rule interface.
-\end{itemize}
-
-For bosonic U(1), it should compile to the inexpensive representation:
-
-\begin{itemize}[nosep]
-  \item multiplicity-free fusion;
-  \item trivial associators and symmetric braiding;
-  \item charge negation for object duality;
-  \item an empty coupling descriptor;
-  \item signed charge sums for block legality;
-  \item metadata-only canonical bends and permutations.
-\end{itemize}
-
-A convenience contraction API may insert the unique canonical bend or
-permutation in this symmetric setting.  It still produces a checked
-plan.  A braided category must reject an expression that leaves a
-crossing unspecified.
-
-\section{Consequences for \texttt{BlockTensor}}
-
-The block-sparse container should be parameterized by a morphism
-boundary rather than a flat list of direction-prefixed leg types.
-Illustrative C++ spelling is:
+An illustrative static interface is:
 
 \begin{verbatim}
 template <
     class T,
-    class MorphismSpec,
-    class Storage = HostOnly,
-    class Coupling = Trivial>
+    class DomainType,
+    class CodomainType,
+    BlockTensorStorage Storage>
 class BlockTensor;
 
-using MpsSiteSpec = MorphismSpec<
+template<class T, CompleteBlockStorage Storage>
+using AMatrix = BlockTensor<
+    T,
     Domain<BlockSpace, LocalSpace>,
-    Codomain<BlockSpace>>;
+    Codomain<BlockSpace>,
+    Storage>;
 
-using MpoSiteSpec = MorphismSpec<
-    Domain<BlockSpace, LocalSpace>,
-    Codomain<BlockSpace, LocalSpace>>;
+template<class T, SparseBlockStorage Storage>
+using MpoSite = BlockTensor<
+    T,
+    Domain<LocalSpace, LocalSpace>,
+    Codomain<LocalSpace, LocalSpace>,
+    Storage>;
 \end{verbatim}
 
-The exact class names remain design sketches.  The required split is:
+The static type fixes boundary order, space kinds, and storage requirements.
+Each tensor value carries the concrete space values for its ordered leg
+occurrences.  Runtime labels distinguish intended bonds, physical legs,
+impurities, or alternating site types.
 
-\begin{itemize}[nosep]
-  \item the static spec fixes order and decomposition kinds;
-  \item tensor values carry the actual identity-bearing spaces;
-  \item each boundary occurrence refers to one of those spaces or its
-        dual;
-  \item storage and placement policies do not change the boundary.
-\end{itemize}
-
-\subsection{Block Keys and Coupling Data}
-
-A block key is an extensible structure
+A block key remains extensible:
 \[
-  \BlockKey
+  \mathsf{BlockKey}
   =
   (\text{sector index per boundary occurrence},
-   \CouplingDescriptor).
+   \mathsf{CouplingDescriptor}).
 \]
-For multiplicity-free U(1), the coupling descriptor is empty.  For
-non-Abelian fusion it identifies an invariant channel or fusion basis.
-The container must not assume there is exactly one block for every
-legal flat sector tuple.
+The coupling descriptor is empty for multiplicity-free U(1), but may
+identify an invariant channel or fusion basis later.
 
-Block construction calls a category-shaped query such as
-\begin{verbatim}
-symmetry.invariant_channels(oriented_sectors)
-\end{verbatim}
-and constructs only the channels it returns.
+\texttt{DenseSpace} is load-bearing rather than merely a degenerate
+case.  It permits one block tensor to bundle structurally identical
+tensors, such as block-Lanczos vectors, a bundled MPS, or tangent
+vectors.  The bundle shares layout metadata and may use coalesced
+storage.
 
-\subsection{Storage Orthogonality}
+\section{Storage Orthogonality}
 
-The same boundary and block key can be stored as individual host
-allocations, offsets into a coalesced buffer, CUDA-resident blocks, or
-MPI-distributed blocks.  A storage policy chooses ownership,
-allocation, and placement.  It must preserve:
+The same boundary and block keys may use individual host allocations,
+offsets in coalesced buffers, CUDA-resident blocks, or MPI-distributed
+blocks.  Storage policies choose ownership, allocation, and placement.
+They preserve:
 
 \begin{itemize}[nosep]
-  \item every \(\SpaceId\);
+  \item all concrete space values and labels;
   \item domain and codomain order;
   \item explicit object duality;
   \item sector indices and coupling descriptors;
-  \item the global block identity used by distributed worklists.
+  \item deterministic block keys used by distributed worklists.
 \end{itemize}
 
-Storage movement is not a symmetry transformation.
+Storage movement is not a symmetry transformation.  Dense
+materialization is not an implicit fallback for a symmetry-aware
+operation.
 
-\section{Decompositions Create New Spaces}
+\section{Decompositions Create Bond Values}
 
-An SVD is not only a dense matrix factorization.  It creates a new
-intermediate space.  For
+For
 \[
   A:X\longrightarrow Y,
 \]
-one coherent convention is
+an SVD may use
 \[
-  V:X\longrightarrow B,
-  \qquad
-  S:B\longrightarrow B,
-  \qquad
+  V:X\longrightarrow B,\qquad
+  S:B\longrightarrow B,\qquad
   U:B\longrightarrow Y,
 \]
 \[
   A=U\circ S\circ V.
 \]
 
-The factor naming may follow the final linalg API, but the boundary
-contract is fixed:
-
-\begin{enumerate}[nosep]
-  \item \(B\) receives one new \(\SpaceId\).
-  \item Every factor occurrence of the decomposition bond shares that
-        identity.
-  \item Truncation determines the structural decomposition of \(B\).
-  \item An independently created isomorphic space is not silently
-        substituted for \(B\).
-\end{enumerate}
-
-QR, LQ, polar decomposition, and DMRG bond truncation obey the same
-rule.  This is a direct practical benefit of semantic space identity in
-the first U(1) implementation.
-
-\section{Operation Vocabulary}
-
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-Operation & Contract \\
-\midrule
-\texttt{tensor\_product(A,B)}
-  & ordered monoidal product \\
-\texttt{compose(B,A)}
-  & exact morphism composition \\
-\texttt{repartition(A,...)}
-  & boundary bend with duality toggle \\
-\texttt{contract(A,B,pairs)}
-  & checked partial-contraction planner \\
-\texttt{trace(A,pair)}
-  & categorical trace \\
-\texttt{braid(A,...)}
-  & explicit strand exchanges \\
-\texttt{relabel(A,...)}
-  & diagnostic metadata only \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The planner may lower these operations to axis permutations, dense
-GEMMs, elementwise kernels, or communication.  Those lower operations
-do not decide space compatibility, fusion legality, or planarity.
+The decomposition constructs one bond-space value \(B\), chooses its
+sector structure and label, and places equal copies on the
+corresponding factor occurrences.  Truncation determines \(B\)'s final
+structure before the result is exposed.  QR, LQ, polar decomposition,
+and DMRG bond truncation follow the same value contract.
 
 \section{Initial U(1) Implementation Sequence}
 
-The first host-only U(1) \(\BlockTensor\) does not require general
-\(F\)- or \(R\)-symbol machinery.  It should nevertheless establish
-the following sequence:
+The first host-only U(1) \(\BlockTensor\) should:
 
 \begin{enumerate}
-  \item Add immutable identity-bearing spaces over the implemented
-        structural decompositions.
-  \item Represent ordered domain and codomain boundaries.
-  \item Derive block legality from the all-out boundary.
-  \item Keep the block key extensible with an empty initial coupling
-        descriptor.
-  \item Check exact space identity in composition and contraction.
-  \item Implement the cheap U(1) form of repartition.
-  \item Make SVD and truncation create and share one new bond space.
-  \item Carry boundary and space metadata through async worklists,
-        reduced-block kernels, CUDA lowering, and later MPI placement.
+  \item use the concrete implemented space models directly;
+  \item use the implemented ordered domain and codomain values;
+  \item add generic \texttt{Dual<S>} when its required operations are
+        established;
+  \item derive block legality from the all-out boundary;
+  \item keep the block key extensible with an empty coupling
+        descriptor;
+  \item require exact compatible leg values for ordinary composition;
+  \item implement the cheap U(1) form of repartition;
+  \item carry all boundary and space metadata through async worklists,
+        reduced-block kernels, CUDA lowering, and MPI placement.
 \end{enumerate}
-
-There is no implicit dense fallback for a symmetry-typed operation.
-An explicitly named dense projection may exist for diagnostics, but it
-leaves the U(1) execution path and cannot feed data back into the
-symmetry-aware state.
 
 \section{Interface Invariants}
 
-The following invariants refine the planar-network invariants and
-should remain testable:
-
 \begin{enumerate}
-  \item Every tensor has an ordered domain and ordered codomain.
+  \item Concrete types model \texttt{Space}; no ownership wrapper is
+        required.
+  \item Structural space metadata is immutable; the string label is
+        mutable.
+  \item Exact equality includes the label.
+  \item \texttt{BlockSpace} is canonical; \texttt{IrregularSpace}
+        preserves ordered segmentation.
+  \item \texttt{DenseSpace} is symmetry-neutral.
+  \item Every tensor has an ordered domain and codomain.
   \item Object duality is independent of morphism side.
-  \item A dual object retains its primal space identity.
-  \item Repartition toggles explicit duality and respects order
-        reversal.
-  \item Composition checks space identity and boundary compatibility.
-  \item Isomorphic but distinct spaces require an explicit
-        isomorphism.
-  \item Labels and diagram coordinates never change legality.
+  \item Repartition toggles duality and respects order reversal.
+  \item Labels validate compatibility but never determine axis order.
   \item Block selection is an invariant-channel query over the
         oriented boundary.
   \item Global planarity belongs to the network or planner.
-  \item Crossings, recouplings, and traces are explicit categorical
-        operations.
-  \item Storage movement preserves all boundary, sector, and coupling
-        metadata.
+  \item Storage movement preserves boundary, space, sector, label, and
+        coupling metadata.
 \end{enumerate}
 
-\subsection{Required Tests}
+\subsection{Required tests}
 
-The initial test suite should include:
+The initial tests should include:
 
 \begin{itemize}
-  \item two isomorphic equal-dimensional spaces with different
-        identities that cannot be composed accidentally;
-  \item U(1) MPS and MPO block selection using the signed boundary
-        equations above;
-  \item round-trip repartition returning the original boundary and
-        data;
-  \item multiple-leg repartition with the required order reversal;
-  \item SVD factors sharing exactly one new bond identity;
-  \item relabeling that has no effect on contraction legality;
-  \item worklist generation that retains every logical block key and
-        space identity.
+  \item empty symmetric spaces retaining their explicit symmetry;
+  \item canonical unique \texttt{BlockSpace} sectors;
+  \item \texttt{IrregularSpace} preserving repeated out-of-order
+        blocks and mapping them through explicit regularization;
+  \item \texttt{LocalSpace} preserving repeated charges and ordering;
+  \item domain and codomain preserving factor types, values, and order;
+  \item empty domain and codomain values representing the tensor unit;
+  \item exact equality changing when a label changes;
+  \item coordinated bond relabeling updating both endpoints;
+  \item U(1) MPS and MPO block selection from oriented boundaries;
+  \item round-trip repartition and required order reversal;
+  \item decomposition factors receiving equal bond-space values;
+  \item worklists retaining every block key and complete space value.
 \end{itemize}
 
 \section{Conclusion}
 
-The local tensor boundary has two independent categorical axes:
-\(\Space/\DualSpace\) and \(\Domain/\Codomain\).  Treating them as one
-``direction'' type obscures wire bending, makes general contraction
-harder to state, and loses information needed by non-Abelian and
-braided categories.
-
 The practical rule is:
 
 \begin{quote}
-Select blocks from an oriented morphism boundary, compose through
-identity-bearing spaces, bend wires explicitly, and leave global
-planarity to the contraction planner.
+Use concrete immutable space structures with mutable semantic labels,
+orient them through explicit domain/codomain and duality, select legal
+blocks from that boundary, and leave global planarity to the
+contraction planner.
 \end{quote}
 
-For bosonic U(1), these rules reduce to cheap identity checks and signed
-charge bookkeeping.  They are therefore suitable for the first
-host-only DMRG implementation while preserving the structure required
-for CUDA, MPI, non-Abelian fusion, and braiding.
+For bosonic U(1), these rules compile down to value comparisons and
+signed charge bookkeeping.  They are suitable for the first host-only
+DMRG implementation while preserving the metadata required by CUDA,
+MPI, non-Abelian fusion, and braiding.
 
 \end{document}

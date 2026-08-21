@@ -7,10 +7,20 @@ the mathematical problem and is treated as a correctness bug.
 ## Contents
 
 - `qnum.hpp`: quantum-number value types.
+- `block_sector.hpp`: shared `(QNum, dimension)` block records.
+- `space.hpp`: common `Space` and `SymmetrySpace` concepts.
+- `irregular_space.hpp`: immutable ordered segmented spaces with repeated
+  sectors.
+- `local_space.hpp`: immutable ordered local-state spaces.
+- `qnum_space.hpp`: single-irrep tensor spaces.
+- `dense_space.hpp`: symmetry-neutral dense tensor spaces.
+- `morphism_boundary.hpp`: ordered `Domain<...>` and `Codomain<...>` space
+  values.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry
   declarations, implementations, and factor helpers.
 - `u1.hpp`: U(1) symmetry support.
-- `block_space.hpp`: block-space metadata.
+- `block_space.hpp`: immutable coalesced block spaces and explicit
+  local-to-block regularization.
 
 ## Notes
 

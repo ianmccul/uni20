@@ -18,7 +18,7 @@
 \newcommand{\Hom}{\operatorname{Hom}}
 \newcommand{\id}{\operatorname{id}}
 \newcommand{\Space}{\mathsf{Space}}
-\newcommand{\CoSpace}{\mathsf{CoSpace}}
+\newcommand{\Dual}{\mathsf{Dual}}
 \newcommand{\Leg}{\mathsf{Leg}}
 \newcommand{\Tensor}{\mathsf{Tensor}}
 \newcommand{\Network}{\mathsf{Network}}
@@ -38,9 +38,9 @@ recoupling is present, a tensor expression is not determined by the
 set of labels on its legs.  It is determined by an ordered and
 possibly planar diagram.  A robust interface therefore needs explicit
 objects for spaces, dual spaces, ordered legs, fusion trees, planar
-network geometry, and contraction plans.  Mutable labels may remain as
-display metadata or as local notation inside a contraction expression,
-but they cannot be the canonical identity of tensor legs.
+network geometry, and contraction plans.  Mutable labels are semantic
+compatibility tags on space values, but they cannot replace canonical
+axis positions or the structural data of tensor legs.
 \end{abstract}
 
 \tableofcontents
@@ -65,8 +65,8 @@ Cytnx C++ object model.  In particular:
         spaces, dual spaces, ordered legs, morphisms, and diagrams;
   \item high-level notation may look like einsum, but it must compile
         to a checked contraction plan;
-  \item labels are useful for display and diagnostics, but they should
-        not be the authority on mathematical identity.
+  \item labels are useful for compatibility and diagnostics, but they
+        must not select or reorder axes.
 \end{itemize}
 
 \section{Minimal Categorical Model}
@@ -215,7 +215,7 @@ A tensor object stores local categorical data:
   \item an ordered domain list;
   \item an ordered codomain list;
   \item the corresponding spaces and dual spaces;
-  \item optional display labels attached to spaces or legs;
+  \item semantic string labels attached to the concrete space values;
   \item symmetry-sector data and degeneracy data;
   \item fusion-tree data, if the category is non-Abelian;
   \item reduced numerical blocks.
@@ -225,7 +225,7 @@ This layer can answer questions such as:
 
 \begin{itemize}[nosep]
   \item What is the \(i\)-th leg?
-  \item Is this leg a \(\Space\) or \(\CoSpace\)?
+  \item Is this leg a concrete space or \(\Dual\langle S\rangle\)?
   \item What sectors live on this leg?
   \item What fusion tree defines the basis?
   \item Does this tensor have the same boundary type as another tensor?
@@ -300,20 +300,24 @@ compatible charge sectors, degeneracies, and orientations.
 Equal total dimension is not sufficient.  Equal label string is not
 sufficient.
 
-\subsection{Space Identity Invariant}
+\subsection{Space Compatibility Invariant}
 
 Two spaces may have the same dimension and the same charge sectors but
 still represent different positions in a tensor network.  For example,
 two MPS bond spaces at different cuts may both have dimension \(32\).
-They should not be interchangeable unless the library has explicit
-evidence that they are the same space.
+They should not be interchangeable unless their complete space values
+are equal or the operation supplies an explicit structural
+isomorphism.
 
-This is where labels are useful if they label spaces, not tensor-leg
-positions.  A finite MPS can label its bond spaces
+This is where labels are useful when they belong to space values rather
+than forming a second axis-addressing system.  A finite MPS can label
+its bond spaces
 \[
   b_0,b_1,\ldots,b_L,
 \]
-and then contractions over the wrong bond fail even in the dense case.
+and then exact compatibility rejects a wrong bond even in the dense
+case.  Exact equality includes immutable structure and the mutable
+label.  There is no separate globally generated space identifier.
 
 \subsection{Cyclic Order Invariant}
 
@@ -400,18 +404,20 @@ is an endomorphism of \(B\):
 \[
   S : B \to B.
 \]
-Thus \(S\) naturally has the same space label on its two sides.  A
+Thus \(S\) naturally has equal copies of the same labeled space value
+on its two sides.  A
 global rule that tensor labels must be unique is incompatible with this
 mathematical structure.
 
-\subsection{Metadata Is Not Semantics}
+\subsection{Labels Are Not Axis Operations}
 
-Display labels, names, colors, and diagram coordinates help humans.
-They are not the authority on which operations are legal.
+String labels express intended leg compatibility and participate in
+exact space equality.  Names, colors, and diagram coordinates may also
+help humans.  None of them chooses an axis or changes sector structure.
 
-Changing a display label should never alter contraction legality.
-Changing a space identity or applying a braid should be a separate,
-checked operation.
+Changing a label may deliberately make two leg values equal or unequal.
+Changing leg order, structural decomposition, or braiding requires a
+separate checked operation.
 
 \section{Operation Taxonomy}
 
@@ -423,7 +429,7 @@ conflate.
 \toprule
 Operation & Dense interpretation & General categorical interpretation \\
 \midrule
-\texttt{relabel} & rename an axis & display metadata only \\
+\texttt{relabel} & rename a leg space & compatibility metadata only \\
 \texttt{permute} & reorder axes & may require braid or recoupling \\
 \texttt{transpose} & swap matrix axes & cyclic/domain-codomain move, if valid \\
 \texttt{reshape} & reinterpret shape & usually not meaningful for spaces \\
@@ -440,7 +446,7 @@ Operation & Dense interpretation & General categorical interpretation \\
 At least four operations should be distinct:
 
 \begin{description}
-  \item[\texttt{relabel}] Change display names only.
+  \item[\texttt{relabel}] Change semantic leg labels only.
   \item[\texttt{repartition}] Move the domain/codomain boundary without
         changing the cyclic order, when categorically valid.
   \item[\texttt{transpose}] Perform a cyclic reorder that introduces no
@@ -533,9 +539,9 @@ The following sketches are illustrative, not final API.
 \subsection{Spaces and Legs}
 
 \begin{verbatim}
-phys = Space("SpinHalf", symmetry=SU2, sectors=[j(1,2)])
-b0   = Space("bond-0", symmetry=SU2, sectors=[j(0)])
-b1   = Space("bond-1", symmetry=SU2, sectors=[j(0), j(1)])
+phys = LocalSpace(SU2, [j(1,2)], "SpinHalf")
+b0   = BlockSpace(SU2, [(j(0), 1)], "bond-0")
+b1   = BlockSpace(SU2, [(j(0), 1), (j(1), 1)], "bond-1")
 
 A = Tensor(
     codomain=[b1],
@@ -558,7 +564,7 @@ This operation checks:
 
 \begin{itemize}[nosep]
   \item dual compatibility;
-  \item space identity or allowed isomorphism;
+  \item exact space equality or an allowed structural isomorphism;
   \item sector compatibility;
   \item fusion-tree compatibility;
   \item planarity in the current network context.
@@ -605,7 +611,8 @@ Examples:
 
 \begin{quote}
 Cannot contract leg 2 of \(A\) with leg 0 of \(B\): spaces have equal
-dimension but different identities, \texttt{bond-4} vs \texttt{bond-5}.
+dimension and sectors but different labels, \texttt{bond-4} vs
+\texttt{bond-5}.
 \end{quote}
 
 \begin{quote}
@@ -632,10 +639,10 @@ wrong operation fail at the point where the wrong assumption is made.
 
 The invariants above should be testable.
 
-\subsection{Dense Space Identity Tests}
+\subsection{Dense Space Compatibility Tests}
 
-Even with no symmetry, create two spaces with the same dimension but
-different identities:
+Even with no symmetry, create two \texttt{DenseSpace} values with the
+same extent but different labels:
 \[
   V = \mathbb{C}^{32}, \qquad W = \mathbb{C}^{32}.
 \]
@@ -647,15 +654,14 @@ that dense tensor libraries silently allow.
 
 SVD should create a new bond space \(B\).  The singular-value object
 should be an endomorphism \(B \to B\).  Tests should verify that the
-two sides of \(S\) carry the same space identity and that \(U S V\)
+two sides of \(S\) carry equal bond-space values and that \(U S V\)
 reconstructs the original tensor with the expected boundary.
 
-\subsection{Relabel Non-Effect Tests}
+\subsection{Relabel Compatibility Tests}
 
-Changing display labels must not change which contractions are legal.
-If a contraction fails before relabelling, and no space identity,
-duality, braid, or recoupling operation has been applied, it should
-still fail after relabelling.
+Changing a label changes exact compatibility but not structural
+compatibility.  Tests should verify both relations and should verify
+that a network-level bond-label operation updates both endpoints.
 
 \subsection{Braiding Tests}
 
@@ -688,13 +694,14 @@ A Cytnx-compatible migration layer can preserve some surface spelling,
 but it should not preserve unsafe semantics.
 
 \begin{itemize}
-  \item Persistent labels can be read as display labels.
+  \item Persistent labels can be read as semantic leg labels.
   \item Label-based contractions can be parsed into explicit leg
         contractions, then checked.
   \item Duplicate labels should not be globally forbidden, because
         endomorphisms naturally have the same space on both sides.
-  \item Relabelling should not make a previously illegal contraction
-        legal.
+  \item Relabelling can change exact compatibility, but it must not
+        perform a permutation, braid, recoupling, or structural
+        conversion.
   \item Rowrank-style positional decomposition should be replaced by
         explicit left/right leg groups.
   \item Block access should be expert-level and described as reduced
@@ -714,15 +721,16 @@ diagnostic that tells the user what mathematical structure was missing.
 Planarity is not decoration.  In a braided or non-Abelian tensor
 category, the diagram is part of the expression.  A tensor object knows
 its local ordered boundary, but the network or planner must know the
-global planar embedding.  Any interface that lets users repair
-contractions by mutating labels has already lost the essential
-correctness property.
+global planar embedding.  Any interface that lets users change axis
+order or erase a braid by mutating labels has already lost the
+essential correctness property.
 
 The practical design rule is:
 
 \begin{quote}
-Use labels for notation and diagnostics.  Use spaces, duals, ordered
-legs, fusion trees, and planar diagrams for semantics.
+Use labels for intended leg compatibility and diagnostics.  Use
+positions, space structure, duals, ordered legs, fusion trees, and
+planar diagrams for the remaining semantics.
 \end{quote}
 
 \begin{thebibliography}{9}

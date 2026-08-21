@@ -46,7 +46,7 @@ ket_space tensor operator_irrep -> bra_space
 ```
 
 but the prototype used a dedicated class rather than a generic tensor
-instantiation. This follows the independent `Space`/`DualSpace` and
+instantiation. This follows the independent concrete-space/`Dual<S>` and
 `Domain`/`Codomain` model in
 [Spaces, Duals, and Tensor Morphisms](../symmetry/spaces_duals_and_morphisms.md);
 it does not require a `co<LocalSpace>` direction wrapper.

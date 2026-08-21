@@ -12,6 +12,8 @@ symmetry-aware block-sparse Tensor path.
 
 - [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md) is the
   canonical boundary, space-identity, wire-bending, and contraction model.
+- [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) defines
+  the scoped contract for the first host-only implementation.
 - [BlockTensor](block_tensor.md) is the central symmetry-typed container design.
 - [Block-Sparse Tensor and Layout](block_sparse_tensor.md) develops the storage
   and layout model refined by `BlockTensor`.

@@ -11,6 +11,8 @@ experiments.
 
 Related notes:
 
+- `docs/symmetry/block_tensor_prototype.md` — the first host-only bosonic
+  abelian implementation contract.
 - `docs/symmetry/block_tensor.md` — the symmetry-typed `BlockTensor` design that refines this note.
 - `docs/architecture/storage_kind_and_location.md` — storage memory kind (type) vs location (runtime).
 - `docs/architecture/ordering_and_backend_lowering.md` — ordering ownership; two-clocks lifetime rule.
@@ -54,12 +56,18 @@ kinds carry different sparsity:
 
 - **BlockSpace** — symmetry-decomposed virtual index (e.g. an MPS bond). Block-
   sparse: only some charge sectors are populated, with varying sector dimensions.
+- **IrregularSpace** — ordered segmented virtual index whose `QNum`s may repeat,
+  for example after projecting out part of a symmetry without immediately
+  repacking the existing blocks.
 - **LocalSpace** — a small dense physical index (e.g. 2 for spin-½, 4 for a
   Hubbard site). Treated as *inherently sparse* through the selection rule: for a
   fixed combination of the other legs, only some local values are allowed. It is
   dense-but-small and regular, which makes it the natural coalescing axis (see
   `block_coalescing.md`).
-- **Dense leg** — an ordinary dense index where neither block-sparsity nor a
+- **QNumSpace** — one fixed irrep coordinate with degeneracy extent one. It is
+  used for an explicit operator or boundary charge and contributes that charge
+  to the selection rule.
+- **DenseSpace** — an ordinary dense index where neither block-sparsity nor a
   selection rule applies. Mostly relevant for the dense-tensor degenerate case.
 
 The current DMRG blocks are a three-leg prototype `A(i, s, j)`: `i`/`j` BlockSpace
@@ -73,7 +81,7 @@ sector combinations are nonzero. It is a property of the tensor type, not an
 optimization. There is **no dense fallback** on a symmetry-typed path: dense
 reference helpers must be explicitly named (`to_dense_reference`) and must not feed
 back into symmetry-typed state. Any operation that would silently drop
-`LocalSpace`/`BlockSpace`/`QNum`/leg-orientation, or flatten a block-sparse tensor
+`LocalSpace`/`BlockSpace`/`IrregularSpace`/`QNum`/leg-orientation, or flatten a block-sparse tensor
 to dense on a symmetry path, is a correctness bug. Coalescing (below) does *not*
 violate this: it is a kernel-execution lowering that round-trips through the
 correct sector structure, never a representation change.
@@ -133,8 +141,9 @@ reverse-mode AD, must be replicated/deterministic — see
 ## Decisions made
 
 - Two-level model: lightweight dense `mdspan` block + block-sparse container.
-- Typed legs: BlockSpace / LocalSpace / dense; general order-N; LocalSpace is a
-  distinct kind, treated as sparse via the selection rule.
+- Typed legs: `BlockSpace` / `IrregularSpace` / `LocalSpace` / `QNumSpace` /
+  `DenseSpace`; general order-N; `LocalSpace` is a distinct kind, treated as
+  sparse via the selection rule.
 - The selection rule and all symmetry metadata are part of the type; no dense
   fallback on a symmetry path.
 - Blocks are `layout_stride` views into shared buffer storage; storage is owned by
@@ -147,9 +156,9 @@ reverse-mode AD, must be replicated/deterministic — see
 
 ## Open questions
 
-- **LocalSpace representation.** Is LocalSpace a dense leg annotated with a
-  selection-rule predicate, or a first-class leg kind with its own block
-  structure? It is small and regular, which argues for keeping it cheap.
+- ~~**LocalSpace representation.**~~ *Resolved:* `LocalSpace` is a first-class
+  immutable `Space` model containing an ordered list of local-state `QNum`s.
+  Repeated charges and state order are preserved.
 - **Layout memory plan generality.** How much memory-arrangement freedom does the
   layout expose — arbitrary per-block strides, or a constrained interleave/
   contiguous descriptor that guarantees the common coalescing groups are
@@ -163,6 +172,6 @@ reverse-mode AD, must be replicated/deterministic — see
   survives truncation/growth across DMRG sweeps.
 - ~~**How leg orientation is represented**~~ — *resolved* in
   [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md):
-  `Space`/`DualSpace` object duality is independent of an occurrence's position
+  concrete-space/`Dual<S>` object duality is independent of an occurrence's position
   in the ordered `Domain` or `Codomain`. Moving between sides is explicit wire
   bending, not a metadata flip.
