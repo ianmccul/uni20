@@ -1,9 +1,10 @@
 # Spaces, Duals, and Tensor Morphisms
 
-**Status:** canonical design for symmetry-aware tensor spaces and the future
+**Status:** canonical design for symmetry-aware tensor spaces and
 `BlockTensor`. `BlockSpace`, `IrregularSpace`, `LocalSpace`, `QNumSpace`,
-`DenseSpace`, `Space`, `SymmetrySpace`, `Domain`, and `Codomain` are
-implemented; categorical duals remain design work.
+`DenseSpace`, `Space`, `SymmetrySpace`, `Dual<S>`, `Domain`, and `Codomain`
+are implemented. Bosonic U(1) edge repartition is the first categorical
+boundary transformation.
 
 This note defines how Uni20 represents the mathematical boundary of a
 symmetry-aware tensor. It refines the categorical model in
@@ -215,15 +216,19 @@ space or change its structural metadata. Exact boundary equality compares the
 ordered space values and therefore includes labels. Empty `Domain<>` and
 `Codomain<>` values represent the tensor unit.
 
-The current templates accept concrete `Space` values only. A future `Dual<S>`
-may extend that factor vocabulary when the required categorical operations are
-clear. `Domain` and `Codomain` identify which side of the map contains an
-object; `Dual` will identify the categorical object independently.
+`Dual<S>` is a generic value adaptor over any concrete `Space`. `Domain` and
+`Codomain` identify which side of the map contains an object; `Dual<S>` records
+object duality independently. The `DualSpace` concept makes that status
+discoverable without parallel type families such as `DualBlockSpace`,
+`DualLocalSpace`, and `DualQNumSpace`.
 
-`Dual<S>` should be a generic view or value adaptor when the underlying space
-model provides the operations needed by the category. It should not require
-parallel type families such as `DualBlockSpace`, `DualLocalSpace`, and
-`DualQNumSpace`.
+The adaptor preserves the underlying basis occurrence order, dimensions, and
+label. An operation which observes a quantum number through `Dual<S>` obtains
+`dual(q)`. In particular, dualizing a canonical `BlockSpace` does not rebuild
+or re-sort it: sector coordinate `i` still denotes the same basis occurrence
+and degeneracy range, but its observed charge is dual. This is required for
+zero-copy boundary transformations because storage bindings remain attached
+to basis occurrences rather than to a newly canonicalized charge list.
 
 Duality is involutive:
 
@@ -272,10 +277,13 @@ than hardcoding charge addition.
 ## 5. Repartition Is Wire Bending
 
 Moving a leg across the domain/codomain boundary is an explicit categorical
-operation, provisionally named `repartition`. It toggles object duality:
+operation named `repartition`. It toggles object duality. The first operation
+supports the two planar boundary ends and their inverses:
 
 ```text
+Hom(X tensor A, B)  ~= Hom(A, Dual<X> tensor B)
 Hom(A tensor X, B)  ~= Hom(A, B tensor Dual<X>)
+Hom(A, X tensor B)  ~= Hom(Dual<X> tensor A, B)
 Hom(A, B tensor X)  ~= Hom(A tensor Dual<X>, B).
 ```
 
@@ -285,9 +293,17 @@ Moving several adjacent factors may reverse order:
 Dual<X tensor Y> ~= Dual<Y> tensor Dual<X>.
 ```
 
-In bosonic U(1), bending is normally a checked metadata and axis-order
-operation. Other categories may attach pivotal maps, twists, phases, or
-recoupling transformations.
+In bosonic U(1), bending is a checked metadata, key-order, and dense-axis-order
+operation with unit numerical factor. The numerical payload does not move.
+Canonical transformed keys may require a new sorted logical index which maps
+to unchanged physical block bindings. A moved dense axis is exposed through a
+permuted strided mdspan over the same allocation.
+
+Other categories may attach pivotal maps, twists, phases, `1j` factors, or
+recoupling transformations. Those belong in logical block metadata and kernel
+lowering. They do not justify rewriting the stored tensor elements. Braiding
+uses the same zero-copy key/axis-permutation mechanism plus its category-defined
+exchange factor.
 
 `repartition` is distinct from:
 
@@ -418,7 +434,7 @@ The first host-only U(1) `BlockTensor` should:
 
 1. Use the concrete implemented space values directly.
 2. Use the implemented ordered `Domain` and `Codomain` values.
-3. Add generic `Dual<S>` only when the required space operations are clear.
+3. Represent explicit object duality with the generic `Dual<S>` adaptor.
 4. Derive U(1) block legality through the all-out boundary convention.
 5. Keep `BlockKey` extensible with an empty initial `CouplingDescriptor`.
 6. Require exact compatible leg values for ordinary composition.
@@ -439,9 +455,13 @@ must not feed data back into U(1) DMRG state.
 - `DenseSpace` is symmetry-neutral.
 - A tensor boundary is an ordered `Domain` and ordered `Codomain`.
 - `Space`/`Dual<Space>` is independent of `Domain`/`Codomain`.
-- Repartitioning toggles explicit duality and may reverse factor order.
+- `Dual<S>` preserves basis occurrence indices while dualizing observed charges.
+- Repartitioning toggles explicit duality, moves only an edge factor, and may
+  reverse factor order under repeated bends.
 - Labels validate intended leg compatibility but never determine axis order.
 - Block selection is a category fusion query over the oriented boundary.
 - Global planarity belongs to a network or contraction planner.
 - Storage placement never erases boundary, space, sector, label, or coupling
   metadata.
+- Logical key and dense-axis order may change without changing physical payload
+  placement.

@@ -1,4 +1,4 @@
-#include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_repartition.hpp>
 
 #include <cstddef>
 #include <iostream>
@@ -33,6 +33,7 @@ int main()
   MpsSite mps_site(sym, Domain{left, physical}, Codomain{right},
                    {MpsSite::key_type{{0, 1, 1}}, MpsSite::key_type{{1, 1, 2}}});
   mps_site.block(MpsSite::key_type{{1, 1, 2}})[2, 5] = 2.0;
+  auto bent_mps = repartition<MorphismSide::Domain, BoundaryEnd::Right>(mps_site);
 
   using MpoSite =
       BlockTensor<double, Domain<LocalSpace, LocalSpace>, Codomain<LocalSpace, LocalSpace>, PackedSparseBlockStorage<>>;
@@ -42,7 +43,12 @@ int main()
 
   print_summary("matrix", matrix);
   print_summary("MPS site", mps_site);
+  print_summary("bent MPS view", bent_mps);
   print_summary("MPO site", mpo_site);
+  auto const source_mps_block = mps_site.block(MpsSite::key_type{{1, 1, 2}});
+  auto const bent_mps_block = bent_mps.block(MpsSite::key_type{{1, 2, 1}});
+  std::cout << "bent MPS reuses payload: " << std::boolalpha
+            << (source_mps_block.data_handle() == bent_mps_block.data_handle()) << '\n';
   using SeparateScalarBlock = ColumnMajorTensor<MpoSite::element_type, 0, VectorStorage>;
   std::cout << "rank-zero block ABI bytes: payload=" << sizeof(MpoSite::element_type)
             << ", separate-owner-object=" << sizeof(SeparateScalarBlock)

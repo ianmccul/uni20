@@ -98,6 +98,81 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDe
   EXPECT_DOUBLE_EQ(copied_value, 8.5);
 }
 
+TYPED_TEST(SparseBlockTensorTest, OrderZeroTensorUnitHasOneLegalScalarBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  using Tensor = BlockTensor<double, Domain<>, Codomain<>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Tensor tensor(sym, Domain<>{}, Codomain<>{}, {Key{}});
+
+  static_assert(Tensor::order() == 0);
+  static_assert(Tensor::key_coordinate_count() == 0);
+  static_assert(Tensor::dense_block_order() == 0);
+  EXPECT_EQ(tensor.legal_block_count(), 1);
+  EXPECT_EQ(tensor.stored_block_count(), 1);
+  EXPECT_TRUE(tensor.is_legal(Key{}));
+  EXPECT_TRUE(tensor.has_all_legal_blocks());
+
+  auto scalar = tensor.block(Key{});
+  static_assert(decltype(scalar)::rank() == 0);
+  EXPECT_DOUBLE_EQ(scalar[], 0.0);
+  scalar[] = 2.5;
+  EXPECT_DOUBLE_EQ(tensor.block(Key{})[], 2.5);
+
+  Tensor structural_zero(sym, Domain<>{}, Codomain<>{}, {});
+  EXPECT_EQ(structural_zero.legal_block_count(), 1);
+  EXPECT_EQ(structural_zero.stored_block_count(), 0);
+  EXPECT_FALSE(structural_zero.has_all_legal_blocks());
+}
+
+TYPED_TEST(SparseBlockTensorTest, OrderOneTensorStoresOnlyIdentityChargeOccurrences)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  LocalSpace const basis(sym, {q0, q1, q0}, "basis");
+
+  using DomainTensor = BlockTensor<double, Domain<LocalSpace>, Codomain<>, TypeParam>;
+  using DomainKey = typename DomainTensor::key_type;
+  DomainTensor domain_vector(sym, Domain{basis}, Codomain<>{}, {DomainKey{{2}}, DomainKey{{0}}});
+
+  static_assert(DomainTensor::order() == 1);
+  static_assert(DomainTensor::key_coordinate_count() == 1);
+  static_assert(DomainTensor::dense_block_order() == 0);
+  EXPECT_EQ(domain_vector.legal_block_count(), 2);
+  EXPECT_TRUE(domain_vector.is_legal(DomainKey{{0}}));
+  EXPECT_FALSE(domain_vector.is_legal(DomainKey{{1}}));
+  EXPECT_TRUE(domain_vector.is_legal(DomainKey{{2}}));
+
+  using CodomainTensor = BlockTensor<double, Domain<>, Codomain<LocalSpace>, TypeParam>;
+  using CodomainKey = typename CodomainTensor::key_type;
+  CodomainTensor codomain_vector(sym, Domain<>{}, Codomain{basis}, {CodomainKey{{0}}, CodomainKey{{2}}});
+  EXPECT_EQ(codomain_vector.legal_block_count(), 2);
+  EXPECT_TRUE(codomain_vector.is_legal(CodomainKey{{0}}));
+  EXPECT_FALSE(codomain_vector.is_legal(CodomainKey{{1}}));
+  EXPECT_TRUE(codomain_vector.is_legal(CodomainKey{{2}}));
+}
+
+TYPED_TEST(SparseBlockTensorTest, OrderOneFixedIrrepIsLegalOnlyWhenItIsIdentity)
+{
+  Symmetry const sym{"N:U(1)"};
+  QNumSpace const identity(QNum::identity(sym), "identity");
+  QNumSpace const charged(make_qnum(sym, {{"N", 1}}), "charged");
+
+  using Tensor = BlockTensor<double, Domain<QNumSpace>, Codomain<>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Tensor identity_tensor(sym, Domain{identity}, Codomain<>{}, {Key{}});
+  Tensor charged_zero(sym, Domain{charged}, Codomain<>{}, {});
+
+  static_assert(Tensor::key_coordinate_count() == 0);
+  static_assert(Tensor::dense_block_order() == 0);
+  EXPECT_EQ(identity_tensor.legal_block_count(), 1);
+  EXPECT_TRUE(identity_tensor.is_legal(Key{}));
+  EXPECT_EQ(charged_zero.legal_block_count(), 0);
+  EXPECT_FALSE(charged_zero.is_legal(Key{}));
+  EXPECT_THROW((Tensor(sym, Domain{charged}, Codomain<>{}, {Key{}})), std::invalid_argument);
+}
+
 TYPED_TEST(SparseBlockTensorTest, OrderTwoLocalSpacesKeepRepeatedChargeStatesDistinct)
 {
   Symmetry const sym{"N:U(1)"};

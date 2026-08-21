@@ -5,11 +5,12 @@
 
 - an order-two block matrix using `SeparateSparseBlockStorage`;
 - an order-three MPS-like tensor mixing `BlockSpace` and `LocalSpace`, whose
-  numerical blocks are matrices; and
+  numerical blocks are matrices;
+- a zero-copy right-edge repartition view of that MPS tensor; and
 - an order-four scalar-block MPO-like tensor using four `LocalSpace` factors
   and `PackedSparseBlockStorage`, whose numerical blocks are rank zero.
 
 The example prints logical order, key-coordinate count, dense-block order,
-stored and legal block counts, and the current packed scalar-block byte costs.
-It demonstrates storage and selection-rule behavior only; tensor contractions
-and async ownership are later slices.
+stored and legal block counts, verifies that repartition retains the source
+payload address, and reports the current packed scalar-block byte costs. Tensor
+contractions and async ownership are later slices.

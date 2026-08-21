@@ -9,6 +9,7 @@
 #include <uni20/symmetry/block_space.hpp>
 #include <uni20/symmetry/block_tensor_space_traits.hpp>
 #include <uni20/symmetry/block_tensor_storage.hpp>
+#include <uni20/symmetry/dual_space.hpp>
 #include <uni20/symmetry/local_space.hpp>
 #include <uni20/symmetry/morphism_boundary.hpp>
 #include <uni20/symmetry/qnum_space.hpp>
@@ -45,8 +46,8 @@ template <class... Spaces> struct IsCodomain<Codomain<Spaces...>> : std::true_ty
 
 template <class T>
 concept PrototypeBlockFactor =
-    std::same_as<std::remove_cvref_t<T>, BlockSpace> || std::same_as<std::remove_cvref_t<T>, LocalSpace> ||
-    std::same_as<std::remove_cvref_t<T>, QNumSpace>;
+    std::same_as<primal_space_t<T>, BlockSpace> || std::same_as<primal_space_t<T>, LocalSpace> ||
+    std::same_as<primal_space_t<T>, QNumSpace>;
 
 template <class Boundary> struct PrototypeBoundary;
 
@@ -67,15 +68,30 @@ template <template <class...> class Boundary, class... Spaces> struct BoundaryBl
 inline auto factor_size(BlockSpace const& space) -> std::size_t { return space.size(); }
 inline auto factor_size(LocalSpace const& space) -> std::size_t { return space.size(); }
 
+template <Space SpaceType> auto factor_size(Dual<SpaceType> const& space) -> std::size_t
+{
+  return factor_size(space.base());
+}
+
 inline auto factor_qnum(BlockSpace const& space, std::size_t coordinate) -> QNum const& { return space[coordinate].q; }
 
 inline auto factor_qnum(LocalSpace const& space, std::size_t coordinate) -> QNum const& { return space[coordinate]; }
 
 inline auto factor_qnum(QNumSpace const& space, std::size_t) -> QNum const& { return space.qnum(); }
 
+template <Space SpaceType> auto factor_qnum(Dual<SpaceType> const& space, std::size_t coordinate) -> QNum
+{
+  return dual(factor_qnum(space.base(), coordinate));
+}
+
 inline auto factor_extent(BlockSpace const& space, std::size_t coordinate) -> std::size_t
 {
   return space[coordinate].dim;
+}
+
+template <Space SpaceType> auto factor_extent(Dual<SpaceType> const& space, std::size_t coordinate) -> std::size_t
+{
+  return factor_extent(space.base(), coordinate);
 }
 
 template <class Boundary, class Function> void for_each_boundary_space(Boundary const& boundary, Function&& function)
@@ -83,11 +99,57 @@ template <class Boundary, class Function> void for_each_boundary_space(Boundary 
   std::apply([&](auto const&... spaces) { (function(spaces), ...); }, boundary.spaces());
 }
 
+template <std::size_t KeyCoordinateCount, class DomainType, class CodomainType>
+auto boundary_factor_sizes(DomainType const& domain,
+                           CodomainType const& codomain) -> std::array<std::size_t, KeyCoordinateCount>
+{
+  std::array<std::size_t, KeyCoordinateCount> sizes{};
+  std::size_t key_axis = 0;
+  auto append_size = [&](auto const& space) {
+    using space_type = std::remove_cvref_t<decltype(space)>;
+    if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
+    {
+      sizes[key_axis++] = factor_size(space);
+    }
+  };
+  for_each_boundary_space(domain, append_size);
+  for_each_boundary_space(codomain, append_size);
+  return sizes;
+}
+
+template <std::size_t KeyCoordinateCount, class DomainType, class CodomainType>
+auto is_legal_block_key(Symmetry const& symmetry, DomainType const& domain, CodomainType const& codomain,
+                        BlockKey<KeyCoordinateCount> const& key) -> bool
+{
+  auto const sizes = boundary_factor_sizes<KeyCoordinateCount>(domain, codomain);
+  for (std::size_t axis = 0; axis < KeyCoordinateCount; ++axis)
+  {
+    if (key.coordinate(axis) >= sizes[axis]) return false;
+  }
+
+  QNum domain_charge = QNum::identity(symmetry);
+  QNum codomain_charge = QNum::identity(symmetry);
+  std::size_t key_axis = 0;
+  auto add_charge = [&](auto const& space, QNum& charge) {
+    using space_type = std::remove_cvref_t<decltype(space)>;
+    std::size_t coordinate = 0;
+    if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
+    {
+      coordinate = key.coordinate(key_axis++);
+    }
+    charge = charge + factor_qnum(space, coordinate);
+  };
+  for_each_boundary_space(domain, [&](auto const& space) { add_charge(space, domain_charge); });
+  for_each_boundary_space(codomain, [&](auto const& space) { add_charge(space, codomain_charge); });
+  return domain_charge == codomain_charge;
+}
+
 } // namespace detail
 
 /// \brief Fixed-order tensor whose blocks obey a bosonic abelian selection rule.
-/// \details This first slice supports orders two through four and boundaries
-///          containing `BlockSpace`, `LocalSpace`, and `QNumSpace` factors.
+/// \details This first slice supports orders zero through four and boundaries
+///          containing `BlockSpace`, `LocalSpace`, `QNumSpace`, and their
+///          explicit `Dual<S>` adaptors.
 /// \tparam T Numerical block element type.
 /// \tparam DomainType Ordered domain value type.
 /// \tparam CodomainType Ordered codomain value type.
@@ -110,7 +172,7 @@ class BlockTensor {
     static constexpr std::size_t static_dense_block_order =
         detail::BoundaryBlockShape<domain_type>::dense_block_order +
         detail::BoundaryBlockShape<codomain_type>::dense_block_order;
-    static_assert(static_order >= 2 && static_order <= 4, "the first BlockTensor slice supports orders 2 through 4");
+    static_assert(static_order <= 4, "the first BlockTensor slice supports orders 0 through 4");
     static_assert(
         BlockTensorStorageFor<storage_policy, element_type, static_key_coordinate_count, static_dense_block_order>,
         "BlockTensor storage does not provide the required block bindings");
@@ -183,27 +245,7 @@ class BlockTensor {
     /// \brief Return whether a key is in range and satisfies charge conservation.
     auto is_legal(key_type const& key) const -> bool
     {
-      auto const sizes = this->factor_sizes();
-      for (std::size_t axis = 0; axis < static_key_coordinate_count; ++axis)
-      {
-        if (key.coordinate(axis) >= sizes[axis]) return false;
-      }
-
-      QNum domain_charge = QNum::identity(symmetry_);
-      QNum codomain_charge = QNum::identity(symmetry_);
-      std::size_t key_axis = 0;
-      auto add_charge = [&](auto const& space, QNum& charge) {
-        using space_type = std::remove_cvref_t<decltype(space)>;
-        std::size_t coordinate = 0;
-        if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
-        {
-          coordinate = key.coordinate(key_axis++);
-        }
-        charge = charge + detail::factor_qnum(space, coordinate);
-      };
-      detail::for_each_boundary_space(domain_, [&](auto const& space) { add_charge(space, domain_charge); });
-      detail::for_each_boundary_space(codomain_, [&](auto const& space) { add_charge(space, codomain_charge); });
-      return domain_charge == codomain_charge;
+      return detail::is_legal_block_key(symmetry_, domain_, codomain_, key);
     }
 
     /// \brief Return whether a key has an allocated numerical block.
@@ -295,18 +337,7 @@ class BlockTensor {
 
     auto factor_sizes() const -> std::array<std::size_t, static_key_coordinate_count>
     {
-      std::array<std::size_t, static_key_coordinate_count> sizes{};
-      std::size_t key_axis = 0;
-      auto append_size = [&](auto const& space) {
-        using space_type = std::remove_cvref_t<decltype(space)>;
-        if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
-        {
-          sizes[key_axis++] = detail::factor_size(space);
-        }
-      };
-      detail::for_each_boundary_space(domain_, append_size);
-      detail::for_each_boundary_space(codomain_, append_size);
-      return sizes;
+      return detail::boundary_factor_sizes<static_key_coordinate_count>(domain_, codomain_);
     }
 
     auto block_extents(key_type const& key) const -> std::array<std::size_t, static_dense_block_order>

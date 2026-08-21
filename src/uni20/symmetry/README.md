@@ -9,6 +9,7 @@ the mathematical problem and is treated as a correctness bug.
 - `qnum.hpp`: quantum-number value types.
 - `block_sector.hpp`: shared `(QNum, dimension)` block records.
 - `space.hpp`: common `Space` and `SymmetrySpace` concepts.
+- `dual_space.hpp`: generic `Dual<S>` basis adaptor and `DualSpace` concept.
 - `irregular_space.hpp`: immutable ordered segmented spaces with repeated
   sectors.
 - `local_space.hpp`: immutable ordered local-state spaces.
@@ -20,8 +21,11 @@ the mathematical problem and is treated as a correctness bug.
 - `block_tensor_space_traits.hpp`: independent block-key-coordinate and
   dense-axis classification for concrete space kinds.
 - `block_tensor_storage.hpp`: separate and packed sparse host storage policies.
-- `block_tensor.hpp`: the first order-two through order-four `BlockTensor`
-  slice for `LocalSpace`, `QNumSpace`, and `BlockSpace` boundaries.
+- `block_tensor.hpp`: the first order-zero through order-four `BlockTensor`
+  slice for `LocalSpace`, `QNumSpace`, `BlockSpace`, and explicit dual
+  boundaries.
+- `block_tensor_repartition.hpp`: zero-copy bosonic left/right wire-bending
+  views with transformed logical keys and strided dense blocks.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry
   declarations, implementations, and factor helpers.
 - `u1.hpp`: U(1) symmetry support.

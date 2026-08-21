@@ -135,8 +135,10 @@ values read-only, and permit explicit per-leg label changes. Empty boundaries
 represent the tensor unit.
 
 Membership in either boundary is independent of whether the object is
-eventually represented as a concrete space or `Dual<S>`. `Dual<S>` itself is
-deferred. The obsolete `CoBlockSpace`, `CoLocalSpace`, and `CoQNumSpace`
+represented as a concrete space or `Dual<S>`. The generic `Dual<S>` adaptor
+preserves basis occurrences and dimensions while dualizing quantum-number
+observations; `DualSpace` exposes that status to generic code. The obsolete
+`CoBlockSpace`, `CoLocalSpace`, and `CoQNumSpace`
 proposal conflated these two axes and is not part of this design. See
 [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md) for the
 canonical rules, including wire bending and all-out boundary orientation.
@@ -392,6 +394,15 @@ library. We roll our own view adaptors so we own the lowering.
   `LegList` manipulation.
 - **Runtime part.** A lazy per-operand **op-state** and the per-block scalars. The
   op-state defers the actual data transpose/conjugate to the kernel.
+
+The implemented bosonic edge-repartition slice bends only a leftmost or
+rightmost factor. It owns a transformed canonical key index which maps to the
+source tensor's unchanged physical block bindings. A moved dense axis is a
+`layout_stride` permutation over the same data handle. Its numerical factor is
+one; later categorical factors belong beside that key/binding metadata rather
+than in rewritten payload values. Existing payload elements may be mutated
+through a writable view, but replacing or structurally modifying its source
+invalidates that view and any view transitively built from it.
 
 The op-state lowers directly to the backend BLAS `op` when the provider can
 represent it. The baseline Fortran BLAS set is `N`/`T`/`C`; conjugate-only is a

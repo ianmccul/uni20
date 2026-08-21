@@ -27,8 +27,8 @@ The current concrete target is one or more U(1) factors.
 The current code establishes the storage and boundary seam needed by later
 operations:
 
-- tensor orders two through four;
-- `LocalSpace`, `QNumSpace`, and `BlockSpace` factors in arbitrary
+- tensor orders zero through four;
+- `LocalSpace`, `QNumSpace`, `BlockSpace`, and their `Dual<S>` adaptors in arbitrary
   domain/codomain positions;
 - independent compile-time classification of block-key coordinates and dense
   numerical axes for all five concrete space kinds;
@@ -39,11 +39,18 @@ operations:
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
 - mutable and const mdspan access to stored blocks; and
-- delegation of the dense leaf backend list through each block storage policy.
+- delegation of the dense leaf backend list through each block storage policy;
+- a generic `Dual<S>` value adaptor whose quantum-number observations are dual;
+  and
+- zero-copy bosonic left/right `repartition` views with transformed canonical
+  keys and strided dense-block axis permutations.
 
-This slice is synchronous and host-resident. It does not yet provide complete
-storage, builders, block operations, async buffer ownership, or the remaining
-space kinds described below.
+This slice is synchronous and host-resident. Repartition views retain an lvalue
+source reference and therefore cannot outlive their source tensor. Payload
+element writes remain valid, but assigning or structurally modifying a source
+invalidates every view transitively built from it. The slice does not yet
+provide complete storage, builders, numerical block operations, async buffer
+ownership, or the remaining space kinds described below.
 
 ## 2. Initial Type Shape
 
@@ -80,8 +87,9 @@ DomainType::size() + CodomainType::size()
 Concrete sector dimensions, local states, dense extents, and labels remain
 runtime values.
 
-The implemented slice currently accepts `LocalSpace`, `QNumSpace`, and
-`BlockSpace`, and requires total tensor order two, three, or four.
+The implemented slice currently accepts `LocalSpace`, `QNumSpace`,
+`BlockSpace`, and their explicit duals, and requires total tensor order from
+zero through four.
 
 ## 3. Explicit Symmetry Context
 
@@ -101,8 +109,7 @@ blocks.
 
 ## 4. Domain, Codomain, and Duality
 
-`Dual<S>` is not required for the first U(1) A-matrix, MPO, or environment
-path. Domain versus codomain already determines the sign with which a charge
+Domain versus codomain determines the first sign with which a charge
 contributes:
 
 ```text
@@ -122,27 +129,23 @@ environment:
     q_bra_bond + q_mpo_auxiliary = q_ket_bond
 ```
 
-The prototype must not encode these signs into the spaces or block keys.
-Orientation is derived from boundary membership. This leaves the later
-`Dual<S>` extension additive: explicit duality toggles the contribution again,
-while `Domain` and `Codomain` remain unchanged.
+The prototype does not encode these signs into block keys. Orientation is
+derived from boundary membership, while `Dual<S>` toggles the charge
+contribution independently. `Dual<S>` preserves the underlying basis
+occurrence order and dimensions; operations which observe a charge obtain
+`dual(q)`. The `DualSpace` concept makes explicit duality discoverable.
 
-`Dual<S>` will be needed relatively soon for:
+`repartition<Side, End>(tensor)` bends one leftmost or rightmost factor across
+the morphism boundary and toggles its explicit duality. The current bosonic
+operation returns an lvalue view: it does not copy, reorder, or rewrite
+numerical payload. It may sort a transformed logical key index and may expose a
+moved dense axis through `layout_stride`. Rvalues are rejected so the view
+cannot retain a dangling storage reference.
 
-- general wire bending (`repartition`);
-- tensors which contain both an object and its dual on the same morphism side;
-- adjoints and contractions involving previously bent or explicitly dual legs;
-- non-abelian and braided categorical operations.
-
-Until then, prototype operations support only boundaries and contractions that
-can be expressed without an implicit bend. An operation which would require
-one must reject the request rather than silently changing a charge sign or
-reinterpreting a space.
-
-When added, `Dual<S>` should itself satisfy the boundary-factor requirements,
-so the existing `Domain<...>`, `Codomain<...>`, and `BlockTensor` templates do
-not change. The prototype therefore omits the implementation but preserves its
-semantic extension point.
+For bosonic U(1), the per-block bend factor is one. Non-abelian, fermionic, or
+braided extensions may add pivotal, `1j`, recoupling, or exchange factors to
+the transformed block metadata and kernel lowering. They must not silently
+fold those factors into the stored tensor elements.
 
 ## 5. Block Coordinates and Dense Axes
 
@@ -440,10 +443,9 @@ a storage implementation which permits missing legal blocks.
 
 The first prototype deliberately defers:
 
-- `Dual<S>` and categorical wire bending;
 - non-abelian fusion multiplicities and coupling descriptors;
 - recoupling, braiding, and category-dependent block factors;
-- lazy transpose, conjugate, adjoint, and scaled block-tensor views;
+- lazy transpose, conjugate, adjoint, scaled, and non-bosonic repartition views;
 - CUDA, mixed CPU/GPU, and MPI storage;
 - replicated immutable block tensors;
 - coalescing and placement policies beyond canonical packed host storage;
@@ -464,19 +466,21 @@ subsequently mutate its block structure to truncate it.
 
 ## 14. Required Prototype Tests
 
-The implemented first-slice tests cover both sparse policies at tensor orders
-two, three, and four. They exercise `BlockSpace` block extents, `LocalSpace`
-coordinate-only states, coordinate-free charged `QNumSpace` factors, MPS
-matrix blocks, rank-zero MPO blocks, canonical sparse keys, repeated local
-charges remaining distinct, legal-but-unstored blocks, mutable and const
-access, empty boundary factors, packed offsets, dense-block extent validation,
-and construction failures.
+The implemented tests cover both sparse policies at tensor orders zero through
+four. They exercise the tensor-unit scalar, rank-one identity-sector
+selection, `BlockSpace` block extents, `LocalSpace` coordinate-only states,
+coordinate-free charged `QNumSpace` factors, explicit dual spaces, MPS matrix
+blocks, rank-zero MPO blocks, canonical sparse keys, repeated local charges,
+legal-but-unstored blocks, mutable and const access, empty boundary factors,
+packed offsets, dense-block extent validation, and construction failures.
+Repartition tests additionally prove transformed-key sorting, direct
+transformed selection rules, unchanged payload addresses, dense-axis stride
+permutations, const propagation, and left/right bend involution.
 
 The completed host prototype must additionally test:
 
 - arbitrary mixtures and orderings of all five supported space types;
 - explicit symmetry preservation for empty and dense-only boundaries;
-- the tensor-unit boundary producing one scalar order-zero block;
 - an empty block, irregular, or local factor producing no legal keys;
 - a zero-extent dense factor retaining legal zero-size block records without
   allocating scalar elements;
@@ -513,4 +517,7 @@ feeding that dense representation back into the tensor-network path.
 - Block structure and bindings are stable after construction.
 - Individual blocks lower through mdspec and execution-domain leases.
 - Whole-tensor dense materialization is never an implicit symmetry fallback.
-- `Dual<S>` can be added without changing the boundary or block-key model.
+- `Dual<S>` preserves basis occurrences and dimensions while dualizing observed
+  charges.
+- Bosonic repartition changes boundary, key, and mdspan mapping metadata without
+  changing numerical payload storage.

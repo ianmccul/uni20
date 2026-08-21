@@ -95,6 +95,12 @@ This must not alter storage, strides, leg order, symmetry data, or braiding. It
 does alter exact space equality and can therefore change whether a checked
 composition accepts two leg occurrences.
 
+The implemented bosonic `repartition` operation demonstrates the corresponding
+zero-copy transformation rule. It permutes logical key coordinates and dense
+mdspan axes while retaining each payload address. Braiding will use the same
+logical-to-physical binding seam and add its category-defined exchange factor;
+it must not use labels or rewrite payload values to encode the exchange.
+
 A tensor-network helper that names a bond must update both endpoint
 occurrences:
 

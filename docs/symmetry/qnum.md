@@ -370,15 +370,15 @@ non-identity component loss or incompatible factor types.
 ## Morphism Boundaries
 
 The implemented `Domain<Spaces...>` and `Codomain<Spaces...>` value templates
-provide the morphism-side axis needed by the next tensor-network layer:
+and generic `Dual<S>` adaptor provide the two independent orientation axes:
 
 - a concrete space versus `Dual<S>`;
 - membership in an ordered `Domain<...>` versus `Codomain<...>`.
 
-The first axis remains deferred; the second is represented explicitly today.
-Each boundary retains concrete space types and ordered values. Space structure
-is exposed read-only, while `set_label<I>(...)` changes one leg label without
-replacing its space. `Domain<>` and `Codomain<>` represent the tensor unit.
+Both axes are represented explicitly. Each boundary retains concrete or dual
+space types and ordered values. Space structure is exposed read-only, while
+`set_label<I>(...)` changes one leg label without replacing its space.
+`Domain<>` and `Codomain<>` represent the tensor unit.
 
 The earlier `conjugate<T>` / `co<T>` direction-wrapper proposal conflated these
 axes and is no longer the intended design. Moving a leg between domain and
@@ -393,13 +393,12 @@ left_bond tensor local_space -> right_bond
 
 This does not require direction variants of `BlockSpace` or `QNumList`.
 
-## Deferred Next Steps
+## Space and Morphism Status
 
-These items are intentionally deferred rather than part of the current public
-API, but they are likely to be the next symmetry-side tasks once the first U(1)
-DMRG prototype is underway.
+The dual-space adaptor is implemented. The remaining helpers in this section
+are deferred symmetry-side tasks for the U(1) DMRG path.
 
-### Space-level helpers
+### Deferred space-level helpers
 
 Likely next convenience helpers on spaces:
 
@@ -411,14 +410,14 @@ Likely next convenience helpers on spaces:
 These are expected to become useful as soon as the MPO and AMatrix compiler code
 is written.
 
-### Space dualization
+### Implemented space dualization
 
-The morphism layer should define a generic `Dual<S>` using the symmetry's
-value-level `dual(QNum)` operation. It should not require parallel concrete
-families such as `DualBlockSpace` and `DualLocalSpace`. Dualization is a
-categorical view of the space, not a mutation of its stored sector structure.
+The morphism layer defines generic `Dual<S>` using the symmetry's value-level
+`dual(QNum)` operation. It does not require parallel concrete families such as
+`DualBlockSpace` and `DualLocalSpace`. Dualization is a categorical adaptor of
+the space, not a mutation or canonicalization of its stored sector structure.
 
-### Inverse regularization metadata
+### Deferred inverse regularization metadata
 
 The current regularization helpers provide the forward block/index mapping
 needed to coalesce sparse spaces explicitly. Later work may also want:

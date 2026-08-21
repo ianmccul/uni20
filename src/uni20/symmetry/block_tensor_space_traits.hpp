@@ -8,6 +8,7 @@
 
 #include <uni20/symmetry/block_space.hpp>
 #include <uni20/symmetry/dense_space.hpp>
+#include <uni20/symmetry/dual_space.hpp>
 #include <uni20/symmetry/irregular_space.hpp>
 #include <uni20/symmetry/local_space.hpp>
 #include <uni20/symmetry/qnum_space.hpp>
@@ -59,6 +60,10 @@ template <> struct BlockTensorSpaceTraits<DenseSpace>
     static constexpr bool has_block_coordinate = false;
     static constexpr bool has_dense_axis = true;
 };
+
+/// \brief Explicit duality preserves key-coordinate and dense-axis structure.
+template <Space SpaceType> struct BlockTensorSpaceTraits<Dual<SpaceType>> : BlockTensorSpaceTraits<SpaceType>
+{};
 
 /// \brief Tensor space with an explicit block-coordinate/dense-axis classification.
 /// \tparam SpaceType Candidate tensor-space type.
