@@ -9,6 +9,9 @@ uni20_add_example(trace_example common/trace_example.cpp fmt::fmt mdspan uni20_c
 
 uni20_add_example(mdspan_example mdspan/mdspan_example.cpp fmt::fmt mdspan uni20_common)
 
+uni20_add_example(block_tensor_example symmetry/block_tensor_example.cpp uni20_symmetry)
+add_test(NAME BlockTensorExample COMMAND block_tensor_example)
+
 if(TARGET uni20_backend_cuda)
   uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common
                     uni20_backend_cuda)

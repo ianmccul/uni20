@@ -16,6 +16,10 @@ the mathematical problem and is treated as a correctness bug.
 - `dense_space.hpp`: symmetry-neutral dense tensor spaces.
 - `morphism_boundary.hpp`: ordered `Domain<...>` and `Codomain<...>` space
   values.
+- `block_key.hpp`: opaque logical block coordinates.
+- `block_tensor_storage.hpp`: separate and packed sparse host storage policies.
+- `block_tensor.hpp`: the first order-two through order-four `BlockTensor`
+  slice for `LocalSpace` and `BlockSpace` boundaries.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry
   declarations, implementations, and factor helpers.
 - `u1.hpp`: U(1) symmetry support.

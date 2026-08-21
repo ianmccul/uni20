@@ -1,9 +1,9 @@
 # Bosonic Abelian BlockTensor Prototype
 
-**Status:** active design contract for the first `BlockTensor` implementation.
-It defines the host-only bosonic abelian vertical slice. The broader
-[BlockTensor design](block_tensor.md) records later CUDA, MPI, recoupling, and
-view requirements.
+**Status:** active design contract with the first sparse host slice
+implemented. It defines the remaining host-only bosonic abelian vertical
+slice. The broader [BlockTensor design](block_tensor.md) records later CUDA,
+MPI, recoupling, and view requirements.
 
 ## 1. Purpose
 
@@ -22,6 +22,26 @@ The MPS and MPO names are aliases over the same `BlockTensor` mechanism.
 The prototype supports direct products of bosonic abelian symmetry factors.
 The current concrete target is one or more U(1) factors.
 
+### Implemented first slice
+
+The current code establishes the storage and boundary seam needed by later
+operations:
+
+- tensor orders two through four;
+- `LocalSpace` and `BlockSpace` factors in arbitrary domain/codomain positions;
+- explicit sparse key construction with legality, ordering, and duplicate
+  validation;
+- `SeparateSparseBlockStorage`, with one independently owning column-major
+  dense `Tensor` per block;
+- `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
+  buffer;
+- mutable and const mdspan access to stored blocks; and
+- delegation of the dense leaf backend list through each block storage policy.
+
+This slice is synchronous and host-resident. It does not yet provide complete
+storage, builders, block operations, async buffer ownership, or the remaining
+space kinds described below.
+
 ## 2. Initial Type Shape
 
 The initial owning type is:
@@ -39,7 +59,8 @@ There is no additional `MorphismSpec` wrapper. `DomainType` and
 `CodomainType` are already distinct types and values. A tensor stores concrete
 instances of both.
 
-Each boundary may contain any fixed number and ordering of:
+The complete host prototype will allow each boundary to contain any fixed
+number and ordering of:
 
 - `LocalSpace`;
 - `BlockSpace`;
@@ -55,6 +76,9 @@ DomainType::size() + CodomainType::size()
 
 Concrete sector dimensions, local states, dense extents, and labels remain
 runtime values.
+
+The implemented slice currently accepts only `LocalSpace` and `BlockSpace`,
+and requires total tensor order two, three, or four.
 
 ## 3. Explicit Symmetry Context
 
@@ -249,18 +273,24 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The first implementation provides packed host storage for both complete and
-sparse tensors. It uses:
+The first implemented slice provides two sparse host policies. Both use:
 
 - canonical block-key ordering;
-- one contiguous allocation initially;
-- one offset and mapping per stored block;
 - zero initialization for newly allocated numerical values;
 - stable block bindings after construction.
 
-Complete host storage enumerates every legal key. Sparse host storage accepts
-an explicit key set, rejects illegal keys, sorts it canonically, and rejects
-duplicate keys before allocation.
+`SeparateSparseBlockStorage` owns one column-major dense `Tensor` for each
+stored key. `PackedSparseBlockStorage` owns one contiguous allocation and one
+canonical offset per stored key. Both accept an explicit key set, reject
+illegal keys, sort it canonically, and reject duplicate keys before allocation.
+The packed policy is the likely default for sparse scalar-block MPO sites; the
+separate policy is the simplest baseline for early block operations and
+comparison tests.
+
+The next storage step is a distinct complete host policy which enumerates every
+legal key and models `CompleteBlockStorage`. A sparse value may happen to store
+all legal keys, but that runtime fact does not give its policy the compile-time
+complete-storage guarantee.
 
 A zero extent does not remove a structurally legal key. For example,
 `DenseSpace(0)` contributes its single coordinate and produces a zero-element
@@ -273,9 +303,9 @@ coordinates. A boundary containing such a factor has an empty Cartesian key
 space and therefore no legal or stored blocks. Empty domain and codomain values
 represent the tensor unit and produce one order-zero key; its block is a scalar.
 
-Both forms may share implementation helpers. They remain distinct concrete
-storage contracts so `CompleteBlockStorage` can provide a compile-time
-guarantee to algorithms and to the `AMatrix` alias.
+The complete and sparse forms may share implementation helpers. They remain
+distinct concrete storage contracts so `CompleteBlockStorage` can provide a
+compile-time guarantee to algorithms and to the `AMatrix` alias.
 
 The layout must not assume that a future complete storage has only one buffer.
 A CPU/GPU placement may partition all legal blocks among a host allocation and
@@ -291,7 +321,8 @@ Block structure is fixed after construction:
 - numerical block values remain mutable;
 - leg labels may be changed explicitly without changing structure.
 
-A sparse builder collects keys and optional initial values before allocating:
+A later sparse builder will collect keys and optional initial values before
+allocating:
 
 ```cpp
 auto builder = make_block_tensor_builder<T>(symmetry, domain, codomain);
@@ -303,6 +334,9 @@ Complete construction derives the key set from the boundary and selection
 rule. Operations which change sectors, truncate bonds, or change the stored
 pattern construct or replace a tensor rather than inserting blocks into a live
 layout.
+
+For the implemented slice, the sparse constructor accepts the complete stored
+key list directly and performs the same validation before allocating.
 
 This rule keeps block descriptors stable and avoids structural mutation while
 async work may still retain buffer access.
@@ -421,7 +455,14 @@ subsequently mutate its block structure to truncate it.
 
 ## 14. Required Prototype Tests
 
-The first implementation must test:
+The implemented first-slice tests cover both sparse policies at tensor orders
+two, three, and four. They exercise `BlockSpace` block extents, `LocalSpace`
+scalar extents, MPS-like and MPO-like selection rules, canonical sparse keys,
+repeated local charges remaining distinct, legal-but-unstored blocks, mutable
+and const access, empty boundary factors, packed offsets, dense-block extent
+validation, and construction failures.
+
+The completed host prototype must additionally test:
 
 - arbitrary mixtures and orderings of all five supported space types;
 - explicit symmetry preservation for empty and dense-only boundaries;

@@ -1,19 +1,20 @@
 # Symmetry And Block-Sparse Documentation
 
-This directory owns quantum-number semantics and the design of the future
+This directory owns quantum-number semantics and the design of the
 symmetry-aware block-sparse Tensor path.
 
 ## Implemented Foundation
 
 - [Quantum Numbers and Symmetry](qnum.md) describes `Symmetry`, `QNum`,
   `QNumList`, and `BlockSpace`.
+- [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) describes
+  the implemented order-two through order-four sparse slice and the remaining
+  host-only prototype contract.
 
 ## Active Design
 
 - [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md) is the
   canonical boundary, space-identity, wire-bending, and contraction model.
-- [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) defines
-  the scoped contract for the first host-only implementation.
 - [BlockTensor](block_tensor.md) is the central symmetry-typed container design.
 - [Block-Sparse Tensor and Layout](block_sparse_tensor.md) develops the storage
   and layout model refined by `BlockTensor`.
@@ -24,9 +25,10 @@ symmetry-aware block-sparse Tensor path.
 - [Raw Primitives and Symmetric Lowering](raw_primitives_and_lowering.md)
   identifies the primitive operations needed below symmetry-aware algorithms.
 
-These design documents do not imply that a complete symmetry-aware
-`BlockTensor` or DMRG path exists on the current branch. Loss of symmetry
-metadata remains a correctness error, not an acceptable fallback.
+The current `BlockTensor` implementation is only the initial sparse host slice;
+complete storage, block operations, async ownership, and the DMRG path remain
+to be implemented. Loss of symmetry metadata remains a correctness error, not
+an acceptable fallback.
 
 ## Source Navigation
 
