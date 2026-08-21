@@ -344,7 +344,8 @@ More general networks use the same primitives:
 
 - associating and recoupling tensor products;
 - explicit `repartition` operations;
-- permutations in a symmetric category or explicit braids otherwise;
+- the implemented zero-copy `permute<Axis...>` within each side in the bosonic
+  symmetric category, or explicit braids otherwise;
 - tensor products with implicit identities;
 - composition;
 - categorical trace for closed boundaries.

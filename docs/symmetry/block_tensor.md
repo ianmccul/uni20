@@ -404,6 +404,13 @@ than in rewritten payload values. Existing payload elements may be mutated
 through a writable view, but replacing or structurally modifying its source
 invalidates that view and any view transitively built from it.
 
+The same mapped-view implementation now provides `permute<Axis...>` for
+bosonic factor exchanges within domain and codomain. Axis positions are
+flattened domain-then-codomain positions, labels move with their factors, and
+cross-boundary movement remains an explicit `repartition`. A permutation may
+resort its logical key index and expose permuted `layout_stride` blocks, but it
+does not move payload.
+
 The op-state lowers directly to the backend BLAS `op` when the provider can
 represent it. The baseline Fortran BLAS set is `N`/`T`/`C`; conjugate-only is a
 provider extension, for example OpenBLAS `CblasConjNoTrans` or its

@@ -24,6 +24,10 @@ the mathematical problem and is treated as a correctness bug.
 - `block_tensor.hpp`: the first order-zero through order-four `BlockTensor`
   slice for `LocalSpace`, `QNumSpace`, `BlockSpace`, and explicit dual
   boundaries.
+- `block_tensor_mapped_view.hpp`: shared logical-to-physical key and dense-axis
+  mapping for zero-copy views.
+- `block_tensor_permute.hpp`: zero-copy bosonic permutations within domain and
+  codomain.
 - `block_tensor_repartition.hpp`: zero-copy bosonic left/right wire-bending
   views with transformed logical keys and strided dense blocks.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry

@@ -9,8 +9,8 @@ symmetry-aware block-sparse Tensor path.
   `QNumList`, and `BlockSpace`.
 - [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) describes
   the implemented order-zero through order-four sparse slice, its independent
-  key-coordinate and dense-axis model, and the remaining host-only prototype
-  contract.
+  key-coordinate and dense-axis model, zero-copy permutation and bending, and
+  the remaining host-only prototype contract.
 
 ## Active Design
 

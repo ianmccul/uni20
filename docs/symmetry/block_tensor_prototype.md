@@ -38,19 +38,20 @@ operations:
   dense `Tensor` per block;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
-- mutable and const mdspan access to stored blocks; and
+- mutable and const mdspan access to stored blocks;
 - delegation of the dense leaf backend list through each block storage policy;
 - a generic `Dual<S>` value adaptor whose quantum-number observations are dual;
-  and
+- zero-copy bosonic compile-time permutations within each morphism side;
 - zero-copy bosonic left/right `repartition` views with transformed canonical
   keys and strided dense-block axis permutations.
 
-This slice is synchronous and host-resident. Repartition views retain an lvalue
-source reference and therefore cannot outlive their source tensor. Payload
-element writes remain valid, but assigning or structurally modifying a source
-invalidates every view transitively built from it. The slice does not yet
-provide complete storage, builders, numerical block operations, async buffer
-ownership, or the remaining space kinds described below.
+This slice is synchronous and host-resident. Mapped permutation and repartition
+views retain an lvalue source reference and therefore cannot outlive their
+source tensor. Payload element writes remain valid, but assigning or
+structurally modifying a source invalidates every view transitively built from
+it. The slice does not yet provide complete storage, builders, the general
+numerical block-operation surface, async buffer ownership, or the remaining
+space kinds described below.
 
 ## 2. Initial Type Shape
 
@@ -141,6 +142,12 @@ operation returns an lvalue view: it does not copy, reorder, or rewrite
 numerical payload. It may sort a transformed logical key index and may expose a
 moved dense axis through `layout_stride`. Rvalues are rejected so the view
 cannot retain a dangling storage reference.
+
+`permute<Axis...>(tensor)` uses flattened domain-then-codomain positions and
+gives the source factor at every output position. The first bosonic operation
+permutes within domain and codomain only. Moving a factor across the boundary
+is not a permutation: use `repartition`. A non-edge factor can therefore be
+moved to an edge with `permute` and then bent explicitly with `repartition`.
 
 For bosonic U(1), the per-block bend factor is one. Non-abelian, fermionic, or
 braided extensions may add pivotal, `1j`, recoupling, or exchange factors to
@@ -384,6 +391,14 @@ Generic algorithms iterate stored blocks or use `find_block`. Algorithms
 constrained to `CompleteBlockStorage` may use legal-key iteration and direct
 block access without presence probes.
 
+### Implemented morphism operations
+
+The first `permute<Axis...>` and `repartition<Side, End>` operations return
+zero-copy lvalue views. Both transform boundary values, canonical logical keys,
+and dense mdspan axis order while retaining every source payload address.
+Permutation is currently the bosonic symmetric-category operation with unit
+exchange factor. Non-bosonic exchange remains an explicit future braid.
+
 ## 11. Async and Kernel Lowering
 
 `Async<BlockTensor<...>>` is the owner-level asynchronous value. Async-ness is
@@ -475,7 +490,9 @@ legal-but-unstored blocks, mutable and const access, empty boundary factors,
 packed offsets, dense-block extent validation, and construction failures.
 Repartition tests additionally prove transformed-key sorting, direct
 transformed selection rules, unchanged payload addresses, dense-axis stride
-permutations, const propagation, and left/right bend involution.
+permutations, const propagation, and left/right bend involution. Permutation
+tests cover boundary types and labels, key resorting, dense strides, inverse
+permutations, and the tensor unit.
 
 The completed host prototype must additionally test:
 
@@ -521,3 +538,5 @@ feeding that dense representation back into the tensor-network path.
   charges.
 - Bosonic repartition changes boundary, key, and mdspan mapping metadata without
   changing numerical payload storage.
+- Bosonic permutation is zero-copy within each morphism side; crossing sides is
+  an explicit bend.
