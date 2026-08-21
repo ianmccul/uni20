@@ -129,6 +129,11 @@ A2 = A.braid_to_boundary(1)
 contract(A2, boundary_axis, B, 0)
 ```
 
+The first C++ `BlockTensor` contraction implements the adjacent case only: the
+rightmost codomain factor of the left operand contracts with the leftmost
+domain factor of the right operand. `permute` and `repartition` expose other
+bosonic pairs at those boundaries explicitly.
+
 The exact API can change, but the semantic rule should not: if algebraic reordering is required, the user must request it explicitly.
 
 This is essential for fermionic signs and non-Abelian R/F-move bookkeeping. A label change cannot stand in for a braid.

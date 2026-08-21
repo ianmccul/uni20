@@ -12,6 +12,6 @@
   and `PackedSparseBlockStorage`, whose numerical blocks are rank zero.
 
 The example prints logical order, key-coordinate count, dense-block order,
-stored and legal block counts, verifies that permutation and repartition retain
-the source payload address, and reports the current packed scalar-block byte
-costs. Tensor contractions and async ownership are later slices.
+stored and legal block counts, contracts the block matrix with itself, verifies
+that permutation and repartition retain the source payload address, and reports
+the current packed scalar-block byte costs. Async ownership is a later slice.

@@ -433,6 +433,17 @@ from each operand's op-state and `alpha = s_A · s_B / s_C`. A freshly produced 
 block takes `s_C = 1` and folds the rest into its data; accumulation into an existing
 `C` with a fixed convention uses the full ratio.
 
+The first synchronous host `contract<left_axis, right_axis>` path implements
+one adjacent pair: the rightmost codomain factor of the left operand and the
+leftmost domain factor of the right operand. It requires exact space equality,
+matches logical sector or local-state coordinates, constructs only sparse
+result blocks with stored contributions, and invokes the strided reference
+kernel for each dense block product. `BlockSpace` contracts one degeneracy
+axis; coordinate-only spaces produce an outer product or scalar accumulation
+without stored dimension-one axes. This overload requires immediate host blocks
+with the default mdspan accessor; deferred, device-only, or semantic-accessor
+storage belongs on the future backend-dispatched path.
+
 **Determinism.** The scalars are deterministically recomputable on every MPI rank from
 the block's `QNum`s and the view's op-state, so they do not threaten the
 deterministic per-edge tag agreement that SPMD MPI requires

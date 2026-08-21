@@ -296,8 +296,8 @@ auto extract_strides(AType const& A, BType const& B,
   static_vector<extent_strides<2>, KR> Kgroup;
 
   // Assemble the K array of the contracted legs and mark which legs of A and B are contracted over
-  std::array<bool, AType::rank()> AContracted{false};
-  std::array<bool, BType::rank()> BContracted{false};
+  std::array<bool, AType::rank()> AContracted{};
+  std::array<bool, BType::rank()> BContracted{};
   for (std::size_t i = 0; i < N; ++i)
   {
     // check that the extents match

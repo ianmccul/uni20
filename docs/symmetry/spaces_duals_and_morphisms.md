@@ -333,6 +333,15 @@ The implementation need not materialize identity tensors: a checked planner
 proves the composition, preserves the external boundary, and lowers it to
 block worklists and dense kernels.
 
+The implemented first host operation is the adjacent pair
+`contract<left_axis, right_axis>(left, right)`. It requires the rightmost
+codomain space of `left` and leftmost domain space of `right` to be exactly
+equal. It retains `left.domain`, then the uncontracted part of `right.domain`,
+and retains the uncontracted part of `left.codomain`, then `right.codomain`.
+Stored blocks are paired by the contracted basis occurrence before dense block
+kernels run. Missing sparse blocks remain exact zero; no symmetry metadata is
+flattened or reconstructed from dense indices.
+
 Before contracting two leg occurrences, the planner validates the relationship
 required by the operation. Ordinary composition normally requires exact space
 equality, including labels. A structural conversion or explicit isomorphism

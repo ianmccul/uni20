@@ -46,7 +46,9 @@ operations:
 - a generic `Dual<S>` value adaptor whose quantum-number observations are dual;
 - zero-copy bosonic compile-time permutations within each morphism side;
 - zero-copy bosonic left/right `repartition` views with transformed canonical
-  keys and strided dense-block axis permutations.
+  keys and strided dense-block axis permutations; and
+- synchronous adjacent pairwise contraction into selectable immediate-host
+  sparse output storage.
 
 This slice is host-resident. Mapped permutation and repartition views retain an
 lvalue source reference and therefore cannot outlive their source tensor. They
@@ -439,6 +441,35 @@ async block epoch identity.
 Permutation is currently the bosonic symmetric-category operation with unit
 exchange factor. Non-bosonic exchange remains an explicit future braid.
 
+The first pairwise contraction is:
+
+```cpp
+auto result = contract<left_axis, right_axis>(left, right);
+```
+
+It contracts only the rightmost codomain factor of `left` with the leftmost
+domain factor of `right`; the explicit axes must name those adjacent factors.
+The two space values must be exactly equal, including labels and explicit
+duality. The result boundary is:
+
+```text
+domain   = left.domain + right.domain_without_first
+codomain = left.codomain_without_last + right.codomain
+```
+
+For a coordinate-bearing contracted space, only blocks with the same basis or
+sector coordinate are paired. A `BlockSpace` degeneracy axis is contracted by
+the dense strided kernel. `LocalSpace` and `QNumSpace` add no artificial dense
+axis; their contributing scalar or external-axis blocks are multiplied and
+accumulated directly. The operation builds sparse output blocks only from
+stored contributing pairs and never materializes a whole-tensor dense bridge.
+`PackedSparseBlockStorage<>` is the default host output; callers may select a
+different sparse output policy as the third template argument only when its
+blocks provide immediate host access through the default mdspan accessor. The
+current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
+satisfy this contract. Deferred, device-only, and custom-accessor storage must
+use a future dispatched lowering rather than this reference overload.
+
 ## 11. Async and Kernel Lowering
 
 `Async<BlockTensor<...>>` and storage-level asynchronous blocks solve different
@@ -553,8 +584,12 @@ Repartition tests additionally prove transformed-key sorting, direct
 transformed selection rules, unchanged payload addresses, dense-axis stride
 permutations, const propagation, and left/right bend involution. Permutation
 tests cover boundary types and labels, key resorting, dense strides, inverse
-permutations, and the tensor unit. Async-storage tests additionally cover mdspec
-const/mutable semantics and stable epoch identity through permutation.
+permutations, and the tensor unit. Pairwise contraction tests cover both input
+storage policies, packed and separate output, dense matrix multiplication,
+cross-sector sparsity, repeated local-state accumulation into a rank-zero
+result, exact-space rejection, and planar external-boundary order.
+Async-storage tests additionally cover mdspec const/mutable semantics and stable
+epoch identity through permutation.
 
 The completed host prototype must additionally test:
 
@@ -603,3 +638,5 @@ feeding that dense representation back into the tensor-network path.
   changing numerical payload storage or async block epoch identity.
 - Bosonic permutation is zero-copy within each morphism side; crossing sides is
   an explicit bend.
+- Pairwise contraction matches logical block coordinates before invoking dense
+  kernels and preserves every uncontracted boundary occurrence.

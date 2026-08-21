@@ -1,3 +1,4 @@
+#include <uni20/symmetry/block_tensor_contract.hpp>
 #include <uni20/symmetry/block_tensor_permute.hpp>
 #include <uni20/symmetry/block_tensor_repartition.hpp>
 
@@ -28,6 +29,7 @@ int main()
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
   Matrix matrix(sym, Domain{left}, Codomain{left}, {Matrix::key_type{{0, 0}}, Matrix::key_type{{1, 1}}});
   matrix.block(Matrix::key_type{{1, 1}})[2, 2] = 1.0;
+  auto matrix_squared = contract<1, 0>(matrix, matrix);
 
   using MpsSite =
       BlockTensor<double, Domain<BlockSpace, LocalSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
@@ -44,6 +46,7 @@ int main()
   mpo_site.block(MpoSite::key_type{{0, 1, 0, 1}})[] = 3.0;
 
   print_summary("matrix", matrix);
+  print_summary("matrix squared", matrix_squared);
   print_summary("MPS site", mps_site);
   print_summary("permuted MPS view", permuted_mps);
   print_summary("bent MPS view", bent_mps);
