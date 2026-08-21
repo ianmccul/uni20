@@ -374,13 +374,16 @@ types.
 The block map remains keyed by an opaque structure:
 
 ```text
-BlockKey = (sector index per boundary occurrence, CouplingDescriptor)
+BlockKey = (selection index per coordinate-bearing boundary occurrence,
+            CouplingDescriptor)
 ```
 
 Boundary coordinates occur in domain-left-to-right order followed by
-codomain-left-to-right order. Their deterministic lexicographic order is part
-of logical block identity; a storage layout may arrange the corresponding data
-differently. The coupling descriptor compares after all boundary coordinates.
+codomain-left-to-right order. `BlockSpace`, `IrregularSpace`, and `LocalSpace`
+contribute coordinates; fixed `QNumSpace` and `DenseSpace` factors do not.
+Their deterministic lexicographic order is part of logical block identity; a
+storage layout may arrange the corresponding data differently. The coupling
+descriptor compares after all stored boundary coordinates.
 
 It must not assume one block per flat sector tuple. The selection rule is
 evaluated from the all-out oriented boundary, and the coupling descriptor

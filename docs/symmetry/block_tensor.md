@@ -185,10 +185,21 @@ The alias fixes space kinds and boundary order. Each tensor value carries the
 actual space values, so the same `AMatrix` type describes every site while
 adjacent tensors carry equal copies of the intended labeled bond space.
 
-`LocalSpace` blocks are length-1 in their axis (no degeneracy index). `LocalSpace`
-is also the natural **coalescing axis** (`block_coalescing.md`): small, regular, and
-interleavable — but coalescing over it is a per-device internal performance detail
-of the layout, never a change to the logical leg structure.
+Boundary legs have two independent storage properties:
+
+| Space | Block-key coordinate | Dense-block axis |
+|---|---|---|
+| `BlockSpace` | sector index | sector degeneracy |
+| `IrregularSpace` | stored block index | block dimension |
+| `LocalSpace` | state index | none |
+| `QNumSpace` | none | none |
+| `DenseSpace` | none | dense extent |
+
+`LocalSpace` is the natural **coalescing axis** (`block_coalescing.md`): small,
+regular, and interleavable. An individual logical block omits that trivial
+dense axis; a coalesced internal view introduces or widens the corresponding
+axis across several LocalSpace-key values. Coalescing remains a per-device
+layout detail and never changes the logical leg structure.
 
 `QNumSpace` stores an **irrep `QNum`**, not a one-dimensional dense space. In
 the abelian case the irrep is a 1-D charge shift, but for a non-abelian
@@ -196,7 +207,9 @@ irreducible operator the single
 `QNum` names an irrep of dimension > 1 whose internal structure is a fusion concern
 (Wigner–Eckart: the stored data is the reduced matrix element on the `BlockSpace`
 legs; the `QNumSpace` leg contributes via coupling). Degeneracy is 1; irrep
-dimension is fusion's job (§8).
+dimension is fusion's job (§8). A `QNumSpace` has neither a selectable block-key
+coordinate nor a dense-block axis; its fixed charge remains in the boundary
+metadata and selection rule.
 
 The **`DenseSpace` leg** is an ordinary index with no symmetry attached — the degenerate
 case, but a load-bearing one. Its motivating use is *an array of tensors of the same

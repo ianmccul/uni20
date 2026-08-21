@@ -68,8 +68,11 @@ The difference between the two memory arrangements is whether a gather is needed
   on the existing buffer with the right leading dimension; no gather. But a single
   leading dimension means a **constant stride**, which requires the coalesced
   blocks to be stride-compatible (regular sizes along the non-coalesced dims). The
-  small, regular **LocalSpace** axis is ideal here; varying-dimension BlockSpace
-  sectors may not yield a constant stride.
+  small, regular **LocalSpace** grouping dimension is ideal here. Individual
+  blocks select a LocalSpace state through their key and have no corresponding
+  dense axis; the execution layout interleaves several such key values and
+  exposes them as a coalesced axis. Varying-dimension BlockSpace sectors may not
+  yield a constant stride.
 - **Contiguous (packed) — flexible, may cost a pack.** Concatenating varying-size
   blocks always works, but if the source is not already contiguous it costs a
   gather (one pack kernel — still far cheaper than N separate launches).

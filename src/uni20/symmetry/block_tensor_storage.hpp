@@ -48,36 +48,43 @@ concept CompleteBlockStorage = BlockTensorStorage<Storage> && Storage::stores_al
 /// \brief Storage policy instantiated for one block scalar and tensor order.
 /// \tparam Storage Candidate block storage policy.
 /// \tparam T Numerical block element type.
-/// \tparam Order Number of boundary factors.
-template <class Storage, typename T, std::size_t Order>
+/// \tparam KeyCoordinateCount Number of stored block-selection coordinates.
+/// \tparam DenseBlockOrder Number of numerical axes in each dense block.
+template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
 concept BlockTensorStorageFor =
     BlockTensorStorage<Storage> &&
-    requires(typename Storage::template storage_t<T, Order>& storage,
-             typename Storage::template storage_t<T, Order> const& const_storage,
-             std::array<std::size_t, Order> const& extents) {
-      typename Storage::template storage_t<T, Order>::mutable_block_type;
-      typename Storage::template storage_t<T, Order>::const_block_type;
+    requires(typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>& storage,
+             typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder> const& const_storage,
+             std::array<std::size_t, DenseBlockOrder> const& extents) {
+      typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type;
+      typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type;
       { const_storage.size() } -> std::same_as<std::size_t>;
-      { const_storage.keys() } -> std::same_as<std::span<BlockKey<Order> const>>;
+      { const_storage.keys() } -> std::same_as<std::span<BlockKey<KeyCoordinateCount> const>>;
       {
         storage.block(std::size_t{}, extents)
-      } -> std::same_as<typename Storage::template storage_t<T, Order>::mutable_block_type>;
+      }
+      -> std::same_as<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type>;
       {
         const_storage.block(std::size_t{}, extents)
-      } -> std::same_as<typename Storage::template storage_t<T, Order>::const_block_type>;
+      } -> std::same_as<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type>;
     } &&
-    std::same_as<typename Storage::template storage_t<T, Order>::mutable_block_type::element_type, T> &&
-    std::same_as<typename Storage::template storage_t<T, Order>::const_block_type::element_type, T const> &&
-    (Storage::template storage_t<T, Order>::mutable_block_type::rank() == Order) &&
-    (Storage::template storage_t<T, Order>::const_block_type::rank() == Order);
+    std::same_as<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type::element_type,
+        T> &&
+    std::same_as<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type::element_type,
+        T const> &&
+    (Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type::rank() ==
+     DenseBlockOrder) &&
+    (Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type::rank() == DenseBlockOrder);
 
 namespace detail
 {
 
-template <std::size_t Order> struct SparseBlockSpec
+template <std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder> struct SparseBlockSpec
 {
-    BlockKey<Order> key;
-    std::array<std::size_t, Order> extents;
+    BlockKey<KeyCoordinateCount> key;
+    std::array<std::size_t, DenseBlockOrder> extents;
 };
 
 template <class Tensor, std::size_t Order, std::size_t... I>
@@ -134,17 +141,19 @@ template <class Storage, class T> auto make_storage(std::size_t size) -> typenam
   }
 }
 
-template <typename T, std::size_t Order, class LeafStorage> class SeparateSparseBlockStorageData {
+template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
+class SeparateSparseBlockStorageData {
   public:
-    using key_type = BlockKey<Order>;
-    using block_type = ColumnMajorTensor<T, Order, LeafStorage>;
+    using key_type = BlockKey<KeyCoordinateCount>;
+    using block_type = ColumnMajorTensor<T, DenseBlockOrder, LeafStorage>;
     using mutable_block_type = typename block_type::mdspan_type;
     using const_block_type = typename block_type::const_mdspan_type;
 
     static_assert(block_type::immediately_readable && block_type::immediately_writable,
                   "separate sparse block storage currently requires immediate leaf access");
 
-    explicit SeparateSparseBlockStorageData(std::vector<SparseBlockSpec<Order>> const& specs)
+    explicit SeparateSparseBlockStorageData(
+        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
     {
       keys_.reserve(specs.size());
       blocks_.reserve(specs.size());
@@ -158,12 +167,12 @@ template <typename T, std::size_t Order, class LeafStorage> class SeparateSparse
     auto size() const noexcept -> std::size_t { return keys_.size(); }
     auto keys() const noexcept -> std::span<key_type const> { return keys_; }
 
-    auto block(std::size_t ordinal, std::array<std::size_t, Order> const&) -> mutable_block_type
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const&) -> mutable_block_type
     {
       return blocks_[ordinal].mdspan();
     }
 
-    auto block(std::size_t ordinal, std::array<std::size_t, Order> const&) const -> const_block_type
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const&) const -> const_block_type
     {
       return blocks_[ordinal].mdspan();
     }
@@ -173,11 +182,12 @@ template <typename T, std::size_t Order, class LeafStorage> class SeparateSparse
     std::vector<block_type> blocks_;
 };
 
-template <typename T, std::size_t Order, class LeafStorage> class PackedSparseBlockStorageData {
+template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
+class PackedSparseBlockStorageData {
   public:
-    using key_type = BlockKey<Order>;
+    using key_type = BlockKey<KeyCoordinateCount>;
     using buffer_type = typename LeafStorage::template storage_t<T>;
-    using extents_type = stdex::dextents<index_type, Order>;
+    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
     using mapping_type = typename ColumnMajor::template mapping<extents_type>;
     using accessor_type = stdex::default_accessor<T>;
     using const_accessor_type = stdex::default_accessor<T const>;
@@ -192,21 +202,22 @@ template <typename T, std::size_t Order, class LeafStorage> class PackedSparseBl
           { LeafStorage::make_handle(const_buffer) } -> std::same_as<T const*>;
         }, "packed sparse block storage currently requires immediate contiguous host leaf storage");
 
-    explicit PackedSparseBlockStorageData(std::vector<SparseBlockSpec<Order>> const& specs)
+    explicit PackedSparseBlockStorageData(
+        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
         : PackedSparseBlockStorageData(make_layout(specs))
     {}
 
     auto size() const noexcept -> std::size_t { return keys_.size(); }
     auto keys() const noexcept -> std::span<key_type const> { return keys_; }
 
-    auto block(std::size_t ordinal, std::array<std::size_t, Order> const& extents) -> mutable_block_type
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
     {
       auto const block_extents = make_extents<extents_type>(extents);
       auto const handle = accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
       return mutable_block_type(handle, mapping_type(block_extents));
     }
 
-    auto block(std::size_t ordinal, std::array<std::size_t, Order> const& extents) const -> const_block_type
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
     {
       auto const block_extents = make_extents<extents_type>(extents);
       auto const handle = const_accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
@@ -224,7 +235,7 @@ template <typename T, std::size_t Order, class LeafStorage> class PackedSparseBl
         std::vector<std::size_t> offsets;
     };
 
-    static auto make_layout(std::vector<SparseBlockSpec<Order>> const& specs) -> Layout
+    static auto make_layout(std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
     {
       Layout layout;
       layout.keys.reserve(specs.size());
@@ -264,8 +275,9 @@ template <class LeafStorage = VectorStorage> struct SeparateSparseBlockStorage
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
     static constexpr bool stores_all_legal_blocks = false;
 
-    template <typename T, std::size_t Order>
-    using storage_t = detail::SeparateSparseBlockStorageData<T, Order, leaf_storage_policy>;
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::SeparateSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
@@ -281,8 +293,8 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
     static constexpr bool stores_all_legal_blocks = false;
 
-    template <typename T, std::size_t Order>
-    using storage_t = detail::PackedSparseBlockStorageData<T, Order, leaf_storage_policy>;
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t = detail::PackedSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
@@ -292,7 +304,9 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
 
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
-static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2>);
-static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2>);
+static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 
 } // namespace uni20

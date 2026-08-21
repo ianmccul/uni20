@@ -63,15 +63,17 @@ kinds carry different sparsity:
   Hubbard site). Treated as *inherently sparse* through the selection rule: for a
   fixed combination of the other legs, only some local values are allowed. It is
   dense-but-small and regular, which makes it the natural coalescing axis (see
-  `block_coalescing.md`).
-- **QNumSpace** — one fixed irrep coordinate with degeneracy extent one. It is
-  used for an explicit operator or boundary charge and contributes that charge
-  to the selection rule.
+  `block_coalescing.md`). Each state is selected by the block key; an individual
+  block omits the trivial within-state dense axis.
+- **QNumSpace** — one fixed irrep with no block-key coordinate or dense axis. It
+  is used for an explicit operator or boundary charge and contributes that
+  fixed charge to the selection rule.
 - **DenseSpace** — an ordinary dense index where neither block-sparsity nor a
   selection rule applies. Mostly relevant for the dense-tensor degenerate case.
 
-The current DMRG blocks are a three-leg prototype `A(i, s, j)`: `i`/`j` BlockSpace
-virtual bonds, `s` a LocalSpace physical index.
+The current DMRG tensor is a three-leg prototype `A(i, s, j)`: `i`/`j` are
+BlockSpace virtual bonds and `s` is a LocalSpace physical index. Each selected
+`s` block stores a dense matrix over the two bond-degeneracy axes.
 
 ### Selection rule is part of the type
 

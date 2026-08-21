@@ -28,7 +28,10 @@ The current code establishes the storage and boundary seam needed by later
 operations:
 
 - tensor orders two through four;
-- `LocalSpace` and `BlockSpace` factors in arbitrary domain/codomain positions;
+- `LocalSpace`, `QNumSpace`, and `BlockSpace` factors in arbitrary
+  domain/codomain positions;
+- independent compile-time classification of block-key coordinates and dense
+  numerical axes for all five concrete space kinds;
 - explicit sparse key construction with legality, ordering, and duplicate
   validation;
 - `SeparateSparseBlockStorage`, with one independently owning column-major
@@ -77,8 +80,8 @@ DomainType::size() + CodomainType::size()
 Concrete sector dimensions, local states, dense extents, and labels remain
 runtime values.
 
-The implemented slice currently accepts only `LocalSpace` and `BlockSpace`,
-and requires total tensor order two, three, or four.
+The implemented slice currently accepts `LocalSpace`, `QNumSpace`, and
+`BlockSpace`, and requires total tensor order two, three, or four.
 
 ## 3. Explicit Symmetry Context
 
@@ -141,38 +144,43 @@ so the existing `Domain<...>`, `Codomain<...>`, and `BlockTensor` templates do
 not change. The prototype therefore omits the implementation but preserves its
 semantic extension point.
 
-## 5. Block Coordinates and Extents
+## 5. Block Coordinates and Dense Axes
 
-One block key contains one coordinate per boundary factor. The meaning of a
-coordinate depends on the concrete space:
+Logical boundary legs, block-selection coordinates, and numerical dense axes
+are distinct. A space contributes a key coordinate only when a block must
+select among several structural choices. It contributes a dense axis only when
+the selected choice contains numerical multiplicity:
 
-| Space | Block coordinate | Dense extent | Charge contribution |
+| Space | Block-key coordinate | Dense-block axis | Charge contribution |
 |---|---|---|---|
 | `BlockSpace` | canonical sector index | sector dimension | sector `QNum` |
 | `IrregularSpace` | stored block index | block dimension | block `QNum` |
-| `LocalSpace` | ordered state index | `1` | state `QNum` |
-| `QNumSpace` | always `0` | `1` | stored `QNum` |
-| `DenseSpace` | always `0` | full dense extent | identity |
+| `LocalSpace` | ordered state index | none | selected state `QNum` |
+| `QNumSpace` | none | none | fixed stored `QNum` |
+| `DenseSpace` | none | full dense extent | identity |
 
 An `IrregularSpace` key uses the block index, not only its `QNum`, because
 repeated and out-of-order blocks are distinct structural occurrences.
 Likewise, repeated charges in a `LocalSpace` remain distinct state indices.
 
 `BlockKey` is an opaque value with deterministic lexicographic ordering. Its
-initial representation may contain a fixed-size array of factor indices, but
-callers must not depend on that representation. A later coupling or fusion
-descriptor must be addable without changing operation-level code.
+initial representation may contain a fixed-size array of the selected factor
+indices, but callers must not depend on that representation. A later coupling
+or fusion descriptor must be addable without changing operation-level code.
 
 Coordinates are ordered first by the domain factors from left to right, then
-by the codomain factors from left to right. Lexicographic key ordering compares
-those coordinates in that order. A future coupling descriptor follows the
-factor coordinates and participates only after they compare equal. This order
-is part of the logical key contract even when storage uses a different lookup
-or memory arrangement.
+by the codomain factors from left to right, skipping factors that do not have a
+block coordinate. Lexicographic key ordering compares those coordinates in that
+order. A future coupling descriptor follows the factor coordinates and
+participates only after they compare equal. This order is part of the logical
+key contract even when storage uses a different lookup or memory arrangement.
 
-The dense mdspan extent of a block is derived entirely from its key and the
-boundary spaces. Block records do not independently own a second, potentially
-inconsistent copy of those extents.
+Dense-block axes follow the same boundary order while independently skipping
+factors without numerical multiplicity. Thus an MPS block for
+`BlockSpace × LocalSpace -> BlockSpace` is a matrix, while a four-`LocalSpace`
+MPO block is a rank-zero mdspan backed by one scalar. The dense mdspan extents
+are derived entirely from the key and boundary spaces. Block records do not
+independently own a second, potentially inconsistent copy of those extents.
 
 ## 6. Legal, Stored, and Resident Blocks
 
@@ -293,15 +301,16 @@ all legal keys, but that runtime fact does not give its policy the compile-time
 complete-storage guarantee.
 
 A zero extent does not remove a structurally legal key. For example,
-`DenseSpace(0)` contributes its single coordinate and produces a zero-element
-dimension in each otherwise legal block. Complete storage retains the block
+`DenseSpace(0)` contributes no key coordinate but produces a zero-element
+dense axis in each otherwise legal block. Complete storage retains the block
 record and a valid zero-size dense descriptor, although several such records
 may share the same packed offset and consume no scalar storage.
 
 By contrast, an empty `BlockSpace`, `IrregularSpace`, or `LocalSpace` has no
 coordinates. A boundary containing such a factor has an empty Cartesian key
 space and therefore no legal or stored blocks. Empty domain and codomain values
-represent the tensor unit and produce one order-zero key; its block is a scalar.
+represent the tensor unit and produce one coordinate-free key; its block is a
+rank-zero scalar.
 
 The complete and sparse forms may share implementation helpers. They remain
 distinct concrete storage contracts so `CompleteBlockStorage` can provide a
@@ -457,10 +466,11 @@ subsequently mutate its block structure to truncate it.
 
 The implemented first-slice tests cover both sparse policies at tensor orders
 two, three, and four. They exercise `BlockSpace` block extents, `LocalSpace`
-scalar extents, MPS-like and MPO-like selection rules, canonical sparse keys,
-repeated local charges remaining distinct, legal-but-unstored blocks, mutable
-and const access, empty boundary factors, packed offsets, dense-block extent
-validation, and construction failures.
+coordinate-only states, coordinate-free charged `QNumSpace` factors, MPS
+matrix blocks, rank-zero MPO blocks, canonical sparse keys, repeated local
+charges remaining distinct, legal-but-unstored blocks, mutable and const
+access, empty boundary factors, packed offsets, dense-block extent validation,
+and construction failures.
 
 The completed host prototype must additionally test:
 
@@ -474,8 +484,8 @@ The completed host prototype must additionally test:
 - U(1) and direct-product-U(1) legality from domain/codomain orientation;
 - repeated `LocalSpace` charges and repeated `IrregularSpace` blocks remaining
   distinct keys;
-- `QNumSpace` contributing one charged block coordinate with extent one;
-- `DenseSpace` contributing one neutral block coordinate and its full extent;
+- `DenseSpace` contributing no key coordinate and one neutral dense axis with
+  its full extent;
 - deterministic block-key ordering;
 - complete storage allocating every legal block;
 - sparse storage treating missing legal blocks as zero;
@@ -493,6 +503,8 @@ feeding that dense representation back into the tensor-network path.
 ## 15. Durable Prototype Invariants
 
 - Domain and codomain orientation determines bosonic abelian charge signs.
+- Boundary order, block-key coordinate count, and dense-block order are
+  independent compile-time properties.
 - All symmetry-bearing spaces agree with the tensor's explicit `Symmetry`.
 - Dense axes never erase or invent a symmetry charge.
 - Illegal, unstored, and non-resident blocks are distinct conditions.

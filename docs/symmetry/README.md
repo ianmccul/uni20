@@ -8,8 +8,9 @@ symmetry-aware block-sparse Tensor path.
 - [Quantum Numbers and Symmetry](qnum.md) describes `Symmetry`, `QNum`,
   `QNumList`, and `BlockSpace`.
 - [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) describes
-  the implemented order-two through order-four sparse slice and the remaining
-  host-only prototype contract.
+  the implemented order-two through order-four sparse slice, its independent
+  key-coordinate and dense-axis model, and the remaining host-only prototype
+  contract.
 
 ## Active Design
 

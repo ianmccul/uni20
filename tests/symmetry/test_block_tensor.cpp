@@ -1,4 +1,5 @@
 #include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_space_traits.hpp>
 
 #include <gtest/gtest.h>
 
@@ -8,6 +9,7 @@
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 using namespace uni20;
 
@@ -18,10 +20,22 @@ static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<PackedSparseBlockStorage<>>);
 static_assert(!std::same_as<SeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>);
-static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2>);
-static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4>);
+static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(std::same_as<SeparateSparseBlockStorage<>::backend_selector_type, VectorStorage::backend_selector_type>);
 static_assert(std::same_as<PackedSparseBlockStorage<>::backend_selector_type, VectorStorage::backend_selector_type>);
+static_assert(BlockTensorSpaceTraits<LocalSpace>::has_block_coordinate);
+static_assert(!BlockTensorSpaceTraits<LocalSpace>::has_dense_axis);
+static_assert(!BlockTensorSpaceTraits<QNumSpace>::has_block_coordinate);
+static_assert(!BlockTensorSpaceTraits<QNumSpace>::has_dense_axis);
+static_assert(BlockTensorSpaceTraits<BlockSpace>::has_block_coordinate);
+static_assert(BlockTensorSpaceTraits<BlockSpace>::has_dense_axis);
+static_assert(BlockTensorSpaceTraits<IrregularSpace>::has_block_coordinate);
+static_assert(BlockTensorSpaceTraits<IrregularSpace>::has_dense_axis);
+static_assert(!BlockTensorSpaceTraits<DenseSpace>::has_block_coordinate);
+static_assert(BlockTensorSpaceTraits<DenseSpace>::has_dense_axis);
 
 template <class Storage> class SparseBlockTensorTest : public ::testing::Test {};
 
@@ -49,6 +63,8 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDe
   Tensor tensor(sym, Domain{rows}, Codomain{columns}, {Key{{1, 1}}, Key{{0, 0}}});
 
   static_assert(Tensor::order() == 2);
+  static_assert(Tensor::key_coordinate_count() == 2);
+  static_assert(Tensor::dense_block_order() == 2);
   EXPECT_EQ(tensor.stored_block_count(), 2);
   EXPECT_EQ(tensor.legal_block_count(), 2);
   EXPECT_TRUE(tensor.has_all_legal_blocks());
@@ -93,18 +109,24 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoLocalSpacesKeepRepeatedChargeStatesDis
   using Key = typename Tensor::key_type;
   Tensor tensor(sym, Domain{input}, Codomain{output}, {Key{{1, 0}}, Key{{0, 0}}});
 
+  static_assert(Tensor::order() == 2);
+  static_assert(Tensor::key_coordinate_count() == 2);
+  static_assert(Tensor::dense_block_order() == 0);
   EXPECT_EQ(tensor.legal_block_count(), 4);
   EXPECT_EQ(tensor.stored_block_count(), 2);
   EXPECT_TRUE(tensor.contains(Key{{0, 0}}));
   EXPECT_TRUE(tensor.contains(Key{{1, 0}}));
   EXPECT_FALSE(tensor.contains(Key{{0, 1}}));
-  EXPECT_EQ(tensor.block(Key{{0, 0}}).extent(0), 1);
-  EXPECT_EQ(tensor.block(Key{{0, 0}}).extent(1), 1);
+  auto first = tensor.block(Key{{0, 0}});
+  auto repeated = tensor.block(Key{{1, 0}});
+  static_assert(decltype(first)::rank() == 0);
+  EXPECT_DOUBLE_EQ(first[], 0.0);
+  EXPECT_DOUBLE_EQ(repeated[], 0.0);
 
-  tensor.block(Key{{0, 0}})[0, 0] = 1.0;
-  tensor.block(Key{{1, 0}})[0, 0] = 2.0;
-  auto const first_value = tensor.block(Key{{0, 0}})[0, 0];
-  auto const repeated_value = tensor.block(Key{{1, 0}})[0, 0];
+  first[] = 1.0;
+  repeated[] = 2.0;
+  auto const first_value = tensor.block(Key{{0, 0}})[];
+  auto const repeated_value = tensor.block(Key{{1, 0}})[];
   EXPECT_DOUBLE_EQ(first_value, 1.0);
   EXPECT_DOUBLE_EQ(repeated_value, 2.0);
 }
@@ -125,6 +147,64 @@ TYPED_TEST(SparseBlockTensorTest, EmptyBoundaryFactorHasNoLegalOrStoredBlocks)
   EXPECT_FALSE(tensor.is_legal(Key{{0, 0}}));
   EXPECT_FALSE(tensor.contains(Key{{0, 0}}));
   EXPECT_FALSE(tensor.find_block(Key{{0, 0}}).has_value());
+}
+
+TYPED_TEST(SparseBlockTensorTest, OrderTwoQNumSpacesUseOneCoordinateFreeScalarBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  QNumSpace const input(make_qnum(sym, {{"N", 1}}), "input-irrep");
+  QNumSpace const output(make_qnum(sym, {{"N", 1}}), "output-irrep");
+
+  using Tensor = BlockTensor<double, Domain<QNumSpace>, Codomain<QNumSpace>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Tensor tensor(sym, Domain{input}, Codomain{output}, {Key{}});
+
+  static_assert(Tensor::order() == 2);
+  static_assert(Tensor::key_coordinate_count() == 0);
+  static_assert(Tensor::dense_block_order() == 0);
+  static_assert(Key::size() == 0);
+  EXPECT_EQ(tensor.legal_block_count(), 1);
+  EXPECT_EQ(tensor.stored_block_count(), 1);
+  EXPECT_TRUE(tensor.is_legal(Key{}));
+
+  auto block = tensor.block(Key{});
+  static_assert(decltype(block)::rank() == 0);
+  EXPECT_DOUBLE_EQ(block[], 0.0);
+  block[] = 4.0;
+  auto const stored_value = std::as_const(tensor).block(Key{})[];
+  EXPECT_DOUBLE_EQ(stored_value, 4.0);
+}
+
+TYPED_TEST(SparseBlockTensorTest, QNumSpaceFixedChargeParticipatesWithoutAKeyCoordinate)
+{
+  Symmetry const sym{"N:U(1)"};
+  LocalSpace const ket(sym,
+                       {
+                           make_qnum(sym, {{"N", 0}}),
+                           make_qnum(sym, {{"N", 1}}),
+                           make_qnum(sym, {{"N", 2}}),
+                       },
+                       "ket");
+  QNumSpace const transform(make_qnum(sym, {{"N", 1}}), "operator-charge");
+  LocalSpace const bra(sym,
+                       {
+                           make_qnum(sym, {{"N", 0}}),
+                           make_qnum(sym, {{"N", 1}}),
+                           make_qnum(sym, {{"N", 2}}),
+                       },
+                       "bra");
+
+  using Tensor = BlockTensor<double, Domain<LocalSpace, QNumSpace>, Codomain<LocalSpace>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Tensor tensor(sym, Domain{ket, transform}, Codomain{bra}, {Key{{1, 2}}, Key{{0, 1}}});
+
+  static_assert(Tensor::order() == 3);
+  static_assert(Tensor::key_coordinate_count() == 2);
+  static_assert(Tensor::dense_block_order() == 0);
+  EXPECT_EQ(tensor.legal_block_count(), 2);
+  EXPECT_TRUE(tensor.is_legal(Key{{0, 1}}));
+  EXPECT_TRUE(tensor.is_legal(Key{{1, 2}}));
+  EXPECT_FALSE(tensor.is_legal(Key{{0, 0}}));
 }
 
 TYPED_TEST(SparseBlockTensorTest, OrderThreeMpsLikeTensorMayOmitLegalBlocks)
@@ -155,6 +235,8 @@ TYPED_TEST(SparseBlockTensorTest, OrderThreeMpsLikeTensorMayOmitLegalBlocks)
   Tensor tensor(sym, Domain{left, physical}, Codomain{right}, {Key{{1, 1, 2}}, Key{{0, 1, 1}}});
 
   static_assert(Tensor::order() == 3);
+  static_assert(Tensor::key_coordinate_count() == 3);
+  static_assert(Tensor::dense_block_order() == 2);
   EXPECT_EQ(tensor.stored_block_count(), 2);
   EXPECT_EQ(tensor.legal_block_count(), 4);
   EXPECT_FALSE(tensor.has_all_legal_blocks());
@@ -164,15 +246,14 @@ TYPED_TEST(SparseBlockTensorTest, OrderThreeMpsLikeTensorMayOmitLegalBlocks)
   EXPECT_TRUE(tensor.contains(Key{{1, 1, 2}}));
 
   auto block = tensor.block(Key{{1, 1, 2}});
-  static_assert(decltype(block)::rank() == 3);
+  static_assert(decltype(block)::rank() == 2);
   EXPECT_EQ(block.extent(0), 3);
-  EXPECT_EQ(block.extent(1), 1);
-  EXPECT_EQ(block.extent(2), 6);
-  block[2, 0, 5] = -2.25;
+  EXPECT_EQ(block.extent(1), 6);
+  block[2, 5] = -2.25;
 
   Tensor const& const_tensor = tensor;
   auto const const_block = const_tensor.block(Key{{1, 1, 2}});
-  auto const stored_value = const_block[2, 0, 5];
+  auto const stored_value = const_block[2, 5];
   EXPECT_DOUBLE_EQ(stored_value, -2.25);
 }
 
@@ -209,6 +290,8 @@ TYPED_TEST(SparseBlockTensorTest, OrderFourMpoLikeTensorUsesDomainCodomainSelect
   Tensor tensor(sym, Domain{left, ket}, Codomain{right, bra}, {Key{{0, 1, 0, 1}}, Key{{0, 0, 0, 0}}});
 
   static_assert(Tensor::order() == 4);
+  static_assert(Tensor::key_coordinate_count() == 4);
+  static_assert(Tensor::dense_block_order() == 0);
   EXPECT_EQ(tensor.stored_block_count(), 2);
   EXPECT_EQ(tensor.legal_block_count(), 6);
   EXPECT_FALSE(tensor.has_all_legal_blocks());
@@ -216,16 +299,13 @@ TYPED_TEST(SparseBlockTensorTest, OrderFourMpoLikeTensorUsesDomainCodomainSelect
   EXPECT_FALSE(tensor.is_legal(Key{{0, 0, 1, 0}}));
 
   auto block = tensor.block(Key{{0, 1, 0, 1}});
-  static_assert(decltype(block)::rank() == 4);
-  EXPECT_EQ(block.extent(0), 1);
-  EXPECT_EQ(block.extent(1), 1);
-  EXPECT_EQ(block.extent(2), 1);
-  EXPECT_EQ(block.extent(3), 1);
-  block[0, 0, 0, 0] = 11.0;
+  static_assert(decltype(block)::rank() == 0);
+  EXPECT_DOUBLE_EQ(block[], 0.0);
+  block[] = 11.0;
 
   Tensor const& const_tensor = tensor;
   auto const const_block = const_tensor.block(Key{{0, 1, 0, 1}});
-  auto const stored_value = const_block[0, 0, 0, 0];
+  auto const stored_value = const_block[];
   EXPECT_DOUBLE_EQ(stored_value, 11.0);
 
   if constexpr (std::same_as<TypeParam, PackedSparseBlockStorage<>>)

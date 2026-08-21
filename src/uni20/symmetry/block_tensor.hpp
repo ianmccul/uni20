@@ -7,9 +7,11 @@
 #pragma once
 
 #include <uni20/symmetry/block_space.hpp>
+#include <uni20/symmetry/block_tensor_space_traits.hpp>
 #include <uni20/symmetry/block_tensor_storage.hpp>
 #include <uni20/symmetry/local_space.hpp>
 #include <uni20/symmetry/morphism_boundary.hpp>
+#include <uni20/symmetry/qnum_space.hpp>
 
 #include <algorithm>
 #include <array>
@@ -43,13 +45,24 @@ template <class... Spaces> struct IsCodomain<Codomain<Spaces...>> : std::true_ty
 
 template <class T>
 concept PrototypeBlockFactor =
-    std::same_as<std::remove_cvref_t<T>, BlockSpace> || std::same_as<std::remove_cvref_t<T>, LocalSpace>;
+    std::same_as<std::remove_cvref_t<T>, BlockSpace> || std::same_as<std::remove_cvref_t<T>, LocalSpace> ||
+    std::same_as<std::remove_cvref_t<T>, QNumSpace>;
 
 template <class Boundary> struct PrototypeBoundary;
 
 template <template <class...> class Boundary, class... Spaces>
 struct PrototypeBoundary<Boundary<Spaces...>> : std::bool_constant<(PrototypeBlockFactor<Spaces> && ...)>
 {};
+
+template <class Boundary> struct BoundaryBlockShape;
+
+template <template <class...> class Boundary, class... Spaces> struct BoundaryBlockShape<Boundary<Spaces...>>
+{
+    static constexpr std::size_t key_coordinate_count =
+        (std::size_t{0} + ... + (BlockTensorSpaceTraits<std::remove_cvref_t<Spaces>>::has_block_coordinate ? 1U : 0U));
+    static constexpr std::size_t dense_block_order =
+        (std::size_t{0} + ... + (BlockTensorSpaceTraits<std::remove_cvref_t<Spaces>>::has_dense_axis ? 1U : 0U));
+};
 
 inline auto factor_size(BlockSpace const& space) -> std::size_t { return space.size(); }
 inline auto factor_size(LocalSpace const& space) -> std::size_t { return space.size(); }
@@ -58,12 +71,12 @@ inline auto factor_qnum(BlockSpace const& space, std::size_t coordinate) -> QNum
 
 inline auto factor_qnum(LocalSpace const& space, std::size_t coordinate) -> QNum const& { return space[coordinate]; }
 
+inline auto factor_qnum(QNumSpace const& space, std::size_t) -> QNum const& { return space.qnum(); }
+
 inline auto factor_extent(BlockSpace const& space, std::size_t coordinate) -> std::size_t
 {
   return space[coordinate].dim;
 }
-
-inline auto factor_extent(LocalSpace const&, std::size_t) -> std::size_t { return 1; }
 
 template <class Boundary, class Function> void for_each_boundary_space(Boundary const& boundary, Function&& function)
 {
@@ -74,7 +87,7 @@ template <class Boundary, class Function> void for_each_boundary_space(Boundary 
 
 /// \brief Fixed-order tensor whose blocks obey a bosonic abelian selection rule.
 /// \details This first slice supports orders two through four and boundaries
-///          containing only `BlockSpace` and `LocalSpace` factors.
+///          containing `BlockSpace`, `LocalSpace`, and `QNumSpace` factors.
 /// \tparam T Numerical block element type.
 /// \tparam DomainType Ordered domain value type.
 /// \tparam CodomainType Ordered codomain value type.
@@ -91,12 +104,20 @@ class BlockTensor {
     using codomain_type = CodomainType;
     using storage_policy = Storage;
     static constexpr std::size_t static_order = domain_type::size() + codomain_type::size();
+    static constexpr std::size_t static_key_coordinate_count =
+        detail::BoundaryBlockShape<domain_type>::key_coordinate_count +
+        detail::BoundaryBlockShape<codomain_type>::key_coordinate_count;
+    static constexpr std::size_t static_dense_block_order =
+        detail::BoundaryBlockShape<domain_type>::dense_block_order +
+        detail::BoundaryBlockShape<codomain_type>::dense_block_order;
     static_assert(static_order >= 2 && static_order <= 4, "the first BlockTensor slice supports orders 2 through 4");
-    static_assert(BlockTensorStorageFor<storage_policy, element_type, static_order>,
-                  "BlockTensor storage does not provide the required block bindings");
+    static_assert(
+        BlockTensorStorageFor<storage_policy, element_type, static_key_coordinate_count, static_dense_block_order>,
+        "BlockTensor storage does not provide the required block bindings");
 
-    using key_type = BlockKey<static_order>;
-    using storage_type = typename storage_policy::template storage_t<element_type, static_order>;
+    using key_type = BlockKey<static_key_coordinate_count>;
+    using storage_type = typename storage_policy::template storage_t<element_type, static_key_coordinate_count,
+                                                                     static_dense_block_order>;
     using mutable_block_type = typename storage_type::mutable_block_type;
     using const_block_type = typename storage_type::const_block_type;
     using backend_selector_type = typename storage_policy::backend_selector_type;
@@ -135,6 +156,12 @@ class BlockTensor {
     /// \brief Return the compile-time tensor order.
     static constexpr auto order() noexcept -> std::size_t { return static_order; }
 
+    /// \brief Return the number of coordinates stored in each block key.
+    static constexpr auto key_coordinate_count() noexcept -> std::size_t { return static_key_coordinate_count; }
+
+    /// \brief Return the dense mdspan order of each numerical block.
+    static constexpr auto dense_block_order() noexcept -> std::size_t { return static_dense_block_order; }
+
     /// \brief Return the number of stored blocks.
     auto stored_block_count() const noexcept -> std::size_t { return storage_.size(); }
 
@@ -157,20 +184,25 @@ class BlockTensor {
     auto is_legal(key_type const& key) const -> bool
     {
       auto const sizes = this->factor_sizes();
-      for (std::size_t axis = 0; axis < static_order; ++axis)
+      for (std::size_t axis = 0; axis < static_key_coordinate_count; ++axis)
       {
         if (key.coordinate(axis) >= sizes[axis]) return false;
       }
 
       QNum domain_charge = QNum::identity(symmetry_);
       QNum codomain_charge = QNum::identity(symmetry_);
-      std::size_t axis = 0;
-      detail::for_each_boundary_space(domain_, [&](auto const& space) {
-        domain_charge = domain_charge + detail::factor_qnum(space, key.coordinate(axis++));
-      });
-      detail::for_each_boundary_space(codomain_, [&](auto const& space) {
-        codomain_charge = codomain_charge + detail::factor_qnum(space, key.coordinate(axis++));
-      });
+      std::size_t key_axis = 0;
+      auto add_charge = [&](auto const& space, QNum& charge) {
+        using space_type = std::remove_cvref_t<decltype(space)>;
+        std::size_t coordinate = 0;
+        if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
+        {
+          coordinate = key.coordinate(key_axis++);
+        }
+        charge = charge + detail::factor_qnum(space, coordinate);
+      };
+      detail::for_each_boundary_space(domain_, [&](auto const& space) { add_charge(space, domain_charge); });
+      detail::for_each_boundary_space(codomain_, [&](auto const& space) { add_charge(space, codomain_charge); });
       return domain_charge == codomain_charge;
     }
 
@@ -236,7 +268,7 @@ class BlockTensor {
         throw std::invalid_argument("BlockTensor stored keys must be unique");
       }
 
-      std::vector<detail::SparseBlockSpec<static_order>> specs;
+      std::vector<detail::SparseBlockSpec<static_key_coordinate_count, static_dense_block_order>> specs;
       specs.reserve(stored_keys.size());
       for (key_type const& key : stored_keys)
       {
@@ -261,28 +293,43 @@ class BlockTensor {
       detail::for_each_boundary_space(codomain_, validate);
     }
 
-    auto factor_sizes() const -> std::array<std::size_t, static_order>
+    auto factor_sizes() const -> std::array<std::size_t, static_key_coordinate_count>
     {
-      std::array<std::size_t, static_order> sizes{};
-      std::size_t axis = 0;
-      detail::for_each_boundary_space(domain_, [&](auto const& space) { sizes[axis++] = detail::factor_size(space); });
-      detail::for_each_boundary_space(codomain_,
-                                      [&](auto const& space) { sizes[axis++] = detail::factor_size(space); });
+      std::array<std::size_t, static_key_coordinate_count> sizes{};
+      std::size_t key_axis = 0;
+      auto append_size = [&](auto const& space) {
+        using space_type = std::remove_cvref_t<decltype(space)>;
+        if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
+        {
+          sizes[key_axis++] = detail::factor_size(space);
+        }
+      };
+      detail::for_each_boundary_space(domain_, append_size);
+      detail::for_each_boundary_space(codomain_, append_size);
       return sizes;
     }
 
-    auto block_extents(key_type const& key) const -> std::array<std::size_t, static_order>
+    auto block_extents(key_type const& key) const -> std::array<std::size_t, static_dense_block_order>
     {
-      std::array<std::size_t, static_order> extents{};
-      std::size_t axis = 0;
+      std::array<std::size_t, static_dense_block_order> extents{};
+      std::size_t key_axis = 0;
+      std::size_t dense_axis = 0;
       auto append_extent = [&](auto const& space) {
-        std::size_t const extent = detail::factor_extent(space, key.coordinate(axis));
-        if (!std::in_range<index_type>(extent))
+        using space_type = std::remove_cvref_t<decltype(space)>;
+        std::size_t coordinate = 0;
+        if constexpr (BlockTensorSpaceTraits<space_type>::has_block_coordinate)
         {
-          throw std::length_error("BlockTensor block extent does not fit index_type");
+          coordinate = key.coordinate(key_axis++);
         }
-        extents[axis] = extent;
-        ++axis;
+        if constexpr (BlockTensorSpaceTraits<space_type>::has_dense_axis)
+        {
+          std::size_t const extent = detail::factor_extent(space, coordinate);
+          if (!std::in_range<index_type>(extent))
+          {
+            throw std::length_error("BlockTensor block extent does not fit index_type");
+          }
+          extents[dense_axis++] = extent;
+        }
       };
       detail::for_each_boundary_space(domain_, append_extent);
       detail::for_each_boundary_space(codomain_, append_extent);
@@ -294,18 +341,25 @@ class BlockTensor {
       auto const sizes = this->factor_sizes();
       if (std::ranges::find(sizes, std::size_t{0}) != sizes.end()) return;
 
-      std::array<std::size_t, static_order> coordinates{};
-      while (true)
+      if constexpr (static_key_coordinate_count == 0)
       {
-        function(key_type{coordinates});
-        std::size_t axis = static_order;
-        while (axis > 0)
+        function(key_type{});
+      }
+      else
+      {
+        std::array<std::size_t, static_key_coordinate_count> coordinates{};
+        while (true)
         {
-          --axis;
-          if (++coordinates[axis] < sizes[axis]) break;
-          coordinates[axis] = 0;
+          function(key_type{coordinates});
+          std::size_t axis = static_key_coordinate_count;
+          while (axis > 0)
+          {
+            --axis;
+            if (++coordinates[axis] < sizes[axis]) break;
+            coordinates[axis] = 0;
+          }
+          if (axis == 0 && coordinates[0] == 0) return;
         }
-        if (axis == 0 && coordinates[0] == 0) return;
       }
     }
 
