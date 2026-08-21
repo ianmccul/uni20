@@ -1,12 +1,12 @@
 # Uni20 Custom GPT GitHub Action Privacy Policy
 
-- **Effective date:** 2026-07-19
+- **Effective date:** 2026-08-20
 - **Action domain:** `api.github.com`
 - **Repository:** <https://github.com/Uni20-dev/uni20>
 
 This policy covers the optional Custom GPT GitHub Action described in
 `github_repo_action.openapi.yaml`. It is intended for Uni20 maintainers and
-collaborators who configure a ChatGPT Custom GPT to read or create limited
+collaborators who configure a ChatGPT Custom GPT to read or modify limited
 content in the Uni20 GitHub repository.
 
 ## What the action does
@@ -15,8 +15,12 @@ The action calls GitHub's REST API for the `Uni20-dev/uni20` repository. It can:
 
 - read public repository metadata, branches, commits, trees, blobs, file
   contents, code-search results, issues, and pull requests;
-- create a GitHub issue or issue comment only when the user explicitly requests
-  the write or approves the final issue/comment text.
+- create or update a GitHub issue;
+- create, update, or delete a GitHub issue comment.
+
+Mutation operations are used only when the user explicitly requests the write
+or approves the final content. Comment deletion also requires verification of
+the exact comment identity and current content.
 
 The action does not operate a Uni20-controlled server or database between
 ChatGPT and GitHub.
@@ -28,8 +32,11 @@ selected operation, such as:
 
 - repository paths, commit refs, branch names, search queries, issue filters,
   and pagination parameters;
-- for issue creation, the approved issue title, body, and optional labels;
-- for issue comments, the issue number and approved comment body.
+- for issue creation or update, the issue number where applicable and the
+  approved issue title, body, and optional labels;
+- for comment creation or update, the issue or comment identifier and approved
+  comment body;
+- for comment deletion, the verified comment identifier.
 
 If issue writes are enabled, the configured GitHub authentication token is sent
 to GitHub by ChatGPT as part of the API request. Do not paste secrets, private
@@ -42,22 +49,24 @@ The Uni20 project does not separately collect, log, or store action requests.
 GitHub and OpenAI may process action requests according to their own terms and
 privacy policies.
 
-Content created through issue-write operations is stored by GitHub as a GitHub
-issue or issue comment. In a public repository, issue titles, bodies, labels,
-comments, and metadata may be publicly visible.
+Content created or updated through issue-write operations is stored by GitHub
+as a GitHub issue or issue comment. Comment deletion removes the selected
+comment through GitHub's API. In a public repository, issue titles, bodies,
+labels, comments, and metadata may be publicly visible.
 
 ## Authentication
 
 Read-only repository operations should be configured without authentication.
-Issue creation and issue comments require a GitHub token with the narrowest
+Issue and issue-comment mutations require a GitHub token with the narrowest
 practical permissions for `Uni20-dev/uni20`, normally repository metadata read
 access plus issues read/write access.
 
 ## User control
 
 Users should review action requests before allowing ChatGPT to run them. Issue
-writes should be used only after the user has approved the final issue
-title/body or comment body.
+and comment creation or update should be used only after the user has approved
+the final content. Comment deletion should be used only after the user has
+approved deletion of the verified comment.
 
 ## Contact
 

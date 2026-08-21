@@ -3,7 +3,7 @@
 - **Audience:** maintainers configuring a web ChatGPT Custom GPT for Uni20
   discussions
 - **Authority:** non-normative packaging guidance
-- **Reviewed against:** OpenAI Help Center GPT guidance, 2026-07-19
+- **Reviewed against:** OpenAI GPT Action and Help Center guidance, 2026-08-20
 - **Canonical sources:** `AGENTS.md`, canonical subsystem documentation, source,
   tests, and the current GPT configuration in ChatGPT
 
@@ -142,16 +142,28 @@ configuration. GitHub public REST reads succeed without a token, but an invalid
 or empty `Authorization: Bearer ...` header can make otherwise-public requests
 fail.
 
-To enable issue creation or issue comments, use the same schema but change the
+To enable issue and issue-comment writes, use the same schema but change the
 Action authentication setting:
 
 - Action domain: `api.github.com`
 - Authentication: API key / Bearer token
 - Token scope: keep the token as narrow as practical for `Uni20-dev/uni20`,
   normally repository metadata read plus issues read/write
-- Write access: only `createUni20Issue` and `createUni20IssueComment` are
-  included; use them only after the user explicitly asks for the write or
-  approves the final text
+- Write operations:
+  - `createUni20Issue`
+  - `updateUni20Issue`
+  - `createUni20IssueComment`
+  - `updateUni20IssueComment`
+  - `deleteUni20IssueComment`
+
+Every mutation is marked `x-openai-isConsequential: true`. This makes the
+intended confirmation boundary explicit, but it does not change the default:
+OpenAI already treats non-`GET` operations as consequential when the field is
+absent. Do not treat adding the explicit field as a repair for a failed write.
+
+Use mutation operations only after the user explicitly requests the write or
+approves the final content. Before deleting a comment, verify the exact comment
+ID and current body.
 
 Do not configure the read-only schema with a bearer token solely because an
 issue-write path may be useful later.
@@ -165,9 +177,68 @@ Do not add PR creation, discussion creation, workflow dispatch, file mutation,
 or broad repository write actions without a concrete need and explicit user
 approval rules.
 
+## Response Budget
+
+GPT Action request and response payloads must remain below 100,000 characters,
+and Action requests time out after 45 seconds. GitHub list, comparison, tree,
+and full-commit responses can exceed that budget.
+
+- Use `getUni20Branch` to obtain a named branch's head SHA.
+- Use `getUni20Commit` only when full commit metadata, file lists, or patches are
+  required.
+- List operations default to at most five records. Five is a conservative
+  current default, not a guarantee: response size still depends on issue,
+  comment, pull-request, branch, or search-result content.
+- Paginate focused list requests and avoid recursive trees or broad comparisons
+  unless the task requires them.
+
+Reducing an OpenAPI response schema does not make GitHub send fewer bytes. Use a
+lighter endpoint, GraphQL field selection, or middleware when a strict response
+shape is required.
+
+## Write-Path Diagnostics
+
+If a mutation hangs or returns no usable Action result, do not infer whether the
+request was blocked before dispatch, rejected by GitHub, timed out, or failed
+while the Action runtime processed the response. Obtain the raw Action status
+and response before assigning a cause.
+
+Test the same token value and repository-access configuration outside ChatGPT
+with a request that cannot create an issue:
+
+```bash
+curl -i -X POST \
+  -H "Authorization: Bearer $UNI20_GPT_GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Api-Version: 2026-03-10" \
+  https://api.github.com/repos/Uni20-dev/uni20/issues \
+  -d '{}'
+```
+
+The missing required `title` prevents creation. A `422` response that identifies
+the missing title shows that the tested token reached the create endpoint and
+was accepted far enough for request validation. This shell test does not verify
+the GPT confirmation UI, Action dispatch, connector runtime, or response
+processing.
+
+After the token test:
+
+1. Save or re-import the schema and test reads in the Action builder's Preview.
+2. Test `getUni20Branch` with `branch=main`.
+3. Test `listUni20Issues` with `per_page=5`.
+4. Run one minimal, explicitly approved create request while recording whether
+   confirmation appeared, the HTTP status, response body, and any request ID.
+5. Verify the returned issue number with `getUni20Issue` before another write.
+
+Use a new chat after publishing the revised GPT as a conservative way to avoid
+relying on an already-open conversation's loaded configuration. This is an
+operational precaution, not a documented guarantee about schema caching.
+
 ## Preview Tests
 
-After updating the GPT, test the evidence process rather than memorized answers:
+After the Action diagnostics pass, test the evidence process rather than
+memorized answers:
 
 1. Ask an exact current-support question. The GPT should inspect the repository,
    identify the snapshot, and cite relevant docs/source/tests.
@@ -195,6 +266,8 @@ After updating the GPT, test the evidence process rather than memorized answers:
 
 ## Official GPT Guidance Checked
 
+- <https://developers.openai.com/api/docs/actions/production>
+- <https://developers.openai.com/api/docs/actions/getting-started>
 - <https://help.openai.com/en/articles/8554407-custom-instructions-for-chatgpt>
 - <https://help.openai.com/en/articles/8554397>
 - <https://help.openai.com/en/articles/11325361-troubleshooting-gpts>

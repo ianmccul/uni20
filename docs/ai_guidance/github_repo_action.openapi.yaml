@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Uni20 GitHub Repository Action
-  version: 2.4.0
+  version: 2.5.0
   description: >-
     Narrow GitHub API action for the Uni20 repository. Use this action only when direct repository browsing
     is unavailable, unreliable, or insufficient for a requested GitHub operation. Read operations are
@@ -48,17 +48,19 @@ paths:
       operationId: listUni20Branches
       tags: [repository]
       summary: List Uni20 branches
-      description: List branches in the Uni20-dev/uni20 repository.
+      description: >
+        List a small page of branches in the Uni20-dev/uni20 repository. Use
+        getUni20Branch when the branch name is known.
       parameters:
         - name: per_page
           in: query
           required: false
-          description: Number of results per page.
+          description: Conservative page size; response size still depends on returned records.
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 30
+            maximum: 5
+            default: 5
         - name: page
           in: query
           required: false
@@ -76,12 +78,42 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Branch"
+  /repos/Uni20-dev/uni20/branches/{branch}:
+    get:
+      operationId: getUni20Branch
+      tags: [repository]
+      summary: Get one Uni20 branch
+      description: >
+        Return one branch and its head commit SHA. Use this operation instead
+        of getUni20Commit when only the branch head is needed.
+      parameters:
+        - name: branch
+          in: path
+          required: true
+          description: Branch name, such as main.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Branch metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "404":
+          description: Branch not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
   /repos/Uni20-dev/uni20/commits/{ref}:
     get:
       operationId: getUni20Commit
       tags: [repository]
       summary: Get a Uni20 commit
-      description: Retrieve a commit by SHA, branch, or tag in Uni20-dev/uni20.
+      description: >
+        Retrieve full commit details, which may include file and patch data.
+        Use getUni20Branch instead when only a branch head SHA is needed.
       parameters:
         - name: ref
           in: path
@@ -101,7 +133,9 @@ paths:
       operationId: compareUni20Commits
       tags: [repository]
       summary: Compare two Uni20 refs
-      description: Compare two commits, branches, or tags in Uni20-dev/uni20.
+      description: >
+        Compare two Uni20 refs. The response may contain many commits, files,
+        and patches, so use this only when a full comparison is required.
       parameters:
         - name: base
           in: path
@@ -179,7 +213,9 @@ paths:
       operationId: getUni20Tree
       tags: [contents]
       summary: Get a Uni20 git tree
-      description: List files and directories in a Uni20 git tree.
+      description: >
+        List files and directories in a Uni20 git tree. Recursive responses
+        can be large; prefer focused file or non-recursive tree reads.
       parameters:
         - name: sha
           in: path
@@ -207,8 +243,8 @@ paths:
       tags: [search]
       summary: Search Uni20 code
       description: >
-        Search code in Uni20-dev/uni20. Always include "repo:Uni20-dev/uni20" in
-        the GitHub search query.
+        Return at most five code-search results from Uni20-dev/uni20. Always
+        include "repo:Uni20-dev/uni20" in the GitHub search query.
       parameters:
         - name: q
           in: query
@@ -221,12 +257,12 @@ paths:
         - name: per_page
           in: query
           required: false
-          description: Number of results per page.
+          description: Conservative page size; response size still depends on returned records.
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 30
+            maximum: 5
+            default: 5
         - name: page
           in: query
           required: false
@@ -248,8 +284,9 @@ paths:
       tags: [issues]
       summary: List Uni20 issues
       description: >
-        List issues for Uni20-dev/uni20. GitHub's issues endpoint can include
-        pull requests; entries with a pull_request field are pull requests.
+        List at most five issue or pull-request-shaped entries. Paginate rather
+        than requesting a large page. Response size still depends on issue
+        bodies; entries with a pull_request field are pull requests.
       parameters:
         - name: state
           in: query
@@ -275,12 +312,12 @@ paths:
         - name: per_page
           in: query
           required: false
-          description: Number of results per page.
+          description: Conservative page size; response size still depends on issue bodies.
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 30
+            maximum: 5
+            default: 5
         - name: page
           in: query
           required: false
@@ -300,6 +337,7 @@ paths:
                   $ref: "#/components/schemas/Issue"
     post:
       operationId: createUni20Issue
+      x-openai-isConsequential: true
       tags: [issues]
       summary: Create a Uni20 issue
       description: >
@@ -320,14 +358,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Issue"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "401":
+          description: Missing or invalid GitHub credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "403":
+          description: Token lacks permission, a policy rejected the request, or a rate limit applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "404":
+          description: Repository is unavailable to the authenticated token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "410":
+          description: Issues are disabled for the repository.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "422":
+          description: Validation failed or GitHub secondary-abuse protection triggered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "429":
+          description: GitHub rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "503":
+          description: GitHub service unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        default:
+          description: Unexpected GitHub error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
   /repos/Uni20-dev/uni20/issues/{issue_number}/comments:
     get:
       operationId: listUni20IssueComments
       tags:
         - issues
       summary: List comments on a Uni20 issue
-      description: List comments on an issue or pull request in Uni20-dev/uni20. The returned 
-        comment IDs are required for update and delete operations.
+      description: >
+        List at most five comments on an issue or pull request in
+        Uni20-dev/uni20. Response size still depends on comment bodies. The
+        returned comment IDs are required for update and delete operations.
       parameters:
         - name: issue_number
           in: path
@@ -346,12 +440,12 @@ paths:
         - name: per_page
           in: query
           required: false
-          description: Number of results per page.
+          description: Conservative page size; response size still depends on comment bodies.
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 30
+            maximum: 5
+            default: 5
         - name: page
           in: query
           required: false
@@ -371,6 +465,7 @@ paths:
                   $ref: '#/components/schemas/IssueComment'
     post:
       operationId: createUni20IssueComment
+      x-openai-isConsequential: true
       tags: [issues]
       summary: Create a Uni20 issue comment
       description: >
@@ -400,6 +495,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IssueComment"
+        "401":
+          description: Missing or invalid GitHub credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "403":
+          description: Token lacks permission, a policy rejected the request, or a rate limit applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "404":
+          description: Issue or repository not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "410":
+          description: Issues are disabled for the repository.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "422":
+          description: Validation failed or GitHub secondary-abuse protection triggered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        "429":
+          description: GitHub rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
+        default:
+          description: Unexpected GitHub error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubError"
   /repos/Uni20-dev/uni20/issues/{issue_number}:
     get:
       operationId: getUni20Issue
@@ -424,6 +561,7 @@ paths:
                 $ref: '#/components/schemas/Issue'
     patch:
       operationId: updateUni20Issue
+      x-openai-isConsequential: true
       tags:
         - issues
       summary: Update a Uni20 issue
@@ -452,6 +590,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
+        '401':
+          description: Missing or invalid GitHub credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '403':
+          description: Token lacks permission, a policy rejected the request, or a rate limit applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '404':
+          description: Issue or repository not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '410':
+          description: Issues are disabled for the repository.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '422':
+          description: Validation failed or GitHub secondary-abuse protection triggered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '429':
+          description: GitHub rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        default:
+          description: Unexpected GitHub error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
   /repos/Uni20-dev/uni20/issues/comments/{comment_id}:
     get:
       operationId: getUni20IssueComment
@@ -476,6 +656,7 @@ paths:
                 $ref: '#/components/schemas/IssueComment'
     patch:
       operationId: updateUni20IssueComment
+      x-openai-isConsequential: true
       tags:
         - issues
       summary: Update a Uni20 issue comment
@@ -504,8 +685,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IssueComment'
+        '401':
+          description: Missing or invalid GitHub credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '403':
+          description: Token lacks permission or a policy rejected the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '404':
+          description: Comment or repository not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '422':
+          description: Validation failed or GitHub secondary-abuse protection triggered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '429':
+          description: GitHub rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        default:
+          description: Unexpected GitHub error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
     delete:
       operationId: deleteUni20IssueComment
+      x-openai-isConsequential: true
       tags:
         - issues
       summary: Delete a Uni20 issue comment
@@ -524,6 +742,36 @@ paths:
       responses:
         '204':
           description: Comment deleted.
+        '401':
+          description: Missing or invalid GitHub credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '403':
+          description: Token lacks permission or a policy rejected the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '404':
+          description: Comment or repository not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        '429':
+          description: GitHub rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
+        default:
+          description: Unexpected GitHub error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubError'
   /repos/Uni20-dev/uni20/pulls:
     get:
       operationId: listUni20PullRequests
@@ -554,12 +802,12 @@ paths:
         - name: per_page
           in: query
           required: false
-          description: Number of results per page.
+          description: Conservative page size; response size still depends on returned records.
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 30
+            maximum: 5
+            default: 5
         - name: page
           in: query
           required: false
@@ -585,6 +833,22 @@ components:
       bearerFormat: token
       description: GitHub token configured in the GPT Action authentication settings.
   schemas:
+    GitHubError:
+      type: object
+      additionalProperties: true
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        documentation_url:
+          type: string
+          format: uri
+        status:
+          type:
+            - integer
+            - string
+            - "null"
     Repository:
       type: object
       additionalProperties: true
