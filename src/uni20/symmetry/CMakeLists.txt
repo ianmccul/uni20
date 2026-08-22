@@ -4,6 +4,7 @@ add_library(uni20_symmetry INTERFACE)
 
 target_link_libraries(uni20_symmetry
     INTERFACE
+        uni20_async
         uni20_common
         uni20_core
 )

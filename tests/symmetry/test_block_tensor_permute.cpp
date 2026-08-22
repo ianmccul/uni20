@@ -140,3 +140,40 @@ TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFa
   EXPECT_EQ(restored.codomain(), tensor.codomain());
   EXPECT_EQ(restored.block(source_key).data_handle(), address);
 }
+
+TEST(BlockTensorPermutationTest, AsyncMdspecPermutationPreservesEpochIdentityAndPermutesMapping)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const first(sym, {{q0, 2}}, "first");
+  BlockSpace const second(sym, {{q0, 3}}, "second");
+  using Tensor = BlockTensor<double, Domain<BlockSpace, BlockSpace>, Codomain<>, AsyncSeparateSparseBlockStorage<>>;
+  using Key = typename Tensor::key_type;
+  Key const key{{0, 0}};
+  Tensor tensor(sym, Domain{first, second}, Codomain<>{}, {key});
+  auto source = tensor.block(key);
+
+  auto view = permute<1, 0>(tensor);
+  auto block = view.block(key);
+  static_assert(MutableRankedMdspecLike<decltype(block), 2>);
+  static_assert(!MdspanLike<decltype(block)>);
+  EXPECT_EQ(block.extent(0), 3);
+  EXPECT_EQ(block.extent(1), 2);
+  EXPECT_EQ(block.stride(0), source.stride(1));
+  EXPECT_EQ(block.stride(1), source.stride(0));
+  EXPECT_EQ(&block.data_descriptor().async_block(), &tensor.async_block(key));
+}
+
+TEST(BlockTensorPermutationTest, AsyncRankZeroPermutationPreservesScalarEpochIdentity)
+{
+  Symmetry const sym{"N:U(1)"};
+  using Tensor = BlockTensor<double, Domain<>, Codomain<>, AsyncSeparateSparseBlockStorage<>>;
+  Tensor::key_type const key{};
+  Tensor tensor(sym, Domain<>{}, Codomain<>{}, {key});
+
+  auto view = permute<>(tensor);
+  auto block = view.block(key);
+  static_assert(MutableRankedMdspecLike<decltype(block), 0>);
+  static_assert(!MdspanLike<decltype(block)>);
+  EXPECT_EQ(&block.data_descriptor().async_block(), &tensor.async_block(key));
+}

@@ -256,7 +256,7 @@ class BlockTensor {
     {
       auto const found = this->ordinal(key);
       if (!found) return std::nullopt;
-      return storage_.block(*found, this->block_extents(key));
+      return this->block_by_ordinal(*found);
     }
 
     /// \brief Find a read-only block without changing tensor structure.
@@ -264,7 +264,7 @@ class BlockTensor {
     {
       auto const found = this->ordinal(key);
       if (!found) return std::nullopt;
-      return storage_.block(*found, this->block_extents(key));
+      return this->block_by_ordinal(*found);
     }
 
     /// \brief Return a writable stored block.
@@ -283,6 +283,80 @@ class BlockTensor {
       auto const found = this->find_block(key);
       if (!found) throw std::out_of_range("BlockTensor block key is not stored");
       return *found;
+    }
+
+    /// \brief Return a writable block descriptor by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Immediate mdspan or deferred mdspec selected by storage.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    auto block_by_ordinal(std::size_t ordinal) -> mutable_block_type
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      auto const& key = storage_.keys()[ordinal];
+      return storage_.block(ordinal, this->block_extents(key));
+    }
+
+    /// \brief Return a read-only block descriptor by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Immediate mdspan or deferred mdspec selected by storage.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    auto block_by_ordinal(std::size_t ordinal) const -> const_block_type
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      auto const& key = storage_.keys()[ordinal];
+      return storage_.block(ordinal, this->block_extents(key));
+    }
+
+    /// \brief Return the independently scheduled value for one stored key.
+    /// \details The returned `Async<Tensor>` owns the block's dependency
+    ///          timeline. Submitted work must retain a read or write buffer.
+    /// \param key Stored logical block key.
+    /// \return Mutable async dense-block value.
+    /// \throws std::out_of_range If the key is not stored.
+    decltype(auto) async_block(key_type const& key)
+      requires AsyncLocalBlockStorageFor<storage_policy, element_type, static_key_coordinate_count,
+                                         static_dense_block_order>
+    {
+      auto const found = this->ordinal(key);
+      if (!found) throw std::out_of_range("BlockTensor block key is not stored");
+      return storage_.async_block(*found);
+    }
+
+    /// \brief Return the independently scheduled value for one stored key.
+    /// \param key Stored logical block key.
+    /// \return Read-only async dense-block value.
+    /// \throws std::out_of_range If the key is not stored.
+    decltype(auto) async_block(key_type const& key) const
+      requires AsyncLocalBlockStorageFor<storage_policy, element_type, static_key_coordinate_count,
+                                         static_dense_block_order>
+    {
+      auto const found = this->ordinal(key);
+      if (!found) throw std::out_of_range("BlockTensor block key is not stored");
+      return storage_.async_block(*found);
+    }
+
+    /// \brief Return one independently scheduled value by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Mutable async dense-block value.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    decltype(auto) async_block_by_ordinal(std::size_t ordinal)
+      requires AsyncLocalBlockStorageFor<storage_policy, element_type, static_key_coordinate_count,
+                                         static_dense_block_order>
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      return storage_.async_block(ordinal);
+    }
+
+    /// \brief Return one independently scheduled value by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Read-only async dense-block value.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    decltype(auto) async_block_by_ordinal(std::size_t ordinal) const
+      requires AsyncLocalBlockStorageFor<storage_policy, element_type, static_key_coordinate_count,
+                                         static_dense_block_order>
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      return storage_.async_block(ordinal);
     }
 
     /// \brief Return stored keys in canonical lexicographic order.

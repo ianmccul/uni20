@@ -1,7 +1,7 @@
 # Bosonic Abelian BlockTensor Prototype
 
-**Status:** active design contract with the first sparse host slice
-implemented. It defines the remaining host-only bosonic abelian vertical
+**Status:** active design contract with the immediate and first async sparse
+host slices implemented. It defines the remaining bosonic abelian vertical
 slice. The broader [BlockTensor design](block_tensor.md) records later CUDA,
 MPI, recoupling, and view requirements.
 
@@ -38,20 +38,24 @@ operations:
   dense `Tensor` per block;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
-- mutable and const mdspan access to stored blocks;
+- `AsyncSeparateSparseBlockStorage`, with one independently scheduled
+  `Async<Tensor>` per stored block;
+- mutable and const `MdspecLike` access to stored blocks, using mdspan for
+  immediate storage and mdspec for async storage;
 - delegation of the dense leaf backend list through each block storage policy;
 - a generic `Dual<S>` value adaptor whose quantum-number observations are dual;
 - zero-copy bosonic compile-time permutations within each morphism side;
 - zero-copy bosonic left/right `repartition` views with transformed canonical
   keys and strided dense-block axis permutations.
 
-This slice is synchronous and host-resident. Mapped permutation and repartition
-views retain an lvalue source reference and therefore cannot outlive their
-source tensor. Payload element writes remain valid, but assigning or
-structurally modifying a source invalidates every view transitively built from
-it. The slice does not yet provide complete storage, builders, the general
-numerical block-operation surface, async buffer ownership, or the remaining
-space kinds described below.
+This slice is host-resident. Mapped permutation and repartition views retain an
+lvalue source reference and therefore cannot outlive their source tensor. They
+preserve immediate data handles or async block epoch identity while changing
+only logical and mapping metadata. Payload element writes remain valid, but
+assigning or structurally modifying a source invalidates every view transitively
+built from it. The slice does not yet provide complete storage, builders, the
+general numerical block-operation surface, packed async hazards, or the
+remaining space kinds described below.
 
 ## 2. Initial Type Shape
 
@@ -250,6 +254,23 @@ Ordinary `BlockTensorStorage` permits legal blocks to be absent. A separate
 public pattern tag such as `SparseBlocks` or `CompleteBlocks` is unnecessary.
 Concrete storage types expose the trait as part of their contract.
 
+`BlockTensorStorageFor<Storage, T, KeyCount, DenseOrder>` requires mutable and
+const block descriptors satisfying `MutableRankedMdspecLike` and
+`RankedMdspecLike`. The positive execution and placement refinements are:
+
+```cpp
+ImmediateLocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
+AsyncLocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
+DistributedBlockStorageFor<Storage, T, KeyCount, DenseOrder>
+```
+
+The immediate refinement requires actual mdspans. The async refinement requires
+one `Async<Tensor>`-like value per block in this first implementation. The
+distributed refinement is the compile-time seam for a later placement-aware
+policy. Completeness, sparse layout, execution mode, leaf memory kind, and
+distribution remain separate properties even when one concrete `Storage` type
+combines them.
+
 The base concept requires the semantic capabilities used by `BlockTensor`, not
 one prescribed container representation. A conforming storage provides:
 
@@ -291,7 +312,7 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The first implemented slice provides two sparse host policies. Both use:
+The implemented slice provides three sparse host policies. All use:
 
 - canonical block-key ordering;
 - zero initialization for newly allocated numerical values;
@@ -304,6 +325,16 @@ illegal keys, sort it canonically, and reject duplicate keys before allocation.
 The packed policy is the likely default for sparse scalar-block MPO sites; the
 separate policy is the simplest baseline for early block operations and
 comparison tests.
+
+`AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
+stored key. Its `block(key)` result is a borrowed mdspec whose data descriptor
+identifies that exact async value. The descriptor does not keep the owning
+`BlockTensor` alive. Submitted operations obtain `ReadBuffer` and `WriteBuffer`
+capabilities from the async value; those capabilities retain the storage,
+selected epoch, and failure propagation state. This literal per-block
+`Async<Tensor>` representation is the correctness-first CPU-parallel policy. A
+later compact `AsyncArray` may provide the same interface with less per-block
+metadata.
 
 The next storage step is a distinct complete host policy which enumerates every
 legal key and models `CompleteBlockStorage`. A sparse value may happen to store
@@ -376,7 +407,10 @@ tensor.is_legal(key);
 tensor.contains(key);
 tensor.find_block(key);
 tensor.block(key);       // precondition: stored
-tensor.blocks();         // canonical stored-block order
+tensor.block_by_ordinal(ordinal);
+
+tensor.async_block(key); // only AsyncLocalBlockStorageFor
+tensor.async_block_by_ordinal(ordinal);
 ```
 
 Const access yields read-only block value semantics. Mutable access is
@@ -387,6 +421,11 @@ block does. A host block may resolve immediately to an mdspan; CUDA and other
 deferred storage will return an mdspec carrying the appropriate data
 descriptor.
 
+Canonical block ordinals are stable for the lifetime of the tensor because
+block structure is immutable. They are execution bindings, not logical block
+identity: worklists retain `BlockKey` values and acquire ordinals only during
+storage lowering.
+
 Generic algorithms iterate stored blocks or use `find_block`. Algorithms
 constrained to `CompleteBlockStorage` may use legal-key iteration and direct
 block access without presence probes.
@@ -395,26 +434,48 @@ block access without presence probes.
 
 The first `permute<Axis...>` and `repartition<Side, End>` operations return
 zero-copy lvalue views. Both transform boundary values, canonical logical keys,
-and dense mdspan axis order while retaining every source payload address.
+and dense mdspec axis order while retaining every immediate payload address or
+async block epoch identity.
 Permutation is currently the bosonic symmetric-category operation with unit
 exchange factor. Non-bosonic exchange remains an explicit future braid.
 
 ## 11. Async and Kernel Lowering
 
-`Async<BlockTensor<...>>` is the owner-level asynchronous value. Async-ness is
-not a block storage kind.
+`Async<BlockTensor<...>>` and storage-level asynchronous blocks solve different
+problems. The outer wrapper is optional and is needed only when tensor structure
+itself is pending, for example after dynamic truncation or async loading. CPU
+block parallelism, CUDA submission, and MPI distribution do not require an
+outer async wrapper when the boundary and stored key set are already known.
 
-Storage buffers use retainable ownership and access state so block descriptors
-remain valid for submitted work. The initial packed host implementation may
-hazard the whole allocation conservatively. Later multi-buffer layouts provide
-finer independent scheduling without changing the tensor's logical boundary.
+Storage controls physical layout, complete-versus-sparse guarantees, dense leaf
+storage, execution context, and placement. The planned controlled families are:
+
+- serial CPU storage with immediate host mdspans and reliable inline kernels;
+- parallel CPU storage with per-block async values and independently scheduled
+  dense operations;
+- CUDA storage with `CudaTensor` block data, CUDA mdspec lowering, and device
+  completion tracked by the CUDA buffer ledger; and
+- `MpiBlockStorage<LocalStorage>`, with globally replicated logical placement
+  metadata and each mutable dense block wholly owned by one MPI process.
+
+MPI storage delegates local work to its node-local serial, parallel CPU, or
+CUDA storage. A dense leaf kernel sees only local resolved blocks; it never sees
+a remote or distributed dense operand. MPI therefore does not imply
+`Async<BlockTensor>`.
+
+Storage buffers use retainable ownership and access state so scheduled work
+outlives borrowed block descriptors safely. A future packed async host policy
+may initially hazard its whole allocation conservatively. Later subrange or
+coalesced-group hazards provide finer scheduling without changing logical
+boundaries.
 
 Numerical lowering follows:
 
 ```text
 BlockTensor operation
     -> validated block worklist
-    -> fixed block mdspec operands
+    -> storage binding and placement records
+    -> fixed block mdspec operands plus retained owner/epoch capabilities
     -> backend-domain leases
     -> mdspan dense kernels
 ```
@@ -461,7 +522,7 @@ The first prototype deliberately defers:
 - non-abelian fusion multiplicities and coupling descriptors;
 - recoupling, braiding, and category-dependent block factors;
 - lazy transpose, conjugate, adjoint, scaled, and non-bosonic repartition views;
-- CUDA, mixed CPU/GPU, and MPI storage;
+- CUDA, mixed CPU/GPU, packed async, and MPI storage;
 - replicated immutable block tensors;
 - coalescing and placement policies beyond canonical packed host storage;
 - block SVD, sector-aware singular-value selection, and factor materialization;
@@ -481,8 +542,8 @@ subsequently mutate its block structure to truncate it.
 
 ## 14. Required Prototype Tests
 
-The implemented tests cover both sparse policies at tensor orders zero through
-four. They exercise the tensor-unit scalar, rank-one identity-sector
+The implemented immediate tests cover both immediate sparse policies at tensor
+orders zero through four. They exercise the tensor-unit scalar, rank-one identity-sector
 selection, `BlockSpace` block extents, `LocalSpace` coordinate-only states,
 coordinate-free charged `QNumSpace` factors, explicit dual spaces, MPS matrix
 blocks, rank-zero MPO blocks, canonical sparse keys, repeated local charges,
@@ -492,7 +553,8 @@ Repartition tests additionally prove transformed-key sorting, direct
 transformed selection rules, unchanged payload addresses, dense-axis stride
 permutations, const propagation, and left/right bend involution. Permutation
 tests cover boundary types and labels, key resorting, dense strides, inverse
-permutations, and the tensor unit.
+permutations, and the tensor unit. Async-storage tests additionally cover mdspec
+const/mutable semantics and stable epoch identity through permutation.
 
 The completed host prototype must additionally test:
 
@@ -532,11 +594,12 @@ feeding that dense representation back into the tensor-network path.
 - Missing legal blocks mean exact zero only for storage which permits them.
 - Complete storage is complete globally, not necessarily at each location.
 - Block structure and bindings are stable after construction.
-- Individual blocks lower through mdspec and execution-domain leases.
+- Individual blocks lower through mdspec, retained epoch/owner capabilities,
+  and execution-domain leases.
 - Whole-tensor dense materialization is never an implicit symmetry fallback.
 - `Dual<S>` preserves basis occurrences and dimensions while dualizing observed
   charges.
-- Bosonic repartition changes boundary, key, and mdspan mapping metadata without
-  changing numerical payload storage.
+- Bosonic repartition changes boundary, key, and mdspec mapping metadata without
+  changing numerical payload storage or async block epoch identity.
 - Bosonic permutation is zero-copy within each morphism side; crossing sides is
   an explicit bend.

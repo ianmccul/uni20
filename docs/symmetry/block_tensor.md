@@ -310,17 +310,15 @@ state, **mixed-policy operands are the normal case, not a corner**: the MPI
 dispatch predicate is "at least one operand distributed, the rest
 distributed-or-replicated", not `is_distributed` on every operand.
 
-**Async is a layer, not a storage kind.** An `Async<T>` operation wraps a value:
-it submits a coroutine to a scheduler, `co_await`s the data being ready, and
-forwards the operation to the synchronous `T`. A `TensorView` has no
-async-ness: async dense data is an `Async<Tensor>` or a similar owner-level
-composition. Whether per-block data sits behind async handles is the container
-policy's decision (the `AsyncArray` facet in
-`../architecture/kernel_dispatch.md`). The CUDA and MPI paths likewise decide
-for themselves whether to use a scheduler: the expected CUDA path goes through
-a dedicated CUDA scheduler, but a basically-synchronous default-stream CUDA
-backend is also legitimate, and the two can coexist as separate backends over
-the same layer-1 kernels.
+**Outer and per-block async are separate layers.** `Async<BlockTensor>` is an
+optional owner-level value for cases where tensor structure is itself pending.
+It is not required for CPU block parallelism, CUDA execution, or MPI
+distribution when boundary and block structure are already immediate. The
+container policy decides whether each block is immediate, represented by an
+`Async<Tensor>`, or managed by a compact `AsyncArray`-like hazard table. CUDA
+and MPI policies likewise select their local scheduling and completion
+mechanisms. MPI remains a container-storage capability, not an implication that
+the whole `BlockTensor` is an async value.
 
 Distribution is never a *leaf* storage kind: a dense tensor striped over MPI ranks
 is conceivable but off-roadmap — dense blocks are sized to be resident on one node.

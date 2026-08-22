@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
 
 #include <algorithm>
@@ -152,7 +153,9 @@ auto permute_key(BlockKey<CoordinateCount> const& source,
   return BlockKey<CoordinateCount>{coordinates};
 }
 
-template <class Block> struct StridedBlock
+template <class Block, bool Immediate = MdspanLike<std::remove_cvref_t<Block>>> struct StridedBlock;
+
+template <class Block> struct StridedBlock<Block, true>
 {
     using source_type = std::remove_cvref_t<Block>;
     using extents_type = stdex::dextents<typename source_type::index_type, source_type::rank()>;
@@ -160,9 +163,19 @@ template <class Block> struct StridedBlock
                                typename source_type::accessor_type>;
 };
 
+template <class Block> struct StridedBlock<Block, false>
+{
+    using source_type = std::remove_cvref_t<Block>;
+    static_assert(MdspecLike<source_type>);
+    using extents_type = stdex::dextents<typename source_type::index_type, source_type::rank()>;
+    using type = mdspec<typename source_type::element_type, extents_type, stdex::layout_stride,
+                        typename source_type::accessor_type, typename source_type::data_descriptor_type>;
+};
+
 template <class Block> using strided_block_t = typename StridedBlock<Block>::type;
 
-template <class Block, std::size_t DenseBlockOrder>
+template <MdspecLike Block, std::size_t DenseBlockOrder>
+  requires(DenseBlockOrder == 0 || StridedMdspecLike<Block>)
 auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& permutation) -> strided_block_t<Block>
 {
   using result_type = strided_block_t<Block>;
@@ -181,7 +194,14 @@ auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& 
     }
   }
   auto const result_extents = make_extents<extents_type>(extents);
-  return result_type(block.data_handle(), mapping_type(result_extents, strides), block.accessor());
+  if constexpr (MdspanLike<Block>)
+  {
+    return result_type(block.data_handle(), mapping_type(result_extents, strides), block.accessor());
+  }
+  else
+  {
+    return result_type(std::move(block.data_descriptor()), mapping_type(result_extents, strides), block.accessor());
+  }
 }
 
 /// \brief Shared implementation of a zero-copy BlockTensor metadata and axis view.
@@ -323,6 +343,27 @@ class BlockTensorMappedView {
       auto const found = this->find_block(key);
       if (!found) throw std::out_of_range("mapped BlockTensor block key is not stored");
       return *found;
+    }
+
+    /// \brief Return a writable transformed block by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Transformed block descriptor.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    auto block_by_ordinal(std::size_t ordinal) -> mutable_block_type
+      requires source_blocks_writable
+    {
+      if (ordinal >= keys_.size()) throw std::out_of_range("mapped BlockTensor block ordinal is out of range");
+      return permute_block(source_->block(source_keys_[ordinal]), DensePermutation);
+    }
+
+    /// \brief Return a read-only transformed block by stable canonical ordinal.
+    /// \param ordinal Position in `stored_keys()`.
+    /// \return Transformed block descriptor.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    auto block_by_ordinal(std::size_t ordinal) const -> const_block_type
+    {
+      if (ordinal >= keys_.size()) throw std::out_of_range("mapped BlockTensor block ordinal is out of range");
+      return permute_block(std::as_const(*source_).block(source_keys_[ordinal]), DensePermutation);
     }
 
     /// \brief Return transformed keys in canonical lexicographic order.

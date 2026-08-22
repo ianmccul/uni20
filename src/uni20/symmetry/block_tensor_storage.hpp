@@ -6,7 +6,9 @@
 
 #pragma once
 
+#include <uni20/async/async.hpp>
 #include <uni20/core/types.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/symmetry/block_key.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -32,6 +34,7 @@ concept BlockTensorStorage = requires {
   typename Storage::leaf_storage_policy;
   typename Storage::backend_selector_type;
   { Storage::stores_all_legal_blocks } -> std::convertible_to<bool>;
+  { Storage::is_distributed } -> std::convertible_to<bool>;
   { Storage::backend_selector() } -> std::same_as<typename Storage::backend_selector_type>;
 };
 
@@ -68,15 +71,66 @@ concept BlockTensorStorageFor =
         const_storage.block(std::size_t{}, extents)
       } -> std::same_as<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type>;
     } &&
+    MutableRankedMdspecLike<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type,
+        DenseBlockOrder> &&
+    RankedMdspecLike<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
+                     DenseBlockOrder> &&
     std::same_as<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type::element_type,
         T> &&
     std::same_as<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type::element_type,
-        T const> &&
-    (Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type::rank() ==
-     DenseBlockOrder) &&
-    (Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type::rank() == DenseBlockOrder);
+        T const>;
+
+/// \brief Local BlockTensor storage whose block descriptors are immediate mdspans.
+/// \tparam Storage Candidate block storage policy.
+/// \tparam T Numerical block element type.
+/// \tparam KeyCoordinateCount Number of stored block-selection coordinates.
+/// \tparam DenseBlockOrder Number of numerical axes in each dense block.
+template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+concept ImmediateLocalBlockStorageFor =
+    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed &&
+    MutableRankedMdspanLike<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type,
+        DenseBlockOrder> &&
+    RankedMdspanLike<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
+                     DenseBlockOrder>;
+
+/// \brief Local BlockTensor storage with one independently scheduled async value per block.
+/// \tparam Storage Candidate block storage policy.
+/// \tparam T Numerical block element type.
+/// \tparam KeyCoordinateCount Number of stored block-selection coordinates.
+/// \tparam DenseBlockOrder Number of numerical axes in each dense block.
+template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+concept AsyncLocalBlockStorageFor =
+    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed &&
+    requires(typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>& storage,
+             typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder> const& const_storage) {
+      typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::block_value_type;
+      typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type;
+      {
+        storage.async_block(std::size_t{})
+      }
+      -> std::same_as<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type&>;
+      {
+        const_storage.async_block(std::size_t{})
+      } -> std::same_as<
+            typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type const&>;
+    } &&
+    std::same_as<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type,
+        async::Async<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::block_value_type>> &&
+    MutableRankedTensorView<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::block_value_type,
+        DenseBlockOrder>;
+
+/// \brief Distributed BlockTensor storage refinement.
+/// \details A concrete distributed policy will add placement and ownership
+///          operations while retaining the common block-metadata contract.
+template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+concept DistributedBlockStorageFor =
+    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && Storage::is_distributed;
 
 namespace detail
 {
@@ -265,6 +319,78 @@ class PackedSparseBlockStorageData {
     buffer_type buffer_;
 };
 
+/// \brief Borrowed descriptor retaining the identity of one async dense block.
+/// \details The descriptor itself does not extend the owning BlockTensor's
+///          lifetime. A read or write buffer obtained from the referenced
+///          async value does retain storage and epoch ownership for submitted work.
+template <class AsyncBlock> class AsyncBlockDataDescriptor {
+  public:
+    using async_block_type = AsyncBlock;
+
+    explicit AsyncBlockDataDescriptor(async_block_type& block) noexcept : block_(&block) {}
+
+    /// \brief Return the async block whose epoch governs this descriptor.
+    auto async_block() const noexcept -> async_block_type& { return *block_; }
+
+  private:
+    async_block_type* block_;
+};
+
+template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
+class AsyncSeparateSparseBlockStorageData {
+  public:
+    using key_type = BlockKey<KeyCoordinateCount>;
+    using block_value_type = ColumnMajorTensor<T, DenseBlockOrder, LeafStorage>;
+    using async_block_type = async::Async<block_value_type>;
+    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
+    using mapping_type = typename ColumnMajor::template mapping<extents_type>;
+    using accessor_type = stdex::default_accessor<T>;
+    using const_accessor_type = stdex::default_accessor<T const>;
+    using mutable_descriptor_type = AsyncBlockDataDescriptor<async_block_type>;
+    using const_descriptor_type = AsyncBlockDataDescriptor<async_block_type const>;
+    using mutable_block_type = mdspec<T, extents_type, ColumnMajor, accessor_type, mutable_descriptor_type>;
+    using const_block_type = mdspec<T const, extents_type, ColumnMajor, const_accessor_type, const_descriptor_type>;
+
+    static_assert(block_value_type::immediately_readable && block_value_type::immediately_writable,
+                  "async separate sparse block storage currently requires immediate leaf access");
+    static_assert(std::same_as<detail::tensor_accessor_factory_t<LeafStorage>, DefaultAccessorFactory>,
+                  "async separate sparse block storage currently requires default-accessor leaf storage");
+
+    explicit AsyncSeparateSparseBlockStorageData(
+        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+    {
+      keys_.reserve(specs.size());
+      blocks_.reserve(specs.size());
+      for (auto const& spec : specs)
+      {
+        keys_.push_back(spec.key);
+        blocks_.emplace_back(make_block_tensor<block_value_type>(spec.extents));
+      }
+    }
+
+    auto size() const noexcept -> std::size_t { return keys_.size(); }
+    auto keys() const noexcept -> std::span<key_type const> { return keys_; }
+
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
+    {
+      return mutable_block_type(mutable_descriptor_type{blocks_[ordinal]},
+                                mapping_type(make_extents<extents_type>(extents)), accessor_type{});
+    }
+
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
+    {
+      return const_block_type(const_descriptor_type{blocks_[ordinal]},
+                              mapping_type(make_extents<extents_type>(extents)), const_accessor_type{});
+    }
+
+    auto async_block(std::size_t ordinal) noexcept -> async_block_type& { return blocks_[ordinal]; }
+    auto async_block(std::size_t ordinal) const noexcept -> async_block_type const& { return blocks_[ordinal]; }
+
+  private:
+    std::vector<key_type> keys_;
+    std::vector<async_block_type> blocks_;
+};
+
 } // namespace detail
 
 /// \brief Sparse storage with one independently owning dense Tensor per stored block.
@@ -274,6 +400,7 @@ template <class LeafStorage = VectorStorage> struct SeparateSparseBlockStorage
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
     static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool is_distributed = false;
 
     template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
     using storage_t =
@@ -292,6 +419,7 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
     static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool is_distributed = false;
 
     template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
     using storage_t = detail::PackedSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
@@ -302,11 +430,37 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     }
 };
 
+/// \brief Sparse storage with one independently scheduled dense Tensor per block.
+/// \details `block()` returns borrowed mdspec metadata. `async_block()` exposes
+///          the retained async value used to create read and write capabilities.
+/// \tparam LeafStorage Immediate host Tensor storage policy used by each block.
+template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::AsyncSeparateSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
+static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
+static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
+static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);
 
 } // namespace uni20
