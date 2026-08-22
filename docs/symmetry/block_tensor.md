@@ -444,6 +444,18 @@ without stored dimension-one axes. This overload requires immediate host blocks
 with the default mdspan accessor; deferred, device-only, or semantic-accessor
 storage belongs on the future backend-dispatched path.
 
+The first parallel CPU lowering uses `AsyncSeparateSparseBlockStorage`. The
+planner still produces a symmetry-keyed logical worklist, then storage lowering
+binds each item to stable input and output ordinals. Rank-two dense blocks lower
+through the existing async matrix-product dispatch. Distinct output blocks have
+independent timelines; repeated contributions to one output block use its
+ordered writer epochs. The operation returns an immediate `BlockTensor` whose
+individual block values may remain pending and whose default storage policy is
+inherited from the left input. The selected output policy supplies the backend
+list, and submission requires an active async scheduler. This first lowering
+does not consume mapped input views. It does not require or return
+`Async<BlockTensor>`.
+
 **Determinism.** The scalars are deterministically recomputable on every MPI rank from
 the block's `QNum`s and the view's op-state, so they do not threaten the
 deterministic per-edge tag agreement that SPMD MPI requires

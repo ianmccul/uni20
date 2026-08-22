@@ -7,4 +7,5 @@ target_link_libraries(uni20_symmetry
         uni20_async
         uni20_common
         uni20_core
+        uni20_linalg
 )

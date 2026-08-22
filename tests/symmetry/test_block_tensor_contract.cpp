@@ -1,12 +1,32 @@
 #include <uni20/symmetry/block_tensor_contract.hpp>
 #include <uni20/symmetry/block_tensor_permute.hpp>
 
+#include <uni20/async/debug_scheduler.hpp>
+
 #include <gtest/gtest.h>
 
 #include <concepts>
+#include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 using namespace uni20;
+
+namespace
+{
+template <class T> async::AsyncTask publish_block(async::WriteBuffer<T> output, T value)
+{
+  co_await output = std::move(value);
+  co_return;
+}
+
+template <class T> async::AsyncTask fail_block(async::WriteBuffer<T> output)
+{
+  static_cast<void>(output);
+  throw std::runtime_error("deliberate BlockTensor block failure");
+  co_return;
+}
+} // namespace
 
 template <class LeftStorage, class RightStorage> struct ContractionStoragePair
 {
@@ -259,4 +279,115 @@ TEST(BlockTensorContractionTest, SupportsComplexRankZeroAccumulation)
 
   auto result = contract<0, 0>(left, right);
   EXPECT_EQ(result.block(typename decltype(result)::key_type{})[], (Scalar{7.0, 14.0}));
+}
+
+TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const bond(sym, {{q0, 3}}, "bond");
+  BlockSpace const columns(sym, {{q0, 2}}, "columns");
+  using Storage = AsyncSeparateSparseBlockStorage<>;
+  using Left = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  using Right = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  typename Left::key_type const key{{0, 0}};
+  Left left(sym, Domain{rows}, Codomain{bond}, {key});
+  Right right(sym, Domain{bond}, Codomain{columns}, {key});
+  auto& left_block = left.async_block(key).unsafe_value_ref();
+  auto& right_block = right.async_block(key).unsafe_value_ref();
+  left_block[0, 0] = 1.0;
+  left_block[0, 1] = 2.0;
+  left_block[0, 2] = 3.0;
+  left_block[1, 0] = 4.0;
+  left_block[1, 1] = 5.0;
+  left_block[1, 2] = 6.0;
+  right_block[0, 0] = 7.0;
+  right_block[0, 1] = 8.0;
+  right_block[1, 0] = 9.0;
+  right_block[1, 1] = 10.0;
+  right_block[2, 0] = 11.0;
+  right_block[2, 1] = 12.0;
+
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  auto result = contract<1, 0>(left, right);
+  static_assert(std::same_as<typename decltype(result)::storage_policy, Storage>);
+  auto const& block = result.async_block(typename decltype(result)::key_type{{0, 0}}).get_wait(scheduler);
+  EXPECT_DOUBLE_EQ((block[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((block[0, 1]), 64.0);
+  EXPECT_DOUBLE_EQ((block[1, 0]), 139.0);
+  EXPECT_DOUBLE_EQ((block[1, 1]), 154.0);
+}
+
+TEST(BlockTensorContractionTest, AsyncBlocksProgressIndependentlyAcrossOutputSectors)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  BlockSpace const bond(sym, {{q0, 1}, {q1, 1}}, "bond");
+  using Storage = AsyncSeparateSparseBlockStorage<>;
+  using Left = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  using Right = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  typename Left::key_type const key0{{0, 0}};
+  typename Left::key_type const key1{{1, 1}};
+  Left left(sym, Domain{external}, Codomain{bond}, {key0, key1});
+  Right right(sym, Domain{bond}, Codomain{external}, {key0, key1});
+  left.async_block(key0).unsafe_value_ref()[0, 0] = 2.0;
+  right.async_block(key0).unsafe_value_ref()[0, 0] = 3.0;
+  right.async_block(key1).unsafe_value_ref()[0, 0] = 7.0;
+
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  auto blocked_input = left.async_block(key1).write();
+  auto result = contract<1, 0>(left, right);
+  typename decltype(result)::key_type const result0{{0, 0}};
+  typename decltype(result)::key_type const result1{{1, 1}};
+  auto ready_reader = result.async_block(result0).read();
+  auto blocked_reader = result.async_block(result1).read();
+
+  scheduler.run();
+
+  EXPECT_TRUE(ready_reader.await_ready());
+  EXPECT_FALSE(blocked_reader.await_ready());
+  EXPECT_NE(&result.async_block(result0).queue(), &result.async_block(result1).queue());
+  EXPECT_DOUBLE_EQ((ready_reader.get_wait(scheduler)[0, 0]), 6.0);
+
+  using block_type = typename Left::storage_type::block_value_type;
+  block_type delayed(1, 1);
+  delayed[0, 0] = 5.0;
+  scheduler.schedule(publish_block(std::move(blocked_input), std::move(delayed)));
+  scheduler.run_all();
+  EXPECT_DOUBLE_EQ((blocked_reader.get_wait(scheduler)[0, 0]), 35.0);
+}
+
+TEST(BlockTensorContractionTest, AsyncInputFailurePropagatesOnlyToDependentOutputBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  BlockSpace const bond(sym, {{q0, 1}, {q1, 1}}, "bond");
+  using Storage = AsyncSeparateSparseBlockStorage<>;
+  using Left = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  using Right = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  typename Left::key_type const key0{{0, 0}};
+  typename Left::key_type const key1{{1, 1}};
+  Left left(sym, Domain{external}, Codomain{bond}, {key0, key1});
+  Right right(sym, Domain{bond}, Codomain{external}, {key0, key1});
+  left.async_block(key0).unsafe_value_ref()[0, 0] = 2.0;
+  right.async_block(key0).unsafe_value_ref()[0, 0] = 3.0;
+  right.async_block(key1).unsafe_value_ref()[0, 0] = 7.0;
+
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  scheduler.schedule(fail_block(left.async_block(key1).write()));
+  auto result = contract<1, 0>(left, right);
+  typename decltype(result)::key_type const result0{{0, 0}};
+  typename decltype(result)::key_type const result1{{1, 1}};
+  scheduler.run_all();
+
+  EXPECT_DOUBLE_EQ((result.async_block(result0).get_wait(scheduler)[0, 0]), 6.0);
+  EXPECT_THROW(static_cast<void>(result.async_block(result1).get_wait(scheduler)), std::runtime_error);
 }

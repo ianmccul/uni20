@@ -7,6 +7,7 @@
 #pragma once
 
 #include <uni20/kernel/contract.hpp>
+#include <uni20/linalg/async.hpp>
 #include <uni20/symmetry/block_tensor_mapped_view.hpp>
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <concepts>
 #include <cstddef>
 #include <ranges>
+#include <span>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
@@ -29,6 +31,14 @@ template <class LeftTensor, class RightTensor>
 concept PairwiseContractionSources = (std::remove_cvref_t<LeftTensor>::codomain_type::size() > 0) &&
                                      (std::remove_cvref_t<RightTensor>::domain_type::size() > 0);
 
+struct DefaultPairwiseContractionStorage
+{};
+
+template <class RequestedStorage, class DefaultStorage>
+using selected_pairwise_storage_t =
+    std::conditional_t<std::same_as<RequestedStorage, DefaultPairwiseContractionStorage>, DefaultStorage,
+                       RequestedStorage>;
+
 template <class Tensor>
 using pairwise_const_block_t = decltype(std::declval<std::remove_reference_t<Tensor> const&>().block(
     std::declval<typename std::remove_cvref_t<Tensor>::key_type const&>()));
@@ -38,7 +48,9 @@ concept HostReferenceReadableBlock =
     DefaultAccessorMdspanLike<Block> && (std::remove_cvref_t<Block>::rank() == 0 || StridedMdspanLike<Block>);
 
 template <class Tensor>
-concept HostReferenceContractionSource = HostReferenceReadableBlock<pairwise_const_block_t<Tensor>>;
+concept HostReferenceContractionSource =
+    HostReferenceReadableBlock<pairwise_const_block_t<Tensor>> &&
+    requires(std::remove_reference_t<Tensor> const& tensor) { tensor.block_by_ordinal(std::size_t{}); };
 
 template <class LeftTensor, class RightTensor>
   requires PairwiseContractionSources<LeftTensor, RightTensor>
@@ -111,10 +123,10 @@ struct PairwiseContractionOutputTraits
 template <class OutputStorage, class LeftTensor, class RightTensor>
 concept HostReferenceContractionOutput =
     PairwiseContractionSources<LeftTensor, RightTensor> && SparseBlockStorage<OutputStorage> &&
-    BlockTensorStorageFor<OutputStorage,
-                          typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::value_type,
-                          PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::key_count,
-                          PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::dense_order> &&
+    ImmediateLocalBlockStorageFor<
+        OutputStorage, typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::value_type,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::key_count,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::dense_order> &&
     MutableMdspanLike<typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::block_type> &&
     HostReferenceReadableBlock<
         typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::block_type>;
@@ -177,6 +189,46 @@ auto make_pairwise_contraction_worklist(LeftTensor const& left,
   return worklist;
 }
 
+template <class Traits> struct LocalPairwiseContractionBinding
+{
+    PairwiseContractionWorkItem<Traits> logical;
+    std::size_t left_ordinal;
+    std::size_t right_ordinal;
+    std::size_t result_ordinal;
+    bool initializes_result;
+};
+
+template <class Key> auto stored_key_ordinal(std::span<Key const> keys, Key const& key) -> std::size_t
+{
+  auto const found = std::ranges::lower_bound(keys, key);
+  if (found == keys.end() || *found != key)
+  {
+    throw std::logic_error("pairwise BlockTensor work item has no stored block binding");
+  }
+  return static_cast<std::size_t>(found - keys.begin());
+}
+
+template <class Traits, class LeftTensor, class RightTensor, class ResultTensor>
+auto bind_pairwise_contraction_worklist(LeftTensor const& left, RightTensor const& right, ResultTensor const& result,
+                                        std::span<PairwiseContractionWorkItem<Traits> const> worklist)
+    -> std::vector<LocalPairwiseContractionBinding<Traits>>
+{
+  std::vector<LocalPairwiseContractionBinding<Traits>> bindings;
+  bindings.reserve(worklist.size());
+  std::vector<bool> result_initialized(result.stored_block_count(), false);
+  for (auto const& item : worklist)
+  {
+    auto const result_ordinal = stored_key_ordinal(result.stored_keys(), item.result_key);
+    bindings.push_back({.logical = item,
+                        .left_ordinal = stored_key_ordinal(left.stored_keys(), item.left_key),
+                        .right_ordinal = stored_key_ordinal(right.stored_keys(), item.right_key),
+                        .result_ordinal = result_ordinal,
+                        .initializes_result = !result_initialized[result_ordinal]});
+    result_initialized[result_ordinal] = true;
+  }
+  return bindings;
+}
+
 template <class Traits> consteval auto make_pairwise_output_dense_permutation()
 {
   constexpr std::size_t left_domain_count =
@@ -207,6 +259,38 @@ template <class Traits> consteval auto make_pairwise_output_dense_permutation()
   return permutation;
 }
 
+template <class Traits> consteval auto is_async_matrix_product_geometry() -> bool
+{
+  if constexpr (!Traits::contracted_has_dense_axis || Traits::left_type::dense_block_order() != 2 ||
+                Traits::right_type::dense_block_order() != 2 ||
+                BoundaryBlockShape<typename Traits::domain_type>::dense_block_order +
+                        BoundaryBlockShape<typename Traits::codomain_type>::dense_block_order !=
+                    2)
+  {
+    return false;
+  }
+  else
+  {
+    constexpr auto permutation = make_pairwise_output_dense_permutation<Traits>();
+    return permutation == make_identity_axis_permutation<2>();
+  }
+}
+
+template <class Tensor>
+concept AsyncMatrixContractionSource =
+    AsyncLocalBlockStorageFor<
+        typename std::remove_cvref_t<Tensor>::storage_policy, typename std::remove_cvref_t<Tensor>::element_type,
+        std::remove_cvref_t<Tensor>::key_coordinate_count(), std::remove_cvref_t<Tensor>::dense_block_order()> &&
+    requires(std::remove_reference_t<Tensor> const& tensor) { tensor.async_block_by_ordinal(std::size_t{}); };
+
+template <class OutputStorage, class LeftTensor, class RightTensor>
+concept AsyncMatrixContractionOutput =
+    PairwiseContractionSources<LeftTensor, RightTensor> && SparseBlockStorage<OutputStorage> &&
+    AsyncLocalBlockStorageFor<
+        OutputStorage, typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::value_type,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::key_count,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::dense_order>;
+
 } // namespace detail
 
 /// \brief Contract one adjacent BlockTensor factor pair into a sparse owning result.
@@ -226,14 +310,17 @@ template <class Traits> consteval auto make_pairwise_output_dense_permutation()
 /// \param right Right operand, whose contracted factor must be its leftmost domain factor.
 /// \return Sparse tensor over the uncontracted boundary factors.
 /// \throws std::invalid_argument If symmetries or contracted space values differ.
-template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = PackedSparseBlockStorage<>,
+template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = detail::DefaultPairwiseContractionStorage,
           class LeftTensor, class RightTensor>
   requires detail::PairwiseContractionSources<LeftTensor, RightTensor> &&
            detail::HostReferenceContractionSource<LeftTensor> && detail::HostReferenceContractionSource<RightTensor> &&
-           detail::HostReferenceContractionOutput<OutputStorage, LeftTensor, RightTensor> &&
+           detail::HostReferenceContractionOutput<
+               detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>, LeftTensor,
+               RightTensor> &&
            (LeftAxis == std::remove_cvref_t<LeftTensor>::order() - 1) && (RightAxis == 0)
 auto contract(LeftTensor const& left, RightTensor const& right)
 {
+  using selected_output_storage = detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>;
   using traits = detail::PairwiseContractionTraits<LeftTensor, RightTensor>;
   using left_type = typename traits::left_type;
   using right_type = typename traits::right_type;
@@ -266,22 +353,21 @@ auto contract(LeftTensor const& left, RightTensor const& right)
   auto result_domain = detail::make_pairwise_contraction_domain(left, right);
   auto result_codomain = detail::make_pairwise_contraction_codomain(left, right);
   using result_type =
-      BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, OutputStorage>;
+      BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
   result_type result(left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
-  auto const stored_result_keys = result.stored_keys();
-  std::vector<bool> initialized(stored_result_keys.size(), false);
+  auto const bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
   constexpr auto output_permutation = detail::make_pairwise_output_dense_permutation<traits>();
 
-  for (auto const& item : worklist)
+  for (auto const& binding : bindings)
   {
-    auto const found = std::ranges::lower_bound(stored_result_keys, item.result_key);
-    auto const ordinal = static_cast<std::size_t>(found - stored_result_keys.begin());
-    auto output_block = detail::permute_block(result.block(item.result_key), output_permutation);
+    auto output_block = detail::permute_block(result.block_by_ordinal(binding.result_ordinal), output_permutation);
     constexpr auto left_identity = detail::make_identity_axis_permutation<left_type::dense_block_order()>();
     constexpr auto right_identity = detail::make_identity_axis_permutation<right_type::dense_block_order()>();
-    auto const left_block = detail::permute_block(std::as_const(left).block(item.left_key), left_identity);
-    auto const right_block = detail::permute_block(std::as_const(right).block(item.right_key), right_identity);
-    value_type const beta = initialized[ordinal] ? value_type{1} : value_type{0};
+    auto const left_block =
+        detail::permute_block(std::as_const(left).block_by_ordinal(binding.left_ordinal), left_identity);
+    auto const right_block =
+        detail::permute_block(std::as_const(right).block_by_ordinal(binding.right_ordinal), right_identity);
+    value_type const beta = binding.initializes_result ? value_type{0} : value_type{1};
     if constexpr (traits::contracted_has_dense_axis)
     {
       constexpr std::array<std::pair<std::size_t, std::size_t>, 1> dimensions{
@@ -293,7 +379,91 @@ auto contract(LeftTensor const& left, RightTensor const& right)
       constexpr std::array<std::pair<std::size_t, std::size_t>, 0> dimensions{};
       kernel::contract(value_type{1}, left_block, right_block, dimensions, beta, output_block);
     }
-    initialized[ordinal] = true;
+  }
+  return result;
+}
+
+/// \brief Schedule independent dense-block matrix products for an adjacent contraction.
+/// \details Structure and the sparse logical worklist are constructed
+///          synchronously. Each result block has its own `Async<Tensor>`
+///          timeline, so distinct blocks may execute concurrently while
+///          contributions to one output block are causally serialized. The
+///          returned BlockTensor is immediate; only its numerical blocks may
+///          still be pending. This first lowering supports rank-two dense
+///          blocks with the natural matrix-product output axis order.
+/// \tparam LeftAxis Flattened domain-then-codomain axis of \p left.
+/// \tparam RightAxis Flattened domain-then-codomain axis of \p right.
+/// \tparam OutputStorage Async sparse output policy, or the storage-selected default.
+/// \tparam LeftTensor Left async-block BlockTensor operand.
+/// \tparam RightTensor Right async-block BlockTensor operand.
+/// \param left Left operand, whose contracted factor must be its rightmost codomain factor.
+/// \param right Right operand, whose contracted factor must be its leftmost domain factor.
+/// \return Sparse tensor with scheduled per-block numerical values.
+/// \pre An async scheduler is active on the submitting application thread.
+/// \throws std::invalid_argument If symmetries or contracted space values differ.
+template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = detail::DefaultPairwiseContractionStorage,
+          class LeftTensor, class RightTensor>
+  requires detail::PairwiseContractionSources<LeftTensor, RightTensor> &&
+           detail::AsyncMatrixContractionSource<LeftTensor> && detail::AsyncMatrixContractionSource<RightTensor> &&
+           detail::AsyncMatrixContractionOutput<
+               detail::selected_pairwise_storage_t<OutputStorage,
+                                                   typename std::remove_cvref_t<LeftTensor>::storage_policy>,
+               LeftTensor, RightTensor> &&
+           (detail::is_async_matrix_product_geometry<detail::PairwiseContractionTraits<LeftTensor, RightTensor>>()) &&
+           (LeftAxis == std::remove_cvref_t<LeftTensor>::order() - 1) && (RightAxis == 0)
+auto contract(LeftTensor const& left, RightTensor const& right)
+{
+  using selected_output_storage =
+      detail::selected_pairwise_storage_t<OutputStorage, typename std::remove_cvref_t<LeftTensor>::storage_policy>;
+  using traits = detail::PairwiseContractionTraits<LeftTensor, RightTensor>;
+  using left_type = typename traits::left_type;
+  using right_type = typename traits::right_type;
+  using value_type = typename left_type::value_type;
+  static_assert(std::same_as<value_type, typename right_type::value_type>,
+                "the first BlockTensor contraction requires identical scalar types");
+  static_assert(left_type::order() + right_type::order() >= 2);
+  static_assert(left_type::order() + right_type::order() - 2 <= 4,
+                "the first BlockTensor contraction supports result order at most four");
+
+  if (left.symmetry() != right.symmetry())
+  {
+    throw std::invalid_argument("BlockTensor contraction requires matching symmetries");
+  }
+  auto const& left_space = left.codomain().template space<traits::left_codomain_size - 1>();
+  auto const& right_space = right.domain().template space<0>();
+  if (left_space != right_space)
+  {
+    throw std::invalid_argument("BlockTensor contraction requires exactly equal contracted spaces");
+  }
+
+  auto const worklist = detail::make_pairwise_contraction_worklist<traits>(left, right);
+  std::vector<typename traits::result_key_type> result_keys;
+  result_keys.reserve(worklist.size());
+  for (auto const& item : worklist)
+    result_keys.push_back(item.result_key);
+  std::ranges::sort(result_keys);
+  result_keys.erase(std::unique(result_keys.begin(), result_keys.end()), result_keys.end());
+
+  auto result_domain = detail::make_pairwise_contraction_domain(left, right);
+  auto result_codomain = detail::make_pairwise_contraction_codomain(left, right);
+  using result_type =
+      BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
+  result_type result(left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
+  auto const bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
+
+  for (auto const& binding : bindings)
+  {
+    auto& output_block = result.async_block_by_ordinal(binding.result_ordinal);
+    auto const& left_block = left.async_block_by_ordinal(binding.left_ordinal);
+    auto const& right_block = right.async_block_by_ordinal(binding.right_ordinal);
+    if (binding.initializes_result)
+    {
+      linalg::assign_product(selected_output_storage::backend_selector(), output_block, left_block, right_block);
+    }
+    else
+    {
+      linalg::add_product(selected_output_storage::backend_selector(), output_block, left_block, right_block);
+    }
   }
   return result;
 }

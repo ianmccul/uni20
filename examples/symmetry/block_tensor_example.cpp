@@ -2,8 +2,11 @@
 #include <uni20/symmetry/block_tensor_permute.hpp>
 #include <uni20/symmetry/block_tensor_repartition.hpp>
 
+#include <uni20/async/debug_scheduler.hpp>
+
 #include <cstddef>
 #include <iostream>
+#include <utility>
 
 using namespace uni20;
 
@@ -31,6 +34,17 @@ int main()
   matrix.block(Matrix::key_type{{1, 1}})[2, 2] = 1.0;
   auto matrix_squared = contract<1, 0>(matrix, matrix);
 
+  using AsyncMatrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, AsyncSeparateSparseBlockStorage<>>;
+  AsyncMatrix async_matrix(sym, Domain{left}, Codomain{left}, {AsyncMatrix::key_type{{1, 1}}});
+  using AsyncDenseBlock = typename AsyncMatrix::storage_type::block_value_type;
+  AsyncDenseBlock async_dense_block(3, 3);
+  async_dense_block[2, 2] = 2.0;
+  async_matrix.async_block(AsyncMatrix::key_type{{1, 1}}) = std::move(async_dense_block);
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped_scheduler(&scheduler);
+  auto async_matrix_squared = contract<1, 0>(async_matrix, async_matrix);
+  auto const& async_result_block = async_matrix_squared.async_block(AsyncMatrix::key_type{{1, 1}}).get_wait(scheduler);
+
   using MpsSite =
       BlockTensor<double, Domain<BlockSpace, LocalSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
   MpsSite mps_site(sym, Domain{left, physical}, Codomain{right},
@@ -47,6 +61,7 @@ int main()
 
   print_summary("matrix", matrix);
   print_summary("matrix squared", matrix_squared);
+  print_summary("async matrix squared", async_matrix_squared);
   print_summary("MPS site", mps_site);
   print_summary("permuted MPS view", permuted_mps);
   print_summary("bent MPS view", bent_mps);
@@ -64,4 +79,5 @@ int main()
             << ", transient-view=" << sizeof(MpoSite::mutable_block_type) << '\n';
   std::cout << "packed MPO metadata ABI bytes: key=" << sizeof(MpoSite::key_type) << ", offset=" << sizeof(std::size_t)
             << '\n';
+  std::cout << "async block GEMM result[2,2]: " << async_result_block[2, 2] << '\n';
 }

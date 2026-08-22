@@ -48,7 +48,8 @@ operations:
 - zero-copy bosonic left/right `repartition` views with transformed canonical
   keys and strided dense-block axis permutations; and
 - synchronous adjacent pairwise contraction into selectable immediate-host
-  sparse output storage.
+  sparse output storage; and
+- the first storage-selected async lowering for rank-two dense block GEMMs.
 
 This slice is host-resident. Mapped permutation and repartition views retain an
 lvalue source reference and therefore cannot outlive their source tensor. They
@@ -467,8 +468,20 @@ stored contributing pairs and never materializes a whole-tensor dense bridge.
 different sparse output policy as the third template argument only when its
 blocks provide immediate host access through the default mdspan accessor. The
 current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
-satisfy this contract. Deferred, device-only, and custom-accessor storage must
-use a future dispatched lowering rather than this reference overload.
+satisfy this contract.
+
+When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
+front end retains the left input's async storage policy by default and returns
+its `BlockTensor` structure immediately. The first async numerical lowering
+accepts rank-two dense blocks with a `BlockSpace` degeneracy contraction and
+natural GEMM output axis order. It schedules `assign_product` for the first
+contribution to an output block and `add_product` for later contributions.
+Different output blocks have independent epoch queues; contributions to one
+output block serialize on that block's writer timeline. The selected output
+storage supplies the backend list, and submission requires an active async
+scheduler. Other dense orders, coordinate-only contracted legs, mapped input
+views, nontrivial output permutations, packed async storage, device-only blocks,
+and custom accessors remain outside this first async overload.
 
 ## 11. Async and Kernel Lowering
 
@@ -514,6 +527,12 @@ BlockTensor operation
 BlockTensor-level operations select legal block combinations. Dense kernels do
 not decide quantum-number compatibility and must never receive a silent dense
 projection of the entire symmetry-aware tensor.
+
+The mathematical planner is storage-independent. Its worklist carries logical
+input and output keys. Storage lowering binds those keys to stable local
+ordinals now and later to location-aware records. The first implementation
+records whether a binding initializes or accumulates an output block before
+submitting any numerical work.
 
 ## 12. Initial Tensor-Network Aliases
 
@@ -588,8 +607,10 @@ permutations, and the tensor unit. Pairwise contraction tests cover both input
 storage policies, packed and separate output, dense matrix multiplication,
 cross-sector sparsity, repeated local-state accumulation into a rank-zero
 result, exact-space rejection, and planar external-boundary order.
-Async-storage tests additionally cover mdspec const/mutable semantics and stable
-epoch identity through permutation.
+Async-storage tests additionally cover mdspec const/mutable semantics, stable
+epoch identity through permutation, numerical block GEMM, one blocked sector
+not preventing an independent sector from completing, and failure propagation
+only to a dependent output block.
 
 The completed host prototype must additionally test:
 
