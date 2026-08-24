@@ -5,6 +5,8 @@
 #include "scheduler.hpp"
 #include "tbb_scheduler.hpp"
 
+#include <uni20/common/trace.hpp>
+
 #include <atomic>
 #include <fmt/core.h>
 #include <memory>
@@ -102,13 +104,20 @@ class TbbNumaScheduler final : public IAsyncScheduler {
     /// \return Count of tasks scheduled for that node.
     [[nodiscard]] std::size_t scheduled_count_for(int numa_node) const noexcept
     {
-      if (arenas_.empty()) return 0;
+      CHECK(!arenas_.empty(), "TbbNumaScheduler must retain at least one arena");
       auto idx = this->index_for_node(numa_node);
       std::lock_guard<std::mutex> lock(counts_mutex_);
       return scheduled_counts_[idx];
     }
 
   private:
+    void execute_batch_impl(LightweightTaskBatch const& batch) override
+    {
+      CHECK(!arenas_.empty(), "TbbNumaScheduler must retain at least one arena");
+      arenas_[this->index_for_node(this->select_next_numa_node())].scheduler->execute_batch(
+          batch.size(), [&batch](std::size_t index) { batch(index); });
+    }
+
     bool accepts_route(TaskRoute route) const noexcept override
     {
       return route.domain == TaskDomain::host && !route.cuda_device;
@@ -148,14 +157,14 @@ class TbbNumaScheduler final : public IAsyncScheduler {
 
     [[nodiscard]] int select_next_numa_node() noexcept
     {
-      auto count = arenas_.empty() ? std::size_t{1} : arenas_.size();
-      auto index = next_index_.fetch_add(1, std::memory_order_relaxed) % count;
+      CHECK(!arenas_.empty(), "TbbNumaScheduler must retain at least one arena");
+      auto index = next_index_.fetch_add(1, std::memory_order_relaxed) % arenas_.size();
       return arenas_[index].numa_node;
     }
 
     void schedule_on_node(AsyncTask&& task, int numa_node)
     {
-      if (arenas_.empty()) return;
+      CHECK(!arenas_.empty(), "TbbNumaScheduler must retain at least one arena");
       auto index = this->index_for_node(numa_node);
       auto& arena = arenas_[index];
       auto actual_node = arena.numa_node;
@@ -169,7 +178,7 @@ class TbbNumaScheduler final : public IAsyncScheduler {
 
     void reschedule_on_node(BasicTask&& task, int numa_node)
     {
-      if (arenas_.empty()) return;
+      CHECK(!arenas_.empty(), "TbbNumaScheduler must retain at least one arena");
       auto index = this->index_for_node(numa_node);
       auto& arena = arenas_[index];
       auto actual_node = arena.numa_node;

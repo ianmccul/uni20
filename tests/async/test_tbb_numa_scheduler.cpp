@@ -86,3 +86,28 @@ TEST(TbbNumaScheduler, RunAllDrainsArenas)
 
   EXPECT_EQ(counter.load(std::memory_order_relaxed), kTasks);
 }
+
+TEST(TbbNumaScheduler, LightweightBatchExecutesEveryIndex)
+{
+  TbbNumaScheduler scheduler;
+  std::vector<std::atomic<int>> counts(32);
+
+  scheduler.execute_batch(counts.size(),
+                          [&](std::size_t index) { counts[index].fetch_add(1, std::memory_order_relaxed); });
+
+  for (auto const& count : counts)
+    EXPECT_EQ(count.load(std::memory_order_relaxed), 1);
+}
+
+TEST(TbbNumaScheduler, EmptyNodeListCreatesFallbackArena)
+{
+  TbbNumaScheduler scheduler{std::vector<int>{}};
+  std::vector<std::atomic<int>> counts(8);
+
+  ASSERT_EQ(scheduler.numa_nodes(), std::vector<int>{-1});
+  scheduler.execute_batch(counts.size(),
+                          [&](std::size_t index) { counts[index].fetch_add(1, std::memory_order_relaxed); });
+
+  for (auto const& count : counts)
+    EXPECT_EQ(count.load(std::memory_order_relaxed), 1);
+}

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -64,6 +65,52 @@ TEST(DebugSchedulerTest, RandomOrderIsAReproduciblePermutation)
   EXPECT_NE(first, expected);
   std::ranges::reverse(expected);
   EXPECT_NE(first, expected);
+}
+
+TEST(DebugSchedulerTest, LightweightBatchUsesConfiguredOrderExactlyOnce)
+{
+  DebugScheduler scheduler({.order = DebugSchedulerOrder::reverse});
+  std::vector<std::size_t> visited;
+
+  scheduler.execute_batch(5, [&](std::size_t index) { visited.push_back(index); });
+
+  EXPECT_EQ(visited, (std::vector<std::size_t>{4, 3, 2, 1, 0}));
+}
+
+TEST(DebugSchedulerTest, EmptyLightweightBatchDoesNotInvokeCallable)
+{
+  DebugScheduler scheduler;
+  bool invoked = false;
+
+  scheduler.execute_batch(0, [&](std::size_t) { invoked = true; });
+
+  EXPECT_FALSE(invoked);
+}
+
+TEST(DebugSchedulerTest, LightweightBatchPropagatesException)
+{
+  DebugScheduler scheduler({.order = DebugSchedulerOrder::fifo});
+
+  EXPECT_THROW(scheduler.execute_batch(4,
+                                       [](std::size_t index) {
+                                         if (index == 2) throw std::runtime_error("batch failure");
+                                       }),
+               std::runtime_error);
+}
+
+TEST(DebugSchedulerTest, LightweightBatchItemMayScheduleAndWait)
+{
+  DebugScheduler scheduler({.order = DebugSchedulerOrder::fifo});
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<int> result;
+
+  scheduler.execute_batch(1, [&](std::size_t) {
+    scheduler.schedule([](uni20::async::WriteBuffer<int> output) static -> AsyncTask {
+      co_await output = 42;
+      co_return;
+    }(result.write()));
+    EXPECT_EQ(result.get_wait(), 42);
+  });
 }
 
 } // namespace

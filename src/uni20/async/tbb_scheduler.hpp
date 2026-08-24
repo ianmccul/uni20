@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <oneapi/tbb/concurrent_queue.h>
+#include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/task.h>
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
@@ -171,6 +172,12 @@ class TbbScheduler : public IAsyncScheduler {
     }
 
   private:
+    void execute_batch_impl(LightweightTaskBatch const& batch) override
+    {
+      arena_.execute(
+          [&] { oneapi::tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t index) { batch(index); }); });
+    }
+
     bool accepts_route(TaskRoute route) const noexcept override
     {
       return route.domain == TaskDomain::host && !route.cuda_device;

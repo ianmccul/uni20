@@ -40,6 +40,38 @@ that scheduler have completed or can no longer resume. See
 [Lifetime and Quiescence](scheduler_migration.md#lifetime-and-quiescence) for
 the full contract, including stack-local test schedulers.
 
+## Lightweight Task Batches
+
+`IAsyncScheduler::execute_batch(count, callable)` executes a synchronous batch
+of independent ordinary function calls. The free `execute_batch(...)` helper
+uses the active global scheduler. On successful return, every index in
+`[0, count)` has been invoked exactly once and the callable is no longer
+borrowed by the scheduler.
+
+A lightweight batch is deliberately not a collection of `AsyncTask`
+coroutines:
+
+- it creates no epoch, dependency edge, coroutine frame, or per-item scheduler
+  ownership;
+- a stateful or capturing ordinary callable is valid because the call blocks
+  until every participating item has finished;
+- distinct indices may run concurrently and must not perform unsynchronized
+  conflicting accesses; and
+- if one item throws, unfinished items may be cancelled and the exception is
+  rethrown after participating work joins.
+
+`DebugScheduler` executes indices deterministically using its configured
+`fifo`, `reverse`, or seeded `random` ordering. `TbbScheduler` uses a oneTBB
+`parallel_for` inside its arena. `TbbNumaScheduler` selects one managed arena
+for the batch; placement-aware partitioning across NUMA nodes remains a later
+policy.
+
+A batch item may call ordinary scheduler APIs. In particular, scheduling work
+and then using `get_wait()` is supported by both the recursive DebugScheduler
+progress path and TBB's resumable nested-wait path, including an arena with one
+participant. This is a composability guarantee, not the normal batch pattern:
+block-level batches should normally call immediate dense operations directly.
+
 ## Choosing a Scheduler
 
 | Scheduler | Strength | Tradeoff | Typical use |
@@ -61,6 +93,7 @@ Execution model:
   behavior
 - random order is reproducible from `DebugSchedulerOptions::random_seed`,
   which defaults to zero
+- synchronous lightweight batches use the same configured index ordering
 - `run_all()` drains until queue empty
 
 Wait/deadlock behavior:
@@ -85,6 +118,8 @@ Execution model:
   oneTBB workers and application threads that enter through `task_arena::execute()`
 - `run_all()` resumes if paused, then waits for task-group completion of the
   currently submitted activations
+- lightweight batches execute synchronously as a `parallel_for` in the arena;
+  they are separate from coroutine activation accounting
 
 The task group owns each scheduled resumption while it runs. If that resumption
 suspends the coroutine on an epoch or external event, the TBB task finishes and
