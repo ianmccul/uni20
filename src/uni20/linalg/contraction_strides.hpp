@@ -12,6 +12,7 @@
 #include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/mdspan.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/mdspan/strides.hpp>
 
 #include <array>
@@ -188,6 +189,31 @@ using contraction_matrix_mdspan_t =
                   stdex::dextents<typename std::remove_cvref_t<Mdspan>::index_type, 2>, stdex::layout_stride,
                   typename std::remove_cvref_t<Mdspan>::accessor_type>;
 
+namespace detail::contraction_strides
+{
+
+template <class Mdspec, bool = uni20::MdspanLike<Mdspec>> struct ContractionMatrixMdspec;
+
+template <class Mdspec> struct ContractionMatrixMdspec<Mdspec, true>
+{
+    using type = contraction_matrix_mdspan_t<Mdspec>;
+};
+
+template <class Mdspec> struct ContractionMatrixMdspec<Mdspec, false>
+{
+    using span_type = std::remove_cvref_t<Mdspec>;
+    using type = uni20::mdspec<typename span_type::element_type, stdex::dextents<typename span_type::index_type, 2>,
+                               stdex::layout_stride, typename span_type::accessor_type,
+                               typename span_type::data_descriptor_type>;
+};
+
+} // namespace detail::contraction_strides
+
+/// \brief Rank-two strided metadata type retaining an operand descriptor or immediate handle.
+template <uni20::MdspecLike Mdspec>
+using contraction_matrix_mdspec_t =
+    typename detail::contraction_strides::ContractionMatrixMdspec<std::remove_cvref_t<Mdspec>>::type;
+
 /// \brief Project a resolved mdspan into one rank-two GEMM operand without changing storage.
 template <uni20::MdspanLike Mdspan>
 [[nodiscard]] auto make_contraction_matrix_mdspan(Mdspan& span, ContractionMatrixProjection const& projection)
@@ -199,6 +225,25 @@ template <uni20::MdspanLike Mdspan>
   auto const extents = extents_type{projection.extents[0], projection.extents[1]};
   auto const mapping = mapping_type{extents, projection.strides};
   return result_type{span.data_handle(), mapping, span.accessor()};
+}
+
+/// \brief Project an mdspec into one rank-two GEMM operand without acquiring its handle.
+/// \details Immediate mdspans remain immediate. Descriptor-backed inputs retain
+///          a copied data descriptor, mapping, and accessor for acquisition by
+///          the selected GEMM backend.
+template <uni20::MdspecLike Mdspec>
+[[nodiscard]] auto make_contraction_matrix_mdspec(Mdspec& span, ContractionMatrixProjection const& projection)
+    -> contraction_matrix_mdspec_t<Mdspec>
+{
+  using result_type = contraction_matrix_mdspec_t<Mdspec>;
+  using extents_type = typename result_type::extents_type;
+  using mapping_type = typename result_type::mapping_type;
+  auto const extents = extents_type{projection.extents[0], projection.extents[1]};
+  auto const mapping = mapping_type{extents, projection.strides};
+  if constexpr (uni20::MdspanLike<Mdspec>)
+    return result_type{span.data_handle(), mapping, span.accessor()};
+  else
+    return result_type{span.data_descriptor(), mapping, span.accessor()};
 }
 
 } // namespace uni20::linalg

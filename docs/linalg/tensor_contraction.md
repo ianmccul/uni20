@@ -70,20 +70,22 @@ conversion, multiplication, accumulation, and assignment expressions. Every
 element is evaluated through its accessor. Consequently conjugating and other
 compatible semantic accessors are preserved.
 
-`BlasBackend` implements the first direct no-copy provider lowering. It builds
-joint M, N, and K stride groups from the normalized mdspec mappings before
-acquiring host access. When each group collapses to at most one dimension, the
-backend projects the acquired operands to rank-two `layout_stride` mdspans and
-calls the ordinary BLAS GEMM leaf. The projection retains each resolved
-accessor, so default and representable conjugating accessors use the same
-transform validation as direct GEMM. Nonmergeable groups, unsupported matrix
-strides or transforms, zero K extents, and unsupported scalar types cleanly
-fall through to `CpuReferenceBackend`.
+`DirectGemmContractionBackend` implements the first direct no-copy lowering. It
+builds joint M, N, and K stride groups from normalized mdspec mappings. When
+each group collapses to at most one dimension, it projects the operands to
+rank-two `layout_stride` mdspecs without acquiring their handles and dispatches
+`gemm_op` through the execution selector retained by the backend. The selected
+GEMM backend therefore owns host or CUDA acquisition and provider lowering.
+The projection retains each descriptor, accessor, and mapping, so default and
+representable conjugating accessors use the same validation as direct GEMM.
+Nonmergeable groups cleanly fall through to the next contraction backend.
 
 In `CpuReferenceBackend`, `alpha == 0` avoids input element reads and
 `beta == 0` avoids reading output elements. Empty contracted extents therefore
-produce the correctly scaled zero product without accessing the inputs. The
-direct BLAS backend declines a zero K extent to this reference path.
+produce the correctly scaled zero product without accessing the inputs. A
+retained GEMM selector may handle this through its reference GEMM backend; a
+provider-only direct backend can instead decline to the outer contraction
+fallback.
 
 ## Execution Strategies
 
@@ -94,7 +96,7 @@ algorithm. Backends may implement the following hierarchy:
 |---|---|---|
 | Generic indexed loop | Correctness path for arbitrary mappings and compatible accessors. | Implemented by `CpuReferenceBackend`. |
 | Stride-grouped reference loop | Reduce mapping arithmetic for default-accessor strided views using merged M/N/K groups. | Existing historical code; not yet integrated into dispatch. |
-| Direct GEMM | Collapse M, N, and K groups and call a provider when mappings and accessor transforms are representable. | Implemented by `BlasBackend`; cuBLAS remains planned. |
+| Direct GEMM | Collapse M, N, and K groups and dispatch one rank-two GEMM through the storage-selected execution backends. | Implemented by `DirectGemmContractionBackend`. |
 | Looped or batched GEMM | Loop over residual unmerged groups around provider GEMM calls. | Planned. |
 | Pack-GEMM-unpack | Materialize favorable grouped layouts when packing cost is justified. | Planned; requires temporary-storage and cost policy. |
 
@@ -103,13 +105,14 @@ front end must not replace the semantic operation with transpose/reshape/GEMM.
 This leaves storage placement, provider capabilities, future automatic
 differentiation, and block-sparse scheduling above the correct abstraction.
 
-Direct, looped, and packed implementations may be ordinary backends that only
+Direct, looped, and packed implementations are ordinary backends that only
 implement `contract_op`. They form an operation-specific selector axis rather
-than permanent entries in every storage policy's general backend list. The
-planned `backend_selector_default<contract_op<...>, StoragePolicy>` composes
-that contraction list around `StoragePolicy::backend_selector()`, allowing the
-same contraction planners to delegate lower GEMM and elementwise work to
-BLAS/CPU or cuBLAS/CUDA execution backends.
+than permanent entries in every storage policy's general backend list.
+`backend_selector_default<contract_op<...>, VectorStorage>` currently installs
+the direct backend with the storage selector it should use for `gemm_op`, then
+the host reference contraction fallback. The same composition permits future
+CUDA storage defaults to retain cuBLAS/CUDA execution backends without changing
+the direct contraction planner.
 
 An ordered contraction list initially provides priority-based runtime selection
 through clean decline. A later cost-based selector may itself be a contraction

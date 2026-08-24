@@ -37,6 +37,7 @@ before they lower to backend wrappers and kernels.
   resolved host mdspans.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
 - [`backends/`](backends/): operation-tag backend implementations.
+- [`backends/direct_gemm/`](backends/direct_gemm/): direct tensor-contraction lowering through a retained GEMM selector.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
 - [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense matrix helpers, and

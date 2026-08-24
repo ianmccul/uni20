@@ -8,15 +8,12 @@
 
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/backends/cpu/contract.hpp>
+#include <uni20/linalg/backends/direct_gemm/contract.hpp>
 #include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
-
-#if UNI20_BACKEND_BLAS
-#include <uni20/linalg/backends/blas/contract.hpp>
-#endif
 
 #include <array>
 #include <concepts>

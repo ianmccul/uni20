@@ -9,6 +9,8 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -17,7 +19,18 @@ namespace
 
 using uni20::linalg::BlasBackend;
 using uni20::linalg::CpuReferenceBackend;
-using host_backends = uni20::linalg::backend_list<BlasBackend, CpuReferenceBackend>;
+using direct_blas_backend = uni20::linalg::DirectGemmContractionBackend<BlasBackend>;
+using host_backends = uni20::linalg::backend_list<direct_blas_backend, CpuReferenceBackend>;
+
+[[nodiscard]] auto selected_backend(std::vector<uni20::linalg::dispatch_diagnostics::event> const& events,
+                                    std::string_view operation) -> std::optional<std::string_view>
+{
+  for (auto const& event : events)
+  {
+    if (event.operation == operation && event.selected_backend()) return *event.selected_backend();
+  }
+  return std::nullopt;
+}
 
 template <class BackendSelector, class OutputTensor, class LhsTensor, class RhsTensor, std::size_t ContractedRank>
 [[nodiscard]] bool
@@ -39,7 +52,7 @@ try_normalized_contract(BackendSelector&& selector, OutputTensor& output, uni20:
 
 } // namespace
 
-TEST(BlasTensorContractionTest, MergesSurvivingAxesAndExecutesOneGemm)
+TEST(BlasTensorContractionTest, DefaultSelectorUsesDirectBackendAndOneBlasGemm)
 {
   namespace diagnostics = uni20::linalg::dispatch_diagnostics;
   std::vector<diagnostics::event> events;
@@ -61,7 +74,7 @@ TEST(BlasTensorContractionTest, MergesSurvivingAxesAndExecutesOneGemm)
         output[i, j, n] = 3.0;
 
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{2, 0}}};
-  uni20::linalg::contract(host_backends{BlasBackend{}, CpuReferenceBackend{}}, output, 2.0, lhs, rhs, axes, 0.5);
+  uni20::linalg::contract(output, 2.0, lhs, rhs, axes, 0.5);
 
   for (uni20::index_type i = 0; i < 2; ++i)
   {
@@ -77,9 +90,9 @@ TEST(BlasTensorContractionTest, MergesSurvivingAxesAndExecutesOneGemm)
     }
   }
 
-  ASSERT_EQ(events.size(), 1);
-  ASSERT_TRUE(events[0].selected_backend().has_value());
-  EXPECT_EQ(*events[0].selected_backend(), "blas");
+  ASSERT_EQ(events.size(), 2);
+  EXPECT_EQ(selected_backend(events, "contract"), "direct_gemm_contraction");
+  EXPECT_EQ(selected_backend(events, "gemm"), "blas");
 }
 
 TEST(BlasTensorContractionTest, PreservesSupportedConjugatingAccessorSemantics)
@@ -97,7 +110,8 @@ TEST(BlasTensorContractionTest, PreservesSupportedConjugatingAccessorSemantics)
   auto conjugated_lhs = uni20::conj(lhs);
 
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{1, 0}}};
-  uni20::linalg::contract(BlasBackend{}, output, scalar_type{1.0}, conjugated_lhs, rhs, axes, scalar_type{});
+  uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, output, scalar_type{1.0}, conjugated_lhs, rhs, axes,
+                          scalar_type{});
 
   for (uni20::index_type i = 0; i < 2; ++i)
   {
@@ -127,7 +141,7 @@ TEST(BlasTensorContractionTest, SupportsFloatAndComplexFloatScalars)
     rhs[1, 1] = Scalar{1};
     std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{1, 0}}};
 
-    uni20::linalg::contract(BlasBackend{}, output, Scalar{1}, lhs, rhs, axes, Scalar{});
+    uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, output, Scalar{1}, lhs, rhs, axes, Scalar{});
 
     EXPECT_EQ((output[0, 0]), Scalar{1});
     EXPECT_EQ((output[0, 1]), Scalar{2});
@@ -148,7 +162,7 @@ TEST(BlasTensorContractionTest, AcquiresDeferredHostDescriptors)
   rhs.storage() = {7.0, 9.0, 11.0, 8.0, 10.0, 12.0};
 
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{1, 0}}};
-  uni20::linalg::contract(BlasBackend{}, output, 1.0, lhs, rhs, axes, 0.0);
+  uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, output, 1.0, lhs, rhs, axes, 0.0);
 
   EXPECT_EQ(output.storage(), (std::vector<double>{58.0, 139.0, 64.0, 154.0}));
 }
@@ -165,7 +179,7 @@ TEST(BlasTensorContractionTest, HandlesLogicalUnitKDimensionForOuterProducts)
   rhs[2] = -2.0;
   std::array<std::pair<std::size_t, std::size_t>, 0> const no_axes{};
 
-  uni20::linalg::contract(BlasBackend{}, outer, 1.0, lhs, rhs, no_axes, 0.0);
+  uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, outer, 1.0, lhs, rhs, no_axes, 0.0);
 
   EXPECT_DOUBLE_EQ((outer[0, 0]), 6.0);
   EXPECT_DOUBLE_EQ((outer[0, 1]), 8.0);
@@ -191,7 +205,7 @@ TEST(BlasTensorContractionTest, HandlesLogicalUnitMDimensionWhenLhsIsFullyContra
   rhs[2, 1] = 1.0;
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{0, 0}}};
 
-  uni20::linalg::contract(BlasBackend{}, output, 1.0, lhs, rhs, axes, 0.0);
+  uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, output, 1.0, lhs, rhs, axes, 0.0);
 
   EXPECT_DOUBLE_EQ(output[0], 15.0);
   EXPECT_DOUBLE_EQ(output[1], 13.0);
@@ -211,7 +225,7 @@ TEST(BlasTensorContractionTest, ProjectsFullContractionToOneByOneGemm)
   output[] = 7.0;
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{0, 0}}};
 
-  uni20::linalg::contract(BlasBackend{}, output, 2.0, lhs, rhs, axes, 0.5);
+  uni20::linalg::contract(direct_blas_backend{BlasBackend{}}, output, 2.0, lhs, rhs, axes, 0.5);
 
   EXPECT_DOUBLE_EQ(output[], -2.5);
 }
@@ -229,14 +243,14 @@ TEST(BlasTensorContractionTest, ZeroContractedExtentFallsThroughWithoutLosingBet
       output[row, column] = 7.0;
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{1, 0}}};
 
-  uni20::linalg::contract(host_backends{BlasBackend{}, CpuReferenceBackend{}}, output, 3.0, lhs, rhs, axes, 2.0);
+  uni20::linalg::contract(host_backends{direct_blas_backend{BlasBackend{}}, CpuReferenceBackend{}}, output, 3.0, lhs,
+                          rhs, axes, 2.0);
 
   for (uni20::index_type row = 0; row < 2; ++row)
     for (uni20::index_type column = 0; column < 3; ++column)
       EXPECT_DOUBLE_EQ((output[row, column]), 14.0);
   ASSERT_EQ(events.size(), 1);
-  ASSERT_TRUE(events[0].selected_backend().has_value());
-  EXPECT_EQ(*events[0].selected_backend(), "cpu_reference");
+  EXPECT_EQ(selected_backend(events, "contract"), "cpu_reference");
 }
 
 TEST(BlasTensorContractionTest, NonmergeableGroupDeclinesWithoutModifyingOutput)
@@ -258,7 +272,7 @@ TEST(BlasTensorContractionTest, NonmergeableGroupDeclinesWithoutModifyingOutput)
         output[i, j, n] = -7.0;
 
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{2, 0}}};
-  EXPECT_FALSE(try_normalized_contract(BlasBackend{}, output, 1.0, lhs, rhs, axes, 0.0));
+  EXPECT_FALSE(try_normalized_contract(direct_blas_backend{BlasBackend{}}, output, 1.0, lhs, rhs, axes, 0.0));
   for (uni20::index_type i = 0; i < 2; ++i)
     for (uni20::index_type j = 0; j < 2; ++j)
       for (uni20::index_type n = 0; n < 4; ++n)
@@ -283,7 +297,8 @@ TEST(BlasTensorContractionTest, NonmergeableGroupFallsThroughToCpuReference)
       rhs[k, n] = static_cast<double>(2 + 2 * k + n);
 
   std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{2, 0}}};
-  uni20::linalg::contract(host_backends{BlasBackend{}, CpuReferenceBackend{}}, output, 1.0, lhs, rhs, axes, 0.0);
+  uni20::linalg::contract(host_backends{direct_blas_backend{BlasBackend{}}, CpuReferenceBackend{}}, output, 1.0, lhs,
+                          rhs, axes, 0.0);
 
   for (uni20::index_type i = 0; i < 2; ++i)
   {
@@ -300,6 +315,5 @@ TEST(BlasTensorContractionTest, NonmergeableGroupFallsThroughToCpuReference)
   }
 
   ASSERT_EQ(events.size(), 1);
-  ASSERT_TRUE(events[0].selected_backend().has_value());
-  EXPECT_EQ(*events[0].selected_backend(), "cpu_reference");
+  EXPECT_EQ(selected_backend(events, "contract"), "cpu_reference");
 }

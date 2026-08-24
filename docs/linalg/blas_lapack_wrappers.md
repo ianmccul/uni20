@@ -99,7 +99,6 @@ The first operation-tag dispatch slice adds:
     matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
-- `backends/blas/contract.hpp`
   - direct no-copy `contract_op` grouping, host acquisition, and GEMM lowering.
 - `backends/blas/gemv.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemv_op, ...)`.
