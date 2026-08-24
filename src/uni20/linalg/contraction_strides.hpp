@@ -163,6 +163,13 @@ template <std::size_t Capacity>
 
 [[nodiscard]] inline bool projection_is_directly_strided(ContractionMatrixProjection const& projection) noexcept
 {
+  // Current no-copy GEMM projections require strictly positive strides.
+  // Negative strides need origin rebasing, while zero normally represents a
+  // broadcast dimension. A zero-sized layout_right operand can also report a
+  // zero surviving-axis stride: K == 0 is mathematically valid, but this
+  // planner deliberately declines that representation. The current host
+  // backend list then falls through to CPU reference, which applies C = beta*C
+  // without reading either input.
   for (std::size_t axis = 0; axis < 2; ++axis)
   {
     if (projection.extents[axis] < 0 || projection.strides[axis] <= 0) return false;
@@ -211,7 +218,8 @@ template <class Mdspec> consteval bool can_offset_contraction_mdspec()
 
 /// \brief Try to collapse merged contraction groups to three rank-two GEMM operands.
 /// \return A direct plan when every group has at most one dimension and each
-///         projected matrix has a unit-stride axis; otherwise `std::nullopt`.
+///         projected matrix has positive strides and a unit-stride axis;
+///         otherwise `std::nullopt`.
 template <
     std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank,
     MutableRankedContractionMdspecLike<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank> OutputMdspec,

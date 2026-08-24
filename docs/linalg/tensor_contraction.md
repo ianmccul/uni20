@@ -93,11 +93,16 @@ provide `offset_by`, which preserves storage identity for later acquisition.
 K is deliberately not looped in this checkpoint, so every slice uses the
 original `beta` and no partial K accumulation state is required.
 
-Both GEMM planners require each projected rank-two operand to expose a
-unit-stride axis. A tensor with no unit-stride axis can only participate when
-slicing away a residual M or N descriptor reveals a valid matrix projection.
-If it does not, both strategies cleanly decline and the accessor-respecting
-reference backend evaluates the original mapping.
+Both GEMM planners currently require each projected rank-two operand to have
+strictly positive strides and expose a unit-stride axis. Negative strides need
+origin rebasing, while a zero stride ordinarily denotes a broadcast dimension.
+A zero-sized `layout_right` input can also report zero for a surviving outer
+stride. Consequently a mathematically valid `K == 0` contraction may decline
+during projection rather than reaching a GEMM backend. The current host backend
+list then falls through to `CpuReferenceBackend`, which applies `C = beta*C`
+without reading either input. A tensor with no unit-stride axis can otherwise
+participate only when slicing away a residual M or N descriptor reveals a valid
+matrix projection.
 
 In `CpuReferenceBackend`, `alpha == 0` avoids input element reads and
 `beta == 0` avoids reading output elements. Empty contracted extents therefore
