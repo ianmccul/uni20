@@ -36,19 +36,23 @@ operations:
   validation;
 - `SeparateSparseBlockStorage`, with one independently owning column-major
   dense `Tensor` per block;
+- `ParallelSeparateSparseBlockStorage`, with the same separate ownership and
+  synchronous scheduler-batch execution across independent output blocks;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
   `Async<Tensor>` per stored block;
-- mutable and const `MdspecLike` access to stored blocks, using mdspan for
-  immediate storage and mdspec for async storage;
+- mutable and const `TensorView` access to stored blocks, using mdspan for
+  immediate storage and descriptor-backed mdspec for async storage;
 - delegation of the dense leaf backend list through each block storage policy;
 - a generic `Dual<S>` value adaptor whose quantum-number observations are dual;
 - zero-copy bosonic compile-time permutations within each morphism side;
 - zero-copy bosonic left/right `repartition` views with transformed canonical
   keys and strided dense-block axis permutations; and
-- synchronous adjacent pairwise contraction into selectable immediate-host
-  sparse output storage; and
+- synchronous adjacent pairwise contraction through ordinary tensor-level
+  kernel dispatch into selectable immediate-host sparse output storage;
+- scheduler-batch contraction grouped by independently writable output block;
+  and
 - the first storage-selected async lowering for rank-two dense block GEMMs.
 
 This slice is host-resident. Mapped permutation and repartition views retain an
@@ -258,8 +262,9 @@ public pattern tag such as `SparseBlocks` or `CompleteBlocks` is unnecessary.
 Concrete storage types expose the trait as part of their contract.
 
 `BlockTensorStorageFor<Storage, T, KeyCount, DenseOrder>` requires mutable and
-const block descriptors satisfying `MutableRankedMdspecLike` and
-`RankedMdspecLike`. The positive execution and placement refinements are:
+const block values satisfying `MutableRankedTensorView` and `RankedTensorView`.
+Each view exposes its immediate or descriptor-backed mdspec without itself
+modeling `MdspecLike`. The positive execution and placement refinements are:
 
 ```cpp
 ImmediateLocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
@@ -279,10 +284,11 @@ one prescribed container representation. A conforming storage provides:
 
 - its scalar value type and an exact match with the owning tensor's `T`;
 - `stores_all_legal_blocks` as a compile-time boolean;
+- a block execution policy selecting serial or scheduler-batch work grouping;
 - ownership of every buffer referenced by its stored-block records;
 - canonical iteration over stable `(BlockKey, block binding)` records;
 - lookup by `BlockKey` without inserting or changing structure;
-- const and mutable dense-block descriptors with the correct value semantics;
+- const and mutable dense-block TensorViews with the correct value semantics;
 - retainable read and write access to the buffers needed by submitted work.
 
 Construction supplies an already validated canonical key sequence and the
@@ -315,7 +321,7 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The implemented slice provides three sparse host policies. All use:
+The implemented slice provides four sparse host policies. All use:
 
 - canonical block-key ordering;
 - zero initialization for newly allocated numerical values;
@@ -329,15 +335,23 @@ The packed policy is the likely default for sparse scalar-block MPO sites; the
 separate policy is the simplest baseline for early block operations and
 comparison tests.
 
+`ParallelSeparateSparseBlockStorage` uses the same independently owning block
+representation as `SeparateSparseBlockStorage`, but selects synchronous
+scheduler-batch execution for block operations. Pairwise contraction groups
+the worklist by result ordinal and executes one batch item per result block.
+Every contribution to that block stays in the same item and retains canonical
+accumulation order, so no two items write the same dense block. The active
+scheduler controls serial debug ordering or TBB parallelism, and the result is
+fully computed when `contract` returns.
+
 `AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
-stored key. Its `block(key)` result is a borrowed mdspec whose data descriptor
-identifies that exact async value. The descriptor does not keep the owning
+stored key. Its `block(key)` result is a TensorView whose borrowed data
+descriptor identifies that exact async value. The view does not keep the owning
 `BlockTensor` alive. Submitted operations obtain `ReadBuffer` and `WriteBuffer`
 capabilities from the async value; those capabilities retain the storage,
 selected epoch, and failure propagation state. This literal per-block
-`Async<Tensor>` representation is the correctness-first CPU-parallel policy. A
-later compact `AsyncArray` may provide the same interface with less per-block
-metadata.
+`Async<Tensor>` representation is useful when individual numerical values must
+remain pending. It is distinct from the lower-overhead synchronous batch policy.
 
 The next storage step is a distinct complete host policy which enumerates every
 legal key and models `CompleteBlockStorage`. A sparse value may happen to store
@@ -420,9 +434,9 @@ Const access yields read-only block value semantics. Mutable access is
 available only from a mutable tensor.
 
 `BlockTensor` does not model dense `TensorView` or `MdspecLike`. Each returned
-block does. A host block may resolve immediately to an mdspan; CUDA and other
-deferred storage will return an mdspec carrying the appropriate data
-descriptor.
+block models `TensorView`, but not `MdspecLike`; its `.mdspec()` exposes the
+normalized dense descriptor. A host block's mdspec may already be an mdspan.
+CUDA and other deferred storage use descriptor-backed mdspec metadata.
 
 Canonical block ordinals are stable for the lifetime of the tensor because
 block structure is immutable. They are execution bindings, not logical block
@@ -468,7 +482,9 @@ stored contributing pairs and never materializes a whole-tensor dense bridge.
 different sparse output policy as the third template argument only when its
 blocks provide immediate host access through the default mdspan accessor. The
 current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
-satisfy this contract.
+satisfy this contract. `ParallelSeparateSparseBlockStorage` also satisfies it;
+that policy groups all contributions to one output block into one synchronous
+batch item and returns only after every output block is complete.
 
 When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
 front end retains the left input's async storage policy by default and returns
@@ -495,8 +511,9 @@ Storage controls physical layout, complete-versus-sparse guarantees, dense leaf
 storage, execution context, and placement. The planned controlled families are:
 
 - serial CPU storage with immediate host mdspans and reliable inline kernels;
-- parallel CPU storage with per-block async values and independently scheduled
-  dense operations;
+- parallel CPU storage with immediate blocks and synchronous scheduler batches
+  grouped by independently writable output;
+- per-block async storage for values that need independent epoch timelines;
 - CUDA storage with `CudaTensor` block data, CUDA mdspec lowering, and device
   completion tracked by the CUDA buffer ledger; and
 - `MpiBlockStorage<LocalStorage>`, with globally replicated logical placement
@@ -519,6 +536,7 @@ Numerical lowering follows:
 BlockTensor operation
     -> validated block worklist
     -> storage binding and placement records
+    -> block TensorViews carrying dense backend policy
     -> fixed block mdspec operands plus retained owner/epoch capabilities
     -> backend-domain leases
     -> mdspan dense kernels
@@ -592,7 +610,7 @@ subsequently mutate its block structure to truncate it.
 
 ## 14. Required Prototype Tests
 
-The implemented immediate tests cover both immediate sparse policies at tensor
+The implemented immediate tests cover all three immediate sparse policies at tensor
 orders zero through four. They exercise the tensor-unit scalar, rank-one identity-sector
 selection, `BlockSpace` block extents, `LocalSpace` coordinate-only states,
 coordinate-free charged `QNumSpace` factors, explicit dual spaces, MPS matrix
@@ -606,7 +624,9 @@ tests cover boundary types and labels, key resorting, dense strides, inverse
 permutations, and the tensor unit. Pairwise contraction tests cover both input
 storage policies, packed and separate output, dense matrix multiplication,
 cross-sector sparsity, repeated local-state accumulation into a rank-zero
-result, exact-space rejection, and planar external-boundary order.
+result, exact-space rejection, planar external-boundary order, and synchronous
+scheduler batching grouped by output block under both a recording debug
+scheduler and a TBB scheduler.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation

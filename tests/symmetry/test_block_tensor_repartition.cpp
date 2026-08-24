@@ -30,8 +30,8 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendResortsLogicalKeysWithoutMovingS
                 {second_source_key, first_source_key});
   tensor.block(first_source_key)[] = 10.0;
   tensor.block(second_source_key)[] = 20.0;
-  auto* const first_address = tensor.block(first_source_key).data_handle();
-  auto* const second_address = tensor.block(second_source_key).data_handle();
+  auto* const first_address = tensor.block(first_source_key).mdspan().data_handle();
+  auto* const second_address = tensor.block(second_source_key).mdspan().data_handle();
 
   auto bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(tensor);
   using Bent = decltype(bent);
@@ -47,8 +47,8 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendResortsLogicalKeysWithoutMovingS
   ASSERT_EQ(bent.stored_keys().size(), 2);
   EXPECT_EQ(bent.stored_keys()[0], first_bent_key);
   EXPECT_EQ(bent.stored_keys()[1], second_bent_key);
-  EXPECT_EQ(bent.block(first_bent_key).data_handle(), second_address);
-  EXPECT_EQ(bent.block(second_bent_key).data_handle(), first_address);
+  EXPECT_EQ(bent.block(first_bent_key).mdspan().data_handle(), second_address);
+  EXPECT_EQ(bent.block(second_bent_key).mdspan().data_handle(), first_address);
   EXPECT_DOUBLE_EQ(bent.block(first_bent_key)[], 20.0);
   EXPECT_DOUBLE_EQ(bent.block(second_bent_key)[], 10.0);
 
@@ -62,8 +62,8 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendResortsLogicalKeysWithoutMovingS
   EXPECT_EQ(restored.codomain(), tensor.codomain());
   EXPECT_EQ(restored.stored_keys()[0], first_source_key);
   EXPECT_EQ(restored.stored_keys()[1], second_source_key);
-  EXPECT_EQ(restored.block(first_source_key).data_handle(), first_address);
-  EXPECT_EQ(restored.block(second_source_key).data_handle(), second_address);
+  EXPECT_EQ(restored.block(first_source_key).mdspan().data_handle(), first_address);
+  EXPECT_EQ(restored.block(second_source_key).mdspan().data_handle(), second_address);
 }
 
 TYPED_TEST(BlockTensorRepartitionTest, RightBendPermutesDenseAxesThroughStridedView)
@@ -91,7 +91,7 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendPermutesDenseAxesThroughStridedV
   Key const bent_key{{0, 0, 0}};
   auto block = bent.block(bent_key);
   static_assert(decltype(block)::rank() == 2);
-  EXPECT_EQ(block.data_handle(), source.data_handle());
+  EXPECT_EQ(block.mdspan().data_handle(), source.mdspan().data_handle());
   EXPECT_EQ(block.extent(0), 3);
   EXPECT_EQ(block.extent(1), 2);
   EXPECT_EQ(block.stride(0), source.stride(1));
@@ -112,7 +112,7 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendPermutesDenseAxesThroughStridedV
 
   auto restored = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent);
   auto restored_block = restored.block(source_key);
-  EXPECT_EQ(restored_block.data_handle(), source.data_handle());
+  EXPECT_EQ(restored_block.mdspan().data_handle(), source.mdspan().data_handle());
   EXPECT_EQ(restored_block.extent(0), 2);
   EXPECT_EQ(restored_block.extent(1), 3);
   EXPECT_EQ(restored_block.stride(0), source.stride(0));
@@ -125,14 +125,14 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendPermutesDenseAxesThroughStridedV
   static_assert(std::same_as<typename decltype(const_block)::element_type, double const>);
   static_assert(!std::is_copy_assignable_v<decltype(const_bent)>);
   static_assert(!std::is_move_assignable_v<decltype(const_bent)>);
-  EXPECT_EQ(const_block.data_handle(), source.data_handle());
+  EXPECT_EQ(const_block.mdspan().data_handle(), source.mdspan().data_handle());
   auto const const_value = const_block[2, 1];
   EXPECT_DOUBLE_EQ(const_value, 42.0);
 
   auto const_restored = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(const_bent);
   auto const const_restored_block = const_restored.block(source_key);
   static_assert(std::same_as<typename decltype(const_restored_block)::element_type, double const>);
-  EXPECT_EQ(const_restored_block.data_handle(), source.data_handle());
+  EXPECT_EQ(const_restored_block.mdspan().data_handle(), source.mdspan().data_handle());
 }
 
 TYPED_TEST(BlockTensorRepartitionTest, ChargedCoordinatePermutationMatchesDualizedSelectionRule)
@@ -182,7 +182,7 @@ TYPED_TEST(BlockTensorRepartitionTest, LeftBendPermutesChargedDenseAxisWithoutMo
   auto bent = repartition<MorphismSide::Codomain, BoundaryEnd::Left>(tensor);
   auto block = bent.block(key);
   EXPECT_TRUE(bent.is_legal(key));
-  EXPECT_EQ(block.data_handle(), source.data_handle());
+  EXPECT_EQ(block.mdspan().data_handle(), source.mdspan().data_handle());
   EXPECT_EQ(block.extent(0), 3);
   EXPECT_EQ(block.extent(1), 2);
   EXPECT_EQ(block.stride(0), source.stride(1));
@@ -203,7 +203,7 @@ TYPED_TEST(BlockTensorRepartitionTest, LeftBendAndItsInversePreservePlanarFactor
   Key const source_key{{0, 1, 0}};
   Tensor tensor(sym, Domain{domain}, Codomain{moved, tail}, {source_key});
   tensor.block(source_key)[] = 5.0;
-  auto* const address = tensor.block(source_key).data_handle();
+  auto* const address = tensor.block(source_key).mdspan().data_handle();
 
   auto bent = repartition<MorphismSide::Codomain, BoundaryEnd::Left>(tensor);
   using BentDomainFirst = typename decltype(bent)::domain_type::template space_type<0>;
@@ -214,14 +214,14 @@ TYPED_TEST(BlockTensorRepartitionTest, LeftBendAndItsInversePreservePlanarFactor
 
   Key const bent_key{{1, 0, 0}};
   EXPECT_TRUE(bent.is_legal(bent_key));
-  EXPECT_EQ(bent.block(bent_key).data_handle(), address);
+  EXPECT_EQ(bent.block(bent_key).mdspan().data_handle(), address);
   EXPECT_DOUBLE_EQ(bent.block(bent_key)[], 5.0);
 
   auto restored = repartition<MorphismSide::Domain, BoundaryEnd::Left>(bent);
   EXPECT_EQ(restored.domain(), tensor.domain());
   EXPECT_EQ(restored.codomain(), tensor.codomain());
   EXPECT_EQ(restored.stored_keys()[0], source_key);
-  EXPECT_EQ(restored.block(source_key).data_handle(), address);
+  EXPECT_EQ(restored.block(source_key).mdspan().data_handle(), address);
 }
 
 TYPED_TEST(BlockTensorRepartitionTest, ChargedFixedIrrepBendUsesDualChargeWithoutAKeyCoordinate)

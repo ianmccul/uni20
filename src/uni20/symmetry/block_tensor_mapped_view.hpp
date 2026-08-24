@@ -142,8 +142,8 @@ template <class Tensor, auto FactorPermutation, bool DenseAxes> consteval auto m
 }
 
 template <std::size_t CoordinateCount>
-auto permute_key(BlockKey<CoordinateCount> const& source,
-                 std::array<std::size_t, CoordinateCount> const& permutation) -> BlockKey<CoordinateCount>
+auto permute_key(BlockKey<CoordinateCount> const& source, std::array<std::size_t, CoordinateCount> const& permutation)
+    -> BlockKey<CoordinateCount>
 {
   std::array<std::size_t, CoordinateCount> coordinates{};
   for (std::size_t axis = 0; axis < CoordinateCount; ++axis)
@@ -176,7 +176,8 @@ template <class Block> using strided_block_t = typename StridedBlock<Block>::typ
 
 template <MdspecLike Block, std::size_t DenseBlockOrder>
   requires(DenseBlockOrder == 0 || StridedMdspecLike<Block>)
-auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& permutation) -> strided_block_t<Block>
+auto permute_block_mdspec(Block block, std::array<std::size_t, DenseBlockOrder> const& permutation)
+    -> strided_block_t<Block>
 {
   using result_type = strided_block_t<Block>;
   using extents_type = typename result_type::extents_type;
@@ -204,6 +205,19 @@ auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& 
   }
 }
 
+template <TensorView Block, std::size_t DenseBlockOrder>
+  requires(DenseBlockOrder == tensor_mdspec_t<Block>::rank() && (DenseBlockOrder == 0 || StridedTensorView<Block>))
+auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& permutation)
+{
+  auto mutable_mdspec = permute_block_mdspec(mdspec_of(block), permutation);
+  auto const_mdspec = permute_block_mdspec(mdspec_of(std::as_const(block)), permutation);
+  using mutable_mdspec_type = decltype(mutable_mdspec);
+  using const_mdspec_type = decltype(const_mdspec);
+  using storage_policy = tensor_storage_policy_t<Block>;
+  return MdspecTensorView<mutable_mdspec_type, const_mdspec_type, storage_policy>{std::move(mutable_mdspec),
+                                                                                  std::move(const_mdspec)};
+}
+
 /// \brief Shared implementation of a zero-copy BlockTensor metadata and axis view.
 /// \details The transformed boundary and permutations must describe a bijection
 ///          of the source factors. Replacing or structurally modifying the
@@ -225,8 +239,10 @@ class BlockTensorMappedView {
         decltype(std::declval<SourceTensor&>().block(std::declval<key_type const&>()));
     using source_const_access_block_type =
         decltype(std::declval<SourceTensor const&>().block(std::declval<key_type const&>()));
-    using mutable_block_type = strided_block_t<source_mutable_access_block_type>;
-    using const_block_type = strided_block_t<source_const_access_block_type>;
+    using mutable_block_type = decltype(permute_block(std::declval<source_mutable_access_block_type>(),
+                                                      std::declval<decltype(DensePermutation) const&>()));
+    using const_block_type = decltype(permute_block(std::declval<source_const_access_block_type>(),
+                                                    std::declval<decltype(DensePermutation) const&>()));
 
     static constexpr std::size_t static_order = source_tensor_type::order();
     static constexpr std::size_t static_key_coordinate_count = source_tensor_type::key_coordinate_count();

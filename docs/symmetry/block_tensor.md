@@ -95,10 +95,10 @@ closed `Host`/`Device` switch) without losing the `AGENTS.md` §3.5 /
 
 ## 2. Two-level model and the buffer foundation
 
-- **Dense block (leaf).** A lightweight `mdspan` (`stdex::`) with `layout_stride`
-  over dense storage that lives on exactly one device. A block never spans devices
-  (no intra-block slicing across devices). It is mostly C++ detail — extents,
-  strides, accessor/memory-space policy.
+- **Dense block (leaf).** A lightweight `TensorView` whose mdspec records
+  extents, mapping, accessor semantics, and immediate or deferred data identity.
+  A block never spans devices (no intra-block slicing across devices). The
+  selected backend acquires the execution-domain lease and resolves an mdspan.
 - **Block-sparse container (`BlockTensor`).** A structured collection of block
   *views* plus the symmetry metadata (which sectors exist) and the layout (where
   each block lives, how it is stored, and its coupling factor). The container is the
@@ -117,9 +117,10 @@ job — an async-capable policy frees a device buffer only after the event signa
 the buffer is no longer in use, and then frees asynchronously.
 
 `BlockTensor` sits directly on the buffer-with-subviews foundation, not on the
-user-facing dense `Tensor` owner or its Tensor-view concepts. Dense `Tensor` is
-a sibling owner over the same buffer kind, not the thing the container is made
-of.
+user-facing dense `Tensor` owner. Block access materializes a TensorView over a
+storage record so ordinary dense dispatch can retain leaf backend policy until
+mdspec normalization. Dense `Tensor` is a sibling owner over the same buffer
+kind, not a required part of the container representation.
 
 ## 3. Morphism boundary and space kinds
 
@@ -437,14 +438,24 @@ The first synchronous host `contract<left_axis, right_axis>` path implements
 one adjacent pair: the rightmost codomain factor of the left operand and the
 leftmost domain factor of the right operand. It requires exact space equality,
 matches logical sector or local-state coordinates, constructs only sparse
-result blocks with stored contributions, and invokes the strided reference
-kernel for each dense block product. `BlockSpace` contracts one degeneracy
+result blocks with stored contributions, and invokes ordinary dense kernel
+dispatch for each dense block product. The returned block
+TensorViews retain leaf backend selection until fixed operands are normalized
+to mdspecs at the ordinary dense operation boundary. `BlockSpace` contracts one degeneracy
 axis; coordinate-only spaces produce an outer product or scalar accumulation
-without stored dimension-one axes. This overload requires immediate host blocks
-with the default mdspan accessor; deferred, device-only, or semantic-accessor
-storage belongs on the future backend-dispatched path.
+without stored dimension-one axes. This first BlockTensor overload requires
+immediate host blocks with the default mdspan accessor even though the dense
+operation itself uses normal backend dispatch.
 
-The first parallel CPU lowering uses `AsyncSeparateSparseBlockStorage`. The
+`ParallelSeparateSparseBlockStorage` is the first lightweight parallel CPU
+policy. It uses the same immediate dense blocks as separate serial storage, but
+groups every contribution to one result block into one synchronous scheduler
+batch item. Distinct result blocks may execute concurrently; accumulation
+within a block remains ordered. Batch items usually invoke immediate dense
+operations and do not create coroutine frames. Nested scheduling and
+`get_wait()` remain supported for composability but are not the normal lowering.
+
+The first per-block async lowering uses `AsyncSeparateSparseBlockStorage`. The
 planner still produces a symmetry-keyed logical worklist, then storage lowering
 binds each item to stable input and output ordinals. Rank-two dense blocks lower
 through the existing async matrix-product dispatch. Distinct output blocks have

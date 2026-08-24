@@ -43,7 +43,7 @@ TYPED_TEST(BlockTensorPermutationTest, PermutesBoundaryTypesLabelsAndDenseAxesWi
   EXPECT_TRUE(view.is_legal(key));
 
   auto block = view.block(key);
-  EXPECT_EQ(block.data_handle(), source.data_handle());
+  EXPECT_EQ(block.mdspan().data_handle(), source.mdspan().data_handle());
   EXPECT_EQ(block.extent(0), 3);
   EXPECT_EQ(block.extent(1), 2);
   EXPECT_EQ(block.stride(0), source.stride(1));
@@ -55,7 +55,7 @@ TYPED_TEST(BlockTensorPermutationTest, PermutesBoundaryTypesLabelsAndDenseAxesWi
   static_assert(std::same_as<typename decltype(restored)::codomain_type, typename Tensor::codomain_type>);
   EXPECT_EQ(restored.domain(), tensor.domain());
   EXPECT_EQ(restored.codomain(), tensor.codomain());
-  EXPECT_EQ(restored.block(key).data_handle(), source.data_handle());
+  EXPECT_EQ(restored.block(key).mdspan().data_handle(), source.mdspan().data_handle());
 }
 
 TYPED_TEST(BlockTensorPermutationTest, ResortsLogicalKeysWhileKeepingPhysicalBindings)
@@ -75,8 +75,8 @@ TYPED_TEST(BlockTensorPermutationTest, ResortsLogicalKeysWhileKeepingPhysicalBin
                 {first_source, second_source});
   tensor.block(first_source)[] = 10.0;
   tensor.block(second_source)[] = 20.0;
-  auto* const first_address = tensor.block(first_source).data_handle();
-  auto* const second_address = tensor.block(second_source).data_handle();
+  auto* const first_address = tensor.block(first_source).mdspan().data_handle();
+  auto* const second_address = tensor.block(second_source).mdspan().data_handle();
 
   auto view = permute<1, 0, 3, 2>(tensor);
   Key const first_view{{0, 0, 0, 1}};
@@ -84,8 +84,8 @@ TYPED_TEST(BlockTensorPermutationTest, ResortsLogicalKeysWhileKeepingPhysicalBin
   ASSERT_EQ(view.stored_keys().size(), 2);
   EXPECT_EQ(view.stored_keys()[0], first_view);
   EXPECT_EQ(view.stored_keys()[1], second_view);
-  EXPECT_EQ(view.block(first_view).data_handle(), first_address);
-  EXPECT_EQ(view.block(second_view).data_handle(), second_address);
+  EXPECT_EQ(view.block(first_view).mdspan().data_handle(), first_address);
+  EXPECT_EQ(view.block(second_view).mdspan().data_handle(), second_address);
   EXPECT_DOUBLE_EQ(view.block(first_view)[], 10.0);
   EXPECT_DOUBLE_EQ(view.block(second_view)[], 20.0);
 }
@@ -102,7 +102,7 @@ TYPED_TEST(BlockTensorPermutationTest, TensorUnitPermutationIsIdentityView)
   static_assert(decltype(view)::order() == 0);
   EXPECT_EQ(view.domain(), tensor.domain());
   EXPECT_EQ(view.codomain(), tensor.codomain());
-  EXPECT_EQ(view.block(Key{}).data_handle(), tensor.block(Key{}).data_handle());
+  EXPECT_EQ(view.block(Key{}).mdspan().data_handle(), tensor.block(Key{}).mdspan().data_handle());
   EXPECT_DOUBLE_EQ(view.block(Key{})[], 3.0);
 }
 
@@ -120,7 +120,7 @@ TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFa
   Key const source_key{{0, 1, 0, 0}};
   Tensor tensor(sym, Domain{left, moved, right}, Codomain{output}, {source_key});
   tensor.block(source_key)[] = 6.0;
-  auto* const address = tensor.block(source_key).data_handle();
+  auto* const address = tensor.block(source_key).mdspan().data_handle();
 
   auto edge = permute<0, 2, 1, 3>(tensor);
   auto bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(edge);
@@ -132,13 +132,13 @@ TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFa
   EXPECT_EQ(bent.domain().template space<1>().label(), "right");
   EXPECT_EQ(bent.codomain().template space<0>().label(), "output");
   EXPECT_EQ(bent.codomain().template space<1>().label(), "moved");
-  EXPECT_EQ(bent.block(bent_key).data_handle(), address);
+  EXPECT_EQ(bent.block(bent_key).mdspan().data_handle(), address);
 
   auto unbent = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent);
   auto restored = permute<0, 2, 1, 3>(unbent);
   EXPECT_EQ(restored.domain(), tensor.domain());
   EXPECT_EQ(restored.codomain(), tensor.codomain());
-  EXPECT_EQ(restored.block(source_key).data_handle(), address);
+  EXPECT_EQ(restored.block(source_key).mdspan().data_handle(), address);
 }
 
 TEST(BlockTensorPermutationTest, AsyncMdspecPermutationPreservesEpochIdentityAndPermutesMapping)
@@ -155,13 +155,13 @@ TEST(BlockTensorPermutationTest, AsyncMdspecPermutationPreservesEpochIdentityAnd
 
   auto view = permute<1, 0>(tensor);
   auto block = view.block(key);
-  static_assert(MutableRankedMdspecLike<decltype(block), 2>);
-  static_assert(!MdspanLike<decltype(block)>);
+  static_assert(MutableRankedTensorView<decltype(block), 2>);
+  static_assert(!ImmediateTensorView<decltype(block)>);
   EXPECT_EQ(block.extent(0), 3);
   EXPECT_EQ(block.extent(1), 2);
   EXPECT_EQ(block.stride(0), source.stride(1));
   EXPECT_EQ(block.stride(1), source.stride(0));
-  EXPECT_EQ(&block.data_descriptor().async_block(), &tensor.async_block(key));
+  EXPECT_EQ(&mdspec_of(block).data_descriptor().async_block(), &tensor.async_block(key));
 }
 
 TEST(BlockTensorPermutationTest, AsyncRankZeroPermutationPreservesScalarEpochIdentity)
@@ -173,7 +173,7 @@ TEST(BlockTensorPermutationTest, AsyncRankZeroPermutationPreservesScalarEpochIde
 
   auto view = permute<>(tensor);
   auto block = view.block(key);
-  static_assert(MutableRankedMdspecLike<decltype(block), 0>);
-  static_assert(!MdspanLike<decltype(block)>);
-  EXPECT_EQ(&block.data_descriptor().async_block(), &tensor.async_block(key));
+  static_assert(MutableRankedTensorView<decltype(block), 0>);
+  static_assert(!ImmediateTensorView<decltype(block)>);
+  EXPECT_EQ(&mdspec_of(block).data_descriptor().async_block(), &tensor.async_block(key));
 }

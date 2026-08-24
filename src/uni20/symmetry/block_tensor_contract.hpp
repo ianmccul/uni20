@@ -6,8 +6,9 @@
 
 #pragma once
 
-#include <uni20/kernel/contract.hpp>
+#include <uni20/async/debug_scheduler.hpp>
 #include <uni20/linalg/async.hpp>
+#include <uni20/linalg/ops/contract.hpp>
 #include <uni20/symmetry/block_tensor_mapped_view.hpp>
 
 #include <algorithm>
@@ -45,7 +46,8 @@ using pairwise_const_block_t = decltype(std::declval<std::remove_reference_t<Ten
 
 template <class Block>
 concept HostReferenceReadableBlock =
-    DefaultAccessorMdspanLike<Block> && (std::remove_cvref_t<Block>::rank() == 0 || StridedMdspanLike<Block>);
+    ImmediateTensorView<Block> && DefaultAccessorMdspanLike<immediate_tensor_mdspan_t<Block>> &&
+    (tensor_mdspec_t<Block>::rank() == 0 || StridedImmediateTensorView<Block>);
 
 template <class Tensor>
 concept HostReferenceContractionSource =
@@ -127,7 +129,8 @@ concept HostReferenceContractionOutput =
         OutputStorage, typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::value_type,
         PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::key_count,
         PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::dense_order> &&
-    MutableMdspanLike<typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::block_type> &&
+    MutableImmediateTensorView<
+        typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::block_type> &&
     HostReferenceReadableBlock<
         typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor>::block_type>;
 
@@ -172,8 +175,8 @@ template <class Traits> struct PairwiseContractionWorkItem
 };
 
 template <class Traits, class LeftTensor, class RightTensor>
-auto make_pairwise_contraction_worklist(LeftTensor const& left,
-                                        RightTensor const& right) -> std::vector<PairwiseContractionWorkItem<Traits>>
+auto make_pairwise_contraction_worklist(LeftTensor const& left, RightTensor const& right)
+    -> std::vector<PairwiseContractionWorkItem<Traits>>
 {
   std::vector<PairwiseContractionWorkItem<Traits>> worklist;
   for (auto const& left_key : left.stored_keys())
@@ -197,6 +200,18 @@ template <class Traits> struct LocalPairwiseContractionBinding
     std::size_t result_ordinal;
     bool initializes_result;
 };
+
+template <class Function> void execute_block_batch(SerialBlockExecution, std::size_t size, Function&& function)
+{
+  // Serial storage deliberately executes inline without requiring an active scheduler.
+  for (std::size_t index = 0; index < size; ++index)
+    function(index);
+}
+
+template <class Function> void execute_block_batch(SchedulerBatchBlockExecution, std::size_t size, Function&& function)
+{
+  async::execute_batch(size, std::forward<Function>(function));
+}
 
 template <class Key> auto stored_key_ordinal(std::span<Key const> keys, Key const& key) -> std::size_t
 {
@@ -355,31 +370,50 @@ auto contract(LeftTensor const& left, RightTensor const& right)
   using result_type =
       BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
   result_type result(left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
-  auto const bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
+  auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
+  std::ranges::stable_sort(bindings, {}, &detail::LocalPairwiseContractionBinding<traits>::result_ordinal);
+  std::vector<std::size_t> group_offsets;
+  group_offsets.reserve(result.stored_block_count() + 1);
+  group_offsets.push_back(0);
+  for (std::size_t index = 1; index < bindings.size(); ++index)
+  {
+    if (bindings[index - 1].result_ordinal != bindings[index].result_ordinal) group_offsets.push_back(index);
+  }
+  if (!bindings.empty()) group_offsets.push_back(bindings.size());
   constexpr auto output_permutation = detail::make_pairwise_output_dense_permutation<traits>();
 
-  for (auto const& binding : bindings)
-  {
-    auto output_block = detail::permute_block(result.block_by_ordinal(binding.result_ordinal), output_permutation);
+  auto execute_group = [&](std::size_t group) {
+    std::size_t const first = group_offsets[group];
+    std::size_t const last = group_offsets[group + 1];
+    auto output_block =
+        detail::permute_block(result.block_by_ordinal(bindings[first].result_ordinal), output_permutation);
     constexpr auto left_identity = detail::make_identity_axis_permutation<left_type::dense_block_order()>();
     constexpr auto right_identity = detail::make_identity_axis_permutation<right_type::dense_block_order()>();
-    auto const left_block =
-        detail::permute_block(std::as_const(left).block_by_ordinal(binding.left_ordinal), left_identity);
-    auto const right_block =
-        detail::permute_block(std::as_const(right).block_by_ordinal(binding.right_ordinal), right_identity);
-    value_type const beta = binding.initializes_result ? value_type{0} : value_type{1};
-    if constexpr (traits::contracted_has_dense_axis)
+
+    for (std::size_t index = first; index < last; ++index)
     {
-      constexpr std::array<std::pair<std::size_t, std::size_t>, 1> dimensions{
-          std::pair{left_type::dense_block_order() - 1, std::size_t{0}}};
-      kernel::contract(value_type{1}, left_block, right_block, dimensions, beta, output_block);
+      auto const& binding = bindings[index];
+      auto const left_block =
+          detail::permute_block(std::as_const(left).block_by_ordinal(binding.left_ordinal), left_identity);
+      auto const right_block =
+          detail::permute_block(std::as_const(right).block_by_ordinal(binding.right_ordinal), right_identity);
+      // The output block is new, so the first contribution initializes it regardless of worklist ordering.
+      value_type const beta = index == first ? value_type{0} : value_type{1};
+      if constexpr (traits::contracted_has_dense_axis)
+      {
+        constexpr std::array<std::pair<std::size_t, std::size_t>, 1> dimensions{
+            std::pair{left_type::dense_block_order() - 1, std::size_t{0}}};
+        linalg::contract(output_block, value_type{1}, left_block, right_block, dimensions, beta);
+      }
+      else
+      {
+        constexpr std::array<std::pair<std::size_t, std::size_t>, 0> dimensions{};
+        linalg::contract(output_block, value_type{1}, left_block, right_block, dimensions, beta);
+      }
     }
-    else
-    {
-      constexpr std::array<std::pair<std::size_t, std::size_t>, 0> dimensions{};
-      kernel::contract(value_type{1}, left_block, right_block, dimensions, beta, output_block);
-    }
-  }
+  };
+  detail::execute_block_batch(typename selected_output_storage::block_execution_policy{}, group_offsets.size() - 1,
+                              execute_group);
   return result;
 }
 

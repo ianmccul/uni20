@@ -11,6 +11,7 @@
 #include <uni20/mdspan/mdspec.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/symmetry/block_key.hpp>
+#include <uni20/tensor/mdspec_tensor_view.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <algorithm>
@@ -27,12 +28,21 @@
 namespace uni20
 {
 
+/// \brief Execute block-level work serially on the calling thread.
+struct SerialBlockExecution
+{};
+
+/// \brief Execute independent block-level work through the active scheduler's synchronous batch interface.
+struct SchedulerBatchBlockExecution
+{};
+
 /// \brief Storage policy for a BlockTensor container.
 /// \tparam Storage Candidate policy type.
 template <class Storage>
 concept BlockTensorStorage = requires {
   typename Storage::leaf_storage_policy;
   typename Storage::backend_selector_type;
+  typename Storage::block_execution_policy;
   { Storage::stores_all_legal_blocks } -> std::convertible_to<bool>;
   { Storage::is_distributed } -> std::convertible_to<bool>;
   { Storage::backend_selector() } -> std::same_as<typename Storage::backend_selector_type>;
@@ -71,19 +81,19 @@ concept BlockTensorStorageFor =
         const_storage.block(std::size_t{}, extents)
       } -> std::same_as<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type>;
     } &&
-    MutableRankedMdspecLike<
+    MutableRankedTensorView<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type,
         DenseBlockOrder> &&
-    RankedMdspecLike<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
+    RankedTensorView<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
                      DenseBlockOrder> &&
-    std::same_as<
-        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type::element_type,
-        T> &&
-    std::same_as<
-        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type::element_type,
-        T const>;
+    std::same_as<tensor_element_t<
+                     typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type>,
+                 T> &&
+    std::same_as<typename tensor_mdspec_t<typename Storage::template storage_t<
+                     T, KeyCoordinateCount, DenseBlockOrder>::const_block_type>::element_type,
+                 T const>;
 
-/// \brief Local BlockTensor storage whose block descriptors are immediate mdspans.
+/// \brief Local BlockTensor storage whose block TensorViews are immediately accessible.
 /// \tparam Storage Candidate block storage policy.
 /// \tparam T Numerical block element type.
 /// \tparam KeyCoordinateCount Number of stored block-selection coordinates.
@@ -91,11 +101,12 @@ concept BlockTensorStorageFor =
 template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
 concept ImmediateLocalBlockStorageFor =
     BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed &&
-    MutableRankedMdspanLike<
+    MutableRankedImmediateTensorView<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type,
         DenseBlockOrder> &&
-    RankedMdspanLike<typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
-                     DenseBlockOrder>;
+    RankedImmediateTensorView<
+        typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::const_block_type,
+        DenseBlockOrder>;
 
 /// \brief Local BlockTensor storage with one independently scheduled async value per block.
 /// \tparam Storage Candidate block storage policy.
@@ -116,7 +127,7 @@ concept AsyncLocalBlockStorageFor =
       {
         const_storage.async_block(std::size_t{})
       } -> std::same_as<
-            typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type const&>;
+          typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type const&>;
     } &&
     std::same_as<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type,
@@ -200,8 +211,10 @@ class SeparateSparseBlockStorageData {
   public:
     using key_type = BlockKey<KeyCoordinateCount>;
     using block_type = ColumnMajorTensor<T, DenseBlockOrder, LeafStorage>;
-    using mutable_block_type = typename block_type::mdspan_type;
-    using const_block_type = typename block_type::const_mdspan_type;
+    using mutable_mdspan_type = typename block_type::mdspan_type;
+    using const_mdspan_type = typename block_type::const_mdspan_type;
+    using mutable_block_type = MdspecTensorView<mutable_mdspan_type, const_mdspan_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspan_type, const_mdspan_type, LeafStorage>;
 
     static_assert(block_type::immediately_readable && block_type::immediately_writable,
                   "separate sparse block storage currently requires immediate leaf access");
@@ -223,12 +236,13 @@ class SeparateSparseBlockStorageData {
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const&) -> mutable_block_type
     {
-      return blocks_[ordinal].mdspan();
+      return mutable_block_type{blocks_[ordinal].mdspan(), std::as_const(blocks_[ordinal]).mdspan()};
     }
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const&) const -> const_block_type
     {
-      return blocks_[ordinal].mdspan();
+      auto span = blocks_[ordinal].mdspan();
+      return const_block_type{span, span};
     }
 
   private:
@@ -245,8 +259,10 @@ class PackedSparseBlockStorageData {
     using mapping_type = typename ColumnMajor::template mapping<extents_type>;
     using accessor_type = stdex::default_accessor<T>;
     using const_accessor_type = stdex::default_accessor<T const>;
-    using mutable_block_type = stdex::mdspan<T, extents_type, ColumnMajor, accessor_type>;
-    using const_block_type = stdex::mdspan<T const, extents_type, ColumnMajor, const_accessor_type>;
+    using mutable_mdspan_type = stdex::mdspan<T, extents_type, ColumnMajor, accessor_type>;
+    using const_mdspan_type = stdex::mdspan<T const, extents_type, ColumnMajor, const_accessor_type>;
+    using mutable_block_type = MdspecTensorView<mutable_mdspan_type, const_mdspan_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspan_type, const_mdspan_type, LeafStorage>;
 
     static_assert(std::same_as<detail::tensor_accessor_factory_t<LeafStorage>, DefaultAccessorFactory>,
                   "packed sparse block storage currently requires default-accessor leaf storage");
@@ -267,15 +283,19 @@ class PackedSparseBlockStorageData {
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
     {
       auto const block_extents = make_extents<extents_type>(extents);
-      auto const handle = accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
-      return mutable_block_type(handle, mapping_type(block_extents));
+      auto const mutable_handle = accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
+      auto const const_handle =
+          const_accessor_type{}.offset(LeafStorage::make_handle(std::as_const(buffer_)), offsets_[ordinal]);
+      return mutable_block_type{mutable_mdspan_type{mutable_handle, mapping_type(block_extents)},
+                                const_mdspan_type{const_handle, mapping_type(block_extents)}};
     }
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
     {
       auto const block_extents = make_extents<extents_type>(extents);
       auto const handle = const_accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
-      return const_block_type(handle, mapping_type(block_extents));
+      auto span = const_mdspan_type{handle, mapping_type(block_extents)};
+      return const_block_type{span, span};
     }
 
     auto buffer() noexcept -> buffer_type& { return buffer_; }
@@ -348,8 +368,10 @@ class AsyncSeparateSparseBlockStorageData {
     using const_accessor_type = stdex::default_accessor<T const>;
     using mutable_descriptor_type = AsyncBlockDataDescriptor<async_block_type>;
     using const_descriptor_type = AsyncBlockDataDescriptor<async_block_type const>;
-    using mutable_block_type = mdspec<T, extents_type, ColumnMajor, accessor_type, mutable_descriptor_type>;
-    using const_block_type = mdspec<T const, extents_type, ColumnMajor, const_accessor_type, const_descriptor_type>;
+    using mutable_mdspec_type = mdspec<T, extents_type, ColumnMajor, accessor_type, mutable_descriptor_type>;
+    using const_mdspec_type = mdspec<T const, extents_type, ColumnMajor, const_accessor_type, const_descriptor_type>;
+    using mutable_block_type = MdspecTensorView<mutable_mdspec_type, const_mdspec_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspec_type, const_mdspec_type, LeafStorage>;
 
     static_assert(block_value_type::immediately_readable && block_value_type::immediately_writable,
                   "async separate sparse block storage currently requires immediate leaf access");
@@ -373,14 +395,17 @@ class AsyncSeparateSparseBlockStorageData {
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
     {
-      return mutable_block_type(mutable_descriptor_type{blocks_[ordinal]},
-                                mapping_type(make_extents<extents_type>(extents)), accessor_type{});
+      auto mapping = mapping_type(make_extents<extents_type>(extents));
+      return mutable_block_type{
+          mutable_mdspec_type{mutable_descriptor_type{blocks_[ordinal]}, mapping, accessor_type{}},
+          const_mdspec_type{const_descriptor_type{std::as_const(blocks_[ordinal])}, mapping, const_accessor_type{}}};
     }
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
     {
-      return const_block_type(const_descriptor_type{blocks_[ordinal]},
-                              mapping_type(make_extents<extents_type>(extents)), const_accessor_type{});
+      auto span = const_mdspec_type{const_descriptor_type{blocks_[ordinal]},
+                                    mapping_type(make_extents<extents_type>(extents)), const_accessor_type{}};
+      return const_block_type{span, span};
     }
 
     auto async_block(std::size_t ordinal) noexcept -> async_block_type& { return blocks_[ordinal]; }
@@ -399,6 +424,30 @@ template <class LeafStorage = VectorStorage> struct SeparateSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SerialBlockExecution;
+    static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::SeparateSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
+/// \brief Sparse storage whose separate dense blocks may be processed in a scheduler batch.
+/// \details Algorithms must place all writes to one logical output block in the
+///          same batch item. The batch call is synchronous, so the BlockTensor
+///          remains an ordinary immediate value after the operation returns.
+/// \tparam LeafStorage Tensor storage policy used by each dense block.
+template <class LeafStorage = VectorStorage> struct ParallelSeparateSparseBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SchedulerBatchBlockExecution;
     static constexpr bool stores_all_legal_blocks = false;
     static constexpr bool is_distributed = false;
 
@@ -418,6 +467,7 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SerialBlockExecution;
     static constexpr bool stores_all_legal_blocks = false;
     static constexpr bool is_distributed = false;
 
@@ -431,13 +481,15 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
 };
 
 /// \brief Sparse storage with one independently scheduled dense Tensor per block.
-/// \details `block()` returns borrowed mdspec metadata. `async_block()` exposes
-///          the retained async value used to create read and write capabilities.
+/// \details `block()` returns a TensorView over borrowed mdspec metadata.
+///          `async_block()` exposes the retained async value used to create read
+///          and write capabilities.
 /// \tparam LeafStorage Immediate host Tensor storage policy used by each block.
 template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SerialBlockExecution;
     static constexpr bool stores_all_legal_blocks = false;
     static constexpr bool is_distributed = false;
 
@@ -452,13 +504,16 @@ template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStor
 };
 
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
+static_assert(SparseBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
+static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);

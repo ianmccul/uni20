@@ -100,8 +100,8 @@ template <class Boundary, class Function> void for_each_boundary_space(Boundary 
 }
 
 template <std::size_t KeyCoordinateCount, class DomainType, class CodomainType>
-auto boundary_factor_sizes(DomainType const& domain,
-                           CodomainType const& codomain) -> std::array<std::size_t, KeyCoordinateCount>
+auto boundary_factor_sizes(DomainType const& domain, CodomainType const& codomain)
+    -> std::array<std::size_t, KeyCoordinateCount>
 {
   std::array<std::size_t, KeyCoordinateCount> sizes{};
   std::size_t key_axis = 0;
@@ -285,9 +285,9 @@ class BlockTensor {
       return *found;
     }
 
-    /// \brief Return a writable block descriptor by stable canonical ordinal.
+    /// \brief Return a writable block TensorView by stable canonical ordinal.
     /// \param ordinal Position in `stored_keys()`.
-    /// \return Immediate mdspan or deferred mdspec selected by storage.
+    /// \return TensorView whose mdspec is selected by storage.
     /// \throws std::out_of_range If \p ordinal is not a stored-block position.
     auto block_by_ordinal(std::size_t ordinal) -> mutable_block_type
     {
@@ -296,9 +296,9 @@ class BlockTensor {
       return storage_.block(ordinal, this->block_extents(key));
     }
 
-    /// \brief Return a read-only block descriptor by stable canonical ordinal.
+    /// \brief Return a read-only block TensorView by stable canonical ordinal.
     /// \param ordinal Position in `stored_keys()`.
-    /// \return Immediate mdspan or deferred mdspec selected by storage.
+    /// \return TensorView whose mdspec is selected by storage.
     /// \throws std::out_of_range If \p ordinal is not a stored-block position.
     auto block_by_ordinal(std::size_t ordinal) const -> const_block_type
     {

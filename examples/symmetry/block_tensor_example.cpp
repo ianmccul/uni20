@@ -70,9 +70,9 @@ int main()
   auto const permuted_mps_block = permuted_mps.block(MpsSite::key_type{{1, 1, 2}});
   auto const bent_mps_block = bent_mps.block(MpsSite::key_type{{1, 2, 1}});
   std::cout << "permuted MPS reuses payload: " << std::boolalpha
-            << (source_mps_block.data_handle() == permuted_mps_block.data_handle()) << '\n';
+            << (source_mps_block.mdspan().data_handle() == permuted_mps_block.mdspan().data_handle()) << '\n';
   std::cout << "bent MPS reuses payload: " << std::boolalpha
-            << (source_mps_block.data_handle() == bent_mps_block.data_handle()) << '\n';
+            << (source_mps_block.mdspan().data_handle() == bent_mps_block.mdspan().data_handle()) << '\n';
   using SeparateScalarBlock = ColumnMajorTensor<MpoSite::element_type, 0, VectorStorage>;
   std::cout << "rank-zero block ABI bytes: payload=" << sizeof(MpoSite::element_type)
             << ", separate-owner-object=" << sizeof(SeparateScalarBlock)

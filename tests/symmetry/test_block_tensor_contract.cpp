@@ -9,11 +9,27 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 using namespace uni20;
 
 namespace
 {
+class RecordingBatchScheduler : public async::DebugScheduler {
+  public:
+    std::size_t batch_calls = 0;
+    std::vector<std::size_t> batch_sizes;
+
+  private:
+    void execute_batch_impl(async::LightweightTaskBatch const& batch) override
+    {
+      ++batch_calls;
+      batch_sizes.push_back(batch.size());
+      for (std::size_t index = 0; index < batch.size(); ++index)
+        batch(index);
+    }
+};
+
 template <class T> async::AsyncTask publish_block(async::WriteBuffer<T> output, T value)
 {
   co_await output = std::move(value);
@@ -279,6 +295,48 @@ TEST(BlockTensorContractionTest, SupportsComplexRankZeroAccumulation)
 
   auto result = contract<0, 0>(left, right);
   EXPECT_EQ(result.block(typename decltype(result)::key_type{})[], (Scalar{7.0, 14.0}));
+}
+
+TEST(BlockTensorContractionTest, ParallelSeparateStorageBatchesByOutputBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  LocalSpace const bond(sym, {q0, q0, q1, q1}, "bond");
+  using InputStorage = SeparateSparseBlockStorage<>;
+  using OutputStorage = ParallelSeparateSparseBlockStorage<>;
+  using Left = BlockTensor<double, Domain<BlockSpace>, Codomain<LocalSpace>, InputStorage>;
+  using Right = BlockTensor<double, Domain<LocalSpace>, Codomain<BlockSpace>, InputStorage>;
+  typename Left::key_type const key00{{0, 0}};
+  typename Left::key_type const key01{{0, 1}};
+  typename Left::key_type const key12{{1, 2}};
+  typename Left::key_type const key13{{1, 3}};
+  typename Right::key_type const right_key00{{0, 0}};
+  typename Right::key_type const right_key10{{1, 0}};
+  typename Right::key_type const right_key21{{2, 1}};
+  typename Right::key_type const right_key31{{3, 1}};
+  Left left(sym, Domain{external}, Codomain{bond}, {key00, key01, key12, key13});
+  Right right(sym, Domain{bond}, Codomain{external}, {right_key00, right_key10, right_key21, right_key31});
+
+  left.block(key00)[0] = 2.0;
+  left.block(key01)[0] = 3.0;
+  left.block(key12)[0] = 5.0;
+  left.block(key13)[0] = 7.0;
+  right.block(right_key00)[0] = 11.0;
+  right.block(right_key10)[0] = 13.0;
+  right.block(right_key21)[0] = 17.0;
+  right.block(right_key31)[0] = 19.0;
+
+  RecordingBatchScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  auto result = contract<1, 0, OutputStorage>(left, right);
+  static_assert(std::same_as<typename decltype(result)::storage_policy, OutputStorage>);
+
+  EXPECT_EQ(scheduler.batch_calls, 1);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{2}));
+  EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{0, 0}})[0, 0]), 61.0);
+  EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{1, 1}})[0, 0]), 218.0);
 }
 
 TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBlock)

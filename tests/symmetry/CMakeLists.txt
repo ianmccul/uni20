@@ -9,3 +9,8 @@ add_test_module(symmetry
           test_dual_space.cpp
   LIBS uni20_common uni20_core uni20_symmetry
 )
+
+add_test_module(symmetry_tbb
+  SOURCES test_block_tensor_tbb.cpp
+  LIBS uni20_common uni20_core uni20_symmetry TBB::tbb
+)
