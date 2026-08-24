@@ -13,7 +13,6 @@
 #include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
-#include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
@@ -21,22 +20,44 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
 namespace uni20::linalg
 {
 
-/// \brief Install direct and looped GEMM contraction before the host reference fallback.
-template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank>
-struct backend_selector_default<contract_op<LhsRank, RhsRank, ContractedRank>, uni20::VectorStorage>
+namespace detail
+{
+
+template <KernelBackendSelector ExecutionSelector>
+[[nodiscard]] auto make_contraction_backend_selector(ExecutionSelector execution_selector)
+{
+  auto direct_selector = execution_selector;
+  auto looped_selector = execution_selector;
+  auto fallback_selector = normalize_backend_selector(std::move(execution_selector));
+  return std::apply(
+      [&]<class... FallbackBackends>(FallbackBackends&&... fallback_backends) {
+        return backend_list{DirectGemmContractionBackend{std::move(direct_selector)},
+                            LoopedGemmContractionBackend{std::move(looped_selector)},
+                            std::forward<FallbackBackends>(fallback_backends)...};
+      },
+      std::move(fallback_selector.entries));
+}
+
+} // namespace detail
+
+/// \brief Install GEMM contraction strategies around a storage execution selector.
+/// \details Direct and looped contraction retain the supplied selector for
+///          nested `gemm_op` dispatch. Its original entries follow as outer
+///          fallbacks when they implement `contract_op` directly.
+template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank, class StoragePolicy>
+struct backend_selector_default<contract_op<LhsRank, RhsRank, ContractedRank>, StoragePolicy>
 {
     template <class StorageSelector>
     static auto select(contract_op<LhsRank, RhsRank, ContractedRank> const&, StorageSelector storage_selector)
     {
-      auto looped_selector = storage_selector;
-      return backend_list{DirectGemmContractionBackend{std::move(storage_selector)},
-                          LoopedGemmContractionBackend{std::move(looped_selector)}, CpuReferenceBackend{}};
+      return detail::make_contraction_backend_selector(std::move(storage_selector));
     }
 };
 

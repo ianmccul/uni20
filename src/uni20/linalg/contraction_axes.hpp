@@ -86,7 +86,7 @@ template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank>
 [[nodiscard]] auto make_contraction_axes(std::array<std::pair<std::size_t, std::size_t>, ContractedRank> requested_axes)
     -> ContractionAxes<LhsRank, RhsRank, ContractedRank>
 {
-  for (auto const [lhs_axis, rhs_axis] : requested_axes)
+  for (auto const& [lhs_axis, rhs_axis] : requested_axes)
   {
     ERROR_IF(lhs_axis >= LhsRank, "left contraction axis is out of range", lhs_axis, LhsRank);
     ERROR_IF(rhs_axis >= RhsRank, "right contraction axis is out of range", rhs_axis, RhsRank);

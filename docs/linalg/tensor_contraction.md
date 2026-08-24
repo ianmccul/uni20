@@ -132,11 +132,12 @@ differentiation, and block-sparse scheduling above the correct abstraction.
 Direct, looped, and packed implementations are ordinary backends that only
 implement `contract_op`. They form an operation-specific selector axis rather
 than permanent entries in every storage policy's general backend list.
-`backend_selector_default<contract_op<...>, VectorStorage>` currently installs
-the direct and looped backends with copies of the storage selector they should
-use for `gemm_op`, then the host reference contraction fallback. The same
-composition permits future CUDA storage defaults to retain cuBLAS/CUDA
-execution backends without changing either contraction planner.
+`backend_selector_default<contract_op<...>, StoragePolicy>` installs the direct
+and looped backends with copies of the storage selector they use for `gemm_op`,
+then appends the original storage-selector entries as outer contraction
+fallbacks. Host vector storage therefore reaches the CPU reference contraction
+when GEMM strategies decline, while CUDA storage retains cuBLAS/CUDA execution
+backends without changing either contraction planner.
 
 An ordered contraction list initially provides priority-based runtime selection
 through clean decline. A later cost-based selector may itself be a contraction

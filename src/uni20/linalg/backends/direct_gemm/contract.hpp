@@ -75,6 +75,8 @@ template <
     MutableRankedContractionMdspecLike<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank> OutputMdspec,
     uni20::Scalar Scalar, RankedContractionMdspecLike<LhsRank> LhsMdspec,
     RankedContractionMdspecLike<RhsRank> RhsMdspec>
+  requires(detail::direct_gemm_contraction_backend::gemm_dispatch_types_compatible<GemmSelector, OutputMdspec, Scalar,
+                                                                                   LhsMdspec, RhsMdspec>())
 KernelAttempt try_kernel(DirectGemmContractionBackend<GemmSelector> const& backend,
                          contract_op<LhsRank, RhsRank, ContractedRank> const& operation, OutputMdspec& output,
                          Scalar alpha, LhsMdspec& lhs, RhsMdspec& rhs, Scalar beta)
