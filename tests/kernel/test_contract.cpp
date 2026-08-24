@@ -29,6 +29,27 @@ static void naive_matmul_2d(size_t M, size_t K, size_t N, double alpha, double c
   }
 }
 
+TEST(ContractKernelRankZero, ScalarOuterProduct)
+{
+  using scalar_extents = stdex::extents<ptrdiff_t>;
+  using scalar_mapping = stdex::layout_stride::mapping<scalar_extents>;
+  using scalar_mdspan = stdex::mdspan<double, scalar_extents, stdex::layout_stride>;
+
+  double a = 2.0;
+  double b = 3.0;
+  double c = 4.0;
+  std::array<ptrdiff_t, 0> strides{};
+  scalar_mapping mapping(scalar_extents{}, strides);
+  scalar_mdspan A(&a, mapping);
+  scalar_mdspan B(&b, mapping);
+  scalar_mdspan C(&c, mapping);
+  std::array<std::pair<size_t, size_t>, 0> contracted_axes{};
+
+  contract(2.0, A, B, contracted_axes, 0.5, C);
+
+  EXPECT_DOUBLE_EQ(c, 14.0);
+}
+
 // Test: 2D row‐major matmul
 TEST(ContractKernel2D, RowMajorMatmul)
 {

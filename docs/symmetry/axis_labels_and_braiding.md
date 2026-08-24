@@ -4,7 +4,7 @@ Status: design note. This is intended to fix the core policy before Python
 bindings and higher-level tensor-network interfaces acquire accidental
 semantics. It complements the block-sparse tensor and symmetry design in
 [BlockTensor](block_tensor.md). The ordered `Domain`/`Codomain` boundary and
-independent `Space`/`DualSpace` semantics are defined in
+independent `Space`/`Dual<S>` semantics are defined in
 [Spaces, Duals, and Tensor Morphisms](spaces_duals_and_morphisms.md).
 
 ## Problem
@@ -22,28 +22,30 @@ This is fragile even for ordinary dense tensors. It becomes mathematically unten
 
 Integer axis positions are canonical.
 
-Labels are optional metadata. They may describe axes, aid display, and assert user intent, but they do not decide which axis an operation acts on.
+Labels are semantic leg metadata. They describe axes and validate intended
+compatibility, but they do not decide which axis an operation acts on.
 
 Consequences:
 
 - `extent(2)` is canonical.
 - `permute([1, 0, 2])` is canonical.
 - `contract(A, 2, B, 0)` is canonical.
-- `label="right"` is metadata attached to whichever axis currently carries that label.
+- `label="right"` is attached to the space value carried by that leg occurrence.
 - Labels move with axes under permutation.
-- Relabeling does not change algebraic structure.
+- Relabeling changes exact space equality, but not extent, sectors, ordering,
+  or numerical data.
 
 For `BlockTensor`, each canonical axis position is one ordered occurrence in
-the tensor's domain or codomain. The occurrence refers to an identity-bearing
-space, possibly through `DualSpace`. Axis position, morphism side, object
-duality, and display label are distinct properties; none can be reconstructed
-from another.
+the tensor's domain or codomain. The occurrence carries a concrete space value,
+possibly through `Dual<S>`. Axis position, morphism side, object duality, and
+leg label are distinct properties; none can be reconstructed from another.
 
 This is deliberately stricter than label-driven tensor contraction systems. It is less magical, but it is inspectable, testable, and compatible with braided tensor categories.
 
 ## Labels As Assertions
 
-Labels are still useful as optional checks. A contraction can specify explicit axis numbers and also assert expected labels:
+Labels provide compatibility checks. A contraction specifies explicit axis
+numbers and may additionally assert expected labels:
 
 ```python
 contract(A, 2, B, 0, expect=("right", "left"))
@@ -52,13 +54,16 @@ contract(A, 2, B, 0, expect=("right", "left"))
 This means:
 
 - contract axis 2 of `A` with axis 0 of `B`;
-- if `A` axis 2 has a label, it must be compatible with `"right"`;
-- if `B` axis 0 has a label, it must be compatible with `"left"`;
+- `A` axis 2 must carry the expected `"right"` label;
+- `B` axis 0 must carry the expected `"left"` label;
 - if either assertion fails, report an error before doing the contraction.
 
 The label check catches wrong-axis bugs without making labels the addressing mechanism.
 
-Labels do not need to be globally unique unless a future API explicitly asks for a unique label set. Ambiguous or repeated labels are acceptable as display metadata; they become errors only when a caller asks to use them as assertions in a context that requires a single expected axis.
+Labels do not need to be globally unique. Ambiguous, repeated, and empty labels
+are valid because positions, not strings, identify axes. Exact equality of two
+space values includes their labels; a separate structural-compatibility
+operation may explicitly ignore labels.
 
 A more object-oriented spelling could be:
 
@@ -80,13 +85,34 @@ B.labels == ["phys", "left", "right"]
 
 This is safe because labels describe the axes after the operation. They are not used to decide what the permutation means.
 
-Relabeling is only metadata mutation:
+Relabeling changes the semantic compatibility tag:
 
 ```python
 A.set_axis_label(2, "bond")
 ```
 
-This must not alter storage, strides, leg order, symmetry data, braiding, or contraction semantics.
+This must not alter storage, strides, leg order, symmetry data, or braiding. It
+does alter exact space equality and can therefore change whether a checked
+composition accepts two leg occurrences.
+
+The implemented bosonic `permute<Axis...>` and `repartition` operations use the
+corresponding zero-copy transformation rule. `permute` accepts canonical
+flattened domain-then-codomain positions but exchanges factors only within each
+morphism side. `repartition` explicitly bends an edge factor between sides.
+Both permute logical key coordinates and dense mdspan axes while retaining each
+payload address. Braiding will use the same logical-to-physical binding seam and
+add its category-defined exchange factor; it must not use labels or rewrite
+payload values to encode the exchange.
+
+A tensor-network helper that names a bond must update both endpoint
+occurrences:
+
+```python
+network.set_bond_label(edge, "bond-17")
+```
+
+Updating only one endpoint deliberately leaves the two legs unequal and should
+be detected before contraction.
 
 ## Braiding And Adjacency
 
@@ -102,6 +128,11 @@ contract(A, 1, B, 0)  # error if axis 1 is not adjacent to the contraction bound
 A2 = A.braid_to_boundary(1)
 contract(A2, boundary_axis, B, 0)
 ```
+
+The first C++ `BlockTensor` contraction implements the adjacent case only: the
+rightmost codomain factor of the left operand contracts with the leftmost
+domain factor of the right operand. `permute` and `repartition` expose other
+bosonic pairs at those boundaries explicitly.
 
 The exact API can change, but the semantic rule should not: if algebraic reordering is required, the user must request it explicitly.
 
@@ -133,7 +164,9 @@ Unicode, color, Markdown, HTML, and Jupyter renderers can improve the presentati
 
 ## Python Interface Guidance
 
-Python should not make persistent string labels canonical. There is no robust way to make strings behave like typed axes without recreating the same ambiguity this design is trying to avoid.
+Python may expose persistent string labels, but must not use them as canonical
+axis addresses. There is no robust way to make strings behave like positions
+without recreating the ambiguity this design is trying to avoid.
 
 Recommended Python style:
 
@@ -177,6 +210,9 @@ These mechanisms are acceptable only if they remain unambiguous handles to canon
 
 ## Design Principle
 
-Labels should help users see and verify tensor structure. They should not define tensor structure.
+Labels help users see and verify intended leg compatibility. They do not define
+axis order or structural sector content.
 
-If a tensor has the wrong leg order, the repair is a permutation or braid. If a tensor has the wrong labels, the repair is relabeling. These are different operations and the API must keep them different.
+If a tensor has the wrong leg order, the repair is a permutation or braid. If
+a tensor has the wrong labels, the repair is coordinated relabeling. These are
+different operations and the API must keep them different.

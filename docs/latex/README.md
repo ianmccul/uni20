@@ -7,8 +7,8 @@ not fit the ordinary Markdown reference set.
   model, explicit braiding, and interface invariants.
 - `block-tensor-spaces-and-morphisms.tex` refines that model for `BlockTensor`.
   In particular, it replaces the earlier paper's `Space`/`CoSpace` spelling
-  with independent `Space`/`DualSpace` object duality and
-  `Domain`/`Codomain` morphism side.
+  with concrete `Space` models, generic `Dual<S>` object duality, and
+  independent `Domain`/`Codomain` morphism side.
 - `tensor_contraction.tex` and `tensor_contraction.pdf` preserve a November 2025
   background paper on the earlier contraction design.
 

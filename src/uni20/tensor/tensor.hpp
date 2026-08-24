@@ -10,6 +10,7 @@
 #include "basic_tensor.hpp"
 #include "conjugate.hpp"
 #include "generated.hpp"
+#include "mdspec_tensor_view.hpp"
 #include "output.hpp"
 #include "reshape.hpp"
 

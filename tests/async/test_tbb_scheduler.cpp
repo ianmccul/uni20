@@ -10,6 +10,7 @@
 
 #include "../common/env_var_guard.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -20,6 +21,7 @@
 #include <latch>
 #include <oneapi/tbb/global_control.h>
 #include <semaphore>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -95,6 +97,55 @@ TEST(TbbScheduler, AsyncArithmetic)
   Async<int> c = a + b;
 
   EXPECT_EQ(c.get_wait(), 3);
+}
+
+TEST(TbbScheduler, LightweightBatchExecutesEveryIndexExactlyOnce)
+{
+  TbbScheduler scheduler{4};
+  std::array<std::atomic<int>, 64> counts{};
+
+  scheduler.execute_batch(counts.size(),
+                          [&](std::size_t index) { counts[index].fetch_add(1, std::memory_order_relaxed); });
+
+  for (auto const& count : counts)
+    EXPECT_EQ(count.load(std::memory_order_relaxed), 1);
+}
+
+TEST(TbbScheduler, EmptyLightweightBatchDoesNotInvokeCallable)
+{
+  TbbScheduler scheduler{4};
+  std::atomic<bool> invoked{false};
+
+  scheduler.execute_batch(0, [&](std::size_t) { invoked.store(true, std::memory_order_relaxed); });
+
+  EXPECT_FALSE(invoked.load(std::memory_order_relaxed));
+}
+
+TEST(TbbScheduler, LightweightBatchPropagatesException)
+{
+  TbbScheduler scheduler{4};
+
+  EXPECT_THROW(scheduler.execute_batch(64,
+                                       [](std::size_t index) {
+                                         if (index == 31) throw std::runtime_error("batch failure");
+                                       }),
+               std::runtime_error);
+}
+
+TEST(TbbScheduler, OneParticipantLightweightBatchItemMayScheduleAndWait)
+{
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler scheduler{1};
+  ScopedScheduler scoped(&scheduler);
+  Async<int> result;
+
+  scheduler.execute_batch(1, [&](std::size_t) {
+    scheduler.schedule([](WriteBuffer<int> output) static -> AsyncTask {
+      co_await output = 42;
+      co_return;
+    }(result.write()));
+    EXPECT_EQ(result.get_wait(), 42);
+  });
 }
 
 #if UNI20_DEBUG_ASYNC_TASKS

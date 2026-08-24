@@ -35,6 +35,8 @@ also registered with CTest as executable documentation.
 - [Presentation](presentation/): reports, tables, glyph policies,
   text art, diagnostics, and mdspan previews.
 - [Python](python/): Python build-information smoke example.
+- [Symmetry](symmetry/): sparse `BlockTensor` storage and order-two through
+  order-four boundary examples.
 
 ## Failure Examples
 

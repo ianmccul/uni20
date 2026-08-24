@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 using namespace uni20;
 
 TEST(BlockSpaceTest, EnforcesSharedSymmetryAndTracksDimensions)
@@ -9,50 +11,65 @@ TEST(BlockSpaceTest, EnforcesSharedSymmetryAndTracksDimensions)
   Symmetry const sym{"N:U(1)"};
   Symmetry const other{"Sz:U(1)"};
 
-  BlockSpace space(sym);
-  space.push_back({make_qnum(sym, {{"N", 1}}), 2});
-  space.push_back({make_qnum(sym, {{"N", -1}}), 3});
+  BlockSpace space(sym,
+                   {
+                       {make_qnum(sym, {{"N", 1}}), 2},
+                       {make_qnum(sym, {{"N", -1}}), 3},
+                   },
+                   "bond");
 
   EXPECT_EQ(space.size(), 2);
   EXPECT_EQ(space.total_dim(), 5);
   EXPECT_FALSE(space.empty());
+  EXPECT_EQ(space.label(), "bond");
   EXPECT_TRUE(space.contains(make_qnum(sym, {{"N", 1}})));
   EXPECT_FALSE(space.contains(make_qnum(sym, {{"N", 0}})));
-  EXPECT_TRUE(space.is_regular());
 
-  EXPECT_THROW(space.push_back({make_qnum(other, {{"Sz", 0}}), 1}), std::invalid_argument);
-  EXPECT_THROW(space.push_back({make_qnum(sym, {{"N", 0}}), 0}), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(BlockSpace(sym, {{make_qnum(other, {{"Sz", 0}}), 1}})), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(BlockSpace(sym, {{QNum{}, 1}})), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(BlockSpace(sym, {{make_qnum(sym, {{"N", 0}}), 0}})), std::invalid_argument);
 }
 
-TEST(BlockSpaceTest, RegularizeCoalescesRepeatedBlocksAndRecordsRanges)
+TEST(BlockSpaceTest, CanonicalizesSectorsAndRejectsDuplicates)
 {
   Symmetry const sym{"N:U(1)"};
 
-  BlockSpace space(sym, {
-                            {make_qnum(sym, {{"N", 1}}), 2},
-                            {make_qnum(sym, {{"N", -1}}), 1},
-                            {make_qnum(sym, {{"N", 1}}), 3},
-                        });
+  std::vector<BlockSector> const sectors{
+      {make_qnum(sym, {{"N", -1}}), 3},
+      {make_qnum(sym, {{"N", 0}}), 1},
+      {make_qnum(sym, {{"N", 1}}), 2},
+  };
+  BlockSpace const space(sym, sectors);
 
-  auto const regularized = regularize(space);
+  ASSERT_EQ(space.size(), 3);
+  EXPECT_EQ(u1_component(space[0].q, "N"), U1{0});
+  EXPECT_EQ(u1_component(space[1].q, "N"), U1{1});
+  EXPECT_EQ(u1_component(space[2].q, "N"), U1{-1});
 
-  ASSERT_EQ(regularized.regular.size(), 2);
-  EXPECT_EQ(u1_component(regularized.regular[0].q, "N"), U1{1});
-  EXPECT_EQ(regularized.regular[0].dim, 5);
-  EXPECT_EQ(u1_component(regularized.regular[1].q, "N"), U1{-1});
-  EXPECT_EQ(regularized.regular[1].dim, 1);
+  EXPECT_THROW(static_cast<void>(BlockSpace(sym,
+                                            {
+                                                {make_qnum(sym, {{"N", 1}}), 2},
+                                                {make_qnum(sym, {{"N", 1}}), 3},
+                                            })),
+               std::invalid_argument);
+}
 
-  ASSERT_EQ(regularized.block_index.size(), 3);
-  ASSERT_EQ(regularized.block_range.size(), 3);
-  EXPECT_EQ(regularized.block_index[0], 0);
-  EXPECT_EQ(regularized.block_range[0].first, 0);
-  EXPECT_EQ(regularized.block_range[0].last, 2);
-  EXPECT_EQ(regularized.block_index[1], 1);
-  EXPECT_EQ(regularized.block_range[1].first, 0);
-  EXPECT_EQ(regularized.block_range[1].last, 1);
-  EXPECT_EQ(regularized.block_index[2], 0);
-  EXPECT_EQ(regularized.block_range[2].first, 2);
-  EXPECT_EQ(regularized.block_range[2].last, 5);
+TEST(BlockSpaceTest, EmptySpaceRetainsSymmetryAndLabelRemainsMutable)
+{
+  Symmetry const sym{"N:U(1)"};
+  BlockSpace space(sym, "left");
+
+  EXPECT_TRUE(space.empty());
+  EXPECT_EQ(space.symmetry(), sym);
+  EXPECT_EQ(space.label(), "left");
+
+  auto same = space;
+  EXPECT_EQ(same, space);
+  same.set_label("right");
+  EXPECT_NE(same, space);
+  EXPECT_EQ(same.symmetry(), sym);
+
+  EXPECT_THROW(static_cast<void>(BlockSpace(Symmetry{})), std::invalid_argument);
 }
 
 TEST(BlockSpaceTest, QNumListRegularizationProducesCanonicalBlockSpace)

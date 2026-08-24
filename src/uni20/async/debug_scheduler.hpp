@@ -9,6 +9,7 @@
 #include "task_registry.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <random>
 #include <uni20/common/display.hpp>
 #include <utility>
@@ -135,6 +136,15 @@ class DebugScheduler : public IAsyncScheduler {
     [[nodiscard]] DebugSchedulerOptions const& options() const noexcept { return options_; }
 
   private:
+    void execute_batch_impl(LightweightTaskBatch const& batch) override
+    {
+      std::vector<std::size_t> indices(batch.size());
+      std::iota(indices.begin(), indices.end(), std::size_t{0});
+      this->order_batch(indices);
+      for (std::size_t const index : indices)
+        batch(index);
+    }
+
     bool accepts_route(TaskRoute route) const noexcept override
     {
       return route.domain == TaskDomain::host && !route.cuda_device;
@@ -156,7 +166,7 @@ class DebugScheduler : public IAsyncScheduler {
     DebugSchedulerOptions options_;
     std::mt19937_64 random_engine_;
 
-    void order_batch(std::vector<BasicTask>& batch)
+    template <class T> void order_batch(std::vector<T>& batch)
     {
       switch (options_.order)
       {
@@ -225,6 +235,17 @@ class ScopedScheduler {
 /// \brief Schedule a task on the currently configured global scheduler.
 /// \param task Task to schedule.
 inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
+
+/// \brief Execute a synchronous lightweight batch on the global scheduler.
+/// \tparam Function Callable accepting one `std::size_t` index.
+/// \param size Number of work items.
+/// \param function Work-item callable borrowed until the call returns.
+template <class Function>
+  requires std::invocable<Function&, std::size_t>
+void execute_batch(std::size_t size, Function&& function)
+{
+  get_global_scheduler()->execute_batch(size, std::forward<Function>(function));
+}
 
 /// \brief Schedule a CUDA task on the currently configured global scheduler.
 /// \details The installed scheduler must implement CUDA task admission.

@@ -7,14 +7,58 @@
 
 #include "async_task.hpp"
 
+#include <concepts>
+#include <cstddef>
 #include <functional>
+#include <memory>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace uni20::async
 {
 
 class AsyncTask;
 class TaskPromiseBase;
+
+/// \brief Borrowed type-erased description of a synchronous lightweight task batch.
+/// \details The callable and its arguments remain owned by the caller. Scheduler
+///          implementations may invoke distinct indices concurrently, but this
+///          object is valid only until `IAsyncScheduler::execute_batch` returns.
+class LightweightTaskBatch {
+  public:
+    /// \brief Bind a callable for the duration of one synchronous batch call.
+    /// \tparam Function Callable accepting one `std::size_t` index.
+    /// \param size Number of work items.
+    /// \param function Callable borrowed by the returned descriptor.
+    template <class Function>
+      requires std::invocable<Function&, std::size_t>
+    static auto bind(std::size_t size, Function& function) -> LightweightTaskBatch
+    {
+      using function_type = std::remove_reference_t<Function>;
+      return LightweightTaskBatch{
+          size, const_cast<void*>(static_cast<void const*>(std::addressof(function))),
+          [](void* context, std::size_t index) { std::invoke(*static_cast<function_type*>(context), index); }};
+    }
+
+    /// \brief Return the number of independent work items.
+    [[nodiscard]] auto size() const noexcept -> std::size_t { return size_; }
+
+    /// \brief Execute one work item.
+    /// \param index Work-item index in `[0, size())`.
+    void operator()(std::size_t index) const { invoke_(context_, index); }
+
+  private:
+    using invoke_type = void (*)(void*, std::size_t);
+
+    LightweightTaskBatch(std::size_t size, void* context, invoke_type invoke) noexcept
+        : size_(size), context_(context), invoke_(invoke)
+    {}
+
+    std::size_t size_;
+    void* context_;
+    invoke_type invoke_;
+};
 
 /// \brief Internal route for resuming an already-bound coroutine task.
 class IScheduler {
@@ -50,6 +94,27 @@ class IAsyncScheduler : public virtual IScheduler {
     /// \brief Schedule a coroutine for its initial execution.
     /// \param task Task to bind to this scheduler and submit.
     virtual void schedule(AsyncTask&& task) = 0;
+
+    /// \brief Execute a synchronous batch of independent lightweight work items.
+    /// \details On successful return, the callable has been invoked exactly once
+    ///          for every index in `[0, size)`. Implementations may invoke items
+    ///          concurrently. If an item throws, unfinished items may be
+    ///          cancelled; the exception is rethrown after participating work
+    ///          has joined. The callable is borrowed only for this call.
+    ///
+    ///          Batch items are ordinary functions, not coroutine tasks. They
+    ///          may use scheduler APIs, including nested `get_wait()`, but the
+    ///          batch itself creates no epoch or dependency relationship.
+    /// \tparam Function Callable accepting one `std::size_t` index.
+    /// \param size Number of work items.
+    /// \param function Work-item callable.
+    template <class Function>
+      requires std::invocable<Function&, std::size_t>
+    void execute_batch(std::size_t size, Function&& function)
+    {
+      auto batch = LightweightTaskBatch::bind(size, function);
+      this->execute_batch_impl(batch);
+    }
 
     /// \brief Pause the scheduler.
     /// Tasks can still be scheduled, but they will not start running until resume() is called
@@ -109,6 +174,15 @@ class IAsyncScheduler : public virtual IScheduler {
     /// suspend/resume mechanism can override this overload and register the
     /// supplied wakeup callback.
     virtual void wait_for(WaitRequest const& request) { this->wait_for(request.is_ready); }
+
+  private:
+    /// \brief Scheduler-specific execution of a synchronous lightweight batch.
+    /// \details The default is serial and preserves increasing index order.
+    virtual void execute_batch_impl(LightweightTaskBatch const& batch)
+    {
+      for (std::size_t index = 0; index < batch.size(); ++index)
+        batch(index);
+    }
 };
 
 } // namespace uni20::async
