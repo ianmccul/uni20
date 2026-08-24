@@ -39,6 +39,33 @@ when the change is specifically correcting that behavior.
    repository-wide guidance?
 10. What checks were unavailable, and what residual risk remains?
 
+## Reachability and Representability
+
+A correctness finding needs a concrete construction and execution path using
+inputs permitted by the documented API and subsystem invariants. The range of
+an underlying integer carrier does not by itself define the supported domain of
+a tensor dimension, allocation or workspace size, stride, provider integer, or
+model quantum number.
+
+For an overflow finding, identify:
+
+- the exact arithmetic operation;
+- how its operands arise from valid inputs;
+- why the operation occurs before an existing constructor, codec, storage,
+  provider, or allocation check; and
+- the observable incorrect behavior.
+
+Do not promote a counterexample which requires physically unconstructible
+storage, model-invalid metadata, or violation of an established precondition
+into a correctness defect. Do not request a hot-path guard solely to handle
+such a state. If the permitted input domain is unclear, report a contract
+question instead.
+
+This does not exempt parsers, serialized or otherwise untrusted metadata,
+provider integer lowering, allocation planning, or arithmetic reached by
+ordinary valid inputs. Those boundaries must reject unrepresentable values
+before unsafe arithmetic or observable mutation.
+
 ## Numerical and Linear Algebra Checklist
 
 Consider only dimensions relevant to the operation, but check them explicitly:

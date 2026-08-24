@@ -94,6 +94,24 @@ Review hidden allocation, materialization, synchronization, transfer, and dense
 projection as semantic and performance concerns. Do not assume they are harmless
 implementation details.
 
+### Reachable counterexamples
+
+A correctness finding must show a concrete construction and execution path
+using inputs permitted by the documented API and subsystem invariants. The
+numeric limits of an underlying carrier type are not automatically valid tensor
+dimensions, allocation or workspace sizes, strides, or model quantum numbers.
+
+For an overflow finding, identify the exact arithmetic, show how valid operands
+reach it, and explain why an earlier constructor, codec, storage, provider, or
+allocation check does not reject them. Counterexamples requiring physically
+unconstructible storage, model-invalid metadata, or violation of an established
+precondition are contract questions rather than correctness defects. Do not
+request hot-path guards solely for such states.
+
+This rule does not excuse overflow in parsers, serialized or otherwise
+untrusted metadata, provider integer lowering, allocation planning, or
+arithmetic reached by ordinary valid inputs.
+
 ## Review Method
 
 For a code or design review:

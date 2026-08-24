@@ -78,6 +78,19 @@ pre-populate the CMake FetchContent sources instead.
 * Use independent review in proportion to numerical, ownership, concurrency,
   symmetry, backend, and architectural risk. Deterministic evidence remains the
   primary verification mechanism.
+* Review findings must demonstrate a reachable execution using inputs permitted
+  by the documented API and subsystem invariants. The extrema of an underlying
+  integer carrier are not automatically valid tensor dimensions, allocation or
+  workspace sizes, strides, or model quantum numbers. Treat counterexamples
+  which require physically unconstructible storage, model-invalid metadata, or
+  violation of an established precondition as contract questions rather than
+  correctness defects. Do not add hot-path checks solely to defend against such
+  states.
+* This reachability rule does not excuse overflow in parsers, serialized or
+  otherwise untrusted metadata, provider integer lowering, allocation planning,
+  or arithmetic reached by ordinary valid inputs. A credible overflow finding
+  should identify the exact operation and explain why earlier validation does
+  not reject its operands.
 * See `docs/development/agent_assisted_development.md` and
   `docs/development/code_review.md` for the current workflow and review
   guidance.
