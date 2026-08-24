@@ -289,6 +289,40 @@ TEST(BlasTensorContractionTest, NonmergeableGroupDeclinesWithoutModifyingOutput)
         EXPECT_DOUBLE_EQ((output[i, j, n]), -7.0);
 }
 
+TEST(BlasTensorContractionTest, SingletonAxisDoesNotForceLoopedContraction)
+{
+  namespace diagnostics = uni20::linalg::dispatch_diagnostics;
+  std::vector<diagnostics::event> events;
+  diagnostics::scoped_sink capture([&](diagnostics::event const& event) { events.push_back(event); });
+  using strided_tensor = uni20::StridedTensor<double, 3>;
+  strided_tensor lhs(strided_tensor::extents_type{2, 1, 3}, std::array<uni20::index_type, 3>{3, 101, 1});
+  uni20::RowMajorTensor<double, 2> rhs(3, 2);
+  uni20::RowMajorTensor<double, 3> output(2, 1, 2);
+
+  for (uni20::index_type i = 0; i < 2; ++i)
+    for (uni20::index_type k = 0; k < 3; ++k)
+      lhs[i, 0, k] = static_cast<double>(1 + 3 * i + k);
+  for (uni20::index_type k = 0; k < 3; ++k)
+    for (uni20::index_type n = 0; n < 2; ++n)
+      rhs[k, n] = static_cast<double>(2 + 2 * k + n);
+
+  std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{2, 0}}};
+  uni20::linalg::contract(output, 1.0, lhs, rhs, axes, 0.0);
+
+  for (uni20::index_type i = 0; i < 2; ++i)
+    for (uni20::index_type n = 0; n < 2; ++n)
+    {
+      double expected = 0.0;
+      for (uni20::index_type k = 0; k < 3; ++k)
+        expected += lhs[i, 0, k] * rhs[k, n];
+      EXPECT_DOUBLE_EQ((output[i, 0, n]), expected);
+    }
+
+  ASSERT_EQ(events.size(), 2);
+  EXPECT_EQ(selected_backend(events, "contract"), "direct_gemm_contraction");
+  EXPECT_EQ(selected_backend(events, "gemm"), "blas");
+}
+
 TEST(BlasTensorContractionTest, ResidualMGroupUsesLoopedGemm)
 {
   namespace diagnostics = uni20::linalg::dispatch_diagnostics;

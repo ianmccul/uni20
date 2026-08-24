@@ -697,7 +697,10 @@ Descriptor tests:
 
 - `layout_left`, `layout_right`, and `layout_stride` rank-2 views.
 - padded views where one stride remains `1`.
-- rejection when neither stride is `1`.
+- singleton axes with arbitrary reported strides, including use of a singleton
+  as the provider unit-stride axis.
+- rejection when neither observed multi-element axis has stride `1` and no
+  singleton axis can supply the provider unit-stride dimension.
 - rejection when extents or leading dimensions do not fit `blas_int`.
 - const input and mutable output handle types.
 - `needs_conjugation` is derived from the accessor policy.

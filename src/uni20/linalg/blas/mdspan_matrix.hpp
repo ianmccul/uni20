@@ -106,12 +106,24 @@ auto try_mdspan_matrix_metadata(Mdspan const& span) -> std::optional<MdspanMatri
 
   auto const extent0 = uni20::blas::try_blas_int(span.extent(0));
   auto const extent1 = uni20::blas::try_blas_int(span.extent(1));
-  auto const stride0 = uni20::blas::try_blas_int(mapping.stride(0));
-  auto const stride1 = uni20::blas::try_blas_int(mapping.stride(1));
-  if (!uni20::blas::is_valid_blas_int(extent0) || !uni20::blas::is_valid_blas_int(extent1) ||
-      !uni20::blas::is_valid_blas_int(stride0) || !uni20::blas::is_valid_blas_int(stride1))
+  if (!uni20::blas::is_valid_blas_int(extent0) || !uni20::blas::is_valid_blas_int(extent1))
   {
     return std::nullopt;
+  }
+
+  // Empty and singleton axes do not observe their stride. Canonicalize them
+  // before checking the provider integer range or selecting a unit-stride axis.
+  blas_int stride0 = 1;
+  if (extent0 > 1)
+  {
+    stride0 = uni20::blas::try_blas_int(mapping.stride(0));
+    if (!uni20::blas::is_valid_blas_int(stride0)) return std::nullopt;
+  }
+  blas_int stride1 = 1;
+  if (extent1 > 1)
+  {
+    stride1 = uni20::blas::try_blas_int(mapping.stride(1));
+    if (!uni20::blas::is_valid_blas_int(stride1)) return std::nullopt;
   }
 
   int unit_stride_axis = -1;
@@ -119,14 +131,30 @@ auto try_mdspan_matrix_metadata(Mdspan const& span) -> std::optional<MdspanMatri
   blas_int provider_rows = 0;
   blas_int provider_cols = 0;
 
-  if (stride0 == 1)
+  // Prefer a genuinely unit-stride non-singleton axis. This preserves the
+  // natural provider orientation before using a singleton as the unit axis.
+  if (extent0 > 1 && stride0 == 1)
   {
     unit_stride_axis = 0;
     nonunit_stride = stride1;
     provider_rows = extent0;
     provider_cols = extent1;
   }
-  else if (stride1 == 1)
+  else if (extent1 > 1 && stride1 == 1)
+  {
+    unit_stride_axis = 1;
+    nonunit_stride = stride0;
+    provider_rows = extent1;
+    provider_cols = extent0;
+  }
+  else if (extent0 <= 1)
+  {
+    unit_stride_axis = 0;
+    nonunit_stride = stride1;
+    provider_rows = extent0;
+    provider_cols = extent1;
+  }
+  else if (extent1 <= 1)
   {
     unit_stride_axis = 1;
     nonunit_stride = stride0;

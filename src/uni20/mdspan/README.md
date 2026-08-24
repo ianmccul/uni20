@@ -52,6 +52,10 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `StridedMdspanLike` refines `MdspanLike` by requiring an always-strided
   mapping and both mdspan and mapping stride observers. It includes
   `layout_left`, `layout_right`, and `layout_stride` mappings.
+- An extent-one axis has no observable stride. Stride coalescing treats it as
+  an identity: it never blocks a merge, and the merged descriptor retains the
+  non-singleton axis's stride. Generic iteration plans remove singleton axes
+  before coalescing.
 - A pointer `data_handle_type` is not enough to prove direct memory semantics.
   Backends that bypass `access(...)` must check for `stdex::default_accessor`
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.

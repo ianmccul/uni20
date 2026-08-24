@@ -78,6 +78,8 @@ rank-two `layout_stride` mdspecs without acquiring their handles and dispatches
 GEMM backend therefore owns host or CUDA acquisition and provider lowering.
 The projection retains each descriptor, accessor, and mapping, so default and
 representable conjugating accessors use the same validation as direct GEMM.
+An extent-one axis never blocks group merging because its reported stride is
+unobservable; the merged group retains the non-singleton axis's strides.
 Nonmergeable groups cleanly fall through to the next contraction backend.
 
 `LoopedGemmContractionBackend` handles the next no-copy case. After joint

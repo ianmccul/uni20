@@ -120,6 +120,12 @@ contraction that resembles GEMM's $(M,N,K)$ tuple. (The choice of \texttt{merge\
 means that unmergable indices will be in the layout right order for the \emph{first} set of strides in the group.
 This is a rather arbitrary choice, that we will probably want to change later.)
 
+An extent-one descriptor is an identity for merging. Its only logical index is zero, so its
+reported strides are never observed: it may merge with either neighbour regardless of those stride
+values, and the merged descriptor retains the non-singleton neighbour's strides. Two singleton
+descriptors merge to canonical unit strides. Extent-zero descriptors remain distinct because they
+represent an empty iteration space rather than an unobserved factor of one.
+
 The descriptors themselves are instances of \texttt{extent\_strides<2>} from
 \texttt{src/mdspan/strides.hpp}.  Each record stores a common \texttt{extent} alongside a
 two-element \texttt{strides} array capturing the contribution of the dimension in the $A$ and $B$

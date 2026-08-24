@@ -232,6 +232,41 @@ TEST(BlasMatrixOperandTest, NormalizesUnobservedSingletonProviderColumnStride)
   }
 }
 
+TEST(BlasMatrixOperandTest, UsesSingletonAxisForOtherwiseStridedMatrix)
+{
+  {
+    std::vector<double> storage(5);
+    stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{3, 1}, std::array<uni20::index_type, 2>{2, 37});
+    stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+    auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(span);
+    ASSERT_TRUE(stage.has_value());
+    EXPECT_EQ(stage->unit_stride_axis, 1);
+    EXPECT_EQ(stage->nonunit_stride, 2);
+
+    auto writable = uni20::linalg::blas::blas_writable_matrix(*stage);
+    EXPECT_EQ(writable.rows, 1);
+    EXPECT_EQ(writable.cols, 3);
+    EXPECT_EQ(writable.leading_dimension, 2);
+  }
+
+  {
+    std::vector<double> storage(5);
+    stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{1, 3}, std::array<uni20::index_type, 2>{37, 2});
+    stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+    auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(span);
+    ASSERT_TRUE(stage.has_value());
+    EXPECT_EQ(stage->unit_stride_axis, 0);
+    EXPECT_EQ(stage->nonunit_stride, 2);
+
+    auto writable = uni20::linalg::blas::blas_writable_matrix(*stage);
+    EXPECT_EQ(writable.rows, 1);
+    EXPECT_EQ(writable.cols, 3);
+    EXPECT_EQ(writable.leading_dimension, 2);
+  }
+}
+
 TEST(BlasMatrixOperandTest, DeclinesNonBlasMatrixStridePattern)
 {
   std::vector<double> storage(16);
@@ -265,6 +300,14 @@ TEST(BlasMatrixOperandTest, DeclinesValuesOutsideBlasIntegerRange)
       stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
 
       EXPECT_FALSE(uni20::linalg::blas::try_mdspan_matrix_stage(span).has_value());
+    }
+
+    {
+      stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{3, 1},
+                                                        std::array<uni20::index_type, 2>{1, too_large});
+      stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+      EXPECT_TRUE(uni20::linalg::blas::try_mdspan_matrix_stage(span).has_value());
     }
   }
   else

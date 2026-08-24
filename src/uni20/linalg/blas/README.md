@@ -57,6 +57,9 @@ tensor-level linalg front ends.
   multi-element view declines: the Fortran BLAS negative-increment convention
   adjusts its starting element and cannot use the mdspan logical-origin handle
   unchanged.
+- Direct rank-two lowering likewise ignores an empty or singleton axis's
+  reported stride. A singleton axis may supply the provider unit-stride axis,
+  while the other axis's observed stride becomes the leading dimension.
 
 ## Related Documentation
 
