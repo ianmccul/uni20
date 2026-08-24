@@ -80,6 +80,23 @@ The projection retains each descriptor, accessor, and mapping, so default and
 representable conjugating accessors use the same validation as direct GEMM.
 Nonmergeable groups cleanly fall through to the next contraction backend.
 
+`LoopedGemmContractionBackend` handles the next no-copy case. After joint
+stride merging, exactly one of M or N may retain two descriptors while the
+other groups contain at most one. The backend chooses one residual descriptor
+as an outer loop and projects the other dimensions to rank-two mdspecs. Each
+iteration advances copied operand metadata to a disjoint output slice and
+dispatches `gemm_op` through the retained execution selector. Immediate
+mdspans advance through their accessor offset policy; deferred descriptors must
+provide `offset_by`, which preserves storage identity for later acquisition.
+K is deliberately not looped in this checkpoint, so every slice uses the
+original `beta` and no partial K accumulation state is required.
+
+Both GEMM planners require each projected rank-two operand to expose a
+unit-stride axis. A tensor with no unit-stride axis can only participate when
+slicing away a residual M or N descriptor reveals a valid matrix projection.
+If it does not, both strategies cleanly decline and the accessor-respecting
+reference backend evaluates the original mapping.
+
 In `CpuReferenceBackend`, `alpha == 0` avoids input element reads and
 `beta == 0` avoids reading output elements. Empty contracted extents therefore
 produce the correctly scaled zero product without accessing the inputs. A
@@ -97,10 +114,10 @@ algorithm. Backends may implement the following hierarchy:
 | Generic indexed loop | Correctness path for arbitrary mappings and compatible accessors. | Implemented by `CpuReferenceBackend`. |
 | Stride-grouped reference loop | Reduce mapping arithmetic for default-accessor strided views using merged M/N/K groups. | Existing historical code; not yet integrated into dispatch. |
 | Direct GEMM | Collapse M, N, and K groups and dispatch one rank-two GEMM through the storage-selected execution backends. | Implemented by `DirectGemmContractionBackend`. |
-| Looped or batched GEMM | Loop over residual unmerged groups around provider GEMM calls. | Planned. |
+| Looped GEMM | Loop over one residual M or N descriptor around rank-two GEMM dispatches. | Implemented by `LoopedGemmContractionBackend`; multiple residual dimensions and residual K remain planned. |
 | Pack-GEMM-unpack | Materialize favorable grouped layouts when packing cost is justified. | Planned; requires temporary-storage and cost policy. |
 
-Direct GEMM and packing are backend lowerings of `contract_op`; the Tensor
+Direct GEMM, looped GEMM, and packing are backend lowerings of `contract_op`; the Tensor
 front end must not replace the semantic operation with transpose/reshape/GEMM.
 This leaves storage placement, provider capabilities, future automatic
 differentiation, and block-sparse scheduling above the correct abstraction.
@@ -109,10 +126,10 @@ Direct, looped, and packed implementations are ordinary backends that only
 implement `contract_op`. They form an operation-specific selector axis rather
 than permanent entries in every storage policy's general backend list.
 `backend_selector_default<contract_op<...>, VectorStorage>` currently installs
-the direct backend with the storage selector it should use for `gemm_op`, then
-the host reference contraction fallback. The same composition permits future
-CUDA storage defaults to retain cuBLAS/CUDA execution backends without changing
-the direct contraction planner.
+the direct and looped backends with copies of the storage selector they should
+use for `gemm_op`, then the host reference contraction fallback. The same
+composition permits future CUDA storage defaults to retain cuBLAS/CUDA
+execution backends without changing either contraction planner.
 
 An ordered contraction list initially provides priority-based runtime selection
 through clean decline. A later cost-based selector may itself be a contraction
@@ -130,7 +147,8 @@ The next operation-level additions are:
 1. A replaceable-output overwrite operation distinct from fixed-output
    contraction.
 2. Async Tensor wrappers using the same normalized descriptor dispatch.
-3. Looped or batched BLAS contraction plans for residual M/N/K groups.
+3. Multiple residual M/N dimensions, residual-K accumulation, and batched GEMM
+   contraction plans.
 4. CUDA reference and provider implementations.
 5. BlockTensor lowering in which symmetry-aware worklists submit these dense
    contractions without erasing block keys or leg metadata.

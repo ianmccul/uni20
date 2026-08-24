@@ -9,9 +9,11 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/backends/cpu/contract.hpp>
 #include <uni20/linalg/backends/direct_gemm/contract.hpp>
+#include <uni20/linalg/backends/looped_gemm/contract.hpp>
 #include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
@@ -24,6 +26,20 @@
 
 namespace uni20::linalg
 {
+
+/// \brief Install direct and looped GEMM contraction before the host reference fallback.
+template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank>
+struct backend_selector_default<contract_op<LhsRank, RhsRank, ContractedRank>, uni20::VectorStorage>
+{
+    template <class StorageSelector>
+    static auto select(contract_op<LhsRank, RhsRank, ContractedRank> const&, StorageSelector storage_selector)
+    {
+      auto looped_selector = storage_selector;
+      return backend_list{DirectGemmContractionBackend{std::move(storage_selector)},
+                          LoopedGemmContractionBackend{std::move(looped_selector)}, CpuReferenceBackend{}};
+    }
+};
+
 namespace detail
 {
 

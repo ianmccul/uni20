@@ -12,7 +12,6 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
-#include <uni20/storage/vectorstorage.hpp>
 
 #include <concepts>
 #include <string_view>
@@ -90,16 +89,5 @@ KernelAttempt try_kernel(DirectGemmContractionBackend<GemmSelector> const& backe
     return KernelAttempt::unsupported_instance;
   return KernelAttempt::success;
 }
-
-/// \brief Install direct GEMM contraction ahead of the host reference fallback.
-template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank>
-struct backend_selector_default<contract_op<LhsRank, RhsRank, ContractedRank>, uni20::VectorStorage>
-{
-    template <class StorageSelector>
-    static auto select(contract_op<LhsRank, RhsRank, ContractedRank> const&, StorageSelector storage_selector)
-    {
-      return backend_list{DirectGemmContractionBackend{std::move(storage_selector)}, CpuReferenceBackend{}};
-    }
-};
 
 } // namespace uni20::linalg

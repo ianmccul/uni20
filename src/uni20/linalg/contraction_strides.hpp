@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <optional>
 #include <type_traits>
+#include <utility>
 
 namespace uni20::linalg
 {
@@ -115,6 +116,19 @@ struct DirectContractionGemmPlan
     ContractionMatrixProjection rhs;
 };
 
+/// \brief One residual M or N loop around a rank-two GEMM projection.
+/// \details Each loop iteration addresses one disjoint output slice. The
+///          offset strides are measured in elements from the original mdspec
+///          descriptors or immediate handles.
+struct LoopedContractionGemmPlan
+{
+    uni20::index_type loop_extent = 0;
+    uni20::index_type output_offset_stride = 0;
+    uni20::index_type lhs_offset_stride = 0;
+    uni20::index_type rhs_offset_stride = 0;
+    DirectContractionGemmPlan gemm;
+};
+
 namespace detail::contraction_strides
 {
 
@@ -140,6 +154,13 @@ template <std::size_t Capacity>
   }
 }
 
+[[nodiscard]] inline auto grouped_dimension(extent_strides<2> const& dimension) -> GroupedDimension
+{
+  auto result = GroupedDimension{.extent = dimension.extent, .strides = dimension.strides};
+  if (result.extent <= 1) result.strides = {1, 1};
+  return result;
+}
+
 [[nodiscard]] inline bool projection_is_directly_strided(ContractionMatrixProjection const& projection) noexcept
 {
   for (std::size_t axis = 0; axis < 2; ++axis)
@@ -147,6 +168,43 @@ template <std::size_t Capacity>
     if (projection.extents[axis] < 0 || projection.strides[axis] <= 0) return false;
   }
   return projection.strides[0] == 1 || projection.strides[1] == 1;
+}
+
+[[nodiscard]] inline auto try_make_direct_gemm_plan(GroupedDimension const& m, GroupedDimension const& n,
+                                                    GroupedDimension const& k)
+    -> std::optional<DirectContractionGemmPlan>
+{
+  DirectContractionGemmPlan plan{.output = {.extents = {m.extent, n.extent}, .strides = {m.strides[1], n.strides[1]}},
+                                 .lhs = {.extents = {m.extent, k.extent}, .strides = {m.strides[0], k.strides[0]}},
+                                 .rhs = {.extents = {k.extent, n.extent}, .strides = {k.strides[1], n.strides[0]}}};
+  if (!projection_is_directly_strided(plan.output) || !projection_is_directly_strided(plan.lhs) ||
+      !projection_is_directly_strided(plan.rhs))
+    return std::nullopt;
+  return plan;
+}
+
+template <class Mdspec> consteval bool can_offset_contraction_mdspec()
+{
+  using span_type = std::remove_cvref_t<Mdspec>;
+  if constexpr (uni20::MdspanLike<span_type>)
+  {
+    using accessor_type = typename span_type::accessor_type;
+    using offset_accessor_type = typename accessor_type::offset_policy;
+    return std::same_as<typename offset_accessor_type::element_type, typename span_type::element_type> &&
+           std::constructible_from<offset_accessor_type, accessor_type const&>&&
+             requires(span_type & span, span_offset_t<accessor_type> offset)
+    {
+      {span.accessor().offset(span.data_handle(), offset)}
+          ->std::convertible_to<typename offset_accessor_type::data_handle_type>;
+    };
+  }
+  else
+  {
+    using descriptor_type = typename span_type::data_descriptor_type;
+    return requires(descriptor_type const& descriptor, std::size_t offset) {
+      { descriptor.offset_by(offset) } -> std::same_as<descriptor_type>;
+    };
+  }
 }
 
 } // namespace detail::contraction_strides
@@ -172,14 +230,60 @@ template <
   auto const n = detail::contraction_strides::grouped_dimension(groups.n);
   auto const k = detail::contraction_strides::grouped_dimension(groups.k);
 
-  DirectContractionGemmPlan plan{.output = {.extents = {m.extent, n.extent}, .strides = {m.strides[1], n.strides[1]}},
-                                 .lhs = {.extents = {m.extent, k.extent}, .strides = {m.strides[0], k.strides[0]}},
-                                 .rhs = {.extents = {k.extent, n.extent}, .strides = {k.strides[1], n.strides[0]}}};
-  if (!detail::contraction_strides::projection_is_directly_strided(plan.output) ||
-      !detail::contraction_strides::projection_is_directly_strided(plan.lhs) ||
-      !detail::contraction_strides::projection_is_directly_strided(plan.rhs))
-    return std::nullopt;
-  return plan;
+  return detail::contraction_strides::try_make_direct_gemm_plan(m, n, k);
+}
+
+/// \brief Try to leave one residual M or N dimension around a GEMM projection.
+/// \details The first implementation deliberately leaves K unlooped so every
+///          GEMM writes a disjoint output slice and uses the original `beta`.
+///          Exactly one of M or N must contain two merged stride descriptors;
+///          the other groups must each contain at most one. When either
+///          descriptor can serve as the loop, the plan with fewer GEMM calls
+///          is selected.
+/// \return A looped plan for one residual M or N dimension, or `std::nullopt`.
+template <
+    std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank,
+    MutableRankedContractionMdspecLike<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank> OutputMdspec,
+    RankedContractionMdspecLike<LhsRank> LhsMdspec, RankedContractionMdspecLike<RhsRank> RhsMdspec>
+[[nodiscard]] auto try_make_looped_contraction_gemm_plan(OutputMdspec const& output, LhsMdspec const& lhs,
+                                                         RhsMdspec const& rhs,
+                                                         ContractionAxes<LhsRank, RhsRank, ContractedRank> const& axes)
+    -> std::optional<LoopedContractionGemmPlan>
+{
+  if (!output.mapping().is_unique() || !lhs.mapping().is_unique() || !rhs.mapping().is_unique()) return std::nullopt;
+
+  auto groups = make_contraction_stride_groups(output, lhs, rhs, axes);
+  if (groups.k.size() > 1) return std::nullopt;
+
+  bool const loop_m = groups.m.size() == 2 && groups.n.size() <= 1;
+  bool const loop_n = groups.n.size() == 2 && groups.m.size() <= 1;
+  if (loop_m == loop_n) return std::nullopt;
+
+  auto const k = detail::contraction_strides::grouped_dimension(groups.k);
+  std::optional<LoopedContractionGemmPlan> result;
+  for (std::size_t loop_index = 0; loop_index < 2; ++loop_index)
+  {
+    std::size_t const matrix_index = 1 - loop_index;
+    auto const& loop = loop_m ? groups.m[loop_index] : groups.n[loop_index];
+    if (loop.extent < 0 || loop.strides[0] < 0 || loop.strides[1] < 0) continue;
+
+    auto const m = loop_m ? detail::contraction_strides::grouped_dimension(groups.m[matrix_index])
+                          : detail::contraction_strides::grouped_dimension(groups.m);
+    auto const n = loop_n ? detail::contraction_strides::grouped_dimension(groups.n[matrix_index])
+                          : detail::contraction_strides::grouped_dimension(groups.n);
+    auto gemm = detail::contraction_strides::try_make_direct_gemm_plan(m, n, k);
+    if (!gemm) continue;
+
+    LoopedContractionGemmPlan candidate{
+        .loop_extent = loop.extent,
+        .output_offset_stride = loop.strides[1],
+        .lhs_offset_stride = loop_m ? loop.strides[0] : 0,
+        .rhs_offset_stride = loop_n ? loop.strides[0] : 0,
+        .gemm = *gemm,
+    };
+    if (!result || candidate.loop_extent < result->loop_extent) result = std::move(candidate);
+  }
+  return result;
 }
 
 /// \brief Rank-two `layout_stride` mdspan type retaining a resolved operand accessor.
@@ -207,12 +311,32 @@ template <class Mdspec> struct ContractionMatrixMdspec<Mdspec, false>
                                typename span_type::data_descriptor_type>;
 };
 
+template <class Mdspec, bool = uni20::MdspanLike<Mdspec>> struct OffsetContractionMatrixMdspec;
+
+template <class Mdspec> struct OffsetContractionMatrixMdspec<Mdspec, true>
+{
+    using span_type = std::remove_cvref_t<Mdspec>;
+    using accessor_type = typename span_type::accessor_type::offset_policy;
+    using type = stdex::mdspan<typename accessor_type::element_type, stdex::dextents<typename span_type::index_type, 2>,
+                               stdex::layout_stride, accessor_type>;
+};
+
+template <class Mdspec> struct OffsetContractionMatrixMdspec<Mdspec, false>
+{
+    using type = typename ContractionMatrixMdspec<Mdspec, false>::type;
+};
+
 } // namespace detail::contraction_strides
 
 /// \brief Rank-two strided metadata type retaining an operand descriptor or immediate handle.
 template <uni20::MdspecLike Mdspec>
 using contraction_matrix_mdspec_t =
     typename detail::contraction_strides::ContractionMatrixMdspec<std::remove_cvref_t<Mdspec>>::type;
+
+/// \brief Rank-two strided metadata type whose storage origin may be advanced.
+template <uni20::MdspecLike Mdspec>
+using offset_contraction_matrix_mdspec_t =
+    typename detail::contraction_strides::OffsetContractionMatrixMdspec<std::remove_cvref_t<Mdspec>>::type;
 
 /// \brief Project a resolved mdspan into one rank-two GEMM operand without changing storage.
 template <uni20::MdspanLike Mdspan>
@@ -244,6 +368,40 @@ template <uni20::MdspecLike Mdspec>
     return result_type{span.data_handle(), mapping, span.accessor()};
   else
     return result_type{span.data_descriptor(), mapping, span.accessor()};
+}
+
+/// \brief Project a rank-two mdspec slice at one nonnegative element offset.
+/// \details Immediate storage advances its handle through the accessor and
+///          uses the accessor's offset policy. Deferred storage advances the
+///          copied data descriptor through `offset_by`, preserving acquisition
+///          and resource identity for the selected GEMM backend.
+/// \pre `element_offset` is nonnegative and identifies a valid element origin
+///      within the source descriptor.
+template <uni20::MdspecLike Mdspec>
+  requires(detail::contraction_strides::can_offset_contraction_mdspec<Mdspec>())
+[[nodiscard]] auto make_offset_contraction_matrix_mdspec(Mdspec& span, ContractionMatrixProjection const& projection,
+                                                         uni20::index_type element_offset)
+    -> offset_contraction_matrix_mdspec_t<Mdspec>
+{
+  CHECK(element_offset >= 0);
+  using result_type = offset_contraction_matrix_mdspec_t<Mdspec>;
+  using extents_type = typename result_type::extents_type;
+  using mapping_type = typename result_type::mapping_type;
+  auto const extents = extents_type{projection.extents[0], projection.extents[1]};
+  auto const mapping = mapping_type{extents, projection.strides};
+  if constexpr (uni20::MdspanLike<Mdspec>)
+  {
+    using source_accessor_type = typename std::remove_cvref_t<Mdspec>::accessor_type;
+    using offset_accessor_type = typename source_accessor_type::offset_policy;
+    auto const offset = static_cast<span_offset_t<source_accessor_type>>(element_offset);
+    return result_type{span.accessor().offset(span.data_handle(), offset), mapping,
+                       offset_accessor_type{span.accessor()}};
+  }
+  else
+  {
+    auto descriptor = span.data_descriptor().offset_by(static_cast<std::size_t>(element_offset));
+    return result_type{std::move(descriptor), mapping, span.accessor()};
+  }
 }
 
 } // namespace uni20::linalg

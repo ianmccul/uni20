@@ -74,8 +74,6 @@ The direct BLAS descriptor implementation lives under `src/uni20/linalg/blas/`:
   - `try_mdspan_vector_stage(...)`, BLAS increment lowering, and readable or
     writable rank-one descriptors, including strict contiguous writable LAPACK
     vectors.
-- `contract.hpp`
-  - direct rank-two projection and GEMM execution for preplanned contractions.
 - `gemm.hpp`
   - direct mdspan GEMM wrappers.
 - `gemv.hpp`

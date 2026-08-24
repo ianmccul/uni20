@@ -16,8 +16,8 @@ before they lower to backend wrappers and kernels.
   reduction front ends and backends.
 - `contraction_axes.hpp`: normalized contracted/surviving axis descriptors for
   fixed-rank pairwise contractions.
-- `contraction_strides.hpp`: jointly merged M/N/K stride metadata and direct
-  rank-two GEMM projections.
+- `contraction_strides.hpp`: jointly merged M/N/K stride metadata plus direct
+  and one-residual-axis rank-two GEMM projections.
 - `backend_selector.hpp`: ordered backend selector values, Uni20-owned
   operation/storage defaults, user selector overrides, and the stateless host
   backend entries shared with tensor storage.
@@ -38,6 +38,7 @@ before they lower to backend wrappers and kernels.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
 - [`backends/`](backends/): operation-tag backend implementations.
 - [`backends/direct_gemm/`](backends/direct_gemm/): direct tensor-contraction lowering through a retained GEMM selector.
+- [`backends/looped_gemm/`](backends/looped_gemm/): residual-M/N tensor-contraction loops through a retained GEMM selector.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
 - [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense matrix helpers, and

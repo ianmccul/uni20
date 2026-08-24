@@ -192,7 +192,7 @@ TEST(CpuTensorContractionTest, EmptyContractedExtentProducesScaledZeroProduct)
       EXPECT_DOUBLE_EQ((output[row, column]), 14.0);
 }
 
-TEST(CpuTensorContractionTest, DefaultSelectorFallsThroughToCpuReferenceBackend)
+TEST(CpuTensorContractionTest, NoUnitStrideOperandFallsThroughToCpuReferenceBackend)
 {
   namespace diagnostics = uni20::linalg::dispatch_diagnostics;
   std::vector<diagnostics::event> events;
