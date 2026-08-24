@@ -7,6 +7,8 @@ the [raw external-library wrappers](../../backend/).
 ## Contents
 
 - [`cpu/`](cpu/): CPU dense matrix helpers and CPU matrix exponential implementation.
+- [`direct_gemm/`](direct_gemm/): operation-specific tensor contractions that lower to one GEMM dispatch.
+- [`looped_gemm/`](looped_gemm/): tensor contractions that loop over one residual M or N group around GEMM dispatch.
 - [`blas/`](blas/): operation-tag backend adapters that delegate to mdspan BLAS helpers.
 - [`cublas/`](cublas/): provider-ready CUDA operation adapters using acquired cuBLAS execution leases.
 - [`cuda/`](cuda/): generic CUDA runtime kernels and transfers used after provider backends decline.

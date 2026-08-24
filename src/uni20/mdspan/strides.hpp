@@ -73,14 +73,17 @@ template <std::size_t N> struct extent_strides
     {}
 
     /// \brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
+    /// \details An extent-one dimension is always mergeable because its stride
+    ///          is not observed by any logical index.
     /// \param inner The inner dimension metadata to test.
     /// \return True when the two dimensions are mergeable.
     /// \ingroup mdspan_ext
     [[nodiscard]] constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
     {
-      auto const inner_extent = static_cast<std::ptrdiff_t>(inner.extent);
-      if (inner_extent < 0) return false;
+      if (extent < 0 || inner.extent < 0) return false;
+      if (extent == 1 || inner.extent == 1) return true;
 
+      auto const inner_extent = static_cast<std::ptrdiff_t>(inner.extent);
       for (std::size_t i = 0; i < N; ++i)
       {
         auto const inner_stride = inner.strides[i];
@@ -94,10 +97,23 @@ template <std::size_t N> struct extent_strides
     }
 
     /// \brief Merge an inner dimension into this one when merging is valid.
+    /// \details The merged descriptor retains the non-singleton dimension's
+    ///          strides. Two singleton dimensions use canonical unit strides.
     /// \param inner The inner dimension metadata to merge.
     /// \ingroup mdspan_ext
     constexpr void merge_with_inner(extent_strides inner) noexcept
     {
+      if (extent == 1)
+      {
+        extent = inner.extent;
+        if (inner.extent == 1)
+          strides.fill(1);
+        else
+          strides = inner.strides;
+        return;
+      }
+      if (inner.extent == 1) return;
+
       extent *= inner.extent;
       strides = inner.strides;
     }
@@ -106,8 +122,30 @@ template <std::size_t N> struct extent_strides
 namespace detail
 {
 
+template <std::size_t N, std::size_t R>
+void remove_singleton_dimensions(static_vector<extent_strides<N>, R>& dimensions)
+{
+  if (dimensions.empty()) return;
+
+  std::size_t write = 0;
+  for (std::size_t read = 0; read < dimensions.size(); ++read)
+  {
+    if (dimensions[read].extent != 1) dimensions[write++] = dimensions[read];
+  }
+
+  if (write == 0)
+  {
+    dimensions[0].extent = 1;
+    dimensions[0].strides.fill(1);
+    dimensions.resize(1);
+    return;
+  }
+  dimensions.resize(write);
+}
+
 template <std::size_t N, std::size_t R> void sort_and_merge_left(static_vector<extent_strides<N>, R>& out)
 {
+  remove_singleton_dimensions(out);
   if (out.size() <= 1) return;
 
   std::sort(out.begin(), out.end(),
@@ -136,6 +174,7 @@ template <std::size_t N, std::size_t R> void sort_and_merge_left(static_vector<e
 
 template <std::size_t N, std::size_t R> void sort_and_merge_right(static_vector<extent_strides<N>, R>& out)
 {
+  remove_singleton_dimensions(out);
   if (out.size() <= 1) return;
 
   std::sort(out.begin(), out.end(),

@@ -5,6 +5,8 @@ vendor accelerator backend.
 
 ## Contents
 
+- `contract.hpp`: host lease acquisition and dispatch for arbitrary-rank
+  pairwise contraction.
 - `copy.hpp`: reference accessor-respecting element-copy kernel.
 - `conjugate_inplace.hpp`: reference accessor-respecting in-place conjugation
   kernel.

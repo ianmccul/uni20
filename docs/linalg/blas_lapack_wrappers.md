@@ -90,11 +90,14 @@ The first operation-tag dispatch slice adds:
     acceptance detection, and the runtime backend walk.
 - `ops/gemm.hpp`
   - fixed-output tensor-view `gemm(...)`.
+- `ops/contract.hpp`
+  - fixed-output pairwise Tensor contraction with normalized axis pairs.
 - `ops/gemv.hpp`
   - fixed-output tensor-view `gemv(...)` with rank-1 output/input and a rank-2
     matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
+  - direct no-copy `contract_op` grouping, host acquisition, and GEMM lowering.
 - `backends/blas/gemv.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemv_op, ...)`.
 - `backends/cpu/gemm.hpp`
@@ -694,7 +697,10 @@ Descriptor tests:
 
 - `layout_left`, `layout_right`, and `layout_stride` rank-2 views.
 - padded views where one stride remains `1`.
-- rejection when neither stride is `1`.
+- singleton axes with arbitrary reported strides, including use of a singleton
+  as the provider unit-stride axis.
+- rejection when neither observed multi-element axis has stride `1` and no
+  singleton axis can supply the provider unit-stride dimension.
 - rejection when extents or leading dimensions do not fit `blas_int`.
 - const input and mutable output handle types.
 - `needs_conjugation` is derived from the accessor policy.

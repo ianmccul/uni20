@@ -9,7 +9,8 @@ The implemented backend adapters are GEMM and GEMV. They delegate
 `try_kernel(BlasBackend, operation, ...)` to the corresponding direct
 `uni20::linalg::blas::try_*` wrapper. Direct representability failures return
 structured `KernelAttempt` decline reasons; provider failures remain terminal
-errors.
+errors. Tensor contraction is an operation-specific strategy backend above
+this layer and delegates its projected rank-two operands through `gemm_op`.
 
 ## Related Documentation
 

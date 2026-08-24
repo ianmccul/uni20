@@ -34,18 +34,31 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
     constexpr extent_stride(ExtentT extent_, StrideT stride_) : extent(extent_), stride(stride_) {}
 
     /// \brief Returns true when two adjacent dimensions can be merged.
+    /// \details An extent-one dimension is always mergeable because its stride
+    ///          is not observed by any logical index.
     /// \param inner Metadata describing the inner dimension.
     /// \ingroup internal
     [[nodiscard]] constexpr bool can_merge_with_inner(extent_stride inner) const noexcept
     {
+      if (extent == ExtentT{1} || inner.extent == ExtentT{1}) return true;
       return stride == inner.stride * static_cast<StrideT>(inner.extent);
     }
 
     /// \brief Merge an inner dimension into this one.
+    /// \details The merged descriptor retains the non-singleton dimension's
+    ///          stride. Two singleton dimensions use the canonical unit stride.
     /// \param inner The dimension that satisfies can_merge_with_inner.
     /// \ingroup internal
     constexpr void merge_with_inner(extent_stride inner) noexcept
     {
+      if (extent == ExtentT{1})
+      {
+        extent = inner.extent;
+        stride = inner.extent == ExtentT{1} ? StrideT{1} : inner.stride;
+        return;
+      }
+      if (inner.extent == ExtentT{1}) return;
+
       extent *= inner.extent;
       stride = inner.stride;
     }

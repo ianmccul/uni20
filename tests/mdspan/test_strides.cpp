@@ -24,6 +24,36 @@ TEST(ExtentStrides, MergeWithInnerSuccessAndFailure)
   EXPECT_FALSE(incompatible.can_merge_with_inner(inner));
 }
 
+TEST(ExtentStrides, SingletonDimensionMergesWithoutContributingItsStride)
+{
+  extent_strides<2> outer{4, std::array<std::ptrdiff_t, 2>{7, 11}};
+  extent_strides<2> inner_singleton{1, std::array<std::ptrdiff_t, 2>{999, -23}};
+
+  ASSERT_TRUE(outer.can_merge_with_inner(inner_singleton));
+  outer.merge_with_inner(inner_singleton);
+  EXPECT_EQ(outer.extent, 4);
+  EXPECT_EQ(outer.strides, (std::array<std::ptrdiff_t, 2>{7, 11}));
+
+  extent_strides<2> outer_singleton{1, std::array<std::ptrdiff_t, 2>{-41, 313}};
+  extent_strides<2> inner{5, std::array<std::ptrdiff_t, 2>{3, 13}};
+
+  ASSERT_TRUE(outer_singleton.can_merge_with_inner(inner));
+  outer_singleton.merge_with_inner(inner);
+  EXPECT_EQ(outer_singleton.extent, 5);
+  EXPECT_EQ(outer_singleton.strides, (std::array<std::ptrdiff_t, 2>{3, 13}));
+}
+
+TEST(ExtentStrides, MergedSingletonDimensionsUseCanonicalStrides)
+{
+  extent_strides<2> outer{1, std::array<std::ptrdiff_t, 2>{37, -19}};
+  extent_strides<2> inner{1, std::array<std::ptrdiff_t, 2>{0, 511}};
+
+  ASSERT_TRUE(outer.can_merge_with_inner(inner));
+  outer.merge_with_inner(inner);
+  EXPECT_EQ(outer.extent, 1);
+  EXPECT_EQ(outer.strides, (std::array<std::ptrdiff_t, 2>{1, 1}));
+}
+
 TEST(MergeStrides, LeftOrdersAscendingAndPreservesPairs)
 {
   static_vector<extent_strides<2>, 3> dims;
@@ -110,6 +140,20 @@ TEST(MergeStridesLeft, MergesContiguousLayoutLeftDimensions)
   EXPECT_EQ(dims[0].strides[1], 5);
 }
 
+TEST(MergeStridesLeft, SingletonDimensionDoesNotInterruptContiguousMerge)
+{
+  static_vector<extent_strides<2>, 3> dims;
+  dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{1, 5});
+  dims.emplace_back(1, std::array<std::ptrdiff_t, 2>{1000, -999});
+  dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{3, 15});
+
+  merge_strides_left(dims);
+
+  ASSERT_EQ(dims.size(), 1);
+  EXPECT_EQ(dims[0].extent, 6);
+  EXPECT_EQ(dims[0].strides, (std::array<std::ptrdiff_t, 2>{1, 5}));
+}
+
 TEST(MergeStridesLeft, PartiallyMergesContiguousLayoutLeftDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
@@ -141,6 +185,34 @@ TEST(MergeStridesRight, MergesAllContiguousDimensions)
   EXPECT_EQ(dims[0].extent, 24);
   EXPECT_EQ(dims[0].strides[0], 1);
   EXPECT_EQ(dims[0].strides[1], 5);
+}
+
+TEST(MergeStridesRight, SingletonDimensionDoesNotInterruptContiguousMerge)
+{
+  static_vector<extent_strides<2>, 3> dims;
+  dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{12, 15});
+  dims.emplace_back(1, std::array<std::ptrdiff_t, 2>{1000, -999});
+  dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{4, 5});
+
+  merge_strides_right(dims);
+
+  ASSERT_EQ(dims.size(), 1);
+  EXPECT_EQ(dims[0].extent, 6);
+  EXPECT_EQ(dims[0].strides, (std::array<std::ptrdiff_t, 2>{4, 5}));
+}
+
+TEST(MergeStridesRight, AllSingletonDimensionsProduceOneCanonicalDimension)
+{
+  static_vector<extent_strides<2>, 3> dims;
+  dims.emplace_back(1, std::array<std::ptrdiff_t, 2>{37, -19});
+  dims.emplace_back(1, std::array<std::ptrdiff_t, 2>{0, 511});
+  dims.emplace_back(1, std::array<std::ptrdiff_t, 2>{-71, 23});
+
+  merge_strides_right(dims);
+
+  ASSERT_EQ(dims.size(), 1);
+  EXPECT_EQ(dims[0].extent, 1);
+  EXPECT_EQ(dims[0].strides, (std::array<std::ptrdiff_t, 2>{1, 1}));
 }
 
 TEST(MergeStridesRight, PartiallyMergesContiguousDimensions)

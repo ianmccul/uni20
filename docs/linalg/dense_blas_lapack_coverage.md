@@ -34,6 +34,14 @@ cover nonzero buffer offsets, transpose and conjugate-transpose subviews,
 clean unsupported-layout decline before resource admission, cross-device
 rejection, and exact or partial output/input alias rejection.
 
+Fixed-output dense Tensor contraction has direct and residual-axis host BLAS
+lowerings for `s/d/c/z` scalars. They jointly merge the logical M, N, and K
+stride groups, project directly representable slices to rank-two mdspecs, and
+reuse ordinary GEMM dispatch. The looped path currently accepts one residual M
+or N descriptor and leaves K unlooped. Multiple residual dimensions,
+residual-K accumulation, unsupported accessors or matrix layouts, and packed
+plans remain on the accessor-respecting CPU reference path.
+
 ## Scalar Tags
 
 LAPACK-style scalar tags are used throughout. Complex scalar spellings follow

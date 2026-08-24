@@ -205,6 +205,25 @@ TEST(MakeMultiIterationPlanTest, MergeProbeDoesNotOverflowForExtremeInnerStride)
   EXPECT_FALSE(outer.can_merge_with_inner(inner));
 }
 
+TEST(ExtentStrideTest, SingletonDimensionMergesWithoutContributingItsStride)
+{
+  extent_stride<std::size_t, std::ptrdiff_t> outer{4, 7};
+  extent_stride<std::size_t, std::ptrdiff_t> inner_singleton{1, 999};
+
+  ASSERT_TRUE(outer.can_merge_with_inner(inner_singleton));
+  outer.merge_with_inner(inner_singleton);
+  EXPECT_EQ(outer.extent, 4);
+  EXPECT_EQ(outer.stride, 7);
+
+  extent_stride<std::size_t, std::ptrdiff_t> outer_singleton{1, -23};
+  extent_stride<std::size_t, std::ptrdiff_t> inner{5, 3};
+
+  ASSERT_TRUE(outer_singleton.can_merge_with_inner(inner));
+  outer_singleton.merge_with_inner(inner);
+  EXPECT_EQ(outer_singleton.extent, 5);
+  EXPECT_EQ(outer_singleton.stride, 3);
+}
+
 TEST(MakeMultiIterationPlanTest, OutputNegativeStrideFlipsEveryOperand)
 {
   auto output = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{-2});

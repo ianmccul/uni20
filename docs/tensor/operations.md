@@ -402,6 +402,7 @@ mdspans or spans.
 
 | Operation | Synchronous contract | Output/storage behavior | Async support |
 |---|---|---|---|
+| `contract` | Fixed-output pairwise contraction `C = alpha * contract(A, B) + beta * C` over explicit normalized axis pairs. | Caller supplies a shape-compatible output; no resize. Surviving left axes precede surviving right axes. | Not implemented. |
 | `gemm` | Fixed-output `C = alpha * A * B + beta * C`. | Caller supplies compatible output; no resize. | Implemented for all-Async tensor operands; `alpha` and `beta` may be immediate or Async. |
 | `gemv` | Fixed-output `y = alpha * A * x + beta * y`. | Caller supplies compatible output; no resize. | Not implemented. |
 | `assign_product` | Overwrite matrix product. | Output may resize; old values are ignored. | Implemented for all-Async tensor operands; `alpha` may be immediate or Async. |

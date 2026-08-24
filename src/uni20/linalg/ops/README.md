@@ -6,6 +6,7 @@ Operation values and diagnostic names are defined centrally in
 
 ## Contents
 
+- `contract.hpp`: fixed-output pairwise Tensor contraction dispatch.
 - `gemm.hpp`: fixed-output Tensor GEMM front end.
 - `gemv.hpp`: fixed-output Tensor GEMV front end.
 - `matrix_exponential.hpp`: fixed-output matrix exponential dispatch.

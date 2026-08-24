@@ -168,6 +168,50 @@ not inspect tensor values. Backend-neutral storage policies may participate with
 backend-bound storage policy, but incompatible backend-bound storage policies require
 an explicit selector or an explicit transfer.
 
+### Selector resolution
+
+Default Tensor operations resolve selectors in the following order:
+
+| Priority | Mechanism | Meaning |
+|---|---|---|
+| 1 | Explicit selector argument | Per-call selection; the default-selection mechanism is bypassed. |
+| 2 | `backend_selector_override<Operation, StoragePolicy>` | User replacement for one operation and storage-policy combination. |
+| 3 | `backend_selector_default<Operation, StoragePolicy>` | Uni20-owned operation-specific composition of the storage selector. |
+| 4 | `StoragePolicy::backend_selector()` | General execution capabilities supplied by the storage policy. |
+
+A library operation-specific default defines:
+
+```cpp
+static auto select(Operation const& operation,
+                   StorageSelector storage_selector);
+```
+
+The storage selector is passed by value, so the default may retain it inside
+stateful operation-specific backends. This supports orthogonal policy layers.
+For example, a tensor-contraction default can return Direct-GEMM, Looped-GEMM,
+and Packed-GEMM contraction backends that each retain the BLAS/CPU or
+cuBLAS/CUDA selector supplied by storage.
+
+`backend_selector_default` is a Uni20 library customization. A user who needs
+to replace the selected list specializes `backend_selector_override` instead:
+
+```cpp
+template<>
+struct backend_selector_override<my_operation, my_storage_policy>
+{
+    static auto select(my_operation const&)
+    {
+      return backend_list{KnownGoodBackend{}};
+    }
+};
+```
+
+The override is a complete replacement. Uni20 does not prepend or append the
+library default, and exhaustion does not fall back to it. This permits a user
+to remove a faulty or unsuitable kernel immediately without modifying Uni20.
+An explicit selector passed to an operation has still higher priority because
+the operation does not call `select_backend` in that overload.
+
 ## Backend customization points
 
 A backend participates in an operation through free functions found by ordinary

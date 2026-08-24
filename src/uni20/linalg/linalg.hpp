@@ -3,6 +3,7 @@
 #include <uni20/linalg/dispatch_diagnostics.hpp>
 #include <uni20/linalg/elementwise_functions.hpp>
 #include <uni20/linalg/operation_tags.hpp>
+#include <uni20/linalg/ops/contract.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/linalg/ops/gemv.hpp>
 #include <uni20/linalg/ops/matrix_exponential.hpp>

@@ -517,15 +517,22 @@ functions when present. Uni20's own tensor and adaptor classes can therefore use
 ordinary members for locality and documentation, while external types can still
 opt in through wrappers or ADL/customization.
 
-The implemented `select_backend(operation, operands...)` uses a global
-`backend_selector_override<Operation, StoragePolicy>` customization trait. Its
-fallback requires a common storage policy and returns the first operand's
-storage-provided static selector. Operand values are present only for type
-deduction and front-end ergonomics. A specialization may define
-`select(operation)` to globally replace the backend list for an
-operation/storage combination. Explicit-selector operation overloads bypass
-this default-selection step and remain the route for caller-specific immutable
-context.
+The implemented `select_backend(operation, operands...)` requires a common
+backend-bound storage policy and resolves its selector in layers. A user
+`backend_selector_override<Operation, StoragePolicy>` specialization may define
+`select(operation)` to replace the backend list completely. Otherwise a
+Uni20-owned `backend_selector_default<Operation, StoragePolicy>` specialization
+may define `select(operation, storage_selector)` to compose an
+operation-specific list around the storage policy's general static selector.
+Without either customization, selection returns that storage selector directly.
+Operand values are present only for type deduction and front-end ergonomics.
+Explicit-selector operation overloads bypass this default-selection step and
+remain the route for caller-specific immutable context.
+
+The user override is deliberately distinct from the library default and does
+not fall back to it. A user can therefore remove a backend with a suspected
+kernel defect for one operation/storage combination without changing the
+storage policy or Uni20 source.
 
 The default path rejects mixed storage policies at compile time. In particular,
 a host tensor and a CUDA tensor do not acquire an implicit transfer merely

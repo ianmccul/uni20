@@ -19,6 +19,16 @@
 \maketitle
 
 \section{Introduction}
+\paragraph{Status.}
+This November 2025 paper is algorithmic background.  Uni20's current operation boundary selects a
+backend from policy-bearing Tensor views, normalizes fixed operands to \texttt{mdspec} values, and
+lets the selected backend acquire execution-domain mdspans.  Implemented backends include an
+accessor-respecting CPU reference loop, direct no-copy GEMM lowering when the M, N, and K stride
+groups each collapse to one dimension, and looped GEMM when exactly one residual M or N descriptor
+remains.  Multiple residual dimensions, residual-K accumulation, and pack--GEMM--unpack remain
+backend strategies rather than Tensor-front-end rewrites.  The canonical current contract is
+\texttt{docs/linalg/tensor\_contraction.md}.
+
 Tensor contraction is the multilinear generalisation of matrix multiplication.  Uni20 exposes
 contraction kernels that operate on tensor operands described by \texttt{mdspan}-compatible
 interfaces.  This note collects the background theory and implementation strategy used by Uni20's
@@ -109,6 +119,12 @@ effectively fusing neighbour indices that already form a single logical block.  
 contraction that resembles GEMM's $(M,N,K)$ tuple. (The choice of \texttt{merge\_strides\_right()} here
 means that unmergable indices will be in the layout right order for the \emph{first} set of strides in the group.
 This is a rather arbitrary choice, that we will probably want to change later.)
+
+An extent-one descriptor is an identity for merging. Its only logical index is zero, so its
+reported strides are never observed: it may merge with either neighbour regardless of those stride
+values, and the merged descriptor retains the non-singleton neighbour's strides. Two singleton
+descriptors merge to canonical unit strides. Extent-zero descriptors remain distinct because they
+represent an empty iteration space rather than an unobserved factor of one.
 
 The descriptors themselves are instances of \texttt{extent\_strides<2>} from
 \texttt{src/mdspan/strides.hpp}.  Each record stores a common \texttt{extent} alongside a
@@ -209,7 +225,11 @@ single contiguous axis.  Uni20 can deploy several strategies:
         dimensions as batch loops around a GEMM call.  For example, suppose the $M$-group contains
         two descriptors but the $N$- and $K$-groups each reduce to one.  We can iterate over the
         extra $M$-group descriptor, adjusting pointers by its stride, and issue a GEMM for every
-        slice.  This preserves GEMM's efficiency while avoiding a full rearrangement.
+        slice.  This preserves GEMM's efficiency while avoiding a full rearrangement.  The current
+        first implementation supports one residual $M$ or $N$ descriptor.  It advances immediate
+        handles through their accessor or deferred descriptors through an offset operation before
+        ordinary GEMM dispatch.  Residual $K$ loops remain future work because they require
+        first-slice versus accumulating-$\beta$ semantics.
   \item[Rearrange $\rightarrow$ GEMM $\rightarrow$ Rearrange.]  When multiple groups have
         non-contiguous descriptors or when unit stride axes do not line up, we may materialise
         temporary buffers whose layout is explicitly column-major.  The sequence proceeds as follows:

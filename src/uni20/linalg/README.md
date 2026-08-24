@@ -14,8 +14,13 @@ before they lower to backend wrappers and kernels.
   have explicit precompiled backend lowerings.
 - `reduction_axes.hpp`: normalized reduced/surviving axis descriptors shared by
   reduction front ends and backends.
-- `backend_selector.hpp`: ordered backend selector values and the stateless
-  host backend entries shared with tensor storage.
+- `contraction_axes.hpp`: normalized contracted/surviving axis descriptors for
+  fixed-rank pairwise contractions.
+- `contraction_strides.hpp`: jointly merged M/N/K stride metadata plus direct
+  and one-residual-axis rank-two GEMM projections.
+- `backend_selector.hpp`: ordered backend selector values, Uni20-owned
+  operation/storage defaults, user selector overrides, and the stateless host
+  backend entries shared with tensor storage.
 - `dispatch.hpp`: operation-value backend-list dispatch helpers.
 - `dispatch_diagnostics.hpp`: disabled-by-default structured observation of
   ordered backend walks.
@@ -32,6 +37,8 @@ before they lower to backend wrappers and kernels.
   resolved host mdspans.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
 - [`backends/`](backends/): operation-tag backend implementations.
+- [`backends/direct_gemm/`](backends/direct_gemm/): direct tensor-contraction lowering through a retained GEMM selector.
+- [`backends/looped_gemm/`](backends/looped_gemm/): residual-M/N tensor-contraction loops through a retained GEMM selector.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
 - [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense matrix helpers, and
@@ -75,6 +82,9 @@ before they lower to backend wrappers and kernels.
   and use the generic CPU reference executor when no earlier backend accepts.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
+- Default selector resolution gives a user `backend_selector_override` complete
+  replacement priority over Uni20's `backend_selector_default`; absent either,
+  it uses the storage policy's general selector.
 - `kernel_type_candidates(...)` filters a selector to its ordered `yes` and
   `maybe` type candidates while preserving backend values, allowing shared
   conformance tests to exercise every compatible backend independently.

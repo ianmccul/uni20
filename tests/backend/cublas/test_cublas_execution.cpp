@@ -9,6 +9,8 @@
 #include <uni20/linalg/async/matrix_product.hpp>
 #include <uni20/linalg/backends/cublas/gemm.hpp>
 #include <uni20/linalg/backends/cublas/gemm_task.hpp>
+#include <uni20/linalg/dispatch_diagnostics.hpp>
+#include <uni20/linalg/ops/contract.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/tensor/conjugate.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -20,6 +22,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -407,6 +410,16 @@ template <class Tensor> auto download_tensor(Tensor const& tensor) -> std::vecto
   }
   stream.synchronize();
   return values;
+}
+
+[[nodiscard]] auto selected_backend(std::vector<uni20::linalg::dispatch_diagnostics::event> const& events,
+                                    std::string_view operation) -> std::optional<std::string_view>
+{
+  for (auto const& event : events)
+  {
+    if (event.operation == operation && event.selected_backend()) return *event.selected_backend();
+  }
+  return std::nullopt;
 }
 
 template <class Scalar> void check_complex_conjugate_transpose_gemm(int device)
@@ -831,6 +844,29 @@ TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaTensorViews)
   uni20::linalg::gemm(output, 1.0, lhs, rhs, 1.0);
 
   EXPECT_EQ(download_tensor(output), (std::vector<double>{116, 278, 128, 308}));
+}
+
+TEST_F(CublasExecutionTest, DefaultTensorContractionRetainsCudaGemmSelector)
+{
+  namespace diagnostics = uni20::linalg::dispatch_diagnostics;
+  std::vector<diagnostics::event> events;
+  diagnostics::scoped_sink capture([&](diagnostics::event const& event) { events.push_back(event); });
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  uni20::CudaMatrix<double> lhs(resources, 2, 3);
+  uni20::CudaMatrix<double> rhs(resources, 3, 2);
+  uni20::CudaMatrix<double> output(resources, 2, 2);
+
+  std::array<double, 6> const lhs_values{1, 4, 2, 5, 3, 6};
+  std::array<double, 6> const rhs_values{7, 9, 11, 8, 10, 12};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  std::array<std::pair<std::size_t, std::size_t>, 1> const axes{{{1, 0}}};
+  uni20::linalg::contract(output, 1.0, lhs, rhs, axes, 0.0);
+
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{58, 139, 64, 154}));
+  EXPECT_EQ(selected_backend(events, "contract"), "direct_gemm_contraction");
+  EXPECT_EQ(selected_backend(events, "gemm"), "cublas");
 }
 
 TEST_F(CublasExecutionTest, OperationDispatchAcceptsNormalizedMdspecsRatherThanTensorViews)

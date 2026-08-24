@@ -14,7 +14,22 @@ namespace uni20::test
 template <class Storage> struct HostStorageDescriptor
 {
     Storage* storage = nullptr;
+    std::size_t element_offset = 0;
+
+    [[nodiscard]] auto offset_by(std::size_t offset) const noexcept -> HostStorageDescriptor
+    {
+      auto result = *this;
+      result.element_offset += offset;
+      return result;
+    }
 };
+
+template <class Storage> [[nodiscard]] auto host_descriptor_data(HostStorageDescriptor<Storage> const& descriptor)
+{
+  auto data = descriptor.storage->data();
+  if (descriptor.element_offset != 0) data += descriptor.element_offset;
+  return data;
+}
 
 class HostAccessState {
   public:
@@ -49,7 +64,7 @@ acquire_host_read_access_sync(mdspec<Element, Extents, Layout, Accessor, HostSto
   using lease_type = read_mdspan_lease<mdspan_type, HostAccessState>;
   return lease_type{
       HostAccessState{},
-      mdspan_type{span.data_descriptor().storage->data(), span.mapping(), span.accessor()},
+      mdspan_type{host_descriptor_data(span.data_descriptor()), span.mapping(), span.accessor()},
   };
 }
 
@@ -62,7 +77,7 @@ acquire_host_write_access_sync(mdspec<Element, Extents, Layout, Accessor, HostSt
   using lease_type = write_mdspan_lease<mdspan_type, HostAccessState>;
   return lease_type{
       HostAccessState{},
-      mdspan_type{span.data_descriptor().storage->data(), span.mapping(), span.accessor()},
+      mdspan_type{host_descriptor_data(span.data_descriptor()), span.mapping(), span.accessor()},
   };
 }
 

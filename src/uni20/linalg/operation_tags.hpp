@@ -6,6 +6,7 @@
  * \brief Backend-independent operation values used with normalized kernel operands.
  */
 
+#include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/linalg/reduction_axes.hpp>
 
 #include <cstddef>
@@ -76,6 +77,15 @@ struct gemm_op
 struct gemv_op
 {
     static constexpr std::string_view name = "gemv";
+};
+
+/// \brief Fixed-output pairwise tensor contraction operation.
+/// \details Computes `output = alpha * contract(lhs, rhs) + beta * output`.
+///          The output is an existing operand whose storage is not replaced.
+template <std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank> struct contract_op
+{
+    static constexpr std::string_view name = "contract";
+    ContractionAxes<LhsRank, RhsRank, ContractedRank> axes;
 };
 
 /// \brief Conjugate-linear-left tensor inner-product operation tag.
