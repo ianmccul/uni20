@@ -34,6 +34,13 @@ cover nonzero buffer offsets, transpose and conjugate-transpose subviews,
 clean unsupported-layout decline before resource admission, cross-device
 rejection, and exact or partial output/input alias rejection.
 
+Fixed-output dense Tensor contraction now has a direct host BLAS lowering for
+`s/d/c/z` scalars. It jointly merges the logical M, N, and K stride groups,
+projects a directly representable contraction to rank-two mdspans, and reuses
+the checked GEMM wrapper. Nonmergeable groups and unsupported accessor or
+matrix layouts remain on the accessor-respecting CPU reference path; looped,
+batched, and packed GEMM contraction plans are not yet implemented.
+
 ## Scalar Tags
 
 LAPACK-style scalar tags are used throughout. Complex scalar spellings follow

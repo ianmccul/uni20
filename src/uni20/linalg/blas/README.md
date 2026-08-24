@@ -15,6 +15,8 @@ tensor-level linalg front ends.
 - `mdspan_matrix.hpp`: mdspan-axis staging descriptor construction and lowering
   to provider-ready operands.
 - `mdspan_vector.hpp`: rank-one stride and accessor staging for BLAS increments.
+- `contract.hpp`: direct rank-two projection and GEMM execution for a
+  preplanned contraction.
 - `gemm.hpp`: direct no-copy GEMM wrappers over the configured BLAS provider.
 - `gemv.hpp`: direct no-copy GEMV wrappers over matrix and vector operands.
 - `blas.hpp`: include point for this adapter layer.

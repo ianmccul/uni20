@@ -19,6 +19,15 @@
 \maketitle
 
 \section{Introduction}
+\paragraph{Status.}
+This November 2025 paper is algorithmic background.  Uni20's current operation boundary selects a
+backend from policy-bearing Tensor views, normalizes fixed operands to \texttt{mdspec} values, and
+lets the selected backend acquire execution-domain mdspans.  Implemented backends include an
+accessor-respecting CPU reference loop and direct no-copy BLAS lowering when the M, N, and K stride
+groups each collapse to one GEMM dimension.  Looped GEMM and pack--GEMM--unpack remain backend
+strategies rather than Tensor-front-end rewrites.  The canonical current contract is
+\texttt{docs/linalg/tensor\_contraction.md}.
+
 Tensor contraction is the multilinear generalisation of matrix multiplication.  Uni20 exposes
 contraction kernels that operate on tensor operands described by \texttt{mdspan}-compatible
 interfaces.  This note collects the background theory and implementation strategy used by Uni20's

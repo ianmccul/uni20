@@ -150,9 +150,12 @@ detection and debug task creation traces.
 
 Default selector resolution is static: `select_backend_for<Tensors...>(op)`
 uses the common storage-policy type and operation value without inspecting a
-Tensor value. The immutable selector is therefore chosen before scheduling and
-moved into the coroutine. An explicit selector follows the same ownership
-rule and may carry immutable operation context.
+Tensor value. A user `backend_selector_override` takes precedence over a
+Uni20-owned operation-specific `backend_selector_default`, which in turn may
+compose the storage policy's general selector. The immutable result is chosen
+before scheduling and moved into the coroutine. An explicit selector bypasses
+default resolution, follows the same ownership rule, and may carry immutable
+operation context.
 
 This does not mean a concrete backend has run or accepted the operation before
 scheduling. The coroutine awaits the Tensors, normalizes their fixed operands

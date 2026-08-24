@@ -6,6 +6,7 @@ access acquisition.
 
 ## Contents
 
+- `contract.hpp`: arbitrary-rank accessor-respecting pairwise contraction.
 - `gemm.hpp`: rank-two reference GEMM compatibility probe and implementation.
 - `gemv.hpp`: rank-two-by-rank-one reference GEMV compatibility probe and
   implementation.

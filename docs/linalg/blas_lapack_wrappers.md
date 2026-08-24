@@ -74,6 +74,8 @@ The direct BLAS descriptor implementation lives under `src/uni20/linalg/blas/`:
   - `try_mdspan_vector_stage(...)`, BLAS increment lowering, and readable or
     writable rank-one descriptors, including strict contiguous writable LAPACK
     vectors.
+- `contract.hpp`
+  - direct rank-two projection and GEMM execution for preplanned contractions.
 - `gemm.hpp`
   - direct mdspan GEMM wrappers.
 - `gemv.hpp`
@@ -90,11 +92,15 @@ The first operation-tag dispatch slice adds:
     acceptance detection, and the runtime backend walk.
 - `ops/gemm.hpp`
   - fixed-output tensor-view `gemm(...)`.
+- `ops/contract.hpp`
+  - fixed-output pairwise Tensor contraction with normalized axis pairs.
 - `ops/gemv.hpp`
   - fixed-output tensor-view `gemv(...)` with rank-1 output/input and a rank-2
     matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
+- `backends/blas/contract.hpp`
+  - direct no-copy `contract_op` grouping, host acquisition, and GEMM lowering.
 - `backends/blas/gemv.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemv_op, ...)`.
 - `backends/cpu/gemm.hpp`
