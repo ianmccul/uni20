@@ -76,9 +76,10 @@ consteval auto kernel_accepts_types(LoopedGemmContractionBackend<GemmSelector> c
 
 /// \brief Execute one residual M or N loop through nested GEMM dispatch.
 /// \details The first nested GEMM may cleanly decline before any output is
-///          modified. Later slices differ only in valid descriptor offsets;
-///          after the first succeeds, a later decline violates the backend's
-///          offset-invariant GEMM acceptance requirement and is terminal.
+///          modified. After it succeeds, later slices use terminal dispatch
+///          because the overall contraction is no longer eligible for outer
+///          fallback. Nested GEMM candidates may still cleanly decline within
+///          each later dispatch.
 template <
     class GemmSelector, std::size_t LhsRank, std::size_t RhsRank, std::size_t ContractedRank,
     MutableRankedContractionMdspecLike<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank> OutputMdspec,
@@ -94,21 +95,21 @@ KernelAttempt try_kernel(LoopedGemmContractionBackend<GemmSelector> const& backe
   if (!plan) return KernelAttempt::unsupported_layout;
   if (plan->loop_extent == 0) return KernelAttempt::success;
 
-  bool output_modified = false;
   for (uni20::index_type index = 0; index < plan->loop_extent; ++index)
   {
     auto output_matrix =
         make_offset_contraction_matrix_mdspec(output, plan->gemm.output, index * plan->output_offset_stride);
     auto lhs_matrix = make_offset_contraction_matrix_mdspec(lhs, plan->gemm.lhs, index * plan->lhs_offset_stride);
     auto rhs_matrix = make_offset_contraction_matrix_mdspec(rhs, plan->gemm.rhs, index * plan->rhs_offset_stride);
-    bool const succeeded =
-        try_dispatch_kernel(backend.gemm_selector, gemm_op{}, output_matrix, alpha, lhs_matrix, rhs_matrix, beta);
-    if (!succeeded)
+    if (index == 0)
     {
-      if (!output_modified) return KernelAttempt::unsupported_instance;
-      CHECK(false, "GEMM backend acceptance changed across offset-only contraction slices", index);
+      if (!try_dispatch_kernel(backend.gemm_selector, gemm_op{}, output_matrix, alpha, lhs_matrix, rhs_matrix, beta))
+        return KernelAttempt::unsupported_instance;
     }
-    output_modified = true;
+    else
+    {
+      dispatch_kernel(backend.gemm_selector, gemm_op{}, output_matrix, alpha, lhs_matrix, rhs_matrix, beta);
+    }
   }
   return KernelAttempt::success;
 }
