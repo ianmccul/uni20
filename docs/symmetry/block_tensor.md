@@ -254,12 +254,17 @@ implementation, while the opaque block key retains the required coupling
 extension point.
 
 A small type family shares `DomainType`/`CodomainType`/`Storage`, varying only
-on ownership and view-state (mirroring the existing `Tensor` / `TensorView`
-split):
+on ownership and view-state. Algorithms describe their operands through the
+`BlockTensorView` concept rather than requiring one concrete owner or view type:
 
-- **`BlockTensor`** — owning; holds the buffers.
-- **`BlockTensorView`** — non-owning; carries op-state (§7) and possibly rebound
-  per-block scalars over another tensor's buffers.
+- **`BlockTensor`** — owning; holds the buffers and models `BlockTensorView`.
+- **mapped BlockTensor views** — non-owning; carry transformed boundaries,
+  keys, and dense-block mdspecs over another tensor's buffers. They also model
+  `BlockTensorView`.
+- **`ImmediateBlockTensorView`**, **`MutableBlockTensorView`**,
+  **`BorrowedBlockTensorView`**, and the async refinements — orthogonal
+  capability concepts used by operations that require a particular access or
+  lifetime model.
 - **`ReplicatedBlockTensor`** — implicitly **const**; its blocks are **not
   necessarily uniquely stored**. This does *not* mean every block is copied to
   every MPI rank / device: each block has a canonical location (optionally assigned
@@ -396,12 +401,15 @@ library. We roll our own view adaptors so we own the lowering.
 
 The implemented bosonic edge-repartition slice bends only a leftmost or
 rightmost factor. It owns a transformed canonical key index which maps to the
-source tensor's unchanged physical block bindings. A moved dense axis is a
-`layout_stride` permutation over the same data handle. Its numerical factor is
-one; later categorical factors belong beside that key/binding metadata rather
-than in rewritten payload values. Existing payload elements may be mutated
-through a writable view, but replacing or structurally modifying its source
-invalidates that view and any view transitively built from it.
+source tensor's unchanged physical block bindings. The view stores direct
+dense-block descriptors rather than a reference to an intermediate mapped view,
+so mapped permutations and repartitions compose without copying payload. A
+moved dense axis is a `layout_stride` permutation over the same data handle. Its
+numerical factor is one; later categorical factors belong beside that
+key/binding metadata rather than in rewritten payload values. Existing payload
+elements may be mutated through a writable view, but replacing or structurally
+modifying the ultimate payload owner invalidates every borrowed view over that
+payload.
 
 The same mapped-view implementation now provides `permute<Axis...>` for
 bosonic factor exchanges within domain and codomain. Axis positions are
@@ -603,10 +611,21 @@ singular values                : labelled diagonal values on B
 left singular vectors          : B -> Y
 ```
 
-The singular values are not stored as dense square `BlockTensor` blocks. The
-materialized singular-value object owns the selected `BlockSpace` and one
-rank-one value array per sector. It can be applied as the diagonal morphism on
-that bond without allocating structural zeros.
+The singular values are an ordinary rank-two `BlockTensor` from the selected
+bond space to itself, using `PackedDiagonalBlockStorage`. Each retained charge
+sector is an explicit `{sector, sector}` logical block, while its numerical
+storage contains only the dense diagonal. The full block mdspec observes exact
+zero away from that diagonal, so the value contracts through the ordinary
+BlockTensor and dense-kernel interfaces without allocating structural zeros.
+That block mdspec models `DiagonalMdspecLike`; optimized kernels use its
+rank-one `diagonal_components()` view rather than scanning the structural
+zeros. The initial CPU contraction specialization covers rank-two multiplication
+with a diagonal operand, while the ordinary accessor-respecting contraction is
+the correctness fallback for other ranks.
+The same storage policy supports rectangular and higher-rank generalized
+diagonal blocks: an entry is present only when all dense indices are equal.
+Logical block presence remains independent and is always specified by the
+BlockTensor's stored keys.
 
 The intermediate decomposition is symmetry-aware state, not a dense fallback.
 Its block keys, sector charges, coupling descriptors, and boundary orientation
@@ -636,9 +655,10 @@ metadata.
   labels are runtime metadata. A runtime-order Python-facing tensor is a later,
   separate class behind the same dispatch.
 - Type family over shared boundary and storage types: owning `BlockTensor`,
-  non-owning `BlockTensorView`, and const `ReplicatedBlockTensor` (separate
-  class; move-in commit; canonical block location + on-demand cached replicas;
-  mutable ⇒ singleton location / replicated ⇒ immutable).
+  non-owning mapped views, and const `ReplicatedBlockTensor`, all described to
+  algorithms by the `BlockTensorView` concept (replication remains a separate
+  class with move-in commit, canonical block location, and on-demand cached
+  replicas; mutable ⇒ singleton location / replicated ⇒ immutable).
 - Two storage policies: leaf `TensorStorage` (`Cpu`/`Cuda` memory kind; MPI never a
   leaf kind) and container `BlockTensorStorage` = the `Storage` parameter
   (`HostOnly` first, then `HostOrDevice` closed variant, then `Mpi<X>` with `X` the

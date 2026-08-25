@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/symmetry/block_tensor_mapped_view.hpp>
 
 #include <array>
@@ -45,7 +46,7 @@ template <class Tensor, std::size_t... Axis> consteval auto is_side_preserving_p
 }
 
 template <class Tensor, std::size_t... Axis>
-concept SidePreservingPermutation = is_side_preserving_permutation<Tensor, Axis...>();
+concept SidePreservingPermutation = BlockTensorView<Tensor> && is_side_preserving_permutation<Tensor, Axis...>();
 
 template <auto FactorPermutation, class Tensor, std::size_t... I>
 auto make_permuted_domain_impl(Tensor const& tensor, std::index_sequence<I...>)
@@ -124,9 +125,11 @@ using BlockTensorPermutationView = typename detail::PermutationViewTraits<Source
 
 /// \brief Permute bosonic BlockTensor factors without moving numerical payload.
 /// \details The compile-time axis list gives the source axis at each output
-///          position. Rvalues are rejected because the returned view retains a
-///          source reference. Replacing or structurally modifying the source
-///          invalidates the view.
+///          position. A temporary borrowed view may be transformed because the
+///          result retains direct descriptors for the same numerical payload.
+///          Owning rvalues are rejected because destroying the owner would
+///          invalidate that payload. Replacing or structurally modifying the
+///          ultimate source owner invalidates the view.
 /// \tparam Axis Source axis at each output position.
 /// \tparam Tensor BlockTensor-like source value.
 /// \param tensor Source tensor whose lifetime must cover the returned view.
@@ -141,8 +144,20 @@ auto permute(Tensor& tensor) -> BlockTensorPermutationView<Tensor, Axis...>
                    detail::make_permuted_codomain<traits::factor_permutation>(tensor));
 }
 
+/// \brief Permute a temporary borrowed BlockTensor view without retaining the intermediate view.
+template <std::size_t... Axis, BorrowedBlockTensorView Tensor>
+  requires(!std::is_lvalue_reference_v<Tensor &&> && detail::SidePreservingPermutation<Tensor, Axis...>)
+auto permute(Tensor&& tensor)
+{
+  using traits = detail::PermutationViewTraits<Tensor, Axis...>;
+  using view_type = typename traits::type;
+  return view_type(tensor, detail::make_permuted_domain<traits::factor_permutation>(tensor),
+                   detail::make_permuted_codomain<traits::factor_permutation>(tensor));
+}
+
 template <std::size_t... Axis, class Tensor>
-  requires(!std::is_lvalue_reference_v<Tensor &&>)
+  requires(!std::is_lvalue_reference_v<Tensor &&> && detail::SidePreservingPermutation<Tensor, Axis...> &&
+           !BorrowedBlockTensorView<Tensor>)
 auto permute(Tensor&&) = delete;
 
 } // namespace uni20

@@ -20,12 +20,15 @@ the mathematical problem and is treated as a correctness bug.
 - `block_key.hpp`: opaque logical block coordinates.
 - `block_tensor_space_traits.hpp`: independent block-key-coordinate and
   dense-axis classification for concrete space kinds.
-- `block_tensor_storage.hpp`: separate and packed sparse host storage policies.
+- `block_tensor_storage.hpp`: separate, packed, and generalized-diagonal sparse
+  host storage policies.
+- `block_tensor_concepts.hpp`: common readable, mutable, immediate, borrowed,
+  and async BlockTensor view vocabulary.
 - `block_tensor.hpp`: the first order-zero through order-four `BlockTensor`
   slice for `LocalSpace`, `QNumSpace`, `BlockSpace`, and explicit dual
   boundaries.
-- `block_tensor_mapped_view.hpp`: shared logical-to-physical key and dense-axis
-  mapping for zero-copy views.
+- `block_tensor_mapped_view.hpp`: owned logical-to-physical key and dense-axis
+  descriptor metadata for composable zero-copy borrowed views.
 - `block_tensor_permute.hpp`: zero-copy bosonic permutations within domain and
   codomain.
 - `block_tensor_repartition.hpp`: zero-copy bosonic left/right wire-bending

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/symmetry/block_tensor_mapped_view.hpp>
 
 #include <array>
@@ -89,8 +90,9 @@ template <MorphismSide Side, BoundaryEnd End, class Tensor> auto make_repartitio
 
 template <class Tensor, MorphismSide Side>
 concept RepartitionSourceHasLeg =
-    (Side == MorphismSide::Domain && std::remove_cvref_t<Tensor>::domain_type::size() > 0) ||
-    (Side == MorphismSide::Codomain && std::remove_cvref_t<Tensor>::codomain_type::size() > 0);
+    BlockTensorView<Tensor> &&
+    ((Side == MorphismSide::Domain && std::remove_cvref_t<Tensor>::domain_type::size() > 0) ||
+     (Side == MorphismSide::Codomain && std::remove_cvref_t<Tensor>::codomain_type::size() > 0));
 
 template <MorphismSide Side, BoundaryEnd End, class Tensor>
   requires RepartitionSourceHasLeg<Tensor, Side>
@@ -168,10 +170,12 @@ using BlockTensorRepartitionView = typename detail::RepartitionViewTraits<Source
 
 /// \brief Bend one planar edge leg across a BlockTensor morphism boundary.
 /// \details The returned lvalue view owns only transformed metadata; numerical
-///          payload remains in \p tensor. Rvalues are rejected to prevent a
-///          dangling storage reference. Payload element writes remain valid,
-///          but replacing or structurally modifying \p tensor invalidates the
-///          view and every view transitively built from it.
+///          payload remains in \p tensor. A temporary borrowed view may be
+///          transformed because the result retains direct descriptors for the
+///          same payload. Owning rvalues are rejected because destroying the
+///          owner would invalidate the payload. Payload element writes remain
+///          valid, but replacing or structurally modifying the ultimate source
+///          owner invalidates the view.
 /// \tparam Side Source morphism side.
 /// \tparam End Planar edge to bend.
 /// \tparam Tensor BlockTensor-like source value.
@@ -186,8 +190,19 @@ auto repartition(Tensor& tensor) -> BlockTensorRepartitionView<Tensor, Side, End
                    detail::make_repartitioned_codomain<Side, End>(tensor));
 }
 
+/// \brief Repartition a temporary borrowed BlockTensor view without retaining the intermediate view.
+template <MorphismSide Side, BoundaryEnd End, BorrowedBlockTensorView Tensor>
+  requires(!std::is_lvalue_reference_v<Tensor &&> && detail::RepartitionSourceHasLeg<Tensor, Side>)
+auto repartition(Tensor&& tensor)
+{
+  using view_type = BlockTensorRepartitionView<Tensor, Side, End>;
+  return view_type(tensor, detail::make_repartitioned_domain<Side, End>(tensor),
+                   detail::make_repartitioned_codomain<Side, End>(tensor));
+}
+
 template <MorphismSide Side, BoundaryEnd End, class Tensor>
-  requires(!std::is_lvalue_reference_v<Tensor &&>)
+  requires(!std::is_lvalue_reference_v<Tensor &&> && detail::RepartitionSourceHasLeg<Tensor, Side> &&
+           !BorrowedBlockTensorView<Tensor>)
 auto repartition(Tensor&&) = delete;
 
 } // namespace uni20

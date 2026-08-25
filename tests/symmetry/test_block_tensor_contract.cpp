@@ -109,6 +109,40 @@ TYPED_TEST(BlockTensorContractionTest, ContractsDenseBlockAxisAsMatrixMultiplica
   EXPECT_DOUBLE_EQ((separate_result.block(result_key)[1, 1]), 154.0);
 }
 
+TEST(BlockTensorContractionTest, ContractsRealDiagonalBlocksWithComplexDenseBlocks)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const bond(sym, {{q0, 2}}, "bond");
+  BlockSpace const columns(sym, {{q0, 2}}, "columns");
+  using Diagonal =
+      BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using Scalar = uni20::complex<double>;
+  using Dense = BlockTensor<Scalar, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  typename Diagonal::key_type const diagonal_key{{0, 0}};
+  typename Dense::key_type const dense_key{{0, 0}};
+  Diagonal diagonal(sym, Domain{rows}, Codomain{bond}, {diagonal_key});
+  Dense dense(sym, Domain{bond}, Codomain{columns}, {dense_key});
+  auto diagonal_values = diagonal.diagonal_values(diagonal_key);
+  diagonal_values[0] = 2.0;
+  diagonal_values[1] = 3.0;
+  auto dense_block = dense.block(dense_key);
+  dense_block[0, 0] = Scalar{1.0, 1.0};
+  dense_block[0, 1] = Scalar{2.0, -1.0};
+  dense_block[1, 0] = Scalar{-1.0, 0.5};
+  dense_block[1, 1] = Scalar{4.0, 2.0};
+
+  auto result = contract<1, 0>(diagonal, dense);
+  static_assert(std::same_as<typename decltype(result)::value_type, Scalar>);
+  typename decltype(result)::key_type const result_key{{0, 0}};
+  auto block = result.block(result_key);
+  EXPECT_EQ((block[0, 0]), Scalar(2.0, 2.0));
+  EXPECT_EQ((block[0, 1]), Scalar(4.0, -2.0));
+  EXPECT_EQ((block[1, 0]), Scalar(-3.0, 1.5));
+  EXPECT_EQ((block[1, 1]), Scalar(12.0, 6.0));
+}
+
 TYPED_TEST(BlockTensorContractionTest, DoesNotCreateBlocksFromMismatchedSectors)
 {
   Symmetry const sym{"N:U(1)"};

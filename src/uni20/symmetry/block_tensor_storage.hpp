@@ -8,6 +8,8 @@
 
 #include <uni20/async/async.hpp>
 #include <uni20/core/types.hpp>
+#include <uni20/mdspan/diagonal_accessor.hpp>
+#include <uni20/mdspan/generated_layout.hpp>
 #include <uni20/mdspan/mdspec.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/symmetry/block_key.hpp>
@@ -57,6 +59,16 @@ concept SparseBlockStorage = BlockTensorStorage<Storage> && !Storage::stores_all
 /// \tparam Storage Candidate policy type.
 template <class Storage>
 concept CompleteBlockStorage = BlockTensorStorage<Storage> && Storage::stores_all_legal_blocks;
+
+/// \brief BlockTensor storage whose stored numerical blocks are generalized diagonals.
+/// \details Logical block presence remains the ordinary explicit BlockTensor
+///          key set. This refinement describes only the compressed numerical
+///          representation within each stored block.
+/// \tparam Storage Candidate policy type.
+template <class Storage>
+concept DiagonalBlockStorage = BlockTensorStorage<Storage> && requires {
+  { Storage::stores_diagonal_blocks } -> std::convertible_to<bool>;
+} && Storage::stores_diagonal_blocks;
 
 /// \brief Storage policy instantiated for one block scalar and tensor order.
 /// \tparam Storage Candidate block storage policy.
@@ -187,6 +199,19 @@ inline auto checked_block_size(std::span<std::size_t const> extents) -> std::siz
     size *= extent;
   }
   return size;
+}
+
+template <std::size_t Rank>
+constexpr auto diagonal_extent(std::array<std::size_t, Rank> const& extents) noexcept -> std::size_t
+{
+  if constexpr (Rank == 0)
+  {
+    return 1;
+  }
+  else
+  {
+    return *std::ranges::min_element(extents);
+  }
 }
 
 template <class Storage, class T> auto make_storage(std::size_t size) -> typename Storage::template storage_t<T>
@@ -339,6 +364,135 @@ class PackedSparseBlockStorageData {
     buffer_type buffer_;
 };
 
+template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
+class PackedDiagonalBlockStorageData {
+  public:
+    using key_type = BlockKey<KeyCoordinateCount>;
+    using buffer_type = typename LeafStorage::template storage_t<T>;
+    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
+    using mapping_type = typename GeneratedLayout::template mapping<extents_type>;
+    using accessor_type = diagonal_accessor<T, extents_type>;
+    using const_accessor_type = diagonal_accessor<T const, extents_type>;
+    using mutable_mdspan_type = stdex::mdspan<T, extents_type, GeneratedLayout, accessor_type>;
+    using const_mdspan_type = stdex::mdspan<T const, extents_type, GeneratedLayout, const_accessor_type>;
+    using component_extents_type = stdex::dextents<index_type, 1>;
+    using component_mapping_type = stdex::layout_stride::mapping<component_extents_type>;
+    using mutable_components_type = stdex::mdspan<T, component_extents_type, stdex::layout_stride>;
+    using const_components_type = stdex::mdspan<T const, component_extents_type, stdex::layout_stride>;
+    using mutable_block_type = MdspecTensorView<mutable_mdspan_type, const_mdspan_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspan_type, const_mdspan_type, LeafStorage>;
+
+    static_assert(DiagonalMdspecLike<mutable_mdspan_type>);
+    static_assert(MutableDiagonalMdspecLike<mutable_mdspan_type>);
+    static_assert(DiagonalMdspecLike<const_mdspan_type>);
+    static_assert(!MutableDiagonalMdspecLike<const_mdspan_type>);
+
+    static_assert(std::same_as<detail::tensor_accessor_factory_t<LeafStorage>, DefaultAccessorFactory>,
+                  "packed diagonal block storage currently requires default-accessor leaf storage");
+    static_assert(
+        requires(buffer_type& buffer, buffer_type const& const_buffer) {
+          { LeafStorage::make_handle(buffer) } -> std::same_as<T*>;
+          { LeafStorage::make_handle(const_buffer) } -> std::same_as<T const*>;
+        }, "packed diagonal block storage currently requires immediate contiguous host leaf storage");
+
+    explicit PackedDiagonalBlockStorageData(
+        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+        : PackedDiagonalBlockStorageData(make_layout(specs))
+    {}
+
+    auto size() const noexcept -> std::size_t { return keys_.size(); }
+    auto keys() const noexcept -> std::span<key_type const> { return keys_; }
+
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
+    {
+      auto const block_extents = make_extents<extents_type>(extents);
+      auto* mutable_data = LeafStorage::make_handle(buffer_);
+      auto const* const_data = LeafStorage::make_handle(std::as_const(buffer_));
+      if (offsets_[ordinal] != 0)
+      {
+        mutable_data += offsets_[ordinal];
+        const_data += offsets_[ordinal];
+      }
+      auto const component_extents = component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] -
+                                                                                    offsets_[ordinal])};
+      auto const component_mapping =
+          component_mapping_type{component_extents, std::array<index_type, 1>{index_type{1}}};
+      auto mutable_components = mutable_components_type{mutable_data, component_mapping};
+      auto read_components = const_components_type{const_data, component_mapping};
+      return mutable_block_type{make_diagonal_mdspan(block_extents, mutable_components),
+                                make_diagonal_mdspan(block_extents, read_components)};
+    }
+
+    auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
+    {
+      auto const block_extents = make_extents<extents_type>(extents);
+      auto const* data = LeafStorage::make_handle(buffer_);
+      if (offsets_[ordinal] != 0) data += offsets_[ordinal];
+      auto const component_extents = component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] -
+                                                                                    offsets_[ordinal])};
+      auto const component_mapping =
+          component_mapping_type{component_extents, std::array<index_type, 1>{index_type{1}}};
+      auto components = const_components_type{data, component_mapping};
+      auto span = make_diagonal_mdspan(block_extents, components);
+      return const_block_type{span, span};
+    }
+
+    /// \brief Return the compressed writable values for one stored block.
+    auto diagonal_values(std::size_t ordinal) -> std::span<T>
+    {
+      auto* data = LeafStorage::make_handle(buffer_);
+      if (offsets_[ordinal] != 0) data += offsets_[ordinal];
+      return {data, offsets_[ordinal + 1] - offsets_[ordinal]};
+    }
+
+    /// \brief Return the compressed read-only values for one stored block.
+    auto diagonal_values(std::size_t ordinal) const -> std::span<T const>
+    {
+      auto const* data = LeafStorage::make_handle(buffer_);
+      if (offsets_[ordinal] != 0) data += offsets_[ordinal];
+      return {data, offsets_[ordinal + 1] - offsets_[ordinal]};
+    }
+
+    auto buffer() noexcept -> buffer_type& { return buffer_; }
+    auto buffer() const noexcept -> buffer_type const& { return buffer_; }
+    auto offsets() const noexcept -> std::span<std::size_t const> { return offsets_; }
+
+  private:
+    struct Layout
+    {
+        std::vector<key_type> keys;
+        std::vector<std::size_t> offsets;
+    };
+
+    static auto make_layout(std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
+    {
+      Layout layout;
+      layout.keys.reserve(specs.size());
+      layout.offsets.reserve(specs.size() + 1);
+      layout.offsets.push_back(0);
+      for (auto const& spec : specs)
+      {
+        layout.keys.push_back(spec.key);
+        std::size_t const block_size = diagonal_extent(spec.extents);
+        if (layout.offsets.back() > std::numeric_limits<std::size_t>::max() - block_size)
+        {
+          throw std::length_error("packed diagonal BlockTensor size overflows size_t");
+        }
+        layout.offsets.push_back(layout.offsets.back() + block_size);
+      }
+      return layout;
+    }
+
+    explicit PackedDiagonalBlockStorageData(Layout layout)
+        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)),
+          buffer_(make_storage<LeafStorage, T>(offsets_.back()))
+    {}
+
+    std::vector<key_type> keys_;
+    std::vector<std::size_t> offsets_;
+    buffer_type buffer_;
+};
+
 /// \brief Borrowed descriptor retaining the identity of one async dense block.
 /// \details The descriptor itself does not extend the owning BlockTensor's
 ///          lifetime. A read or write buffer obtained from the referenced
@@ -480,6 +634,30 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     }
 };
 
+/// \brief Sparse BlockTensor storage packing each generalized diagonal block into one leaf buffer.
+/// \details Every explicitly stored logical block contains only the entries
+///          whose dense indices are all equal. Logical block presence remains
+///          controlled by the owning BlockTensor's stored-key set.
+/// \tparam LeafStorage Immediate contiguous host storage for compressed values.
+template <class LeafStorage = VectorStorage> struct PackedDiagonalBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SerialBlockExecution;
+    static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool stores_diagonal_blocks = true;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::PackedDiagonalBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
 /// \brief Sparse storage with one independently scheduled dense Tensor per block.
 /// \details `block()` returns a TensorView over borrowed mdspec metadata.
 ///          `async_block()` exposes the retained async value used to create read
@@ -506,15 +684,20 @@ template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStor
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
+static_assert(SparseBlockStorage<PackedDiagonalBlockStorage<>>);
+static_assert(DiagonalBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(ImmediateLocalBlockStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);
 

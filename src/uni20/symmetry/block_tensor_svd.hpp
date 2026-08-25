@@ -11,6 +11,7 @@
 #include <uni20/linalg/ops/svd.hpp>
 #include <uni20/linalg/ops/truncated_svd.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <algorithm>
@@ -79,46 +80,6 @@ class BlockSvdVectorSelection {
 
   private:
     std::vector<BlockSvdStateId> state_ids_;
-};
-
-/// \brief Selected singular values grouped by the materialized bond sectors.
-template <uni20::Real Real> class BlockSingularValues {
-  public:
-    using value_type = Real;
-    using sector_values_type = ColumnMajorTensor<Real, 1>;
-
-    /// \brief Construct values aligned with the sectors of a selected bond space.
-    BlockSingularValues(BlockSpace bond_space, std::vector<sector_values_type> sector_values)
-        : bond_space_(std::move(bond_space)), sector_values_(std::move(sector_values))
-    {
-      if (bond_space_.size() != sector_values_.size())
-      {
-        throw std::invalid_argument("block singular values do not match their bond space");
-      }
-      for (std::size_t sector = 0; sector < bond_space_.size(); ++sector)
-      {
-        if (static_cast<std::size_t>(sector_values_[sector].extent(0)) != bond_space_[sector].dim)
-        {
-          throw std::invalid_argument("block singular-value extent does not match its bond sector");
-        }
-      }
-    }
-
-    /// \brief Return the selected symmetry-labelled bond space.
-    auto bond_space() const noexcept -> BlockSpace const& { return bond_space_; }
-
-    /// \brief Return the number of retained charge sectors.
-    auto sector_count() const noexcept -> std::size_t { return sector_values_.size(); }
-
-    /// \brief Return writable singular values for one bond sector.
-    auto sector_values(std::size_t sector) -> sector_values_type& { return sector_values_.at(sector); }
-
-    /// \brief Return read-only singular values for one bond sector.
-    auto sector_values(std::size_t sector) const -> sector_values_type const& { return sector_values_.at(sector); }
-
-  private:
-    BlockSpace bond_space_;
-    std::vector<sector_values_type> sector_values_;
 };
 
 /// \brief Options controlling one selected block-SVD materialization.
@@ -472,20 +433,20 @@ template <uni20::LapackScalar Scalar, class DomainType, class CodomainType> clas
     std::vector<BlockSvdState<real_type>> spectrum_;
 };
 
-/// \brief Factorize an immediate local BlockTensor independently by conserved charge.
+/// \brief Factorize an immediate BlockTensorView independently by conserved charge.
 /// \details Missing stored blocks are assembled as zero submatrices inside
 ///          their symmetry sector. The returned intermediate retains provider
 ///          factors and logical fragment maps for repeatable materialization.
-template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, BlockTensorStorage Storage>
-  requires ImmediateLocalBlockStorageFor<Storage, Scalar,
-                                         detail::BoundaryBlockShape<DomainType>::key_coordinate_count +
-                                             detail::BoundaryBlockShape<CodomainType>::key_coordinate_count,
-                                         detail::BoundaryBlockShape<DomainType>::dense_block_order +
-                                             detail::BoundaryBlockShape<CodomainType>::dense_block_order>
-[[nodiscard]] auto block_svd(BlockTensor<Scalar, DomainType, CodomainType, Storage> const& tensor,
-                             linalg::SvdOptions options = {}) -> BlockSvdDecomposition<Scalar, DomainType, CodomainType>
+/// \tparam Tensor Immediate BlockTensor-level input view.
+template <ImmediateBlockTensorView Tensor>
+  requires uni20::LapackScalar<block_tensor_value_t<Tensor>>
+[[nodiscard]] auto block_svd(Tensor const& tensor, linalg::SvdOptions options = {})
+    -> BlockSvdDecomposition<block_tensor_value_t<Tensor>, block_tensor_domain_t<Tensor>,
+                             block_tensor_codomain_t<Tensor>>
 {
-  using decomposition_type = BlockSvdDecomposition<Scalar, DomainType, CodomainType>;
+  using scalar_type = block_tensor_value_t<Tensor>;
+  using decomposition_type =
+      BlockSvdDecomposition<scalar_type, block_tensor_domain_t<Tensor>, block_tensor_codomain_t<Tensor>>;
   using sector_type = typename decomposition_type::Sector;
   auto domain_sectors =
       detail::group_svd_boundary_fragments(detail::make_svd_boundary_fragments(tensor.symmetry(), tensor.domain()));
@@ -494,8 +455,8 @@ template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, Bloc
 
   std::vector<sector_type> sectors;
   auto factorize_sector = [&](auto& domain, auto& codomain) {
-    ColumnMajorTensor<Scalar, 2> matrix(static_cast<uni20::index_type>(codomain.flattened_extent),
-                                        static_cast<uni20::index_type>(domain.flattened_extent));
+    ColumnMajorTensor<scalar_type, 2> matrix(static_cast<uni20::index_type>(codomain.flattened_extent),
+                                             static_cast<uni20::index_type>(domain.flattened_extent));
     std::vector<typename decomposition_type::source_key_type> stored_source_keys;
     for (auto const& domain_fragment : domain.fragments)
     {
@@ -503,9 +464,11 @@ template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, Bloc
       {
         auto const key_coordinates =
             detail::concatenate_coordinates(domain_fragment.coordinates, codomain_fragment.coordinates);
-        typename BlockTensor<Scalar, DomainType, CodomainType, Storage>::key_type const key{key_coordinates};
-        auto block = tensor.find_block(key);
-        if (!block) continue;
+        typename decomposition_type::source_key_type const key{key_coordinates};
+        auto const found = std::ranges::lower_bound(tensor.stored_keys(), key);
+        if (found == tensor.stored_keys().end() || *found != key) continue;
+        auto const ordinal = static_cast<std::size_t>(found - tensor.stored_keys().begin());
+        auto block = tensor.block_by_ordinal(ordinal);
         stored_source_keys.push_back(key);
 
         for (std::size_t column = 0; column < domain_fragment.flattened_extent; ++column)
@@ -517,7 +480,7 @@ template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, Bloc
             auto const block_indices = detail::concatenate_indices(domain_indices, codomain_indices);
             matrix[static_cast<uni20::index_type>(codomain_fragment.sector_offset + row),
                    static_cast<uni20::index_type>(domain_fragment.sector_offset + column)] =
-                detail::block_element(*block, block_indices);
+                detail::block_element(block, block_indices);
           }
         }
       }
@@ -768,21 +731,31 @@ template <class Decomposition>
 auto make_block_singular_values(Decomposition const& decomposition, BlockSvdSelectionPlan<Decomposition> const& plan)
 {
   using real_type = typename Decomposition::real_type;
-  std::vector<ColumnMajorTensor<real_type, 1>> values;
-  values.reserve(plan.bond_space.size());
+  using output_type =
+      BlockTensor<real_type, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using key_type = typename output_type::key_type;
+  std::vector<key_type> keys;
+  keys.reserve(plan.bond_space.size());
   for (std::size_t sector = 0; sector < decomposition.sectors().size(); ++sector)
   {
     if (!plan.bond_coordinates[sector]) continue;
-    ColumnMajorTensor<real_type, 1> sector_values(static_cast<uni20::index_type>(plan.sector_indices[sector].size()));
+    keys.emplace_back(std::array<std::size_t, 2>{*plan.bond_coordinates[sector], *plan.bond_coordinates[sector]});
+  }
+
+  output_type result(decomposition.symmetry(), Domain{plan.bond_space}, Codomain{plan.bond_space}, std::move(keys));
+  for (std::size_t sector = 0; sector < decomposition.sectors().size(); ++sector)
+  {
+    if (!plan.bond_coordinates[sector]) continue;
+    key_type const key{
+        std::array<std::size_t, 2>{*plan.bond_coordinates[sector], *plan.bond_coordinates[sector]}};
+    auto values = result.diagonal_values(key);
     for (std::size_t index = 0; index < plan.sector_indices[sector].size(); ++index)
     {
-      sector_values[static_cast<uni20::index_type>(index)] =
-          decomposition.sectors()[sector]
-              .singular_values[static_cast<uni20::index_type>(plan.sector_indices[sector][index])];
+      values[index] = decomposition.sectors()[sector]
+                          .singular_values[static_cast<uni20::index_type>(plan.sector_indices[sector][index])];
     }
-    values.push_back(std::move(sector_values));
   }
-  return BlockSingularValues<real_type>{plan.bond_space, std::move(values)};
+  return result;
 }
 
 } // namespace detail

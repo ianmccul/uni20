@@ -307,6 +307,48 @@ class BlockTensor {
       return storage_.block(ordinal, this->block_extents(key));
     }
 
+    /// \brief Return the compressed writable diagonal values for one stored key.
+    /// \details This member is available only when the storage policy exposes
+    ///          generalized diagonal blocks.
+    /// \throws std::out_of_range If the key is not stored.
+    decltype(auto) diagonal_values(key_type const& key)
+      requires requires(storage_type& storage) { storage.diagonal_values(std::size_t{}); }
+    {
+      auto const found = this->ordinal(key);
+      if (!found) throw std::out_of_range("BlockTensor block key is not stored");
+      return storage_.diagonal_values(*found);
+    }
+
+    /// \brief Return the compressed read-only diagonal values for one stored key.
+    /// \details This member is available only when the storage policy exposes
+    ///          generalized diagonal blocks.
+    /// \throws std::out_of_range If the key is not stored.
+    decltype(auto) diagonal_values(key_type const& key) const
+      requires requires(storage_type const& storage) { storage.diagonal_values(std::size_t{}); }
+    {
+      auto const found = this->ordinal(key);
+      if (!found) throw std::out_of_range("BlockTensor block key is not stored");
+      return storage_.diagonal_values(*found);
+    }
+
+    /// \brief Return compressed writable diagonal values by stable block ordinal.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    decltype(auto) diagonal_values_by_ordinal(std::size_t ordinal)
+      requires requires(storage_type& storage) { storage.diagonal_values(std::size_t{}); }
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      return storage_.diagonal_values(ordinal);
+    }
+
+    /// \brief Return compressed read-only diagonal values by stable block ordinal.
+    /// \throws std::out_of_range If \p ordinal is not a stored-block position.
+    decltype(auto) diagonal_values_by_ordinal(std::size_t ordinal) const
+      requires requires(storage_type const& storage) { storage.diagonal_values(std::size_t{}); }
+    {
+      if (ordinal >= storage_.size()) throw std::out_of_range("BlockTensor block ordinal is out of range");
+      return storage_.diagonal_values(ordinal);
+    }
+
     /// \brief Return the independently scheduled value for one stored key.
     /// \details The returned `Async<Tensor>` owns the block's dependency
     ///          timeline. Submitted work must retain a read or write buffer.

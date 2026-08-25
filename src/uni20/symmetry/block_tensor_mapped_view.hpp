@@ -218,16 +218,26 @@ auto permute_block(Block block, std::array<std::size_t, DenseBlockOrder> const& 
                                                                                   std::move(const_mdspec)};
 }
 
+template <TensorView Block> auto make_read_only_block_view(Block const& block)
+{
+  auto const_mdspec = mdspec_of(block);
+  using mdspec_type = std::remove_cvref_t<decltype(const_mdspec)>;
+  using storage_policy = tensor_storage_policy_t<Block>;
+  return MdspecTensorView<mdspec_type, mdspec_type, storage_policy>{const_mdspec, const_mdspec};
+}
+
 /// \brief Shared implementation of a zero-copy BlockTensor metadata and axis view.
 /// \details The transformed boundary and permutations must describe a bijection
-///          of the source factors. Replacing or structurally modifying the
-///          source invalidates this view and views transitively built from it.
+///          of the source factors. The view retains direct dense-block
+///          descriptors, so a temporary intermediate mapped view need not
+///          outlive it. Replacing or structurally modifying the ultimate
+///          payload owner invalidates every view over that payload.
 template <class SourceTensor, class DomainType, class CodomainType, auto KeyPermutation, auto DensePermutation>
 class BlockTensorMappedView {
   public:
     using source_type = SourceTensor;
-    using source_reference_type = SourceTensor&;
-    using source_tensor_type = std::remove_const_t<SourceTensor>;
+    using source_tensor_type = std::remove_cvref_t<SourceTensor>;
+    using borrowed_block_tensor_view_tag = void;
     using element_type = typename source_tensor_type::element_type;
     using value_type = typename source_tensor_type::value_type;
     using storage_policy = typename source_tensor_type::storage_policy;
@@ -236,13 +246,10 @@ class BlockTensorMappedView {
     using domain_type = DomainType;
     using codomain_type = CodomainType;
     using source_mutable_access_block_type =
-        decltype(std::declval<SourceTensor&>().block(std::declval<key_type const&>()));
-    using source_const_access_block_type =
-        decltype(std::declval<SourceTensor const&>().block(std::declval<key_type const&>()));
+        decltype(std::declval<SourceTensor&>().block_by_ordinal(std::size_t{}));
     using mutable_block_type = decltype(permute_block(std::declval<source_mutable_access_block_type>(),
                                                       std::declval<decltype(DensePermutation) const&>()));
-    using const_block_type = decltype(permute_block(std::declval<source_const_access_block_type>(),
-                                                    std::declval<decltype(DensePermutation) const&>()));
+    using const_block_type = decltype(make_read_only_block_view(std::declval<mutable_block_type const&>()));
 
     static constexpr std::size_t static_order = source_tensor_type::order();
     static constexpr std::size_t static_key_coordinate_count = source_tensor_type::key_coordinate_count();
@@ -272,9 +279,9 @@ class BlockTensorMappedView {
     /// \param domain Transformed ordered domain.
     /// \param codomain Transformed ordered codomain.
     explicit BlockTensorMappedView(SourceTensor& source, domain_type domain, codomain_type codomain)
-        : source_(&source), domain_(std::move(domain)), codomain_(std::move(codomain))
+        : symmetry_(source.symmetry()), domain_(std::move(domain)), codomain_(std::move(codomain))
     {
-      this->build_key_index();
+      this->build_key_index(source);
     }
 
     /// \brief Copy a view while retaining the same source binding.
@@ -290,7 +297,7 @@ class BlockTensorMappedView {
     auto operator=(BlockTensorMappedView&&) -> BlockTensorMappedView& = delete;
 
     /// \brief Return the explicit symmetry context.
-    auto symmetry() const -> Symmetry { return source_->symmetry(); }
+    auto symmetry() const -> Symmetry { return symmetry_; }
 
     /// \brief Return the transformed ordered domain.
     auto domain() const -> domain_type const& { return domain_; }
@@ -311,7 +318,14 @@ class BlockTensorMappedView {
     auto stored_block_count() const noexcept -> std::size_t { return keys_.size(); }
 
     /// \brief Return the number of symmetry-legal blocks.
-    auto legal_block_count() const -> std::size_t { return source_->legal_block_count(); }
+    auto legal_block_count() const -> std::size_t
+    {
+      std::size_t count = 0;
+      this->for_each_possible_key([&](key_type const& key) {
+        if (this->is_legal(key)) ++count;
+      });
+      return count;
+    }
 
     /// \brief Return whether every transformed legal block is stored.
     auto has_all_legal_blocks() const -> bool { return this->stored_block_count() == this->legal_block_count(); }
@@ -331,7 +345,7 @@ class BlockTensorMappedView {
     {
       auto const found = this->ordinal(key);
       if (!found) return std::nullopt;
-      return permute_block(source_->block(source_keys_[*found]), DensePermutation);
+      return blocks_[*found];
     }
 
     /// \brief Find a read-only transformed block view.
@@ -339,7 +353,7 @@ class BlockTensorMappedView {
     {
       auto const found = this->ordinal(key);
       if (!found) return std::nullopt;
-      return permute_block(std::as_const(*source_).block(source_keys_[*found]), DensePermutation);
+      return make_read_only_block_view(std::as_const(blocks_[*found]));
     }
 
     /// \brief Return a writable transformed block view.
@@ -369,7 +383,7 @@ class BlockTensorMappedView {
       requires source_blocks_writable
     {
       if (ordinal >= keys_.size()) throw std::out_of_range("mapped BlockTensor block ordinal is out of range");
-      return permute_block(source_->block(source_keys_[ordinal]), DensePermutation);
+      return blocks_[ordinal];
     }
 
     /// \brief Return a read-only transformed block by stable canonical ordinal.
@@ -379,17 +393,11 @@ class BlockTensorMappedView {
     auto block_by_ordinal(std::size_t ordinal) const -> const_block_type
     {
       if (ordinal >= keys_.size()) throw std::out_of_range("mapped BlockTensor block ordinal is out of range");
-      return permute_block(std::as_const(*source_).block(source_keys_[ordinal]), DensePermutation);
+      return make_read_only_block_view(std::as_const(blocks_[ordinal]));
     }
 
     /// \brief Return transformed keys in canonical lexicographic order.
     auto stored_keys() const noexcept -> std::span<key_type const> { return keys_; }
-
-    /// \brief Return the source tensor retaining numerical storage ownership.
-    auto source() noexcept -> SourceTensor& { return *source_; }
-
-    /// \brief Return the source tensor retaining numerical storage ownership.
-    auto source() const noexcept -> SourceTensor const& { return *source_; }
 
     /// \brief Return the source storage's backend selector.
     static constexpr auto backend_selector() noexcept -> backend_selector_type
@@ -398,22 +406,56 @@ class BlockTensorMappedView {
     }
 
   private:
-    void build_key_index()
+    struct KeyBinding
     {
-      std::vector<std::pair<key_type, key_type>> bindings;
-      bindings.reserve(source_->stored_block_count());
-      for (key_type const& source_key : source_->stored_keys())
+        key_type key;
+        std::size_t source_ordinal;
+    };
+
+    void build_key_index(SourceTensor& source)
+    {
+      std::vector<KeyBinding> bindings;
+      bindings.reserve(source.stored_block_count());
+      for (std::size_t ordinal = 0; ordinal < source.stored_block_count(); ++ordinal)
       {
-        bindings.emplace_back(permute_key(source_key, KeyPermutation), source_key);
+        bindings.push_back({permute_key(source.stored_keys()[ordinal], KeyPermutation), ordinal});
       }
-      std::ranges::sort(bindings, {}, &std::pair<key_type, key_type>::first);
+      std::ranges::sort(bindings, {}, &KeyBinding::key);
 
       keys_.reserve(bindings.size());
-      source_keys_.reserve(bindings.size());
-      for (auto const& [key, source_key] : bindings)
+      blocks_.reserve(bindings.size());
+      for (auto const& binding : bindings)
       {
-        keys_.push_back(key);
-        source_keys_.push_back(source_key);
+        keys_.push_back(binding.key);
+        auto source_block = source.block_by_ordinal(binding.source_ordinal);
+        blocks_.push_back(permute_block(std::move(source_block), DensePermutation));
+      }
+    }
+
+    template <class Function> void for_each_possible_key(Function&& function) const
+    {
+      auto const sizes = boundary_factor_sizes<static_key_coordinate_count>(domain_, codomain_);
+      if (std::ranges::find(sizes, std::size_t{0}) != sizes.end()) return;
+
+      if constexpr (static_key_coordinate_count == 0)
+      {
+        function(key_type{});
+      }
+      else
+      {
+        std::array<std::size_t, static_key_coordinate_count> coordinates{};
+        while (true)
+        {
+          function(key_type{coordinates});
+          std::size_t axis = static_key_coordinate_count;
+          while (axis > 0)
+          {
+            --axis;
+            if (++coordinates[axis] < sizes[axis]) break;
+            coordinates[axis] = 0;
+          }
+          if (axis == 0 && coordinates[0] == 0) return;
+        }
       }
     }
 
@@ -424,11 +466,11 @@ class BlockTensorMappedView {
       return static_cast<std::size_t>(found - keys_.begin());
     }
 
-    SourceTensor* source_;
+    Symmetry symmetry_;
     domain_type domain_;
     codomain_type codomain_;
     std::vector<key_type> keys_;
-    std::vector<key_type> source_keys_;
+    std::vector<mutable_block_type> blocks_;
 };
 
 } // namespace uni20::detail

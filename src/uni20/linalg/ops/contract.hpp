@@ -77,9 +77,12 @@ template <class OutputTensor, class InputTensor>
 template <class OutputTensor, class LhsTensor, class RhsTensor>
 concept CompatibleContractionTensors =
     uni20::MutableTensorView<OutputTensor> && uni20::TensorView<LhsTensor> && uni20::TensorView<RhsTensor> &&
-    std::same_as<uni20::tensor_element_t<OutputTensor>, uni20::tensor_element_t<LhsTensor>> &&
-    std::same_as<uni20::tensor_element_t<OutputTensor>, uni20::tensor_element_t<RhsTensor>> &&
-    uni20::Scalar<uni20::tensor_element_t<OutputTensor>>;
+    uni20::Scalar<uni20::tensor_element_t<OutputTensor>> && uni20::Scalar<uni20::tensor_element_t<LhsTensor>> &&
+    uni20::Scalar<uni20::tensor_element_t<RhsTensor>> &&
+    requires(uni20::tensor_element_t<LhsTensor> lhs, uni20::tensor_element_t<RhsTensor> rhs) {
+      static_cast<uni20::tensor_element_t<OutputTensor>>(lhs);
+      static_cast<uni20::tensor_element_t<OutputTensor>>(rhs);
+    };
 
 template <class OutputTensor, class LhsTensor, class RhsTensor>
 void validate_contraction_aliasing(OutputTensor& output, LhsTensor const& lhs, RhsTensor const& rhs)

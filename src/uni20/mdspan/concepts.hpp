@@ -453,6 +453,31 @@ concept RankedMdspanLike = MdspanLike<std::remove_cvref_t<MDS>> && (std::remove_
 template <class S, std::size_t Rank>
 concept RankedMdspecLike = MdspecLike<std::remove_cvref_t<S>> && (std::remove_cvref_t<S>::rank() == Rank);
 
+/// \concept DiagonalMdspecLike
+/// \brief Full logical mdspec with a rank-one view of its generalized diagonal components.
+/// \details The ordinary mdspec interface presents the complete rank-N tensor,
+///          including structural zeros away from equal logical indices.
+///          `diagonal_components(span)` exposes the physical rank-one values
+///          used by structure-aware kernels.
+/// \tparam S Candidate mdspec-like type.
+/// \ingroup mdspan_ext
+template <class S>
+concept DiagonalMdspecLike = MdspecLike<std::remove_cvref_t<S>> && requires(std::remove_cvref_t<S> const& span) {
+  { diagonal_components(span) };
+  requires RankedMdspecLike<decltype(diagonal_components(span)), 1>;
+  requires std::same_as<typename std::remove_cvref_t<decltype(diagonal_components(span))>::element_type,
+                        typename std::remove_cvref_t<S>::element_type>;
+};
+
+/// \concept MutableDiagonalMdspecLike
+/// \brief Writable generalized-diagonal mdspec with writable rank-one components.
+/// \tparam S Candidate mdspec-like type.
+/// \ingroup mdspan_ext
+template <class S>
+concept MutableDiagonalMdspecLike =
+    MutableMdspecLike<std::remove_cvref_t<S>> && DiagonalMdspecLike<std::remove_cvref_t<S>> &&
+    MutableMdspecLike<decltype(diagonal_components(std::declval<std::remove_cvref_t<S> const&>()))>;
+
 /// \concept MutableRankedMdspecLike
 /// \brief Mutable mdspec-like type with a specified static rank.
 /// \tparam S The mdspec-like type under test.

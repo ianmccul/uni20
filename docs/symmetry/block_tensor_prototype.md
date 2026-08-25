@@ -40,6 +40,8 @@ operations:
   synchronous scheduler-batch execution across independent output blocks;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
+- `PackedDiagonalBlockStorage`, with one contiguous host buffer containing only
+  the generalized diagonal of each explicitly stored logical block;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
   `Async<Tensor>` per stored block;
 - mutable and const `TensorView` access to stored blocks, using mdspan for
@@ -150,10 +152,12 @@ occurrence order and dimensions; operations which observe a charge obtain
 
 `repartition<Side, End>(tensor)` bends one leftmost or rightmost factor across
 the morphism boundary and toggles its explicit duality. The current bosonic
-operation returns an lvalue view: it does not copy, reorder, or rewrite
+operation returns a borrowed view: it does not copy, reorder, or rewrite
 numerical payload. It may sort a transformed logical key index and may expose a
-moved dense axis through `layout_stride`. Rvalues are rejected so the view
-cannot retain a dangling storage reference.
+moved dense axis through `layout_stride`. A mapped view owns its boundary, key,
+and dense-block descriptor metadata, so temporary mapped views can be composed
+without retaining intermediate view objects. Owning tensor rvalues remain
+rejected because destroying the owner would invalidate the numerical payload.
 
 `permute<Axis...>(tensor)` uses flattened domain-then-codomain positions and
 gives the source factor at every output position. The first bosonic operation
@@ -322,7 +326,7 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The implemented slice provides four sparse host policies. All use:
+The implemented slice provides five sparse host policies. All use:
 
 - canonical block-key ordering;
 - zero initialization for newly allocated numerical values;
@@ -335,6 +339,22 @@ illegal keys, sort it canonically, and reject duplicate keys before allocation.
 The packed policy is the likely default for sparse scalar-block MPO sites; the
 separate policy is the simplest baseline for early block operations and
 comparison tests.
+
+`PackedDiagonalBlockStorage` also accepts an explicit sparse key set, but it
+stores only entries for which every dense index within a block is equal. A
+rank-N block with extents `(d0, ..., dN-1)` therefore owns
+`min(d0, ..., dN-1)` values; rank-zero blocks own one value. The accessor
+presents the full logical block, returning exact zero for structural
+off-diagonal entries. This representation covers ordinary rectangular
+diagonal morphisms and higher-rank copy tensors without allocating structural
+zeros. It does not infer which logical blocks exist: the BlockTensor key set
+continues to carry that symmetry structure explicitly. `diagonal_values(key)`
+provides direct access to the compressed values. Each full block view models
+`DiagonalMdspecLike`: it remains an ordinary logical rank-N `MdspecLike`, while
+`diagonal_components(block.mdspec())` exposes the rank-one strided physical
+values to specialized dense kernels. Through the full mutable block view,
+assigning zero to an off-diagonal element is permitted, while assigning a
+nonzero value violates the storage precondition.
 
 `ParallelSeparateSparseBlockStorage` uses the same independently owning block
 representation as `SeparateSparseBlockStorage`, but selects synchronous
@@ -431,6 +451,15 @@ tensor.async_block(key); // only AsyncLocalBlockStorageFor
 tensor.async_block_by_ordinal(ordinal);
 ```
 
+`BlockTensorView` is the common algorithm contract for this structure. It
+requires immutable boundary metadata, a canonical sorted stored-key sequence,
+stable ordinal lookup, and a dense `TensorView` for each stored block. Owning
+`BlockTensor` and mapped permutation or repartition views model the same
+concept; mutability, immediate access, and per-block async access are separate
+refinements. `BorrowedBlockTensorView` separately states that block descriptors
+materialized from a temporary view remain valid after that view is destroyed;
+the ultimate numerical payload owner must still outlive them.
+
 Const access yields read-only block value semantics. Mutable access is
 available only from a mutable tensor.
 
@@ -466,6 +495,12 @@ auto sum = add(lhs, rhs);
 auto value = inner_product(lhs, rhs);
 auto magnitude = norm(tensor);
 ```
+
+These operations accept the `BlockTensorView` concept and refine it only for
+the access they perform: immediate host blocks, mutable blocks, or independent
+per-block async timelines. Owning `BlockTensor` values and zero-copy mapped
+views therefore use the same numerical surface. Operations which allocate a
+new tensor retain an explicit storage-policy choice for the owning result.
 
 All operands must have exactly equal symmetry, domain, and codomain values.
 Boundary labels and explicit duality therefore participate in compatibility.
@@ -503,9 +538,11 @@ contraction.
 ### Implemented morphism operations
 
 The first `permute<Axis...>` and `repartition<Side, End>` operations return
-zero-copy lvalue views. Both transform boundary values, canonical logical keys,
-and dense mdspec axis order while retaining every immediate payload address or
-async block epoch identity.
+zero-copy borrowed views. Both transform boundary values, canonical logical
+keys, and dense mdspec axis order while retaining every immediate payload
+address or async block epoch identity. Their owned descriptor metadata permits
+direct composition through temporary mapped views; the ultimate tensor owner
+must still outlive the result.
 Permutation is currently the bosonic symmetric-category operation with unit
 exchange factor. Non-bosonic exchange remains an explicit future braid.
 
@@ -664,7 +701,8 @@ The opaque block key, explicit boundary orientation, storage concepts, and
 mdspec block interface are required now specifically so these features remain
 additive.
 
-The initial immediate-host block SVD follows the staged design in
+The initial immediate-host block SVD accepts any `ImmediateBlockTensorView` and
+follows the staged design in
 [Block SVD: decomposition, selection, and materialization](block_tensor.md#9-block-svd-decomposition-selection-and-materialization):
 assemble and factorize one matrix per conserved charge, select
 metadata-bearing singular triplets, and only then allocate the final output
@@ -673,6 +711,9 @@ paired-null triplets, together with side-specific full null spaces. Missing
 stored blocks remain explicit zero submatrices in the sector assembly metadata.
 Convenience helpers may compose those stages, but must not construct a full
 `BlockTensor` and subsequently mutate its block structure to truncate it.
+In particular, a two-site tensor whose natural contraction result has a 3/1
+boundary may be zero-copy repartitioned to 2/2 and passed directly to
+`block_svd`; the fallback does not require a new owning intermediate.
 
 ## 14. Required Prototype Tests
 

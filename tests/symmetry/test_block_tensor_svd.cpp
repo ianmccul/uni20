@@ -1,3 +1,5 @@
+#include <uni20/symmetry/block_tensor_contract.hpp>
+#include <uni20/symmetry/block_tensor_repartition.hpp>
 #include <uni20/symmetry/block_tensor_svd.hpp>
 #include <uni20/symmetry/u1.hpp>
 
@@ -6,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <type_traits>
 
 namespace
 {
@@ -19,6 +22,17 @@ auto sector_coordinate(BlockSpace const& space, QNum const& charge) -> std::size
     if (space[sector].q == charge) return sector;
   }
   throw std::invalid_argument("charge is not present in the block space");
+}
+
+template <class Tensor> auto singular_value_bond(Tensor const& tensor) -> BlockSpace const&
+{
+  return tensor.domain().template space<0>();
+}
+
+template <class Tensor> auto singular_values_in_sector(Tensor& tensor, std::size_t sector)
+{
+  using key_type = typename std::remove_cvref_t<Tensor>::key_type;
+  return tensor.diagonal_values(key_type{{sector, sector}});
 }
 
 template <class Storage> class BlockTensorSvdStorageTest : public ::testing::Test {};
@@ -42,6 +56,34 @@ TYPED_TEST(BlockTensorSvdStorageTest, FactorizesEveryImmediateLocalStoragePolicy
   auto decomposition = block_svd(matrix);
   ASSERT_EQ(decomposition.spectrum().size(), 1);
   EXPECT_DOUBLE_EQ(decomposition.spectrum()[0].singular_value, 2.0);
+}
+
+TEST(BlockTensorSvd, FactorizesARepartitionedThreeOneViewAsTwoTwo)
+{
+  Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = QNum::identity(symmetry);
+  BlockSpace const left_bond(symmetry, {{q0, 1}}, "left-bond");
+  LocalSpace const left_site(symmetry, {q0, q0}, "left-site");
+  LocalSpace const right_site(symmetry, {q0, q0}, "right-site");
+  BlockSpace const right_bond(symmetry, {{q0, 1}}, "right-bond");
+
+  using Center =
+      BlockTensor<double, Domain<BlockSpace, LocalSpace, LocalSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  using Key = Center::key_type;
+  Center center(symmetry, Domain{left_bond, left_site, right_site}, Codomain{right_bond},
+                {Key{{0, 0, 0, 0}}, Key{{0, 1, 1, 0}}});
+  center.block(Key{{0, 0, 0, 0}})[0, 0] = 4.0;
+  center.block(Key{{0, 1, 1, 0}})[0, 0] = 1.0;
+
+  auto matrix_view = repartition<MorphismSide::Domain, BoundaryEnd::Right>(center);
+  static_assert(ImmediateBlockTensorView<decltype(matrix_view)>);
+  static_assert(decltype(matrix_view)::domain_type::size() == 2);
+  static_assert(decltype(matrix_view)::codomain_type::size() == 2);
+
+  auto decomposition = block_svd(matrix_view);
+  ASSERT_EQ(decomposition.spectrum().size(), 2);
+  EXPECT_DOUBLE_EQ(decomposition.spectrum()[0].singular_value, 4.0);
+  EXPECT_DOUBLE_EQ(decomposition.spectrum()[1].singular_value, 1.0);
 }
 
 TEST(BlockTensorSvd, SelectsAcrossSectorsAndMaterializesComplementIndependently)
@@ -74,21 +116,22 @@ TEST(BlockTensorSvd, SelectsAcrossSectorsAndMaterializesComplementIndependently)
   auto kept_factors = materialize_svd(decomposition, kept, {.bond_label = "kept"});
   auto discarded_factors = materialize_svd(decomposition, discarded, {.bond_label = "discarded"});
 
-  EXPECT_EQ(kept_factors.singular_values.bond_space().label(), "kept");
-  ASSERT_EQ(kept_factors.singular_values.bond_space().size(), 2);
+  auto const& kept_bond = singular_value_bond(kept_factors.singular_values);
+  EXPECT_EQ(kept_bond.label(), "kept");
+  ASSERT_EQ(kept_bond.size(), 2);
   EXPECT_EQ(
-      kept_factors.singular_values.bond_space()[sector_coordinate(kept_factors.singular_values.bond_space(), q0)].dim,
-      1);
+      kept_bond[sector_coordinate(kept_bond, q0)].dim, 1);
   EXPECT_EQ(
-      kept_factors.singular_values.bond_space()[sector_coordinate(kept_factors.singular_values.bond_space(), q1)].dim,
-      1);
+      kept_bond[sector_coordinate(kept_bond, q1)].dim, 1);
   EXPECT_EQ(kept.truncation().retained_rank, 2);
   EXPECT_NEAR(kept.truncation().discarded_weight, 1.0 / 26.0, 1.0e-14);
 
-  ASSERT_EQ(discarded_factors.singular_values.bond_space().size(), 1);
-  EXPECT_EQ(discarded_factors.singular_values.bond_space()[0].q, q0);
-  ASSERT_EQ(discarded_factors.singular_values.sector_values(0).extent(0), 1);
-  EXPECT_DOUBLE_EQ(discarded_factors.singular_values.sector_values(0)[0], 1.0);
+  auto const& discarded_bond = singular_value_bond(discarded_factors.singular_values);
+  ASSERT_EQ(discarded_bond.size(), 1);
+  EXPECT_EQ(discarded_bond[0].q, q0);
+  auto discarded_values = singular_values_in_sector(discarded_factors.singular_values, 0);
+  ASSERT_EQ(discarded_values.size(), 1);
+  EXPECT_DOUBLE_EQ(discarded_values[0], 1.0);
   EXPECT_EQ(discarded.truncation().retained_rank, 1);
   EXPECT_NEAR(discarded.truncation().discarded_weight, 25.0 / 26.0, 1.0e-14);
 }
@@ -117,20 +160,21 @@ TEST(BlockTensorSvd, FullSelectionReconstructsEveryChargeSector)
 
   for (std::size_t sector = 0; sector < input.size(); ++sector)
   {
-    std::size_t const bond = sector_coordinate(factors.singular_values.bond_space(), input[sector].q);
+    std::size_t const bond = sector_coordinate(singular_value_bond(factors.singular_values), input[sector].q);
     auto original = matrix.block(Key{{sector, sector}});
     using LeftKey = typename decltype(factors.left_singular_vectors)::key_type;
     using RightKey = typename decltype(factors.right_singular_vectors_adjoint)::key_type;
     auto left = factors.left_singular_vectors.block(LeftKey{{bond, sector}});
     auto right = factors.right_singular_vectors_adjoint.block(RightKey{{sector, bond}});
-    auto const& values = factors.singular_values.sector_values(bond);
+    auto values = singular_values_in_sector(factors.singular_values, bond);
     for (uni20::index_type column = 0; column < original.extent(0); ++column)
     {
       for (uni20::index_type row = 0; row < original.extent(1); ++row)
       {
         double reconstructed = 0.0;
-        for (uni20::index_type state = 0; state < values.extent(0); ++state)
-          reconstructed += left[state, row] * values[state] * right[column, state];
+        for (std::size_t state = 0; state < values.size(); ++state)
+          reconstructed += left[static_cast<uni20::index_type>(state), row] * values[state] *
+                           right[column, static_cast<uni20::index_type>(state)];
         EXPECT_NEAR(reconstructed, (original[column, row]), 1.0e-12);
       }
     }
@@ -184,12 +228,12 @@ TEST(BlockTensorSvd, MaterializesKeptAndPairedNullPartitionsFromOneDecomposition
   auto kept_factors = materialize_svd(decomposition, kept, {.bond_label = "kept"});
   auto null_factors = materialize_svd(decomposition, paired_null, {.bond_label = "paired-null"});
 
-  EXPECT_EQ(kept_factors.singular_values.bond_space().label(), "kept");
-  EXPECT_EQ(null_factors.singular_values.bond_space().label(), "paired-null");
-  ASSERT_EQ(kept_factors.singular_values.sector_count(), 1);
-  ASSERT_EQ(null_factors.singular_values.sector_count(), 1);
-  EXPECT_DOUBLE_EQ(kept_factors.singular_values.sector_values(0)[0], 2.0);
-  EXPECT_DOUBLE_EQ(null_factors.singular_values.sector_values(0)[0], 0.0);
+  EXPECT_EQ(singular_value_bond(kept_factors.singular_values).label(), "kept");
+  EXPECT_EQ(singular_value_bond(null_factors.singular_values).label(), "paired-null");
+  ASSERT_EQ(kept_factors.singular_values.stored_block_count(), 1);
+  ASSERT_EQ(null_factors.singular_values.stored_block_count(), 1);
+  EXPECT_DOUBLE_EQ(singular_values_in_sector(kept_factors.singular_values, 0)[0], 2.0);
+  EXPECT_DOUBLE_EQ(singular_values_in_sector(null_factors.singular_values, 0)[0], 0.0);
 
   using LeftKey = typename decltype(null_factors.left_singular_vectors)::key_type;
   using RightKey = typename decltype(null_factors.right_singular_vectors_adjoint)::key_type;
@@ -223,20 +267,27 @@ TEST(BlockTensorSvd, ComplexFactorsReconstructTheOriginalBlock)
 
   auto decomposition = block_svd(matrix);
   auto factors = materialize_svd(decomposition, select_svd_states(decomposition.spectrum()));
+  auto right_times_singular =
+      contract<1, 0>(factors.right_singular_vectors_adjoint, factors.singular_values);
+  auto reconstructed_tensor = contract<1, 0>(right_times_singular, factors.left_singular_vectors);
+  auto reconstructed_block = reconstructed_tensor.block(Key{{0, 0}});
   using LeftKey = typename decltype(factors.left_singular_vectors)::key_type;
   using RightKey = typename decltype(factors.right_singular_vectors_adjoint)::key_type;
   auto left = factors.left_singular_vectors.block(LeftKey{{0, 0}});
   auto right = factors.right_singular_vectors_adjoint.block(RightKey{{0, 0}});
-  auto const& values = factors.singular_values.sector_values(0);
+  auto values = singular_values_in_sector(factors.singular_values, 0);
 
   for (uni20::index_type column = 0; column < 2; ++column)
   {
     for (uni20::index_type row = 0; row < 2; ++row)
     {
       Scalar reconstructed{};
-      for (uni20::index_type state = 0; state < values.extent(0); ++state)
-        reconstructed += left[state, row] * values[state] * right[column, state];
+      for (std::size_t state = 0; state < values.size(); ++state)
+        reconstructed += left[static_cast<uni20::index_type>(state), row] * values[state] *
+                         right[column, static_cast<uni20::index_type>(state)];
       EXPECT_NEAR(std::abs(reconstructed - matrix.block(Key{{0, 0}})[column, row]), 0.0, 1.0e-12);
+      EXPECT_NEAR(std::abs(reconstructed_block[column, row] - matrix.block(Key{{0, 0}})[column, row]), 0.0,
+                  1.0e-12);
     }
   }
 }
@@ -259,8 +310,8 @@ TEST(BlockTensorSvd, EmptySelectionMaterializesAnEmptyBond)
   auto factors = materialize_svd(decomposition, selection, {.bond_label = "empty"});
 
   EXPECT_EQ(selection.truncation().retained_rank, 0);
-  EXPECT_EQ(factors.singular_values.bond_space().label(), "empty");
-  EXPECT_EQ(factors.singular_values.sector_count(), 0);
+  EXPECT_EQ(singular_value_bond(factors.singular_values).label(), "empty");
+  EXPECT_EQ(factors.singular_values.stored_block_count(), 0);
   EXPECT_EQ(factors.left_singular_vectors.stored_block_count(), 0);
   EXPECT_EQ(factors.right_singular_vectors_adjoint.stored_block_count(), 0);
 }

@@ -59,8 +59,14 @@ int main()
     throw std::runtime_error("block-SVD selection produced the wrong ranks");
   }
   require_close(kept.truncation().discarded_weight, 1.0 / 26.0);
-  auto const discarded_q0 = sector_coordinate(discarded_factors.singular_values.bond_space(), q0);
-  require_close(discarded_factors.singular_values.sector_values(discarded_q0)[0], 1.0);
+  auto const& discarded_bond = discarded_factors.singular_values.domain().template space<0>();
+  auto const discarded_q0 = sector_coordinate(discarded_bond, q0);
+  using SingularValueKey = typename decltype(discarded_factors.singular_values)::key_type;
+  require_close(discarded_factors.singular_values
+                    .diagonal_values(SingularValueKey{{discarded_q0, discarded_q0}})[0],
+                1.0);
+
+  auto const& kept_bond = kept_factors.singular_values.domain().template space<0>();
 
   std::cout << "sector-global BlockTensor SVD\n";
   std::cout << "  spectrum:\n";
@@ -70,9 +76,8 @@ int main()
               << ", singular-value=" << state.singular_value << '\n';
   }
   std::cout << "  kept states: " << kept.truncation().retained_rank << '\n';
-  std::cout << "  kept bond sectors: " << kept_factors.singular_values.bond_space().size() << '\n';
+  std::cout << "  kept bond sectors: " << kept_bond.size() << '\n';
   std::cout << "  discarded states: " << discarded.truncation().retained_rank << '\n';
   std::cout << "  discarded weight: " << kept.truncation().discarded_weight << '\n';
-  std::cout << "  independent bond labels: " << kept_factors.singular_values.bond_space().label() << ", "
-            << discarded_factors.singular_values.bond_space().label() << '\n';
+  std::cout << "  independent bond labels: " << kept_bond.label() << ", " << discarded_bond.label() << '\n';
 }

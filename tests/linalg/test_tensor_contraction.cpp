@@ -1,5 +1,7 @@
 #include <uni20/core/types.hpp>
+#include <uni20/linalg/cpu/contract.hpp>
 #include <uni20/linalg/ops/contract.hpp>
+#include <uni20/mdspan/diagonal_accessor.hpp>
 #include <uni20/tensor/conjugate.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -173,6 +175,66 @@ TEST(CpuTensorContractionTest, DeferredTensorOperandsUseHostLeases)
   uni20::linalg::contract(uni20::linalg::CpuReferenceBackend{}, output, 1.0, lhs, rhs, axes, 0.0);
 
   EXPECT_EQ(output.storage(), (std::vector<double>{58.0, 139.0, 64.0, 154.0}));
+}
+
+TEST(CpuTensorContractionTest, ContractsRankTwoDiagonalComponentsOnEitherSide)
+{
+  using component_extents_type = stdex::dextents<uni20::index_type, 1>;
+  using component_mapping_type = stdex::layout_stride::mapping<component_extents_type>;
+  using component_mdspan_type = stdex::mdspan<double, component_extents_type, stdex::layout_stride>;
+  using matrix_extents_type = stdex::dextents<uni20::index_type, 2>;
+
+  std::array<double, 5> component_storage{2.0, 0.0, 3.0, 0.0, 4.0};
+  auto const component_mapping =
+      component_mapping_type{component_extents_type{3}, std::array<uni20::index_type, 1>{-2}};
+  component_mdspan_type components{component_storage.data() + 4, component_mapping};
+
+  uni20::Tensor<double, 2> lhs(2, 3);
+  lhs[0, 0] = 1.0;
+  lhs[0, 1] = 2.0;
+  lhs[0, 2] = 3.0;
+  lhs[1, 0] = 5.0;
+  lhs[1, 1] = 7.0;
+  lhs[1, 2] = 11.0;
+  auto rhs_diagonal = uni20::make_diagonal_mdspan(matrix_extents_type{3, 4}, components);
+  uni20::Tensor<double, 2> right_output(2, 4);
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 4; ++column)
+      right_output[row, column] = 8.0;
+
+  auto lhs_span = lhs.mdspan();
+  auto right_output_span = right_output.mdspan();
+  auto const right_axes =
+      uni20::linalg::make_contraction_axes<2, 2>(std::array<std::pair<std::size_t, std::size_t>, 1>{{{1, 0}}});
+  uni20::linalg::cpu::contract(right_output_span, 2.0, lhs_span, rhs_diagonal, 0.5, right_axes);
+
+  for (uni20::index_type row = 0; row < 2; ++row)
+  {
+    for (uni20::index_type column = 0; column < 4; ++column)
+    {
+      auto const product = column < 3 ? static_cast<double>(lhs[row, column]) * components[column] : 0.0;
+      EXPECT_DOUBLE_EQ((right_output[row, column]), 4.0 + 2.0 * product);
+    }
+  }
+
+  auto lhs_diagonal = uni20::make_diagonal_mdspan(matrix_extents_type{4, 3}, components);
+  uni20::Tensor<double, 2> rhs(3, 2);
+  rhs[0, 0] = 2.0;
+  rhs[0, 1] = 3.0;
+  rhs[1, 0] = 5.0;
+  rhs[1, 1] = 7.0;
+  rhs[2, 0] = 11.0;
+  rhs[2, 1] = 13.0;
+  uni20::Tensor<double, 2> left_output(4, 2);
+  auto rhs_span = rhs.mdspan();
+  auto left_output_span = left_output.mdspan();
+  auto const left_axes =
+      uni20::linalg::make_contraction_axes<2, 2>(std::array<std::pair<std::size_t, std::size_t>, 1>{{{1, 0}}});
+  uni20::linalg::cpu::contract(left_output_span, 1.0, lhs_diagonal, rhs_span, 0.0, left_axes);
+
+  for (uni20::index_type row = 0; row < 4; ++row)
+    for (uni20::index_type column = 0; column < 2; ++column)
+      EXPECT_DOUBLE_EQ((left_output[row, column]), (row < 3 ? components[row] * rhs[row, column] : 0.0));
 }
 
 TEST(CpuTensorContractionTest, EmptyContractedExtentProducesScaledZeroProduct)

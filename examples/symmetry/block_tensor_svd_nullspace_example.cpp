@@ -55,7 +55,8 @@ int main()
   std::cout << "BlockTensor SVD retained and null subspaces\n";
   std::cout << "  paired singular states: " << decomposition.spectrum().size() << '\n';
   std::cout << "  retained states: " << kept.truncation().retained_rank << '\n';
-  std::cout << "  retained singular value: " << kept_factors.singular_values.sector_values(0)[0] << '\n';
+  std::cout << "  retained singular value: "
+            << kept_factors.singular_values.diagonal_values_by_ordinal(0)[0] << '\n';
   std::cout << "  unpaired right-null vectors: " << right_null.state_ids().size() << '\n';
   std::cout << "  null residual: " << maximum_residual << '\n';
   std::cout << "  null-vector squared norm: " << squared_norm << '\n';

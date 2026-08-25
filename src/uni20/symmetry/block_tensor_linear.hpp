@@ -12,6 +12,7 @@
 #include <uni20/linalg/async/transform.hpp>
 #include <uni20/linalg/elementwise_functions.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/tensor/copy_into.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/transform.hpp>
@@ -33,64 +34,13 @@ namespace uni20
 namespace detail
 {
 
-template <class Tensor> using block_tensor_type_t = std::remove_cvref_t<Tensor>;
-
-template <class Tensor>
-using block_tensor_const_block_t =
-    decltype(std::declval<block_tensor_type_t<Tensor> const&>().block_by_ordinal(std::size_t{}));
-
-template <class Tensor>
-using block_tensor_mutable_block_t =
-    decltype(std::declval<block_tensor_type_t<Tensor>&>().block_by_ordinal(std::size_t{}));
-
-template <class Tensor>
-concept ReadableBlockTensor = requires(block_tensor_type_t<Tensor> const& tensor, std::size_t ordinal) {
-  typename block_tensor_type_t<Tensor>::value_type;
-  typename block_tensor_type_t<Tensor>::key_type;
-  typename block_tensor_type_t<Tensor>::domain_type;
-  typename block_tensor_type_t<Tensor>::codomain_type;
-  typename block_tensor_type_t<Tensor>::storage_policy;
-  { tensor.symmetry() } -> std::same_as<Symmetry>;
-  { tensor.domain() } -> std::same_as<typename block_tensor_type_t<Tensor>::domain_type const&>;
-  { tensor.codomain() } -> std::same_as<typename block_tensor_type_t<Tensor>::codomain_type const&>;
-  { tensor.stored_block_count() } -> std::same_as<std::size_t>;
-  { tensor.stored_keys() } -> std::same_as<std::span<typename block_tensor_type_t<Tensor>::key_type const>>;
-  { tensor.block_by_ordinal(ordinal) } -> TensorView;
-};
-
-template <class Tensor>
-concept WritableBlockTensor =
-    ReadableBlockTensor<Tensor> && requires(block_tensor_type_t<Tensor>& tensor, std::size_t ordinal) {
-      { tensor.block_by_ordinal(ordinal) } -> MutableTensorView;
-    };
-
 template <class Lhs, class Rhs>
 concept CompatibleBlockTensorValues =
-    ReadableBlockTensor<Lhs> && ReadableBlockTensor<Rhs> &&
+    BlockTensorView<Lhs> && BlockTensorView<Rhs> &&
     std::same_as<typename block_tensor_type_t<Lhs>::value_type, typename block_tensor_type_t<Rhs>::value_type> &&
     std::same_as<typename block_tensor_type_t<Lhs>::key_type, typename block_tensor_type_t<Rhs>::key_type> &&
     std::same_as<typename block_tensor_type_t<Lhs>::domain_type, typename block_tensor_type_t<Rhs>::domain_type> &&
     std::same_as<typename block_tensor_type_t<Lhs>::codomain_type, typename block_tensor_type_t<Rhs>::codomain_type>;
-
-template <class Tensor>
-concept ImmediateReadableBlockTensor =
-    ReadableBlockTensor<Tensor> && ImmediateTensorView<block_tensor_const_block_t<Tensor>>;
-
-template <class Tensor>
-concept ImmediateWritableBlockTensor =
-    WritableBlockTensor<Tensor> && MutableImmediateTensorView<block_tensor_mutable_block_t<Tensor>>;
-
-template <class Tensor>
-concept AsyncReadableBlockTensor =
-    ReadableBlockTensor<Tensor> && requires(block_tensor_type_t<Tensor> const& tensor, std::size_t ordinal) {
-      tensor.async_block_by_ordinal(ordinal).read();
-    };
-
-template <class Tensor>
-concept AsyncWritableBlockTensor =
-    WritableBlockTensor<Tensor> && requires(block_tensor_type_t<Tensor>& tensor, std::size_t ordinal) {
-      tensor.async_block_by_ordinal(ordinal).write();
-    };
 
 template <class Lhs, class Rhs> void require_compatible_block_tensor_values(Lhs const& lhs, Rhs const& rhs)
 {
@@ -110,6 +60,14 @@ template <class Superset, class Subset> void require_stored_key_superset(Superse
   {
     throw std::invalid_argument("fixed BlockTensor output does not store every required input block");
   }
+}
+
+template <BlockTensorView Tensor>
+auto find_stored_key_ordinal(Tensor const& tensor, block_tensor_key_t<Tensor> const& key) -> std::optional<std::size_t>
+{
+  auto const found = std::ranges::lower_bound(tensor.stored_keys(), key);
+  if (found == tensor.stored_keys().end() || *found != key) return std::nullopt;
+  return static_cast<std::size_t>(found - tensor.stored_keys().begin());
 }
 
 template <class Lhs, class Rhs>
@@ -235,11 +193,11 @@ using selected_linear_storage_t =
 /// \details Legal but unstored blocks remain implicit zero. Immediate block
 ///          policies complete before return; async block storage schedules one
 ///          update on each block timeline.
-template <detail::WritableBlockTensor Tensor>
-  requires(detail::ImmediateWritableBlockTensor<Tensor> || detail::AsyncWritableBlockTensor<Tensor>)
+template <MutableBlockTensorView Tensor>
+  requires(MutableImmediateBlockTensorView<Tensor> || MutableAsyncBlockTensorView<Tensor>)
 void set_zero(Tensor& tensor)
 {
-  if constexpr (detail::ImmediateWritableBlockTensor<Tensor>)
+  if constexpr (MutableImmediateBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -252,7 +210,7 @@ void set_zero(Tensor& tensor)
     for (std::size_t ordinal = 0; ordinal < tensor.stored_block_count(); ++ordinal)
     {
       auto& block = tensor.async_block_by_ordinal(ordinal);
-      using value_type = typename detail::block_tensor_type_t<Tensor>::value_type;
+      using value_type = block_tensor_value_t<Tensor>;
       uni20::transform_inplace(block, linalg::scale{value_type{}});
     }
   }
@@ -260,11 +218,11 @@ void set_zero(Tensor& tensor)
 
 /// \brief Multiply every stored numerical block by a scalar in place.
 /// \details The stored key pattern is unchanged, including when the factor is zero.
-template <detail::WritableBlockTensor Tensor, class Scalar>
-  requires(detail::ImmediateWritableBlockTensor<Tensor> || detail::AsyncWritableBlockTensor<Tensor>)
+template <MutableBlockTensorView Tensor, class Scalar>
+  requires(MutableImmediateBlockTensorView<Tensor> || MutableAsyncBlockTensorView<Tensor>)
 void scale(Tensor& tensor, Scalar factor)
 {
-  if constexpr (detail::ImmediateWritableBlockTensor<Tensor>)
+  if constexpr (MutableImmediateBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -288,10 +246,10 @@ void scale(Tensor& tensor, Scalar factor)
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
-template <detail::WritableBlockTensor Output, class Scalar, detail::ReadableBlockTensor Input>
+template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
-           ((detail::ImmediateWritableBlockTensor<Output> && detail::ImmediateReadableBlockTensor<Input>) ||
-            (detail::AsyncWritableBlockTensor<Output> && detail::AsyncReadableBlockTensor<Input>))
+           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+            (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void assign_scale(Output& output, Scalar factor, Input const& input)
 {
   detail::require_compatible_block_tensor_values(output, input);
@@ -302,21 +260,24 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
     return;
   }
 
-  if constexpr (detail::ImmediateWritableBlockTensor<Output>)
+  if constexpr (MutableImmediateBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, output.stored_block_count(),
                                        [&](std::size_t ordinal) {
                                          auto output_block = output.block_by_ordinal(ordinal);
                                          auto const& key = output.stored_keys()[ordinal];
-                                         if (auto input_block = input.find_block(key))
-                                           detail::assign_scale_block(output_block, factor, *input_block);
+                                         if (auto input_ordinal = detail::find_stored_key_ordinal(input, key))
+                                         {
+                                           auto input_block = input.block_by_ordinal(*input_ordinal);
+                                           detail::assign_scale_block(output_block, factor, input_block);
+                                         }
                                          else
                                            detail::set_zero_block(output_block);
                                        });
   }
   else
   {
-    using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+    using value_type = block_tensor_value_t<Output>;
     for (std::size_t ordinal = 0; ordinal < output.stored_block_count(); ++ordinal)
     {
       auto& output_block = output.async_block_by_ordinal(ordinal);
@@ -339,14 +300,14 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
-template <detail::WritableBlockTensor Output, detail::ReadableBlockTensor Input>
+template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
-           ((detail::ImmediateWritableBlockTensor<Output> && detail::ImmediateReadableBlockTensor<Input>) ||
-            (detail::AsyncWritableBlockTensor<Output> && detail::AsyncReadableBlockTensor<Input>))
+           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+            (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void copy(Output& output, Input const& input)
 {
   if (detail::same_block_tensor_object(output, input)) return;
-  using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+  using value_type = block_tensor_value_t<Output>;
   assign_scale(output, value_type{1}, input);
 }
 
@@ -356,12 +317,11 @@ void copy(Output& output, Input const& input)
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If symmetry or boundary values differ, or the
 ///         output omits an input key.
-template <detail::WritableBlockTensor Output, detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
+template <MutableBlockTensorView Output, BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Output, Lhs> && detail::CompatibleBlockTensorValues<Output, Rhs> &&
-           ((detail::ImmediateWritableBlockTensor<Output> && detail::ImmediateReadableBlockTensor<Lhs> &&
-             detail::ImmediateReadableBlockTensor<Rhs>) ||
-            (detail::AsyncWritableBlockTensor<Output> && detail::AsyncReadableBlockTensor<Lhs> &&
-             detail::AsyncReadableBlockTensor<Rhs>))
+           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Lhs> &&
+             ImmediateBlockTensorView<Rhs>) ||
+            (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
 void add(Output& output, Lhs const& lhs, Rhs const& rhs)
 {
   detail::require_compatible_block_tensor_values(output, lhs);
@@ -373,7 +333,7 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
   {
     if (detail::same_block_tensor_object(output, rhs))
     {
-      using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+      using value_type = block_tensor_value_t<Output>;
       scale(output, value_type{2});
     }
     else
@@ -388,27 +348,37 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
     return;
   }
 
-  if constexpr (detail::ImmediateWritableBlockTensor<Output>)
+  if constexpr (MutableImmediateBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, output.stored_block_count(),
                                        [&](std::size_t ordinal) {
                                          auto output_block = output.block_by_ordinal(ordinal);
                                          auto const& key = output.stored_keys()[ordinal];
-                                         auto lhs_block = lhs.find_block(key);
-                                         auto rhs_block = rhs.find_block(key);
-                                         if (lhs_block && rhs_block)
-                                           detail::add_block(output_block, *lhs_block, *rhs_block);
-                                         else if (lhs_block)
-                                           uni20::copy(output_block, *lhs_block);
-                                         else if (rhs_block)
-                                           uni20::copy(output_block, *rhs_block);
+                                         auto lhs_ordinal = detail::find_stored_key_ordinal(lhs, key);
+                                         auto rhs_ordinal = detail::find_stored_key_ordinal(rhs, key);
+                                         if (lhs_ordinal && rhs_ordinal)
+                                         {
+                                           auto lhs_block = lhs.block_by_ordinal(*lhs_ordinal);
+                                           auto rhs_block = rhs.block_by_ordinal(*rhs_ordinal);
+                                           detail::add_block(output_block, lhs_block, rhs_block);
+                                         }
+                                         else if (lhs_ordinal)
+                                         {
+                                           auto lhs_block = lhs.block_by_ordinal(*lhs_ordinal);
+                                           uni20::copy(output_block, lhs_block);
+                                         }
+                                         else if (rhs_ordinal)
+                                         {
+                                           auto rhs_block = rhs.block_by_ordinal(*rhs_ordinal);
+                                           uni20::copy(output_block, rhs_block);
+                                         }
                                          else
                                            detail::set_zero_block(output_block);
                                        });
   }
   else
   {
-    using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+    using value_type = block_tensor_value_t<Output>;
     for (std::size_t ordinal = 0; ordinal < output.stored_block_count(); ++ordinal)
     {
       auto& output_block = output.async_block_by_ordinal(ordinal);
@@ -448,27 +418,28 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
-template <detail::WritableBlockTensor Output, detail::ReadableBlockTensor Input>
+template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
-           ((detail::ImmediateWritableBlockTensor<Output> && detail::ImmediateReadableBlockTensor<Input>) ||
-            (detail::AsyncWritableBlockTensor<Output> && detail::AsyncReadableBlockTensor<Input>))
+           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+            (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void add_inplace(Output& output, Input const& input)
 {
   detail::require_compatible_block_tensor_values(output, input);
   detail::require_stored_key_superset(output, input);
   if (detail::same_block_tensor_object(output, input))
   {
-    using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+    using value_type = block_tensor_value_t<Output>;
     scale(output, value_type{2});
     return;
   }
 
-  if constexpr (detail::ImmediateWritableBlockTensor<Output>)
+  if constexpr (MutableImmediateBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, input.stored_block_count(),
                                        [&](std::size_t input_ordinal) {
                                          auto const& key = input.stored_keys()[input_ordinal];
-                                         auto output_block = output.block(key);
+                                         auto const output_ordinal = *detail::find_stored_key_ordinal(output, key);
+                                         auto output_block = output.block_by_ordinal(output_ordinal);
                                          auto input_block = input.block_by_ordinal(input_ordinal);
                                          detail::add_inplace_block(output_block, input_block);
                                        });
@@ -490,27 +461,28 @@ void add_inplace(Output& output, Input const& input)
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
-template <detail::WritableBlockTensor Output, class Scalar, detail::ReadableBlockTensor Input>
+template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
-           ((detail::ImmediateWritableBlockTensor<Output> && detail::ImmediateReadableBlockTensor<Input>) ||
-            (detail::AsyncWritableBlockTensor<Output> && detail::AsyncReadableBlockTensor<Input>))
+           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+            (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void axpy(Output& output, Scalar factor, Input const& input)
 {
   detail::require_compatible_block_tensor_values(output, input);
   detail::require_stored_key_superset(output, input);
   if (detail::same_block_tensor_object(output, input))
   {
-    using value_type = typename detail::block_tensor_type_t<Output>::value_type;
+    using value_type = block_tensor_value_t<Output>;
     scale(output, value_type{1} + factor);
     return;
   }
 
-  if constexpr (detail::ImmediateWritableBlockTensor<Output>)
+  if constexpr (MutableImmediateBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, input.stored_block_count(),
                                        [&](std::size_t input_ordinal) {
                                          auto const& key = input.stored_keys()[input_ordinal];
-                                         auto output_block = output.block(key);
+                                         auto const output_ordinal = *detail::find_stored_key_ordinal(output, key);
+                                         auto output_block = output.block_by_ordinal(output_ordinal);
                                          auto input_block = input.block_by_ordinal(input_ordinal);
                                          detail::axpy_block(output_block, factor, input_block);
                                        });
@@ -531,14 +503,14 @@ void axpy(Output& output, Scalar factor, Input const& input)
 /// \brief Return the sum of two BlockTensor values using the union of stored keys.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 /// \tparam OutputStorage Sparse output policy, or `void` to preserve the left policy.
-template <class OutputStorage = void, detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
+template <class OutputStorage = void, BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Lhs, Rhs> &&
            SparseBlockStorage<detail::selected_linear_storage_t<OutputStorage, Lhs>>
 [[nodiscard]] auto add(Lhs const& lhs, Rhs const& rhs)
 {
   detail::require_compatible_block_tensor_values(lhs, rhs);
   using storage_type = detail::selected_linear_storage_t<OutputStorage, Lhs>;
-  using lhs_type = detail::block_tensor_type_t<Lhs>;
+  using lhs_type = block_tensor_type_t<Lhs>;
   using result_type = BlockTensor<typename lhs_type::value_type, typename lhs_type::domain_type,
                                   typename lhs_type::codomain_type, storage_type>;
   auto result = result_type(lhs.symmetry(), lhs.domain(), lhs.codomain(), detail::stored_key_union(lhs, rhs));
@@ -552,19 +524,17 @@ template <class OutputStorage = void, detail::ReadableBlockTensor Lhs, detail::R
 ///          them in canonical key order. Async block inputs are awaited by this
 ///          explicitly blocking operation.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
-template <detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
-  requires detail::CompatibleBlockTensorValues<Lhs, Rhs> &&
-           RealOrComplex<typename detail::block_tensor_type_t<Lhs>::value_type> &&
-           ((detail::ImmediateReadableBlockTensor<Lhs> && detail::ImmediateReadableBlockTensor<Rhs>) ||
-            (detail::AsyncReadableBlockTensor<Lhs> && detail::AsyncReadableBlockTensor<Rhs>))
-[[nodiscard]] auto inner_product_host(Lhs const& lhs, Rhs const& rhs) ->
-    typename detail::block_tensor_type_t<Lhs>::value_type
+template <BlockTensorView Lhs, BlockTensorView Rhs>
+  requires detail::CompatibleBlockTensorValues<Lhs, Rhs> && RealOrComplex<block_tensor_value_t<Lhs>> &&
+           ((ImmediateBlockTensorView<Lhs> && ImmediateBlockTensorView<Rhs>) ||
+            (AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
+[[nodiscard]] auto inner_product_host(Lhs const& lhs, Rhs const& rhs) -> block_tensor_value_t<Lhs>
 {
   detail::require_compatible_block_tensor_values(lhs, rhs);
-  using value_type = typename detail::block_tensor_type_t<Lhs>::value_type;
+  using value_type = block_tensor_value_t<Lhs>;
   auto const bindings = detail::stored_key_intersection_bindings(lhs, rhs);
   std::vector<value_type> partials(bindings.size());
-  if constexpr (detail::ImmediateReadableBlockTensor<Lhs>)
+  if constexpr (ImmediateBlockTensorView<Lhs>)
   {
     detail::execute_linear_block_batch(detail::reduction_execution_policy_t<Lhs, Rhs>{}, bindings.size(),
                                        [&](std::size_t index) {
@@ -605,14 +575,13 @@ template <detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
 
 /// \brief Return the BlockTensor inner product in a host rank-zero Tensor.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
-template <detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
-  requires detail::CompatibleBlockTensorValues<Lhs, Rhs> &&
-           RealOrComplex<typename detail::block_tensor_type_t<Lhs>::value_type> &&
-           ((detail::ImmediateReadableBlockTensor<Lhs> && detail::ImmediateReadableBlockTensor<Rhs>) ||
-            (detail::AsyncReadableBlockTensor<Lhs> && detail::AsyncReadableBlockTensor<Rhs>))
+template <BlockTensorView Lhs, BlockTensorView Rhs>
+  requires detail::CompatibleBlockTensorValues<Lhs, Rhs> && RealOrComplex<block_tensor_value_t<Lhs>> &&
+           ((ImmediateBlockTensorView<Lhs> && ImmediateBlockTensorView<Rhs>) ||
+            (AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
 [[nodiscard]] auto inner_product(Lhs const& lhs, Rhs const& rhs)
 {
-  using value_type = typename detail::block_tensor_type_t<Lhs>::value_type;
+  using value_type = block_tensor_value_t<Lhs>;
   ScalarTensor<value_type> result;
   result[] = inner_product_host(lhs, rhs);
   return result;
@@ -621,15 +590,14 @@ template <detail::ReadableBlockTensor Lhs, detail::ReadableBlockTensor Rhs>
 /// \brief Return the Euclidean BlockTensor norm as a host scalar.
 /// \details Legal but unstored blocks contribute zero. Per-block norms are
 ///          combined in canonical key order.
-template <detail::ReadableBlockTensor Tensor>
-  requires RealOrComplex<typename detail::block_tensor_type_t<Tensor>::value_type> &&
-           (detail::ImmediateReadableBlockTensor<Tensor> || detail::AsyncReadableBlockTensor<Tensor>)
-[[nodiscard]] auto norm_host(Tensor const& tensor)
-    -> make_real_t<typename detail::block_tensor_type_t<Tensor>::value_type>
+template <BlockTensorView Tensor>
+  requires RealOrComplex<block_tensor_value_t<Tensor>> &&
+           (ImmediateBlockTensorView<Tensor> || AsyncBlockTensorView<Tensor>)
+[[nodiscard]] auto norm_host(Tensor const& tensor) -> make_real_t<block_tensor_value_t<Tensor>>
 {
-  using real_type = make_real_t<typename detail::block_tensor_type_t<Tensor>::value_type>;
+  using real_type = make_real_t<block_tensor_value_t<Tensor>>;
   std::vector<real_type> partials(tensor.stored_block_count());
-  if constexpr (detail::ImmediateReadableBlockTensor<Tensor>)
+  if constexpr (ImmediateBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -670,12 +638,12 @@ template <detail::ReadableBlockTensor Tensor>
 }
 
 /// \brief Return the Euclidean BlockTensor norm in a host rank-zero Tensor.
-template <detail::ReadableBlockTensor Tensor>
-  requires RealOrComplex<typename detail::block_tensor_type_t<Tensor>::value_type> &&
-           (detail::ImmediateReadableBlockTensor<Tensor> || detail::AsyncReadableBlockTensor<Tensor>)
+template <BlockTensorView Tensor>
+  requires RealOrComplex<block_tensor_value_t<Tensor>> &&
+           (ImmediateBlockTensorView<Tensor> || AsyncBlockTensorView<Tensor>)
 [[nodiscard]] auto norm(Tensor const& tensor)
 {
-  using real_type = make_real_t<typename detail::block_tensor_type_t<Tensor>::value_type>;
+  using real_type = make_real_t<block_tensor_value_t<Tensor>>;
   ScalarTensor<real_type> result;
   result[] = norm_host(tensor);
   return result;
