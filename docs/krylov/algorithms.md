@@ -35,6 +35,13 @@ does not inspect vector storage and assumes only vector allocation, copy,
 problem dimension comes from the operation object and is checked against the
 prototype or initial vector.
 
+`BlockTensorVectorOps<Tensor>` adapts one owning sparse `BlockTensor` structure
+to this vector boundary. Its constructor freezes the exact symmetry, domain,
+codomain, stored-key pattern, scalar type, and storage policy. `allocate_like`
+reproduces that block structure, while vector operations remain blockwise and
+never form a symmetry-erasing dense projection. An application-specific
+operator composes or derives from this adapter and supplies `matvec`.
+
 Generalized symmetric paths may additionally use `metric_inner_product(x, y)`.
 When it is absent, the current wrapper applies `B*y` into backend-owned scratch
 and then calls the ordinary inner product.

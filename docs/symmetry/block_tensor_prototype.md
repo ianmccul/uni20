@@ -490,6 +490,12 @@ corresponding block epoch. The current `inner_product_host` and `norm_host`
 reductions are explicitly blocking synchronization points; their rank-zero
 Tensor wrappers are `inner_product` and `norm`.
 
+`krylov::BlockTensorVectorOps<Tensor>` uses this surface to define a Krylov
+vector space from one owning prototype. Membership requires the exact frozen
+symmetry, boundary values, and stored-key pattern. Consequently,
+`allocate_like` preserves block metadata and a matrix-free `matvec` cannot
+silently widen the vector space or flatten it into a dense tensor.
+
 ### Implemented morphism operations
 
 The first `permute<Axis...>` and `repartition<Side, End>` operations return
@@ -675,6 +681,9 @@ construction, fixed-output containment checks before mutation, exact boundary
 compatibility, complex conjugate-linear inner products, stable multi-block
 norms, mapped views, all immediate storage policies, and per-block async
 updates and reductions.
+The Krylov adapter tests freeze a two-sector U(1) vector structure, reject
+boundary or stored-pattern changes, and run that BlockTensor through the native
+symmetric Lanczos solver without dense projection.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation
