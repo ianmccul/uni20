@@ -2,11 +2,11 @@
 #include <uni20/krylov/symmetric_lanczos.hpp>
 #include <uni20/symmetry/block_space.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_contract.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
@@ -19,33 +19,14 @@ using Tensor =
     uni20::BlockTensor<double, uni20::Domain<uni20::BlockSpace>, uni20::Codomain<uni20::BlockSpace>, Storage>;
 using Key = typename Tensor::key_type;
 
-class U1BlockDiagonalOps : public uni20::krylov::BlockTensorVectorOps<Tensor> {
-  public:
-    using BlockTensorVectorOps::BlockTensorVectorOps;
+struct U1BlockDiagonalMatvec
+{
+    Tensor const* matrix;
 
-    void matvec(Tensor& output, Tensor const& input)
-    {
-      static_cast<void>(this->vector_dimension(output));
-      static_cast<void>(this->vector_dimension(input));
-
-      constexpr std::array<double, 4> sector_zero_diagonal{1.0, 3.0, 4.0, 5.0};
-      for (std::size_t ordinal = 0; ordinal < input.stored_block_count(); ++ordinal)
-      {
-        auto output_block = output.block_by_ordinal(ordinal);
-        auto input_block = input.block_by_ordinal(ordinal);
-        for (uni20::index_type column = 0; column < input_block.extent(1); ++column)
-        {
-          for (uni20::index_type row = 0; row < input_block.extent(0); ++row)
-          {
-            double const diagonal =
-                ordinal == 0 ? sector_zero_diagonal[static_cast<std::size_t>(row + input_block.extent(0) * column)]
-                             : 2.0;
-            output_block[row, column] = diagonal * input_block[row, column];
-          }
-        }
-      }
-    }
+    void operator()(Tensor& output, Tensor const& input) const { uni20::contract<1, 0>(output, *matrix, input); }
 };
+
+using U1BlockDiagonalOps = uni20::krylov::BlockTensorMatrixFreeOps<Tensor, U1BlockDiagonalMatvec>;
 
 static_assert(uni20::krylov::KrylovVectorOps<uni20::krylov::BlockTensorVectorOps<Tensor>, Tensor, double>);
 static_assert(!uni20::krylov::KrylovOperator<uni20::krylov::BlockTensorVectorOps<Tensor>, Tensor>);
@@ -65,6 +46,15 @@ void fill(Tensor& tensor, double value)
       for (uni20::index_type row = 0; row < block.extent(0); ++row)
         block[row, column] = value;
   }
+}
+
+void fill_diagonal_operator(Tensor& matrix)
+{
+  uni20::set_zero(matrix);
+  auto sector_zero = matrix.block(Key{{0, 0}});
+  sector_zero[0, 0] = 1.0;
+  sector_zero[1, 1] = 3.0;
+  matrix.block(Key{{1, 1}})[0, 0] = 2.0;
 }
 
 TEST(BlockTensorVectorOpsTest, FreezesStructureAndAllocatesWithoutDenseProjection)
@@ -104,7 +94,11 @@ TEST(BlockTensorVectorOpsTest, RunsU1BlockTensorThroughSymmetricLanczos)
   uni20::BlockSpace const space(symmetry, {{q0, 2}, {q1, 1}}, "state");
   Tensor initial = make_prototype(symmetry, space);
   fill(initial, 1.0);
-  U1BlockDiagonalOps ops(initial);
+  Tensor matrix = make_prototype(symmetry, space);
+  fill_diagonal_operator(matrix);
+  U1BlockDiagonalOps ops(initial, U1BlockDiagonalMatvec{.matrix = &matrix});
+  Tensor wrong_output(symmetry, uni20::Domain{space}, uni20::Codomain{space}, {Key{{0, 0}}});
+  EXPECT_THROW(ops.matvec(wrong_output, initial), std::invalid_argument);
 
   uni20::krylov::SymmetricEigenParams<double> params;
   params.eigenvalue_count = 2;

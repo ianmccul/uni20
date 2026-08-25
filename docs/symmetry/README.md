@@ -28,9 +28,11 @@ symmetry-aware block-sparse Tensor path.
   identifies the primitive operations needed below symmetry-aware algorithms.
 
 The current `BlockTensor` implementation is only the initial sparse host slice;
-complete storage, the full numerical operation surface, block SVD, and the DMRG
-path remain to be implemented. Loss of symmetry metadata remains a correctness
-error, not an acceptable fallback.
+complete storage, the full numerical operation surface, asynchronous or device
+block SVD, and the DMRG path remain to be implemented. The immediate host path
+includes staged per-charge block SVD with independent selection and
+materialization. Loss of symmetry metadata remains a correctness error, not an
+acceptable fallback.
 
 ## Source Navigation
 

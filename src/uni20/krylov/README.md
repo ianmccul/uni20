@@ -27,8 +27,8 @@ norms and inner products.
   target or the supported projected-problem path.
 - `dense_host_vector.hpp`: simple host-vector adapter for tests, examples, and
   prototype callers.
-- `block_tensor_vector.hpp`: exact-structure BlockTensor vector algebra for
-  matrix-free Krylov operators.
+- `block_tensor_vector.hpp`: exact-structure BlockTensor vector algebra and an
+  owned-callable matrix-free operator adapter.
 - `detail_math.hpp`: ADL-enabled scalar math helpers used by precision-generic
   Krylov code.
 

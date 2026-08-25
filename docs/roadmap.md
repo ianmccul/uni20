@@ -236,6 +236,10 @@ complete block-sparse Tensor execution path.
   back into the symmetry-aware calculation.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
   reference path.
+- Implement staged block SVD: assemble and factorize one dense matrix per
+  conserved charge, expose stable metadata-bearing singular-state selections,
+  and materialize exact selected bond spaces and factors. One factorization
+  must support independent kept, discarded, and null-space materializations.
 
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),

@@ -32,8 +32,10 @@ the mathematical problem and is treated as a correctness bug.
   views with transformed logical keys and strided dense blocks.
 - `block_tensor_linear.hpp`: structure-preserving copy, zero, scaling,
   addition, AXPY, inner-product, and norm operations.
-- `block_tensor_contract.hpp`: adjacent pairwise sparse contraction over exact
-  codomain/domain space values.
+- `block_tensor_svd.hpp`: staged host block SVD with globally selected
+  charge-labelled states and repeatable factor/null-space materialization.
+- `block_tensor_contract.hpp`: returning and fixed-output adjacent pairwise
+  sparse contraction over exact codomain/domain space values.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry
   declarations, implementations, and factor helpers.
 - `u1.hpp`: U(1) symmetry support.

@@ -40,7 +40,12 @@ to this vector boundary. Its constructor freezes the exact symmetry, domain,
 codomain, stored-key pattern, scalar type, and storage policy. `allocate_like`
 reproduces that block structure, while vector operations remain blockwise and
 never form a symmetry-erasing dense projection. An application-specific
-operator composes or derives from this adapter and supplies `matvec`.
+operator may compose or derive from this adapter and supply `matvec`.
+`BlockTensorMatrixFreeOps<Tensor, Operator>` is the direct composition: it owns
+an output-first callable, validates both vectors against the frozen structure,
+and then invokes `operation(output, input)`. The callable may retain immutable
+Hamiltonian and environment state. Its application must overwrite the existing
+output value rather than replace the output's fixed block structure.
 
 Generalized symmetric paths may additionally use `metric_inner_product(x, y)`.
 When it is absent, the current wrapper applies `B*y` into backend-owned scratch

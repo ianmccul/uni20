@@ -10,9 +10,12 @@
 #include <uni20/symmetry/block_tensor_linear.hpp>
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
+#include <functional>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace uni20::krylov
@@ -156,5 +159,43 @@ template <class Tensor> class BlockTensorVectorOps {
     std::vector<key_type> stored_keys_;
     std::size_t dimension_ = 0;
 };
+
+/// \brief Combine fixed BlockTensor vector algebra with an owned matrix-free apply operation.
+/// \details The operation is invoked as `operation(output, input)` only after
+///          both vectors have been validated against the exact structure frozen
+///          by the prototype. The operation object may retain immutable
+///          Hamiltonian or environment state needed by repeated Krylov applies.
+/// \tparam Tensor Owning sparse BlockTensor value type.
+/// \tparam Operator Output-first matrix-free operation object.
+template <class Tensor, class Operator> class BlockTensorMatrixFreeOps : public BlockTensorVectorOps<Tensor> {
+  public:
+    using base_type = BlockTensorVectorOps<Tensor>;
+    using tensor_type = typename base_type::tensor_type;
+    using operator_type = std::remove_cvref_t<Operator>;
+    static_assert(std::invocable<operator_type&, tensor_type&, tensor_type const&>,
+                  "BlockTensor matrix-free operation must be callable as operation(output, input)");
+    static_assert(std::same_as<std::invoke_result_t<operator_type&, tensor_type&, tensor_type const&>, void>,
+                  "BlockTensor matrix-free operation must return void");
+
+    /// \brief Freeze a vector structure and take ownership of its apply operation.
+    BlockTensorMatrixFreeOps(tensor_type const& prototype, operator_type operation)
+        : base_type(prototype), operation_(std::move(operation))
+    {}
+
+    /// \brief Apply the stored matrix-free operation as `output <- OP*input`.
+    /// \throws std::invalid_argument If either vector is outside the frozen space.
+    void matvec(tensor_type& output, tensor_type const& input)
+    {
+      static_cast<void>(this->vector_dimension(output));
+      static_cast<void>(this->vector_dimension(input));
+      std::invoke(operation_, output, input);
+    }
+
+  private:
+    operator_type operation_;
+};
+
+template <class Tensor, class Operator>
+BlockTensorMatrixFreeOps(Tensor const&, Operator) -> BlockTensorMatrixFreeOps<std::remove_cvref_t<Tensor>, Operator>;
 
 } // namespace uni20::krylov

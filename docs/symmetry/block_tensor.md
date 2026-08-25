@@ -566,6 +566,48 @@ construction followed by in-place structural truncation. Materializing several
 partitions together may share scans and allocation planning while still
 producing structurally independent output tensors.
 
+The initial API follows this value-oriented form:
+
+```cpp
+auto decomposition = block_svd(tensor);
+
+auto kept = select_svd_states(
+    decomposition.spectrum(), truncation_policy);
+auto discarded = complement_svd_selection(
+    decomposition.spectrum(), kept);
+
+auto kept_factors = materialize_svd(
+    decomposition, kept, {.bond_label = "bond-3"});
+auto discarded_factors = materialize_svd(
+    decomposition, discarded, {.bond_label = "discarded-bond-3"});
+```
+
+An SVD state identifier contains the charge sector and the index within that
+sector factorization. It is stable for the lifetime of the decomposition and
+does not depend on the globally sorted spectrum position. A selection is an
+owning set of these identifiers plus statistics for that set. It may therefore
+be retained, complemented, partitioned, and materialized more than once.
+
+The ordinary spectrum contains paired singular triplets. When full left or
+right vectors are requested, a rectangular sector may additionally have
+side-specific null-space vectors which have no partner on the other side.
+These are exposed as separate left- and right-null-space selections and may be
+materialized as an individual singular-vector factor. They are not represented
+as artificial paired triplets.
+
+For a tensor `A : X -> Y`, materializing paired states produces:
+
+```text
+right singular vectors adjoint : X -> B
+singular values                : labelled diagonal values on B
+left singular vectors          : B -> Y
+```
+
+The singular values are not stored as dense square `BlockTensor` blocks. The
+materialized singular-value object owns the selected `BlockSpace` and one
+rank-one value array per sector. It can be applied as the diagonal morphism on
+that bond without allocating structural zeros.
+
 The intermediate decomposition is symmetry-aware state, not a dense fallback.
 Its block keys, sector charges, coupling descriptors, and boundary orientation
 remain available until materialization. Missing blocks represented as implicit

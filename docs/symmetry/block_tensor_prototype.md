@@ -495,6 +495,10 @@ vector space from one owning prototype. Membership requires the exact frozen
 symmetry, boundary values, and stored-key pattern. Consequently,
 `allocate_like` preserves block metadata and a matrix-free `matvec` cannot
 silently widen the vector space or flatten it into a dense tensor.
+`krylov::BlockTensorMatrixFreeOps<Tensor, Operator>` adds an owned output-first
+operation callable. It validates input and output membership before every
+apply, while the callable supplies the actual Hamiltonian or environment
+contraction.
 
 ### Implemented morphism operations
 
@@ -509,6 +513,7 @@ The first pairwise contraction is:
 
 ```cpp
 auto result = contract<left_axis, right_axis>(left, right);
+contract<left_axis, right_axis>(output, left, right);
 ```
 
 It contracts only the rightmost codomain factor of `left` with the leftmost
@@ -534,6 +539,15 @@ current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
 satisfy this contract. `ParallelSeparateSparseBlockStorage` also satisfies it;
 that policy groups all contributions to one output block into one synchronous
 batch item and returns only after every output block is complete.
+
+The fixed-output form preserves the output's existing structure, which is the
+required convention for Krylov `matvec`. It validates the exact result symmetry
+and boundaries and verifies that the output stores every worklist result key
+before modifying numerical data. The first contribution overwrites each
+produced block, later contributions accumulate, and output-only blocks become
+zero. Therefore an exact-pattern output incurs no preliminary whole-vector
+zero pass. Output storage must not overlap either input; direct same-object
+aliases are rejected.
 
 When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
 front end retains the left input's async storage policy by default and returns
@@ -642,20 +656,23 @@ The first prototype deliberately defers:
 - CUDA, mixed CPU/GPU, packed async, and MPI storage;
 - replicated immutable block tensors;
 - coalescing and placement policies beyond canonical packed host storage;
-- block SVD, sector-aware singular-value selection, and factor materialization;
+- asynchronous, CUDA, and distributed block-SVD factorization and
+  materialization;
 - runtime-order Python-facing tensors.
 
 The opaque block key, explicit boundary orientation, storage concepts, and
 mdspec block interface are required now specifically so these features remain
 additive.
 
-Although SVD is deferred, its structural contract is already fixed. It follows
-the staged design in
+The initial immediate-host block SVD follows the staged design in
 [Block SVD: decomposition, selection, and materialization](block_tensor.md#9-block-svd-decomposition-selection-and-materialization):
-factorize the required logical blocks, select metadata-bearing singular
-triplets, and only then allocate the final output tensors. Convenience helpers
-may compose those stages, but must not construct a full `BlockTensor` and
-subsequently mutate its block structure to truncate it.
+assemble and factorize one matrix per conserved charge, select
+metadata-bearing singular triplets, and only then allocate the final output
+tensors. One decomposition can independently materialize kept, discarded, or
+paired-null triplets, together with side-specific full null spaces. Missing
+stored blocks remain explicit zero submatrices in the sector assembly metadata.
+Convenience helpers may compose those stages, but must not construct a full
+`BlockTensor` and subsequently mutate its block structure to truncate it.
 
 ## 14. Required Prototype Tests
 
@@ -681,9 +698,16 @@ construction, fixed-output containment checks before mutation, exact boundary
 compatibility, complex conjugate-linear inner products, stable multi-block
 norms, mapped views, all immediate storage policies, and per-block async
 updates and reductions.
+Block-SVD tests cover global selection across charge sectors, repeatable kept
+and complement materialization, paired and side-specific null spaces,
+reconstruction for real and complex scalars, repeated-charge boundary
+fragments, implicit zero blocks, and empty selections.
 The Krylov adapter tests freeze a two-sector U(1) vector structure, reject
 boundary or stored-pattern changes, and run that BlockTensor through the native
-symmetric Lanczos solver without dense projection.
+symmetric Lanczos solver without dense projection. Its matrix-free operation
+uses fixed-output BlockTensor contraction with a block-diagonal U(1) operator.
+Contraction tests also cover fixed-output structure preflight, output-only zero
+blocks, direct alias rejection, and async output epoch ordering.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation

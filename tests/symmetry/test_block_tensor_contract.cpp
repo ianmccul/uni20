@@ -339,6 +339,49 @@ TEST(BlockTensorContractionTest, ParallelSeparateStorageBatchesByOutputBlock)
   EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{1, 1}})[0, 0]), 218.0);
 }
 
+TEST(BlockTensorContractionTest, OverwritesFixedOutputAndPreflightsItsSparseStructure)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  BlockSpace const bond(sym, {{q0, 1}, {q1, 1}}, "bond");
+  using Input = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
+  using Output = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, ParallelSeparateSparseBlockStorage<>>;
+  typename Input::key_type const key0{{0, 0}};
+  typename Input::key_type const key1{{1, 1}};
+  Input left(sym, Domain{external}, Codomain{bond}, {key0});
+  Input right(sym, Domain{bond}, Codomain{external}, {key0});
+  Output output(sym, Domain{external}, Codomain{external}, {key0, key1});
+  left.block(key0)[0, 0] = 2.0;
+  right.block(key0)[0, 0] = 3.0;
+  output.block(key0)[0, 0] = 17.0;
+  output.block(key1)[0, 0] = 19.0;
+
+  RecordingBatchScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  contract<1, 0>(output, left, right);
+
+  EXPECT_DOUBLE_EQ((output.block(key0)[0, 0]), 6.0);
+  EXPECT_DOUBLE_EQ((output.block(key1)[0, 0]), 0.0);
+  EXPECT_EQ(scheduler.batch_calls, 2);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{1, 1}));
+
+  Output exact(sym, Domain{external}, Codomain{external}, {key0});
+  exact.block(key0)[0, 0] = 29.0;
+  contract<1, 0>(exact, left, right);
+  EXPECT_DOUBLE_EQ((exact.block(key0)[0, 0]), 6.0);
+  EXPECT_EQ(scheduler.batch_calls, 3);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{1, 1, 1}));
+
+  Output incomplete(sym, Domain{external}, Codomain{external}, {key1});
+  incomplete.block(key1)[0, 0] = 23.0;
+  EXPECT_THROW((contract<1, 0>(incomplete, left, right)), std::invalid_argument);
+  EXPECT_DOUBLE_EQ((incomplete.block(key1)[0, 0]), 23.0);
+  EXPECT_THROW((contract<1, 0>(left, left, right)), std::invalid_argument);
+  EXPECT_DOUBLE_EQ((left.block(key0)[0, 0]), 2.0);
+}
+
 TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBlock)
 {
   Symmetry const sym{"N:U(1)"};
@@ -376,6 +419,29 @@ TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBl
   EXPECT_DOUBLE_EQ((block[0, 1]), 64.0);
   EXPECT_DOUBLE_EQ((block[1, 0]), 139.0);
   EXPECT_DOUBLE_EQ((block[1, 1]), 154.0);
+}
+
+TEST(BlockTensorContractionTest, AsyncStorageOverwritesFixedOutputInEpochOrder)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 1}}, "rows");
+  BlockSpace const bond(sym, {{q0, 1}}, "bond");
+  using Storage = AsyncSeparateSparseBlockStorage<>;
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  typename Tensor::key_type const key{{0, 0}};
+  Tensor left(sym, Domain{rows}, Codomain{bond}, {key});
+  Tensor right(sym, Domain{bond}, Codomain{rows}, {key});
+  Tensor output(sym, Domain{rows}, Codomain{rows}, {key});
+  left.async_block(key).unsafe_value_ref()[0, 0] = 5.0;
+  right.async_block(key).unsafe_value_ref()[0, 0] = 7.0;
+  output.async_block(key).unsafe_value_ref()[0, 0] = 11.0;
+
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  contract<1, 0>(output, left, right);
+
+  EXPECT_DOUBLE_EQ((output.async_block(key).get_wait(scheduler)[0, 0]), 35.0);
 }
 
 TEST(BlockTensorContractionTest, AsyncBlocksProgressIndependentlyAcrossOutputSectors)
