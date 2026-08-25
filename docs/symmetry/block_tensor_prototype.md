@@ -52,7 +52,8 @@ operations:
 - synchronous adjacent pairwise contraction through ordinary tensor-level
   kernel dispatch into selectable immediate-host sparse output storage;
 - scheduler-batch contraction grouped by independently writable output block;
-  and
+- structure-preserving copy, zero, scaling, addition, AXPY, inner-product, and
+  norm operations over immediate, mapped, and per-block async values; and
 - the first storage-selected async lowering for rank-two dense block GEMMs.
 
 This slice is host-resident. Mapped permutation and repartition views retain an
@@ -61,7 +62,7 @@ preserve immediate data handles or async block epoch identity while changing
 only logical and mapping metadata. Payload element writes remain valid, but
 assigning or structurally modifying a source invalidates every view transitively
 built from it. The slice does not yet provide complete storage, builders, the
-general numerical block-operation surface, packed async hazards, or the
+full numerical block-operation surface, packed async hazards, or the
 remaining space kinds described below.
 
 ## 2. Initial Type Shape
@@ -447,6 +448,48 @@ Generic algorithms iterate stored blocks or use `find_block`. Algorithms
 constrained to `CompleteBlockStorage` may use legal-key iteration and direct
 block access without presence probes.
 
+### Implemented linear operations
+
+The first structure-preserving numerical surface is:
+
+```cpp
+set_zero(tensor);
+scale(tensor, factor);
+
+copy(output, input);
+assign_scale(output, factor, input);
+add(output, lhs, rhs);
+add_inplace(output, input);
+axpy(output, factor, input);
+
+auto sum = add(lhs, rhs);
+auto value = inner_product(lhs, rhs);
+auto magnitude = norm(tensor);
+```
+
+All operands must have exactly equal symmetry, domain, and codomain values.
+Boundary labels and explicit duality therefore participate in compatibility.
+Legal but unstored blocks represent exact zero, which fixes the structural
+rules:
+
+- zero and in-place scaling retain the existing stored-key pattern;
+- a returned sum stores the union of the input key sets;
+- a fixed output must already contain every key needed by the operation;
+- extra blocks in an overwritten fixed output are set to zero;
+- in-place addition and AXPY leave output-only blocks unchanged; and
+- inner products use the intersection of the two stored-key sets.
+
+Fixed-output structural requirements are checked before any numerical block is
+modified. Block structure remains immutable. An unrestricted elementwise
+transform is intentionally absent because a function for which `f(0) != 0`
+would require materializing every legal but unstored block.
+
+Immediate parallel storage executes independent block operations through the
+scheduler batch interface. Per-block async storage schedules mutations on the
+corresponding block epoch. The current `inner_product_host` and `norm_host`
+reductions are explicitly blocking synchronization points; their rank-zero
+Tensor wrappers are `inner_product` and `norm`.
+
 ### Implemented morphism operations
 
 The first `permute<Axis...>` and `repartition<Side, End>` operations return
@@ -627,6 +670,11 @@ cross-sector sparsity, repeated local-state accumulation into a rank-zero
 result, exact-space rejection, planar external-boundary order, and synchronous
 scheduler batching grouped by output block under both a recording debug
 scheduler and a TBB scheduler.
+Linear-operation tests cover sparse zero semantics, union-pattern result
+construction, fixed-output containment checks before mutation, exact boundary
+compatibility, complex conjugate-linear inner products, stable multi-block
+norms, mapped views, all immediate storage policies, and per-block async
+updates and reductions.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation

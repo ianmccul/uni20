@@ -30,6 +30,8 @@ the mathematical problem and is treated as a correctness bug.
   codomain.
 - `block_tensor_repartition.hpp`: zero-copy bosonic left/right wire-bending
   views with transformed logical keys and strided dense blocks.
+- `block_tensor_linear.hpp`: structure-preserving copy, zero, scaling,
+  addition, AXPY, inner-product, and norm operations.
 - `block_tensor_contract.hpp`: adjacent pairwise sparse contraction over exact
   codomain/domain space values.
 - `symmetry.hpp`, `symmetryimpl.hpp`, `symmetryfactor.hpp`: symmetry

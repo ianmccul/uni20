@@ -10,8 +10,8 @@ symmetry-aware block-sparse Tensor path.
 - [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) describes
   the implemented order-zero through order-four sparse slice, its independent
   key-coordinate and dense-axis model, zero-copy permutation and bending, the
-  first adjacent pairwise contraction, and the remaining host-only prototype
-  contract.
+  first adjacent pairwise contraction, its structure-preserving linear
+  operations, and the remaining host-only prototype contract.
 
 ## Active Design
 
@@ -28,9 +28,9 @@ symmetry-aware block-sparse Tensor path.
   identifies the primitive operations needed below symmetry-aware algorithms.
 
 The current `BlockTensor` implementation is only the initial sparse host slice;
-complete storage, block operations, async ownership, and the DMRG path remain
-to be implemented. Loss of symmetry metadata remains a correctness error, not
-an acceptable fallback.
+complete storage, the full numerical operation surface, block SVD, and the DMRG
+path remain to be implemented. Loss of symmetry metadata remains a correctness
+error, not an acceptable fallback.
 
 ## Source Navigation
 

@@ -68,6 +68,24 @@ template <class Factor> struct scale
 /// \brief Deduce a scaling operation that owns a decayed factor value.
 template <class Factor> scale(Factor) -> scale<std::decay_t<Factor>>;
 
+/// \brief Add one retained scalar multiple to an existing element value.
+/// \details The first argument is the existing output value and the second is
+///          the input value, giving `output + factor * input`.
+template <class Factor> struct add_scaled
+{
+    Factor factor;
+
+    template <class Output, class Input>
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()(Output output, Input input) const
+        noexcept(noexcept(output + factor * input)) -> decltype(output + factor * input)
+    {
+      return output + factor * input;
+    }
+};
+
+/// \brief Deduce an add-scaled operation that owns a decayed factor value.
+template <class Factor> add_scaled(Factor) -> add_scaled<std::decay_t<Factor>>;
+
 /// \brief Return the sum of two element values.
 struct add
 {
