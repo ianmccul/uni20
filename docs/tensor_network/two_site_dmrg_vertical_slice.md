@@ -149,11 +149,15 @@ chain's revision-tracked replacement boundary while returning the diagonal
 bond tensor and truncation statistics. See
 [Directional Two-Site MPS Splitting](two_site_splitting.md).
 
+## Directional Sweep Checkpoint
+
+The immediate-host directional sweep now forms each center, solves the cached
+MPO effective Hamiltonian, installs its selected split, and refreshes the
+completed-side environment before visiting the next bond. See
+[Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md).
+
 ## Next Boundary
 
-The next finite-DMRG layer is a directional sweep step that forms the two-site
-center, performs a supplied local solve, installs the selected split, and
-refreshes the environment on the completed side. A first sweep driver can then
-traverse all bonds using the two cache entries outside each active pair. Term
-and environment plans can be optimized independently with reusable
-intermediates, placement, CUDA, and MPI execution.
+The next finite-DMRG layer is sweep-level convergence and post-truncation
+measurement. Term and environment plans can be optimized independently with
+reusable intermediates, placement, CUDA, and MPI execution.

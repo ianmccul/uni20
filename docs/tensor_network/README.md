@@ -25,6 +25,9 @@ Async, CUDA, and distributed-execution architecture.
 - [Directional Two-Site MPS Splitting](two_site_splitting.md) specifies staged
   state selection, sweep-direction singular-value absorption, canonical site
   materialization, and finite-chain replacement.
+- [Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md) specifies local
+  ground-state solving, mutation boundaries, traversal order, and incremental
+  environment refresh.
 
 ## TensorContraction Integration Reference
 
@@ -43,12 +46,12 @@ Async, CUDA, and distributed-execution architecture.
 The complete R/A/B/C and DMRG executables remain runnable only on the
 integration branch. Pure Uni20 now implements immediate-host directional
 environment updates, validated finite MPS/MPO owners, directional environment
-caches, a fixed-center R/A/B/C term compiler, and a matrix-free Krylov
-checkpoint. Selected block-SVD factors can now replace an adjacent MPS pair,
-but sweep traversal is not yet implemented. The remaining goal includes
-resident CUDA execution, MPI placement, and full sweep integration without
-retaining the external TensorContraction code
-lineage. The integration branch's measured behavior feeds the
+caches, a fixed-center R/A/B/C term compiler, a matrix-free Krylov solve,
+selected block-SVD pair replacement, and directional two-site traversal. The
+remaining goal includes sweep-level convergence and measurement, resident CUDA
+execution, MPI placement, and full benchmark integration without retaining the
+external TensorContraction code lineage. The integration branch's measured
+behavior feeds the
 [architecture](../architecture/) and [symmetry](../symmetry/) designs and
 supplies regression targets for that work.
 

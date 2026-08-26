@@ -237,6 +237,20 @@ class BlockTensor {
       return count;
     }
 
+    /// \brief Enumerate every symmetry-legal block key in canonical order.
+    /// \details This scans the full Cartesian product of key-bearing boundary
+    ///          factors and filters it through the selection rule. It is
+    ///          intended for structural planning and complete sparse
+    ///          materialization, not repeated hot-path queries.
+    auto legal_block_keys() const -> std::vector<key_type>
+    {
+      std::vector<key_type> result;
+      this->for_each_possible_key([&](key_type const& key) {
+        if (this->is_legal(key)) result.push_back(key);
+      });
+      return result;
+    }
+
     /// \brief Return whether this value currently stores every legal block.
     /// \note This observation does not change the storage policy's compile-time
     ///       completeness guarantee.

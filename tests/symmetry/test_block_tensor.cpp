@@ -111,6 +111,7 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDe
   static_assert(Tensor::dense_block_order() == 2);
   EXPECT_EQ(tensor.stored_block_count(), 2);
   EXPECT_EQ(tensor.legal_block_count(), 2);
+  EXPECT_EQ(tensor.legal_block_keys(), (std::vector<Key>{Key{{0, 0}}, Key{{1, 1}}}));
   EXPECT_TRUE(tensor.has_all_legal_blocks());
   EXPECT_EQ(tensor.stored_keys()[0], (Key{{0, 0}}));
   EXPECT_EQ(tensor.stored_keys()[1], (Key{{1, 1}}));

@@ -11,6 +11,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -89,6 +90,16 @@ class MpoEnvironmentCache {
 
     /// \brief Return the number of physical sites.
     auto size() const noexcept -> std::size_t { return mps_->size(); }
+
+    /// \brief Return whether this cache observes the supplied chain objects.
+    /// \details This identity check lets compound algorithms reject a cache
+    ///          constructed for different owners of the same concrete types.
+    /// \param mps Candidate finite MPS owner.
+    /// \param mpo Candidate finite MPO owner.
+    auto is_attached_to(mps_type const& mps, mpo_type const& mpo) const noexcept -> bool
+    {
+      return mps_ == std::addressof(mps) && mpo_ == std::addressof(mpo);
+    }
 
     /// \brief Return whether the left environment at a bond is currently cached.
     /// \param bond Bond index in `[0, size()]`.

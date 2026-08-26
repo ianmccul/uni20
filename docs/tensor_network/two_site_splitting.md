@@ -109,6 +109,7 @@ BlockTensor contraction.
 
 Move-aware materialization, per-block async factorization, cuSOLVER, distributed
 sector selection, normalization policy, and canonical-form diagnostics remain
-later work. The next checkpoint is a directional two-site sweep step that
-combines cached environments, the existing effective Hamiltonian, a supplied
-local eigensolver result, this split operation, and incremental cache refresh.
+later work. The immediate-host ground-state DMRG path now composes this split
+with cached environments, the effective Hamiltonian, native Lanczos, pair
+replacement, and incremental cache refresh. See
+[Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md).

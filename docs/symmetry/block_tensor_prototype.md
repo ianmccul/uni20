@@ -381,6 +381,13 @@ legal key and models `CompleteBlockStorage`. A sparse value may happen to store
 all legal keys, but that runtime fact does not give its policy the compile-time
 complete-storage guarantee.
 
+`legal_block_keys()` returns those keys in canonical order for structural
+planning or explicit complete sparse materialization. Like
+`legal_block_count()`, it scans the full Cartesian product of key-bearing
+boundary factors and is not intended as a repeated hot-path query. A
+charge-indexed implementation may replace this scan without changing the
+observable key order.
+
 A zero extent does not remove a structurally legal key. For example,
 `DenseSpace(0)` contributes no key coordinate but produces a zero-element
 dense axis in each otherwise legal block. Complete storage retains the block
