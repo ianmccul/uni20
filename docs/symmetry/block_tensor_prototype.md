@@ -40,6 +40,8 @@ operations:
   synchronous scheduler-batch execution across independent output blocks;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
+- `ParallelPackedSparseBlockStorage`, with the same packed representation and
+  synchronous scheduler-batch execution across disjoint output blocks;
 - `PackedDiagonalBlockStorage`, with one contiguous host buffer containing only
   the generalized diagonal of each explicitly stored logical block;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
@@ -328,7 +330,7 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The implemented slice provides five sparse host policies. All use:
+The implemented slice provides six sparse host policies. All use:
 
 - canonical block-key ordering;
 - zero initialization for newly allocated numerical values;
@@ -366,6 +368,12 @@ Every contribution to that block stays in the same item and retains canonical
 accumulation order, so no two items write the same dense block. The active
 scheduler controls serial debug ordering or TBB parallelism, and the result is
 fully computed when `contract` returns.
+
+`ParallelPackedSparseBlockStorage` applies the same synchronous execution
+contract to `PackedSparseBlockStorage`. The packed buffer and its offsets remain
+fixed during a batch, and distinct output-block items write disjoint element
+ranges. It is useful for temporary vectors that need both canonical packed
+allocation and block-level CPU scheduling.
 
 `AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
 stored key. Its `block(key)` result is a TensorView whose borrowed data

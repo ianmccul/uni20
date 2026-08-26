@@ -17,11 +17,13 @@ using namespace uni20;
 static_assert(BlockTensorStorage<SeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<PackedSparseBlockStorage<>>);
+static_assert(BlockTensorStorage<ParallelPackedSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<PackedDiagonalBlockStorage<>>);
 static_assert(BlockTensorStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
+static_assert(SparseBlockStorage<ParallelPackedSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(DiagonalBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(!DiagonalBlockStorage<PackedSparseBlockStorage<>>);
@@ -29,6 +31,7 @@ static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<PackedSparseBlockStorage<>>);
+static_assert(!CompleteBlockStorage<ParallelPackedSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(!std::same_as<SeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
@@ -37,6 +40,8 @@ static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double
 static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
 static_assert(BlockTensorStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
@@ -44,6 +49,7 @@ static_assert(BlockTensorStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(ImmediateLocalBlockStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(!ImmediateLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
@@ -82,8 +88,8 @@ static_assert(BlockTensorSpaceTraits<DenseSpace>::has_dense_axis);
 
 template <class Storage> class SparseBlockTensorTest : public ::testing::Test {};
 
-using SparseStorageTypes =
-    ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>;
+using SparseStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
+                                            PackedSparseBlockStorage<>, ParallelPackedSparseBlockStorage<>>;
 TYPED_TEST_SUITE(SparseBlockTensorTest, SparseStorageTypes);
 
 TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDenseBlocks)

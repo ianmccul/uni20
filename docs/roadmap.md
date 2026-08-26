@@ -236,10 +236,14 @@ that path without weakening its symmetry metadata contract.
   back into the symmetry-aware calculation.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
   reference path.
-- Implement staged block SVD: assemble and factorize one dense matrix per
-  conserved charge, expose stable metadata-bearing singular-state selections,
-  and materialize exact selected bond spaces and factors. One factorization
-  must support independent kept, discarded, and null-space materializations.
+- Extend the implemented immediate-host staged block SVD while preserving its
+  one-matrix-per-charge factorization, stable metadata-bearing singular-state
+  selections, exact selected bond spaces, and independent kept, discarded, and
+  null-space materializations.
+- The implemented block SVD parallelizes independent charge sectors with
+  descending estimated-cost scheduling and single-threaded LAPACK inside each
+  task. Next, parallelize selected-factor population over disjoint output
+  blocks after the output structure and packed allocation have been established.
 
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
@@ -259,10 +263,11 @@ the external TensorContraction implementation.
   left-first/right-first selection.
 - Extend the implemented finite-chain owners, revision-aware directional
   environment caches, selected-SVD factor absorption, and directional sweep
-  traversal with convergence and post-truncation measurement.
+  traversal with post-truncation measurement and general initial-state
+  canonicalization.
 - Extend the implemented U(1) spin-half local-space, Néel product-MPS, and
-  reduced-boundary Heisenberg-MPO builders into an end-to-end converged sweep
-  driver and later model families.
+  reduced-boundary Heisenberg-MPO builders and converged alternating sweep
+  driver into later model families.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware

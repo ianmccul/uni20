@@ -634,6 +634,29 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     }
 };
 
+/// \brief Packed sparse storage whose disjoint dense blocks may be processed in a scheduler batch.
+/// \details The packed buffer remains fixed while numerical operations execute.
+///          Algorithms must place all writes to one logical output block in
+///          the same batch item, so concurrently written block ranges are
+///          disjoint. The batch call is synchronous.
+/// \tparam LeafStorage Immediate host storage used by the packed buffer.
+template <class LeafStorage = VectorStorage> struct ParallelPackedSparseBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SchedulerBatchBlockExecution;
+    static constexpr bool stores_all_legal_blocks = false;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t = detail::PackedSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
 /// \brief Sparse BlockTensor storage packing each generalized diagonal block into one leaf buffer.
 /// \details Every explicitly stored logical block contains only the entries
 ///          whose dense indices are all equal. Logical block presence remains
@@ -684,6 +707,7 @@ template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStor
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
+static_assert(SparseBlockStorage<ParallelPackedSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(DiagonalBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
@@ -691,12 +715,14 @@ static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>)
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(ImmediateLocalBlockStorageFor<ParallelPackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(ImmediateLocalBlockStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);

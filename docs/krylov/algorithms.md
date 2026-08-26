@@ -77,6 +77,36 @@ spectral-transform metadata use the corresponding real scalar.
 | `symmetric_lanczos_restarted_transformed` | yes | yes | yes | yes | Restarted Lanczos on caller-supplied transformed operator. |
 | `symmetric_lanczos_restarted_generalized_transformed` | yes | yes | yes | yes | Restarted generalized path using a `B` metric. |
 
+### DMRG Fixed-Step Lanczos
+
+`tensor_network::dmrg_lanczos_ground_state` is deliberately separate from the
+generic convergence-seeking solvers above. A finite-DMRG local problem is an
+intermediate optimization problem defined by the current environments. Solving
+that local problem to a tight residual while its environments are still poor
+wastes work that is better spent advancing the sweep and refreshing those
+environments.
+
+The DMRG solver therefore:
+
+- performs at most `DmrgLanczosOptions::matvec_iterations` Hamiltonian
+  applications, with a default of four;
+- uses the Hermitian three-term recurrence without full reorthogonalization;
+- stops early only on invariant-subspace breakdown or when the local problem
+  dimension is smaller than the requested work;
+- solves the resulting small real tridiagonal problem and returns its smallest
+  Ritz vector unconditionally;
+- reports a residual estimate for diagnostics, not as an acceptance criterion;
+- never restarts and does not accept a local convergence tolerance.
+
+It supports `float`, `double`, `uni20::complex<float>`, and
+`uni20::complex<double>` vector spaces through the same matrix-free operation
+boundary. The projected tridiagonal problem uses the real component type.
+
+This is a fixed-work DMRG policy, not a cheaper general eigensolver. Adaptive
+DMRG work schedules may be added later, but they must respond to sweep and
+environment progress rather than simply importing the generic Ritz-convergence
+contract.
+
 The transformed path supports the following eigenvalue maps:
 
 | transform | projected eigenvalue `theta` maps to physical eigenvalue |
@@ -225,6 +255,16 @@ benchmarking repository rather than in core Uni20.
 
 Supported symmetric selectors are `LargestMagnitude`, `SmallestMagnitude`,
 `LargestAlgebraic`, `SmallestAlgebraic`, and `BothEnds`.
+
+### DmrgLanczosOptions<Real>
+
+| parameter | default | meaning |
+| --- | --- | --- |
+| `matvec_iterations` | `4` | Maximum effective-Hamiltonian applications in one DMRG local update. |
+
+This policy is declared in the tensor-network module because its fixed-work
+semantics depend on the surrounding DMRG sweep. It is not part of
+`SymmetricEigenParams`.
 
 ### SymmetricTransformOptions<Scalar>
 

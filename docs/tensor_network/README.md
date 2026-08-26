@@ -28,6 +28,9 @@ Async, CUDA, and distributed-execution architecture.
 - [Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md) specifies local
   ground-state solving, mutation boundaries, traversal order, and incremental
   environment refresh.
+- [DMRG Performance Baselines](dmrg_performance_baselines.md) records the first
+  CPU scaling measurements, external orientation points, benchmarking rules,
+  implemented per-sector SVD parallelism, and the next materialization checkpoint.
 - [Spin-Half Model Builders](models.md) specifies the implemented U(1) local
   space, normalized Néel product MPS, and reduced-boundary open Heisenberg MPO.
 
@@ -50,11 +53,12 @@ The complete R/A/B/C and DMRG executables remain runnable only on the
 integration branch. Pure Uni20 now implements immediate-host directional
 environment updates, validated finite MPS/MPO owners, directional environment
 caches, a fixed-center R/A/B/C term compiler, a matrix-free Krylov solve,
-selected block-SVD pair replacement, and directional two-site traversal. The
-remaining goal includes sweep-level convergence and measurement, resident CUDA
-execution, MPI placement, and full benchmark integration without retaining the
-external TensorContraction code lineage. The integration branch's measured
-behavior feeds the
+selected block-SVD pair replacement, directional two-site traversal, and an
+alternating terminal-energy convergence driver. The remaining goal includes
+post-truncation measurement, general initial-state canonicalization, resident
+CUDA execution, MPI placement, and full benchmark integration without
+retaining the external TensorContraction code lineage. The integration branch's
+measured behavior feeds the
 [architecture](../architecture/) and [symmetry](../symmetry/) designs and
 supplies regression targets for that work.
 

@@ -1,10 +1,15 @@
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
 #include <uni20/symmetry/block_tensor_contract.hpp>
+#include <uni20/symmetry/block_tensor_svd.hpp>
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <concepts>
+#include <cstddef>
+#include <utility>
+#include <vector>
 
 using namespace uni20;
 
@@ -46,4 +51,38 @@ TEST(BlockTensorTbbTest, ParallelSeparateStorageContractsIndependentOutputBlocks
 
   EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{0, 0}})[0, 0]), 61.0);
   EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{1, 1}})[0, 0]), 218.0);
+}
+
+TEST(BlockTensorTbbTest, ParallelPackedStorageFactorizesIndependentChargeSectors)
+{
+  Symmetry const symmetry{"N:U(1)"};
+  std::vector<BlockSector> sectors;
+  for (int charge = 0; charge < 8; ++charge)
+    sectors.push_back({.q = make_qnum(symmetry, {{"N", charge}}), .dim = 24});
+  BlockSpace const input(symmetry, sectors, "input");
+  BlockSpace const output(symmetry, sectors, "output");
+
+  using Storage = ParallelPackedSparseBlockStorage<>;
+  using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  using Key = typename Matrix::key_type;
+  std::vector<Key> keys;
+  for (std::size_t sector = 0; sector < sectors.size(); ++sector)
+    keys.emplace_back(std::array<std::size_t, 2>{sector, sector});
+  Matrix matrix(symmetry, Domain{input}, Codomain{output}, std::move(keys));
+  for (std::size_t sector = 0; sector < sectors.size(); ++sector)
+  {
+    auto block = matrix.block(Key{{sector, sector}});
+    for (uni20::index_type index = 0; index < block.extent(0); ++index)
+      block[index, index] = static_cast<double>(sector + 1);
+  }
+
+  async::TbbScheduler scheduler{4};
+  async::ScopedScheduler scoped(&scheduler);
+  auto decomposition = block_svd(matrix);
+
+  ASSERT_EQ(decomposition.sectors().size(), sectors.size());
+  ASSERT_EQ(decomposition.spectrum().size(), sectors.size() * 24);
+  EXPECT_DOUBLE_EQ(decomposition.spectrum().front().singular_value, 8.0);
+  EXPECT_EQ(decomposition.sectors().front().charge, sectors.front().q);
+  EXPECT_EQ(decomposition.sectors().back().charge, sectors.back().q);
 }

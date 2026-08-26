@@ -1,13 +1,33 @@
+#include <uni20/async/debug_scheduler.hpp>
 #include <uni20/models/spin_half_heisenberg.hpp>
 #include <uni20/tensor_network/environment_cache.hpp>
+#include <uni20/tensor_network/two_site_dmrg.hpp>
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
 
 namespace
 {
+
+class RecordingBatchScheduler : public uni20::async::DebugScheduler {
+  public:
+    std::size_t batch_calls = 0;
+    std::size_t maximum_batch_size = 0;
+
+  private:
+    void execute_batch_impl(uni20::async::LightweightTaskBatch const& batch) override
+    {
+      ++batch_calls;
+      if (batch.size() > maximum_batch_size) maximum_batch_size = batch.size();
+      for (std::size_t index = 0; index < batch.size(); ++index)
+        batch(index);
+    }
+};
 
 TEST(SpinHalfHeisenbergModelTest, BuildsTheOrderedU1LocalSpace)
 {
@@ -112,6 +132,136 @@ TEST(SpinHalfHeisenbergModelTest, SupportsComplexStorageWithRealCouplings)
   value_type const expectation = cache.left_environment(2).block_by_ordinal(0)[0, 0];
   EXPECT_NEAR(expectation.real(), -0.5, 1.0e-14);
   EXPECT_NEAR(expectation.imag(), 0.0, 1.0e-14);
+}
+
+TEST(SpinHalfHeisenbergModelTest, ConvergesAnUntruncatedLengthFourDmrgRun)
+{
+  using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto mps = uni20::models::make_neel_product_mps(4, local);
+  auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(4, local);
+  using mps_type = std::remove_cvref_t<decltype(mps)>;
+  using mpo_type = std::remove_cvref_t<decltype(mpo)>;
+  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, parallel_storage> cache(mps, mpo, 0, 0);
+  RecordingBatchScheduler scheduler;
+  uni20::async::ScopedScheduler use_scheduler(&scheduler);
+  uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
+  options.maximum_sweeps = 8;
+  options.energy_tolerance = 1.0e-12;
+  options.bond_options.truncation.maximum_retained_extent = 16;
+
+  auto const result = uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, parallel_storage{});
+  ASSERT_TRUE(result.converged);
+  ASSERT_GE(result.sweeps.size(), 2);
+  ASSERT_LE(result.sweeps.size(), options.maximum_sweeps);
+  double const exact_energy = -(3.0 + 2.0 * std::sqrt(3.0)) / 4.0;
+  EXPECT_NEAR(result.sweeps.back().terminal_local_energy, exact_energy, 1.0e-12);
+  EXPECT_TRUE(result.sweeps.back().terminal_energy_is_global);
+  EXPECT_TRUE(result.sweeps.back().energy_change.has_value());
+  EXPECT_LE(*result.sweeps.back().energy_change, options.energy_tolerance * std::abs(exact_energy));
+  for (std::size_t index = 0; index < result.sweeps.size(); ++index)
+  {
+    auto const& sweep = result.sweeps[index];
+    auto const expected_direction = index % 2 == 0 ? uni20::tensor_network::MpsSweepDirection::left_to_right
+                                                   : uni20::tensor_network::MpsSweepDirection::right_to_left;
+    EXPECT_EQ(sweep.sweep_index, index);
+    EXPECT_EQ(sweep.direction, expected_direction);
+    EXPECT_TRUE(sweep.terminal_energy_is_global);
+    EXPECT_DOUBLE_EQ(sweep.terminal_discarded_weight, 0.0);
+    EXPECT_DOUBLE_EQ(sweep.maximum_discarded_weight, 0.0);
+    EXPECT_LE(sweep.maximum_bond_dimension, 4);
+    EXPECT_GT(sweep.total_matvec_count, 0);
+  }
+  EXPECT_GT(scheduler.batch_calls, 0);
+  EXPECT_GT(scheduler.maximum_batch_size, 1);
+}
+
+TEST(SpinHalfHeisenbergModelTest, DoesNotConvergeFromTruncatedTerminalEnergies)
+{
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto mps = uni20::models::make_neel_product_mps(2, local);
+  auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(2, local);
+  uni20::tensor_network::MpoEnvironmentCache cache(mps, mpo, 0, 0);
+  uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
+  options.maximum_sweeps = 2;
+  options.energy_tolerance = 1.0;
+  options.bond_options.truncation.maximum_retained_extent = 1;
+
+  auto const result = uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options);
+  EXPECT_FALSE(result.converged);
+  ASSERT_EQ(result.sweeps.size(), 2);
+  for (auto const& sweep : result.sweeps)
+  {
+    EXPECT_FALSE(sweep.terminal_energy_is_global);
+    EXPECT_FALSE(sweep.energy_change.has_value());
+    EXPECT_GT(sweep.terminal_discarded_weight, 0.0);
+    EXPECT_FALSE(sweep.converged);
+  }
+}
+
+TEST(SpinHalfHeisenbergModelTest, RecordsOptInDmrgPhaseAndSvdBatchMeasurements)
+{
+  using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using event = uni20::tensor_network::TwoSiteDmrgPerformanceEvent;
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto mps = uni20::models::make_neel_product_mps(2, local);
+  auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(2, local);
+  using mps_type = std::remove_cvref_t<decltype(mps)>;
+  using mpo_type = std::remove_cvref_t<decltype(mpo)>;
+  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, parallel_storage> cache(mps, mpo, 0, 0);
+  RecordingBatchScheduler scheduler;
+  uni20::async::ScopedScheduler use_scheduler(&scheduler);
+  uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
+  options.maximum_sweeps = 1;
+  uni20::tensor_network::DetailedTwoSiteDmrgPerformanceMeasurements measurements;
+
+  auto const result =
+      uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, measurements, parallel_storage{});
+
+  ASSERT_EQ(result.sweeps.size(), 1U);
+  EXPECT_EQ(measurements[event::run].count, 1U);
+  EXPECT_EQ(measurements[event::sweep].count, 1U);
+  EXPECT_EQ(measurements[event::bond_update].count, 1U);
+  EXPECT_EQ(measurements[event::center_construction].count, 1U);
+  EXPECT_EQ(measurements[event::local_eigensolver].count, 1U);
+  EXPECT_EQ(measurements[event::effective_hamiltonian_application].count,
+            static_cast<std::size_t>(result.sweeps.front().total_matvec_count));
+  EXPECT_GT(measurements[event::krylov_vector_allocation].count, 0U);
+  EXPECT_GT(measurements[event::krylov_vector_update].count, 0U);
+  EXPECT_GT(measurements[event::krylov_reduction].count, 0U);
+  EXPECT_EQ(measurements[event::block_svd].count, 1U);
+  EXPECT_EQ(measurements[event::state_selection].count, 1U);
+  EXPECT_EQ(measurements[event::factor_materialization].count, 1U);
+  EXPECT_EQ(measurements[event::environment_update].count, 1U);
+
+  ASSERT_EQ(measurements.batches(event::svd_sector_batch).size(), 1U);
+  auto const& batch = measurements.batches(event::svd_sector_batch).front();
+  EXPECT_GT(batch.requested_items, 0U);
+  EXPECT_EQ(batch.started_items, batch.requested_items);
+  EXPECT_EQ(batch.completed_items, batch.requested_items);
+  EXPECT_EQ(measurements[event::svd_sector_batch].count, 1U);
+}
+
+TEST(SpinHalfHeisenbergModelTest, RejectsInvalidRunOptionsBeforeChangingTheMps)
+{
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto mps = uni20::models::make_neel_product_mps(2, local);
+  auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(2, local);
+  uni20::tensor_network::MpoEnvironmentCache cache(mps, mpo, 0, 0);
+  uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
+  options.maximum_sweeps = 0;
+
+  EXPECT_THROW(static_cast<void>(uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options)),
+               std::invalid_argument);
+  EXPECT_EQ(mps.revision(0), 0);
+  EXPECT_EQ(mps.revision(1), 0);
+
+  options.maximum_sweeps = 1;
+  options.bond_options.local_solver.matvec_iterations = 0;
+  EXPECT_THROW(static_cast<void>(uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options)),
+               std::invalid_argument);
+  EXPECT_EQ(mps.revision(0), 0);
+  EXPECT_EQ(mps.revision(1), 0);
 }
 
 } // namespace

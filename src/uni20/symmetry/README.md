@@ -20,8 +20,8 @@ the mathematical problem and is treated as a correctness bug.
 - `block_key.hpp`: opaque logical block coordinates.
 - `block_tensor_space_traits.hpp`: independent block-key-coordinate and
   dense-axis classification for concrete space kinds.
-- `block_tensor_storage.hpp`: separate, packed, and generalized-diagonal sparse
-  host storage policies.
+- `block_tensor_storage.hpp`: serial and scheduler-batched separate and packed
+  storage, generalized-diagonal storage, and per-block async storage.
 - `block_tensor_concepts.hpp`: common readable, mutable, immediate, borrowed,
   and async BlockTensor view vocabulary.
 - `block_tensor.hpp`: the first order-zero through order-four `BlockTensor`

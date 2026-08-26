@@ -17,8 +17,8 @@ using namespace uni20;
 
 template <class Storage> class BlockTensorLinearTest : public ::testing::Test {};
 
-using ImmediateLinearStorageTypes =
-    ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>;
+using ImmediateLinearStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
+                                                     PackedSparseBlockStorage<>, ParallelPackedSparseBlockStorage<>>;
 TYPED_TEST_SUITE(BlockTensorLinearTest, ImmediateLinearStorageTypes);
 
 TYPED_TEST(BlockTensorLinearTest, AppliesLinearOperationsWithSparseZeroSemantics)

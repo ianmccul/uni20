@@ -104,7 +104,7 @@ auto materialize_block_tensor_copy(Source const& source)
 
 } // namespace detail
 
-/// \brief Factorize a canonical two-site MPS center by its internal cut.
+/// \brief Factorize a canonical two-site MPS center by its internal cut with performance measurements.
 /// \details The input boundary is
 ///          `Domain<left bond, left physical, right physical> -> Codomain<right bond>`.
 ///          A zero-copy repartition presents the matrix boundary
@@ -112,13 +112,29 @@ auto materialize_block_tensor_copy(Source const& source)
 ///          to the staged block-SVD implementation.
 /// \param center Immediate host two-site center.
 /// \param options Dense SVD vector options applied independently by charge.
+/// \param measurements Explicit measurement policy or collector.
+/// \param batch_event Event identifying the per-charge factorization batch.
+/// \return Reusable decomposition whose spectrum may be selected repeatedly.
+template <detail::ImmediateHostTwoSiteCenter Center, class Measurements, class Event>
+  requires uni20::LapackScalar<block_tensor_value_t<Center>> && performance::BatchMeasurementPolicy<Measurements, Event>
+[[nodiscard]] auto decompose_two_site_center(Center const& center, linalg::SvdOptions options,
+                                             Measurements& measurements, Event batch_event)
+{
+  auto matrix = repartition<MorphismSide::Domain, BoundaryEnd::Right>(center);
+  return block_svd(matrix, options, measurements, batch_event);
+}
+
+/// \brief Factorize a canonical two-site MPS center by its internal cut.
+/// \details This ordinary overload instantiates no performance measurements.
+/// \param center Immediate host two-site center.
+/// \param options Dense SVD vector options applied independently by charge.
 /// \return Reusable decomposition whose spectrum may be selected repeatedly.
 template <detail::ImmediateHostTwoSiteCenter Center>
   requires uni20::LapackScalar<block_tensor_value_t<Center>>
 [[nodiscard]] auto decompose_two_site_center(Center const& center, linalg::SvdOptions options = {})
 {
-  auto matrix = repartition<MorphismSide::Domain, BoundaryEnd::Right>(center);
-  return block_svd(matrix, options);
+  performance::NoMeasurements measurements;
+  return decompose_two_site_center(center, options, measurements, nullptr);
 }
 
 /// \brief Materialize selected SVD states as a directional pair of owning MPS sites.

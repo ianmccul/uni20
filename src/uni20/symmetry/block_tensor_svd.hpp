@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <uni20/async/debug_scheduler.hpp>
+#include <uni20/common/performance_measurements.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/ops/svd.hpp>
@@ -19,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -322,15 +325,33 @@ concept BlockSvdStateSelection = requires(Selection const& selection) {
   { selection.state_ids() } -> std::same_as<std::span<BlockSvdStateId const>>;
 };
 
+template <class Function> void execute_svd_sector_batch(SerialBlockExecution, std::size_t size, Function&& function)
+{
+  for (std::size_t index = 0; index < size; ++index)
+    function(index);
+}
+
+template <class Function>
+void execute_svd_sector_batch(SchedulerBatchBlockExecution, std::size_t size, Function&& function)
+{
+  async::execute_batch(size, std::forward<Function>(function));
+}
+
 } // namespace detail
 
 /// \brief Intermediate per-sector block SVD retaining factors and logical basis maps.
-template <uni20::LapackScalar Scalar, class DomainType, class CodomainType> class BlockSvdDecomposition {
+/// \tparam Scalar Dense provider scalar type.
+/// \tparam DomainType Original tensor domain.
+/// \tparam CodomainType Original tensor codomain.
+/// \tparam BlockExecutionPolicy Execution policy inherited from the factorized tensor view.
+template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, class BlockExecutionPolicy>
+class BlockSvdDecomposition {
   public:
     using scalar_type = Scalar;
     using real_type = uni20::make_real_t<scalar_type>;
     using domain_type = DomainType;
     using codomain_type = CodomainType;
+    using block_execution_policy = BlockExecutionPolicy;
     using domain_shape = detail::SvdBoundaryShape<domain_type>;
     using codomain_shape = detail::SvdBoundaryShape<codomain_type>;
     using domain_fragment_type =
@@ -433,28 +454,90 @@ template <uni20::LapackScalar Scalar, class DomainType, class CodomainType> clas
     std::vector<BlockSvdState<real_type>> spectrum_;
 };
 
-/// \brief Factorize an immediate BlockTensorView independently by conserved charge.
+/// \brief Factorize an immediate BlockTensorView independently by conserved charge with performance measurements.
 /// \details Missing stored blocks are assembled as zero submatrices inside
 ///          their symmetry sector. The returned intermediate retains provider
-///          factors and logical fragment maps for repeatable materialization.
+///          factors, logical fragment maps, and the source block execution
+///          policy for repeatable materialization. Scheduler-batch storage
+///          assembles and factorizes independent sectors concurrently, with
+///          estimated-expensive sectors submitted first. LAPACK execution
+///          within one sector remains an ordinary synchronous provider call.
 /// \tparam Tensor Immediate BlockTensor-level input view.
-template <ImmediateBlockTensorView Tensor>
-  requires uni20::LapackScalar<block_tensor_value_t<Tensor>>
-[[nodiscard]] auto block_svd(Tensor const& tensor, linalg::SvdOptions options = {})
+/// \tparam Measurements Compile-time-selected performance measurement policy.
+/// \tparam Event Event identifier used for the sector batch.
+/// \param tensor Immediate tensor to factorize.
+/// \param options Dense provider vector-extent options.
+/// \param measurements Explicit measurement policy or collector.
+/// \param batch_event Event identifying the sector-factorization batch.
+/// \return Reusable per-charge decomposition and globally ordered spectrum.
+template <ImmediateBlockTensorView Tensor, class Measurements, class Event>
+  requires uni20::LapackScalar<block_tensor_value_t<Tensor>> && performance::BatchMeasurementPolicy<Measurements, Event>
+[[nodiscard]] auto block_svd(Tensor const& tensor, linalg::SvdOptions options, Measurements& measurements,
+                             Event batch_event)
     -> BlockSvdDecomposition<block_tensor_value_t<Tensor>, block_tensor_domain_t<Tensor>,
-                             block_tensor_codomain_t<Tensor>>
+                             block_tensor_codomain_t<Tensor>,
+                             typename block_tensor_type_t<Tensor>::storage_policy::block_execution_policy>
 {
   using scalar_type = block_tensor_value_t<Tensor>;
-  using decomposition_type =
-      BlockSvdDecomposition<scalar_type, block_tensor_domain_t<Tensor>, block_tensor_codomain_t<Tensor>>;
+  using block_execution_policy = typename block_tensor_type_t<Tensor>::storage_policy::block_execution_policy;
+  using decomposition_type = BlockSvdDecomposition<scalar_type, block_tensor_domain_t<Tensor>,
+                                                   block_tensor_codomain_t<Tensor>, block_execution_policy>;
   using sector_type = typename decomposition_type::Sector;
   auto domain_sectors =
       detail::group_svd_boundary_fragments(detail::make_svd_boundary_fragments(tensor.symmetry(), tensor.domain()));
   auto codomain_sectors =
       detail::group_svd_boundary_fragments(detail::make_svd_boundary_fragments(tensor.symmetry(), tensor.codomain()));
 
-  std::vector<sector_type> sectors;
-  auto factorize_sector = [&](auto& domain, auto& codomain) {
+  using domain_sector_type = typename decltype(domain_sectors)::value_type;
+  using codomain_sector_type = typename decltype(codomain_sectors)::value_type;
+  struct SectorInput
+  {
+      domain_sector_type domain;
+      codomain_sector_type codomain;
+  };
+
+  std::vector<SectorInput> sector_inputs;
+  std::size_t domain_sector = 0;
+  std::size_t codomain_sector = 0;
+  while (domain_sector < domain_sectors.size() || codomain_sector < codomain_sectors.size())
+  {
+    bool const has_domain = domain_sector < domain_sectors.size();
+    bool const has_codomain = codomain_sector < codomain_sectors.size();
+    if (has_domain && (!has_codomain || domain_sectors[domain_sector].charge.raw_code() <
+                                            codomain_sectors[codomain_sector].charge.raw_code()))
+    {
+      if (options.right == linalg::SvdVectorExtent::Full)
+      {
+        auto& domain = domain_sectors[domain_sector];
+        QNum const charge = domain.charge;
+        sector_inputs.push_back({.domain = std::move(domain), .codomain = codomain_sector_type{.charge = charge}});
+      }
+      ++domain_sector;
+      continue;
+    }
+    if (has_codomain && (!has_domain || codomain_sectors[codomain_sector].charge.raw_code() <
+                                            domain_sectors[domain_sector].charge.raw_code()))
+    {
+      if (options.left == linalg::SvdVectorExtent::Full)
+      {
+        auto& codomain = codomain_sectors[codomain_sector];
+        QNum const charge = codomain.charge;
+        sector_inputs.push_back({.domain = domain_sector_type{.charge = charge}, .codomain = std::move(codomain)});
+      }
+      ++codomain_sector;
+      continue;
+    }
+
+    sector_inputs.push_back(
+        {.domain = std::move(domain_sectors[domain_sector]), .codomain = std::move(codomain_sectors[codomain_sector])});
+    ++domain_sector;
+    ++codomain_sector;
+  }
+
+  std::vector<std::optional<sector_type>> sector_results(sector_inputs.size());
+  auto factorize_sector = [&](std::size_t sector) {
+    auto& domain = sector_inputs[sector].domain;
+    auto& codomain = sector_inputs[sector].codomain;
     ColumnMajorTensor<scalar_type, 2> matrix(static_cast<uni20::index_type>(codomain.flattened_extent),
                                              static_cast<uni20::index_type>(domain.flattened_extent));
     std::vector<typename decomposition_type::source_key_type> stored_source_keys;
@@ -487,7 +570,7 @@ template <ImmediateBlockTensorView Tensor>
     }
 
     auto exact = linalg::svd(std::as_const(matrix), options);
-    sectors.emplace_back(
+    sector_results[sector].emplace(
         sector_type{.charge = domain.charge,
                     .domain_fragments = std::move(domain.fragments),
                     .codomain_fragments = std::move(codomain.fragments),
@@ -497,45 +580,43 @@ template <ImmediateBlockTensorView Tensor>
                     .right_singular_vectors_adjoint = std::move(exact.right_singular_vectors_adjoint)});
   };
 
-  using domain_sector_type = typename decltype(domain_sectors)::value_type;
-  using codomain_sector_type = typename decltype(codomain_sectors)::value_type;
-  std::size_t domain_sector = 0;
-  std::size_t codomain_sector = 0;
-  while (domain_sector < domain_sectors.size() || codomain_sector < codomain_sectors.size())
-  {
-    bool const has_domain = domain_sector < domain_sectors.size();
-    bool const has_codomain = codomain_sector < codomain_sectors.size();
-    if (has_domain && (!has_codomain || domain_sectors[domain_sector].charge.raw_code() <
-                                            codomain_sectors[codomain_sector].charge.raw_code()))
-    {
-      if (options.right == linalg::SvdVectorExtent::Full)
-      {
-        auto& domain = domain_sectors[domain_sector];
-        codomain_sector_type empty_codomain{.charge = domain.charge};
-        factorize_sector(domain, empty_codomain);
-      }
-      ++domain_sector;
-      continue;
-    }
-    if (has_codomain && (!has_domain || codomain_sectors[codomain_sector].charge.raw_code() <
-                                            domain_sectors[domain_sector].charge.raw_code()))
-    {
-      if (options.left == linalg::SvdVectorExtent::Full)
-      {
-        auto& codomain = codomain_sectors[codomain_sector];
-        domain_sector_type empty_domain{.charge = codomain.charge};
-        factorize_sector(empty_domain, codomain);
-      }
-      ++codomain_sector;
-      continue;
-    }
+  std::vector<std::size_t> sector_order(sector_inputs.size());
+  std::iota(sector_order.begin(), sector_order.end(), 0);
+  auto estimated_cost = [&](std::size_t sector) {
+    std::size_t const rows = sector_inputs[sector].codomain.flattened_extent;
+    std::size_t const columns = sector_inputs[sector].domain.flattened_extent;
+    return rows * columns * std::min(rows, columns);
+  };
+  std::ranges::stable_sort(sector_order,
+                           [&](std::size_t lhs, std::size_t rhs) { return estimated_cost(lhs) > estimated_cost(rhs); });
 
-    factorize_sector(domain_sectors[domain_sector], codomain_sectors[codomain_sector]);
-    ++domain_sector;
-    ++codomain_sector;
-  }
+  performance::measure_batch(
+      measurements, batch_event, sector_order.size(),
+      [&](auto& function) {
+        detail::execute_svd_sector_batch(block_execution_policy{}, sector_order.size(), function);
+      },
+      [&](std::size_t task) { factorize_sector(sector_order[task]); });
+
+  std::vector<sector_type> sectors;
+  sectors.reserve(sector_results.size());
+  for (auto& sector : sector_results)
+    sectors.push_back(std::move(sector).value());
 
   return decomposition_type{tensor.symmetry(), tensor.domain(), tensor.codomain(), options, std::move(sectors)};
+}
+
+/// \brief Factorize an immediate BlockTensorView independently by conserved charge.
+/// \details This ordinary overload instantiates no performance measurements.
+/// \tparam Tensor Immediate BlockTensor-level input view.
+/// \param tensor Immediate tensor to factorize.
+/// \param options Dense provider vector-extent options.
+/// \return Reusable per-charge decomposition and globally ordered spectrum.
+template <ImmediateBlockTensorView Tensor>
+  requires uni20::LapackScalar<block_tensor_value_t<Tensor>>
+[[nodiscard]] auto block_svd(Tensor const& tensor, linalg::SvdOptions options = {})
+{
+  performance::NoMeasurements measurements;
+  return block_svd(tensor, options, measurements, nullptr);
 }
 
 /// \brief Build an arbitrary paired-state selection and its exact statistics.
@@ -731,8 +812,7 @@ template <class Decomposition>
 auto make_block_singular_values(Decomposition const& decomposition, BlockSvdSelectionPlan<Decomposition> const& plan)
 {
   using real_type = typename Decomposition::real_type;
-  using output_type =
-      BlockTensor<real_type, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using output_type = BlockTensor<real_type, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
   using key_type = typename output_type::key_type;
   std::vector<key_type> keys;
   keys.reserve(plan.bond_space.size());
@@ -746,8 +826,7 @@ auto make_block_singular_values(Decomposition const& decomposition, BlockSvdSele
   for (std::size_t sector = 0; sector < decomposition.sectors().size(); ++sector)
   {
     if (!plan.bond_coordinates[sector]) continue;
-    key_type const key{
-        std::array<std::size_t, 2>{*plan.bond_coordinates[sector], *plan.bond_coordinates[sector]}};
+    key_type const key{std::array<std::size_t, 2>{*plan.bond_coordinates[sector], *plan.bond_coordinates[sector]}};
     auto values = result.diagonal_values(key);
     for (std::size_t index = 0; index < plan.sector_indices[sector].size(); ++index)
     {

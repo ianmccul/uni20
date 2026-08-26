@@ -55,3 +55,5 @@ space. It directly verifies that the null vector has unit norm and is
 annihilated by the original block matrix.
 
 All five executables are registered with CTest as executable documentation.
+The underlying space, storage, view, contraction, and SVD contracts are indexed
+in the [symmetry documentation](../../docs/symmetry/).

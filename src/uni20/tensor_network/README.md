@@ -17,8 +17,11 @@ Current entry points:
   with exact revision-based invalidation.
 - `two_site_split.hpp`: staged two-site block-SVD, directional singular-value
   absorption, canonical site materialization, and finite-MPS replacement.
-- `two_site_dmrg.hpp`: converged local ground-state updates and directional
-  finite-chain traversal with incremental environment refresh.
+- `dmrg_lanczos.hpp`: lightweight fixed-step local Lanczos projection used by
+  DMRG instead of a convergence-seeking generic eigensolver.
+- `two_site_dmrg.hpp`: fixed-work local ground-state updates, directional
+  finite-chain traversal with incremental environment refresh, and alternating
+  terminal-energy convergence.
 - `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
   MPO/environment two-site apply objects.
 
@@ -35,5 +38,8 @@ as opaque.
 The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
 stored keys into a fixed-center R/A/B/C term plan. Its first execution policy
 is left-first and allocates a dense matrix temporary per term. Reuse-aware
-planning, sweep-level convergence and measurement, CUDA placement, and MPI
-distribution remain separate extensions.
+planning, post-truncation measurement, general initial-state canonicalization,
+CUDA placement, and MPI distribution remain separate extensions.
+
+The corresponding contracts and implementation status are indexed in the
+[tensor-network documentation](../../../docs/tensor_network/).

@@ -154,10 +154,12 @@ The recorded selection-rule conventions are:
 When comparing the length-20 open spin-1/2 Heisenberg example against an
 already-converged MPTK two-site DMRG run at bond dimension 16, the lowest local
 energy observed partway through a uni20 sweep can be slightly below the final
-converged sweep energy before the state has settled.  This is not a violation
-of the variational principle: each two-site local solve is variational in the
-current mixed-canonical environment, while the subsequent SVD truncation and
-canonical-center shift changes the state used by the next local problem.
+converged sweep energy before the state has settled. This is not a violation
+of the variational principle: each two-site Ritz vector has a variational
+Rayleigh quotient in the current mixed-canonical environment, while the
+subsequent SVD truncation and canonical-center shift changes the state used by
+the next local problem. The current fixed-step local solve is not intended to
+converge each intermediate local eigenproblem.
 
 In the observed length-20, bond-dimension-16 run, continuing for a few more
 sweeps brought the reported edge/global energy back into agreement with the MPTK

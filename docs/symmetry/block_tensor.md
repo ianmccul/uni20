@@ -463,6 +463,13 @@ within a block remains ordered. Batch items usually invoke immediate dense
 operations and do not create coroutine frames. Nested scheduling and
 `get_wait()` remain supported for composability but are not the normal lowering.
 
+`ParallelPackedSparseBlockStorage` selects the same execution policy while
+retaining one packed allocation. The storage structure is immutable during a
+batch, and the one-item-per-output-block contract makes concurrent output ranges
+disjoint. Persistent and temporary tensors may therefore choose packed or
+separate allocation independently of whether their operations use scheduler
+batches.
+
 The first per-block async lowering uses `AsyncSeparateSparseBlockStorage`. The
 planner still produces a symmetry-keyed logical worklist, then storage lowering
 binds each item to stable input and output ordinals. Rank-two dense blocks lower
@@ -573,6 +580,15 @@ cases, but they must lower to the same stages rather than implement eager
 construction followed by in-place structural truncation. Materializing several
 partitions together may share scans and allocation planning while still
 producing structurally independent output tensors.
+
+The current immediate-host implementation uses the source storage's block
+execution policy for factorization. Scheduler-batch storage assembles and
+factorizes independent charge sectors concurrently, submitting estimated-
+expensive sectors first while keeping each LAPACK call single-threaded. The
+decomposition type retains that execution policy and keeps provider results in
+canonical charge order. Selected output blocks are still populated serially;
+their parallelization plan is specified in
+[DMRG Performance Baselines](../tensor_network/dmrg_performance_baselines.md#7-block-svd-parallelization).
 
 The initial API follows this value-oriented form:
 

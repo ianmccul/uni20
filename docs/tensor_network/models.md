@@ -91,7 +91,24 @@ Hamiltonian. This is the boundary convention consumed directly by
 ```cpp
 auto const mpo = models::make_spin_half_heisenberg_mpo(20, local, 1.0);
 tensor_network::MpoEnvironmentCache environments(mps, mpo, 0, 0);
+
+tensor_network::TwoSiteDmrgRunOptions<double> options;
+options.maximum_sweeps = 10;
+options.energy_tolerance = 1.0e-10;
+auto result = tensor_network::run_two_site_dmrg(
+    mps, mpo, environments, options);
 ```
+
+The run alternates complete directional traversals. The product MPS is
+canonical from both directions, so it satisfies the first-run precondition
+without a separate canonicalization pass. See
+[Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md) for the terminal
+energy convergence contract and current truncation limits. The registered
+[model example](../../examples/models/) includes four-site analytic validation
+and a reproducible 20-site comparison against Matrix Product Toolkit. Larger
+development timings and the rules for interpreting cross-library measurements
+are recorded in
+[DMRG Performance Baselines](dmrg_performance_baselines.md).
 
 For a one-site chain only the longitudinal-field term remains. A zero-length
 MPS or MPO is rejected. Couplings are real even when the requested storage

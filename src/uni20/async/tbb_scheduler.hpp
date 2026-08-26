@@ -174,6 +174,16 @@ class TbbScheduler : public IAsyncScheduler {
   private:
     void execute_batch_impl(LightweightTaskBatch const& batch) override
     {
+      if (batch.size() == 0) return;
+
+      arena_.initialize();
+      if (arena_.max_concurrency() == 1)
+      {
+        for (std::size_t index = 0; index < batch.size(); ++index)
+          batch(index);
+        return;
+      }
+
       arena_.execute(
           [&] { oneapi::tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t index) { batch(index); }); });
     }

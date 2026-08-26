@@ -22,6 +22,12 @@ uni20_add_example(block_tensor_svd_nullspace_example symmetry/block_tensor_svd_n
                   uni20_symmetry)
 add_test(NAME BlockTensorSvdNullspaceExample COMMAND block_tensor_svd_nullspace_example)
 
+uni20_add_example(spin_half_heisenberg_dmrg_example models/spin_half_heisenberg_dmrg_example.cpp uni20_models
+                  TBB::tbb)
+add_test(NAME SpinHalfHeisenbergDmrgExample COMMAND spin_half_heisenberg_dmrg_example --check)
+add_test(NAME SpinHalfHeisenbergDmrgComplexExample
+         COMMAND spin_half_heisenberg_dmrg_example --scalar=complex --check)
+
 if(TARGET uni20_backend_cuda)
   uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common
                     uni20_backend_cuda)

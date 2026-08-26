@@ -3,17 +3,35 @@
 #include <uni20/symmetry/block_tensor_svd.hpp>
 #include <uni20/symmetry/u1.hpp>
 
+#include <uni20/async/debug_scheduler.hpp>
+
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <type_traits>
+#include <vector>
 
 namespace
 {
 
 using namespace uni20;
+
+class RecordingBatchScheduler : public async::DebugScheduler {
+  public:
+    std::size_t batch_calls = 0;
+    std::vector<std::size_t> batch_sizes;
+
+  private:
+    void execute_batch_impl(async::LightweightTaskBatch const& batch) override
+    {
+      ++batch_calls;
+      batch_sizes.push_back(batch.size());
+      for (std::size_t index = 0; index < batch.size(); ++index)
+        batch(index);
+    }
+};
 
 auto sector_coordinate(BlockSpace const& space, QNum const& charge) -> std::size_t
 {
@@ -37,8 +55,8 @@ template <class Tensor> auto singular_values_in_sector(Tensor& tensor, std::size
 
 template <class Storage> class BlockTensorSvdStorageTest : public ::testing::Test {};
 
-using ImmediateSvdStorageTypes =
-    ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>;
+using ImmediateSvdStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
+                                                  PackedSparseBlockStorage<>, ParallelPackedSparseBlockStorage<>>;
 TYPED_TEST_SUITE(BlockTensorSvdStorageTest, ImmediateSvdStorageTypes);
 
 TYPED_TEST(BlockTensorSvdStorageTest, FactorizesEveryImmediateLocalStoragePolicy)
@@ -56,6 +74,41 @@ TYPED_TEST(BlockTensorSvdStorageTest, FactorizesEveryImmediateLocalStoragePolicy
   auto decomposition = block_svd(matrix);
   ASSERT_EQ(decomposition.spectrum().size(), 1);
   EXPECT_DOUBLE_EQ(decomposition.spectrum()[0].singular_value, 2.0);
+}
+
+TEST(BlockTensorSvd, ParallelStorageBatchesChargeSectorsAndRetainsExecutionPolicy)
+{
+  Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = QNum::identity(symmetry);
+  auto const q1 = make_qnum(symmetry, {{"N", 1}});
+  auto const q2 = make_qnum(symmetry, {{"N", 2}});
+  BlockSpace const input(symmetry, {{q0, 1}, {q1, 2}, {q2, 3}}, "input");
+  BlockSpace const output(symmetry, {{q0, 1}, {q1, 2}, {q2, 3}}, "output");
+
+  using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, ParallelPackedSparseBlockStorage<>>;
+  using Key = typename Matrix::key_type;
+  Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}, Key{{1, 1}}, Key{{2, 2}}});
+  for (std::size_t sector = 0; sector < input.size(); ++sector)
+  {
+    auto block = matrix.block(Key{{sector, sector}});
+    for (uni20::index_type index = 0; index < block.extent(0); ++index)
+      block[index, index] = static_cast<double>(10 * sector + static_cast<std::size_t>(index) + 1);
+  }
+
+  RecordingBatchScheduler scheduler;
+  async::ScopedScheduler use_scheduler(&scheduler);
+  auto decomposition = block_svd(matrix);
+  static_assert(std::same_as<typename decltype(decomposition)::block_execution_policy,
+                             SchedulerBatchBlockExecution>);
+
+  ASSERT_EQ(scheduler.batch_calls, 1);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{3}));
+  ASSERT_EQ(decomposition.sectors().size(), 3);
+  EXPECT_EQ(decomposition.sectors()[0].charge, q0);
+  EXPECT_EQ(decomposition.sectors()[1].charge, q1);
+  EXPECT_EQ(decomposition.sectors()[2].charge, q2);
+  ASSERT_EQ(decomposition.spectrum().size(), 6);
+  EXPECT_DOUBLE_EQ(decomposition.spectrum()[0].singular_value, 23.0);
 }
 
 TEST(BlockTensorSvd, FactorizesARepartitionedThreeOneViewAsTwoTwo)

@@ -21,6 +21,7 @@ target_compile_definitions(uni20_krylov_tests PRIVATE
 add_test_module(krylov_block_tensor
   SOURCES
     test_block_tensor_vector.cpp
+    test_dmrg_lanczos.cpp
     test_finite_environment_cache.cpp
     test_mpo_environment.cpp
     test_two_site_dmrg_slice.cpp

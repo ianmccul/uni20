@@ -158,6 +158,8 @@ completed-side environment before visiting the next bond. See
 
 ## Next Boundary
 
-The next finite-DMRG layer is sweep-level convergence and post-truncation
-measurement. Term and environment plans can be optimized independently with
-reusable intermediates, placement, CUDA, and MPI execution.
+Alternating directional traversal and zero-discard terminal-energy convergence
+are now implemented. The next finite-DMRG layer is post-truncation measurement
+and general initial-state canonicalization. Term and environment plans can be
+optimized independently with reusable intermediates, placement, CUDA, and MPI
+execution.

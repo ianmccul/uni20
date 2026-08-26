@@ -216,12 +216,14 @@ class TwoSiteEffectiveHamiltonian {
       this->validate_operand_spaces(prototype);
       terms_ = this->make_terms();
       group_offsets_ = this->make_group_offsets();
+      group_order_ = this->make_group_order();
     }
 
     /// \brief Overwrite a compatible fixed center with one planned Hamiltonian apply.
     /// \details Output blocks are independent batch items when the output
-    ///          storage selects scheduler-batch execution. Contributions to one
-    ///          output block remain serial and use beta zero then one.
+    ///          storage selects scheduler-batch execution. Groups are submitted
+    ///          by descending estimated dense-contraction cost. Contributions
+    ///          to one output block remain serial and use beta zero then one.
     /// \pre Distinct input and output views do not overlap numerical storage.
     template <MutableImmediateBlockTensorView Output, detail::MpoEffectiveCenter Input>
       requires detail::CompatibleTwoSiteCenters<Output, Input> &&
@@ -243,7 +245,7 @@ class TwoSiteEffectiveHamiltonian {
 
       detail::execute_effective_groups(
           typename std::remove_cvref_t<Output>::storage_policy::block_execution_policy{}, output.stored_block_count(),
-          [&](std::size_t output_ordinal) { this->execute_group(output, input, output_ordinal); });
+          [&](std::size_t group) { this->execute_group(output, input, group_order_[group]); });
     }
 
     /// \brief Return the number of compiled logical R/A/B/C contributions.
@@ -331,6 +333,37 @@ class TwoSiteEffectiveHamiltonian {
       return result;
     }
 
+    [[nodiscard]] auto estimate_group_cost(std::size_t output_ordinal) const -> long double
+    {
+      long double result = 0;
+      std::size_t const first = group_offsets_[output_ordinal];
+      std::size_t const last = group_offsets_[output_ordinal + 1];
+      for (std::size_t index = first; index < last; ++index)
+      {
+        auto const& term = terms_[index];
+        auto const left = left_environment_.block_by_ordinal(term.left_environment_ordinal);
+        auto const right = right_environment_.block_by_ordinal(term.right_environment_ordinal);
+        long double const left_rows = left.extent(0);
+        long double const input_left = left.extent(1);
+        long double const output_right = right.extent(0);
+        long double const input_right = right.extent(1);
+        result += left_rows * input_left * input_right + left_rows * input_right * output_right;
+      }
+      return result;
+    }
+
+    [[nodiscard]] auto make_group_order() const -> std::vector<std::size_t>
+    {
+      std::vector<std::size_t> result(stored_keys_.size());
+      std::iota(result.begin(), result.end(), std::size_t{});
+      std::vector<long double> costs(result.size());
+      for (std::size_t ordinal = 0; ordinal < costs.size(); ++ordinal)
+        costs[ordinal] = this->estimate_group_cost(ordinal);
+      std::ranges::stable_sort(result,
+                               [&](std::size_t left, std::size_t right) { return costs[left] > costs[right]; });
+      return result;
+    }
+
     template <BlockTensorView Tensor> void require_center(Tensor const& center) const
     {
       if (center.symmetry() != symmetry_ || center.domain() != domain_ || center.codomain() != codomain_ ||
@@ -381,6 +414,7 @@ class TwoSiteEffectiveHamiltonian {
     right_environment_type right_environment_;
     std::vector<Term> terms_;
     std::vector<std::size_t> group_offsets_;
+    std::vector<std::size_t> group_order_;
 };
 
 template <class Center, class LeftEnvironment, class FirstMpo, class SecondMpo, class RightEnvironment>
