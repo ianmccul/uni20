@@ -32,6 +32,7 @@ symmetry-free matrix.
 MpsSite<Scalar, LeftBond, Physical, RightBond, Storage>
 MpoSite<Scalar, LeftAuxiliary, InputPhysical,
         RightAuxiliary, OutputPhysical, Storage>
+MpoEnvironment<Scalar, BraBond, Auxiliary, KetBond, Storage>
 TwoSiteCenter<Scalar, LeftBond, LeftPhysical,
               RightPhysical, RightBond, Storage>
 TwoSiteLocalOperator<Scalar, LeftPhysical, RightPhysical, Storage>
@@ -51,7 +52,7 @@ center codomain.
 
 ## Effective-Hamiltonian Apply
 
-`TwoSiteEffectiveHamiltonian` owns an immutable local Hamiltonian and is
+`LocalTwoSiteEffectiveHamiltonian` owns an immutable local Hamiltonian and is
 callable as:
 
 ```cpp
@@ -80,17 +81,51 @@ two charge sectors with singular value `1/sqrt(2)` in each. Contracting the
 materialized right-adjoint, diagonal singular-value, and left factors
 reconstructs the original center to numerical tolerance.
 
-## Next Boundary
+## MPO And Environment Planner
 
-This checkpoint has scalar boundary environments and one local two-site
-operator. The next DMRG step is not another dense primitive. It is the general
-effective-Hamiltonian planner over:
+`TwoSiteEffectiveHamiltonian` compiles the general immediate-host operands:
 
 ```text
 left environment + two MPO sites + center + right environment
 ```
 
-That planner must preserve logical block keys, accumulate all legal paths into
-fixed output blocks, and lower each dense leaf through ordinary Uni20 dispatch.
-After that, chain ownership, environment updates, directional SVD absorption,
-and site replacement can form the first finite sweep.
+The environment convention is:
+
+```text
+Domain<bra bond, MPO auxiliary> -> Codomain<ket bond>
+key = (bra bond, MPO auxiliary, ket bond)
+```
+
+Together with the MPO key order `(left auxiliary, ket, right auxiliary,
+bra)`, this lets construction join stored logical keys into terms:
+
+```text
+R(output center block) += alpha * A(left environment block)
+                                * B(input center block)
+                                * transpose(C(right environment block))
+```
+
+The prototype freezes the center boundary and stored-key pattern at
+construction. A reachable output block omitted from that pattern is rejected:
+Krylov application may not silently change vector spaces. Runtime application
+groups terms by output block, uses beta zero then one, and may execute distinct
+output groups through the storage-selected synchronous scheduler batch.
+
+The current leaf plan is deliberately left-first. It allocates one rank-two
+temporary for `A * B`, then accumulates the second contraction through ordinary
+tensor dispatch. It does not yet compare left-first and right-first cost,
+coalesce reusable intermediates, or retain device-resident scratch.
+
+The U(1) test factors the Heisenberg interaction into neutral `Sz` and two
+charge-changing MPO channels. The compiled planner produces only the four terms
+relevant to the fixed total-charge-one center and reproduces the same `-3/4`
+Lanczos ground state as the local-operator path. A separate two-dimensional
+bond test verifies the exact `A * B * transpose(C)` dense geometry.
+
+## Next Boundary
+
+The next finite-DMRG layer is chain ownership and environment construction:
+build and update left/right `MpoEnvironment` values from MPS/MPO sites, absorb
+selected SVD factors according to sweep direction, and replace adjacent sites.
+The term plan can then be optimized independently with reusable left/right
+intermediates, placement, CUDA, and MPI execution.

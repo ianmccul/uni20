@@ -15,8 +15,8 @@ Async, CUDA, and distributed-execution architecture.
   [Tensor-Network Linear Algebra API Survey](../linalg/tensor_network_api_survey.md)
   document the dense kernels used below BlockTensor operations.
 - [First Pure-Uni20 Two-Site DMRG Slice](two_site_dmrg_vertical_slice.md)
-  documents the implemented U(1) local-Hamiltonian, Lanczos, and staged
-  block-SVD integration checkpoint.
+  documents the implemented U(1) local and MPO/environment effective-
+  Hamiltonian, Lanczos, and staged block-SVD integration checkpoints.
 
 ## TensorContraction Integration Reference
 
@@ -32,13 +32,14 @@ Async, CUDA, and distributed-execution architecture.
 - [R/A/B/C Lanczos Fixtures](rabc_lanczos_fixtures.md) records the capture and
   replay workflow used to preserve numerical and performance evidence.
 
-The R/A/B/C and DMRG executables are runnable on the integration branch, not on
-the current `main` branch. The goal is to implement their dense and
-symmetry-aware functionality in pure Uni20, including U(1) block structure,
-resident CUDA execution, MPI placement, matrix-free Krylov solves, and
-truncating SVD, without retaining the external TensorContraction code lineage.
-Their measured behavior feeds the [architecture](../architecture/) and
-[symmetry](../symmetry/) designs and supplies regression targets for that work.
+The complete R/A/B/C and DMRG executables remain runnable only on the
+integration branch. Pure Uni20 now implements a fixed-center immediate-host
+R/A/B/C term compiler and matrix-free Krylov checkpoint, but not yet finite-
+chain environment updates or sweeps. The remaining goal includes resident CUDA
+execution, MPI placement, and full sweep integration without retaining the
+external TensorContraction code lineage. The integration branch's measured
+behavior feeds the [architecture](../architecture/) and [symmetry](../symmetry/)
+designs and supplies regression targets for that work.
 
 Relevant current source foundations are the
 [dense Tensor layer](../../src/uni20/tensor/),

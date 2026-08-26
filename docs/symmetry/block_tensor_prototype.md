@@ -676,6 +676,7 @@ The implemented aliases in `src/uni20/tensor_network/site_types.hpp` are:
 MpsSite<Scalar, LeftBond, Physical, RightBond, Storage>
 MpoSite<Scalar, LeftAuxiliary, InputPhysical,
         RightAuxiliary, OutputPhysical, Storage>
+MpoEnvironment<Scalar, BraBond, Auxiliary, KetBond, Storage>
 TwoSiteCenter<Scalar, LeftBond, LeftPhysical,
               RightPhysical, RightBond, Storage>
 TwoSiteLocalOperator<Scalar, LeftPhysical, RightPhysical, Storage>
@@ -690,12 +691,14 @@ An `MPO` is a chain of `MpoSite` values. It validates exact equality of each
 site's right auxiliary space with the next site's left auxiliary space. The
 chain is a separate owner and is not another spelling of one `BlockTensor`.
 
-The first `TwoSiteEffectiveHamiltonian` applies a local operator to a fixed
+The first `LocalTwoSiteEffectiveHamiltonian` applies a local operator to a fixed
 `TwoSiteCenter` through mapped physical-leg bends and
 `contract_adjacent<2>`. It supplies the output-first callable required by
-`krylov::BlockTensorMatrixFreeOps`. General MPO and environment contraction is
-the next layer; `ScalarEnvironment` represents only the trivial length-two
-boundary case.
+`krylov::BlockTensorMatrixFreeOps`. The general `TwoSiteEffectiveHamiltonian`
+joins two `MpoSite` values and two `MpoEnvironment` values into a fixed-center
+R/A/B/C term plan. The current immediate-host executor evaluates each term
+left-first through dispatched dense contractions; it neither flattens the
+center nor constructs a high-rank BlockTensor intermediate.
 
 ## 13. Deferred Extensions
 
@@ -766,6 +769,10 @@ The first DMRG-shaped integration test applies a U(1) two-site Heisenberg
 operator, obtains the singlet through native BlockTensor Lanczos, repartitions
 the center to 2/2, materializes its staged block SVD, and reconstructs the
 center without losing either charge sector.
+The general effective-Hamiltonian test factors the same interaction into
+neutral and charge-changing MPO channels, compiles environment/MPO paths into
+the fixed center pattern, rejects a non-closed pattern, and verifies
+nontrivial dense environment multiplication with scheduler-batched output.
 Contraction tests also cover fixed-output structure preflight, output-only zero
 blocks, direct alias rejection, and async output epoch ordering.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable

@@ -254,8 +254,9 @@ resident CUDA execution, and MPI-aware block placement. The goal is behavioral
 and performance parity through Uni20's current architecture without retaining
 the external TensorContraction implementation.
 
-- Generalize the implemented U(1) length-two local-Hamiltonian/Lanczos/block-SVD
-  checkpoint to left/right environments and adjacent MPO sites.
+- Extend the implemented immediate-host left-environment/MPO-pair/right-
+  environment term plan with reusable intermediates and backend-aware
+  left-first/right-first selection.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware

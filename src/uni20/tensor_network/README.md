@@ -7,17 +7,18 @@ aliases over `BlockTensor` with canonical morphism boundaries.
 
 Current entry points:
 
-- `site_types.hpp`: canonical `MpsSite`, `MpoSite`, `TwoSiteCenter`,
-  `TwoSiteLocalOperator`, and `ScalarEnvironment` aliases.
-- `two_site_effective_hamiltonian.hpp`: the first immediate-host output-first
-  two-site apply object. It uses mapped repartition/permutation views and
-  adjacent grouped BlockTensor contraction.
+- `site_types.hpp`: canonical `MpsSite`, `MpoSite`, `MpoEnvironment`,
+  `TwoSiteCenter`, `TwoSiteLocalOperator`, and `ScalarEnvironment` aliases.
+- `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
+  MPO/environment two-site apply objects.
 
 Chain ownership, MPO compilation, environment construction, and sweep policy
 belong here when implemented. Symmetry selection and sparse worklist planning
 remain in `symmetry/`; dense numerical kernels remain in `linalg/` and
 `kernel/`; Krylov solvers continue to treat BlockTensor vectors as opaque.
 
-The current two-site apply is a local-operator slice with scalar boundary
-environments. It is not yet the general left-environment/MPO-pair/right-
-environment effective Hamiltonian needed by a finite-chain sweep.
+The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
+stored keys into a fixed-center R/A/B/C term plan. Its first execution policy
+is left-first and allocates a dense matrix temporary per term. Reuse-aware
+planning, chain/environment construction, CUDA placement, and MPI distribution
+remain separate extensions.

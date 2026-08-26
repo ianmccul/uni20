@@ -23,6 +23,11 @@ template <typename Scalar, class LeftAuxiliary, class InputPhysical, class Right
 using MpoSite =
     BlockTensor<Scalar, Domain<LeftAuxiliary, InputPhysical>, Codomain<RightAuxiliary, OutputPhysical>, Storage>;
 
+/// \brief Left or right MPO environment with `(bra bond, auxiliary, ket bond)` key order.
+template <typename Scalar, class BraBond, class Auxiliary, class KetBond,
+          BlockTensorStorage Storage = SeparateSparseBlockStorage<>>
+using MpoEnvironment = BlockTensor<Scalar, Domain<BraBond, Auxiliary>, Codomain<KetBond>, Storage>;
+
 /// \brief Two adjacent MPS sites combined into one optimization center.
 template <typename Scalar, class LeftBond, class LeftPhysical, class RightPhysical, class RightBond,
           BlockTensorStorage Storage = SeparateSparseBlockStorage<>>
