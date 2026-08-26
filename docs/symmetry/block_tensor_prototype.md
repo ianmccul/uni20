@@ -168,6 +168,9 @@ gives the source factor at every output position. The first bosonic operation
 permutes within domain and codomain only. Moving a factor across the boundary
 is not a permutation: use `repartition`. A non-edge factor can therefore be
 moved to an edge with `permute` and then bent explicitly with `repartition`.
+`as_block_tensor_view(tensor)` is the identity form: it copies the source
+boundary, key, and block-descriptor metadata into a value-retained borrowed
+view without changing axis order or copying numerical payload.
 
 For bosonic U(1), the per-block bend factor is one. Non-abelian, fermionic, or
 braided extensions may add pivotal, `1j`, recoupling, or exchange factors to
@@ -530,6 +533,12 @@ rules:
 - extra blocks in an overwritten fixed output are set to zero;
 - in-place addition and AXPY leave output-only blocks unchanged; and
 - inner products use the intersection of the two stored-key sets.
+
+`DiagonalBlockTensorView` identifies values whose stored numerical blocks are
+generalized diagonals. A diagonal fixed or selected output accepts only
+diagonal inputs; dense outputs may consume diagonal inputs. Accepted diagonal
+updates operate on `diagonal_components(...)` directly rather than iterating
+or assigning structural off-diagonal zeros.
 
 Fixed-output structural requirements are checked before any numerical block is
 modified. Block structure remains immutable. An unrestricted elementwise

@@ -394,8 +394,8 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
         performance::measure_duration(measurements, TwoSiteDmrgPerformanceEvent::local_eigensolver, [&] {
           auto const& left_environment = cache.left_environment(first_site);
           auto const& right_environment = cache.right_environment(first_site + 2);
-          TwoSiteEffectiveHamiltonian effective_hamiltonian(initial, left_environment, mpo.site(first_site),
-                                                            mpo.site(first_site + 1), right_environment);
+          auto effective_hamiltonian = make_two_site_effective_hamiltonian(
+              initial, left_environment, mpo.site(first_site), mpo.site(first_site + 1), right_environment);
           return detail::solve_two_site_ground_state(initial, std::move(effective_hamiltonian), options.local_solver,
                                                      measurements);
         });

@@ -182,12 +182,12 @@ TEST(TwoSiteDmrgSlice, CompilesMpoAndEnvironmentsIntoSparseEffectiveHamiltonianP
 
   Center incomplete(symmetry, uni20::Domain{left_bond, left_physical, right_physical}, uni20::Codomain{right_bond},
                     {CenterKey{{0, 0, 1, 0}}});
-  EXPECT_THROW((static_cast<void>(uni20::tensor_network::TwoSiteEffectiveHamiltonian(
+  EXPECT_THROW((static_cast<void>(uni20::tensor_network::make_two_site_effective_hamiltonian(
                    incomplete, left_environment, first_mpo, second_mpo, right_environment))),
                std::invalid_argument);
 
-  uni20::tensor_network::TwoSiteEffectiveHamiltonian effective_hamiltonian(
-      initial, std::move(left_environment), std::move(first_mpo), std::move(second_mpo), std::move(right_environment));
+  auto effective_hamiltonian = uni20::tensor_network::make_two_site_effective_hamiltonian(
+      initial, left_environment, first_mpo, second_mpo, right_environment);
   EXPECT_EQ(effective_hamiltonian.term_count(), 4);
 
   Center applied = make_center(symmetry, left_bond, left_physical, right_physical, right_bond);
@@ -252,8 +252,8 @@ TEST(TwoSiteDmrgSlice, AppliesDenseEnvironmentBlocksAsATimesBTimesCTranspose)
   first_mpo.block(mpo_key)[] = 2.0;
   second_mpo.block(mpo_key)[] = 1.0;
 
-  uni20::tensor_network::TwoSiteEffectiveHamiltonian effective_hamiltonian(
-      input, std::move(left_environment), std::move(first_mpo), std::move(second_mpo), std::move(right_environment));
+  auto effective_hamiltonian = uni20::tensor_network::make_two_site_effective_hamiltonian(
+      input, left_environment, first_mpo, second_mpo, right_environment);
   using ParallelCenter =
       uni20::tensor_network::TwoSiteCenter<double, uni20::BlockSpace, uni20::LocalSpace, uni20::LocalSpace,
                                            uni20::BlockSpace, uni20::ParallelSeparateSparseBlockStorage<>>;
@@ -268,6 +268,13 @@ TEST(TwoSiteDmrgSlice, AppliesDenseEnvironmentBlocksAsATimesBTimesCTranspose)
   EXPECT_DOUBLE_EQ((result[0, 1]), 946.0);
   EXPECT_DOUBLE_EQ((result[1, 0]), 1774.0);
   EXPECT_DOUBLE_EQ((result[1, 1]), 2146.0);
+
+  first_mpo.block(mpo_key)[] = 3.0;
+  effective_hamiltonian(output, input);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 1173.0);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 1419.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 2661.0);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 3219.0);
 }
 
 } // namespace

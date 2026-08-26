@@ -42,6 +42,16 @@ concept CompatibleBlockTensorValues =
     std::same_as<typename block_tensor_type_t<Lhs>::domain_type, typename block_tensor_type_t<Rhs>::domain_type> &&
     std::same_as<typename block_tensor_type_t<Lhs>::codomain_type, typename block_tensor_type_t<Rhs>::codomain_type>;
 
+template <class Output, class... Inputs>
+concept CompatibleLinearOutputRepresentation =
+    BlockTensorView<Output> && (BlockTensorView<Inputs> && ...) &&
+    (!DiagonalBlockTensorView<Output> || (DiagonalBlockTensorView<Inputs> && ...));
+
+template <class OutputStorage, class... Inputs>
+concept CompatibleLinearOutputStorage =
+    BlockTensorStorage<OutputStorage> && (BlockTensorView<Inputs> && ...) &&
+    (!DiagonalBlockStorage<OutputStorage> || (DiagonalBlockTensorView<Inputs> && ...));
+
 template <class Lhs, class Rhs> void require_compatible_block_tensor_values(Lhs const& lhs, Rhs const& rhs)
 {
   if (lhs.symmetry() != rhs.symmetry())
@@ -149,37 +159,71 @@ template <class Lhs, class Rhs> constexpr auto same_block_tensor_object(Lhs cons
 template <class Block> void set_zero_block(Block&& block)
 {
   using value_type = tensor_element_t<Block>;
-  uni20::transform_inplace(std::forward<Block>(block), linalg::scale{value_type{}});
+  auto span = mdspec_of(block);
+  if constexpr (MutableDiagonalMdspecLike<decltype(span)>)
+    uni20::transform_inplace(block.backend_selector(), diagonal_components(span), linalg::scale{value_type{}});
+  else
+    uni20::transform_inplace(std::forward<Block>(block), linalg::scale{value_type{}});
 }
 
 template <class Block, class Scalar> void scale_block(Block&& block, Scalar const& factor)
 {
-  uni20::transform_inplace(std::forward<Block>(block), linalg::scale{factor});
+  auto span = mdspec_of(block);
+  if constexpr (MutableDiagonalMdspecLike<decltype(span)>)
+    uni20::transform_inplace(block.backend_selector(), diagonal_components(span), linalg::scale{factor});
+  else
+    uni20::transform_inplace(std::forward<Block>(block), linalg::scale{factor});
 }
 
 template <class OutputBlock, class InputBlock, class Scalar>
 void assign_scale_block(OutputBlock&& output, Scalar const& factor, InputBlock&& input)
 {
-  uni20::assign_transform(std::forward<OutputBlock>(output), linalg::scale{factor}, std::forward<InputBlock>(input));
+  auto output_span = mdspec_of(output);
+  auto input_span = mdspec_of(input);
+  if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)>)
+    uni20::assign_transform(output.backend_selector(), diagonal_components(output_span), linalg::scale{factor},
+                            diagonal_components(input_span));
+  else
+    uni20::assign_transform(std::forward<OutputBlock>(output), linalg::scale{factor}, std::forward<InputBlock>(input));
 }
 
 template <class OutputBlock, class LhsBlock, class RhsBlock>
 void add_block(OutputBlock&& output, LhsBlock&& lhs, RhsBlock&& rhs)
 {
-  uni20::assign_transform(std::forward<OutputBlock>(output), linalg::add{}, std::forward<LhsBlock>(lhs),
-                          std::forward<RhsBlock>(rhs));
+  auto output_span = mdspec_of(output);
+  auto lhs_span = mdspec_of(lhs);
+  auto rhs_span = mdspec_of(rhs);
+  if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(lhs_span)> &&
+                DiagonalMdspecLike<decltype(rhs_span)>)
+    uni20::assign_transform(output.backend_selector(), diagonal_components(output_span), linalg::add{},
+                            diagonal_components(lhs_span), diagonal_components(rhs_span));
+  else
+    uni20::assign_transform(std::forward<OutputBlock>(output), linalg::add{}, std::forward<LhsBlock>(lhs),
+                            std::forward<RhsBlock>(rhs));
 }
 
 template <class OutputBlock, class InputBlock> void add_inplace_block(OutputBlock&& output, InputBlock&& input)
 {
-  uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add{}, std::forward<InputBlock>(input));
+  auto output_span = mdspec_of(output);
+  auto input_span = mdspec_of(input);
+  if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)>)
+    uni20::transform_inplace(output.backend_selector(), diagonal_components(output_span), linalg::add{},
+                             diagonal_components(input_span));
+  else
+    uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add{}, std::forward<InputBlock>(input));
 }
 
 template <class OutputBlock, class Scalar, class InputBlock>
 void axpy_block(OutputBlock&& output, Scalar const& factor, InputBlock&& input)
 {
-  uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add_scaled{factor},
-                           std::forward<InputBlock>(input));
+  auto output_span = mdspec_of(output);
+  auto input_span = mdspec_of(input);
+  if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)>)
+    uni20::transform_inplace(output.backend_selector(), diagonal_components(output_span), linalg::add_scaled{factor},
+                             diagonal_components(input_span));
+  else
+    uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add_scaled{factor},
+                             std::forward<InputBlock>(input));
 }
 
 template <class RequestedStorage, class Tensor>
@@ -242,12 +286,14 @@ void scale(Tensor& tensor, Scalar factor)
 /// \brief Overwrite a fixed BlockTensor output with a scaled input value.
 /// \details The output may store additional blocks; they are set to zero. It
 ///          must already store every input key because BlockTensor structure is
-///          immutable after construction.
+///          immutable after construction. A generalized-diagonal output requires
+///          a generalized-diagonal input.
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
 template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
+           detail::CompatibleLinearOutputRepresentation<Output, Input> &&
            ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void assign_scale(Output& output, Scalar factor, Input const& input)
@@ -297,11 +343,13 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
 }
 
 /// \brief Copy a BlockTensor value into an existing fixed output structure.
+/// \details A generalized-diagonal output requires a generalized-diagonal input.
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
 template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
+           detail::CompatibleLinearOutputRepresentation<Output, Input> &&
            ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void copy(Output& output, Input const& input)
@@ -314,11 +362,13 @@ void copy(Output& output, Input const& input)
 /// \brief Overwrite a fixed BlockTensor output with the sum of two values.
 /// \details Missing input blocks are exact zero. The output must already store
 ///          the union of both input key sets; additional output blocks become zero.
+///          A generalized-diagonal output requires generalized-diagonal inputs.
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If symmetry or boundary values differ, or the
 ///         output omits an input key.
 template <MutableBlockTensorView Output, BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Output, Lhs> && detail::CompatibleBlockTensorValues<Output, Rhs> &&
+           detail::CompatibleLinearOutputRepresentation<Output, Lhs, Rhs> &&
            ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Lhs> &&
              ImmediateBlockTensorView<Rhs>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
@@ -414,12 +464,14 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
 
 /// \brief Add one BlockTensor value to an existing output in place.
 /// \details Input blocks missing from the output cannot be inserted and are
-///          rejected before any numerical block is modified.
+///          rejected before any numerical block is modified. A generalized-diagonal
+///          output requires a generalized-diagonal input.
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
 template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
+           detail::CompatibleLinearOutputRepresentation<Output, Input> &&
            ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void add_inplace(Output& output, Input const& input)
@@ -458,11 +510,13 @@ void add_inplace(Output& output, Input const& input)
 }
 
 /// \brief Compute `output += factor * input` without changing either key pattern.
+/// \details A generalized-diagonal output requires a generalized-diagonal input.
 /// \pre Distinct output and input values do not have overlapping numerical storage.
 /// \throws std::invalid_argument If the symmetry or boundary values differ, or
 ///         the output omits an input key.
 template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
+           detail::CompatibleLinearOutputRepresentation<Output, Input> &&
            ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void axpy(Output& output, Scalar factor, Input const& input)
@@ -501,11 +555,14 @@ void axpy(Output& output, Scalar factor, Input const& input)
 }
 
 /// \brief Return the sum of two BlockTensor values using the union of stored keys.
+/// \details A selected generalized-diagonal output policy requires both inputs
+///          to have generalized-diagonal block representations.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 /// \tparam OutputStorage Sparse output policy, or `void` to preserve the left policy.
 template <class OutputStorage = void, BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Lhs, Rhs> &&
-           SparseBlockStorage<detail::selected_linear_storage_t<OutputStorage, Lhs>>
+           SparseBlockStorage<detail::selected_linear_storage_t<OutputStorage, Lhs>> &&
+           detail::CompatibleLinearOutputStorage<detail::selected_linear_storage_t<OutputStorage, Lhs>, Lhs, Rhs>
 [[nodiscard]] auto add(Lhs const& lhs, Rhs const& rhs)
 {
   detail::require_compatible_block_tensor_values(lhs, rhs);

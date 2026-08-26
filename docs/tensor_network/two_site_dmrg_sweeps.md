@@ -102,7 +102,8 @@ and `i+1`:
 2. Obtain `left[i]` and `right[i+2]` from the attached
    `MpoEnvironmentCache`.
 3. Compile a fixed-center `TwoSiteEffectiveHamiltonian` from those
-   environments and the two MPO sites.
+   environments and the two MPO sites. The sweep retains zero-copy identity
+   views for the local solve rather than copying the owning BlockTensor payloads.
 4. Perform the configured fixed number of three-term Lanczos steps and use the
    smallest Ritz vector of that local projection.
 5. Apply the staged block SVD and global charge-sector truncation policy.

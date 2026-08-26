@@ -84,6 +84,13 @@ template <class Tensor>
 concept MutableImmediateBlockTensorView =
     MutableBlockTensorView<Tensor> && MutableImmediateTensorView<block_tensor_mutable_block_t<Tensor>>;
 
+/// \brief BlockTensorView whose stored numerical blocks are generalized diagonals.
+/// \details This refinement describes the representation of every stored block,
+///          independently of the sparse logical key pattern.
+template <class Tensor>
+concept DiagonalBlockTensorView =
+    BlockTensorView<Tensor> && DiagonalMdspecLike<tensor_mdspec_t<block_tensor_const_block_t<Tensor>>>;
+
 /// \brief BlockTensorView whose destruction does not destroy its referenced numerical payload.
 /// \details This lifetime capability permits a temporary view to be transformed
 ///          into another borrowed view. Dense-block descriptors materialized

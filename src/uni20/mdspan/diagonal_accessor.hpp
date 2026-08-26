@@ -226,11 +226,14 @@ template <class Extents>
 ///          accesses observe zero.
 /// \tparam ElementType Presented component type, possibly const-qualified.
 /// \tparam Extents Full logical tensor extents.
+/// \tparam LayoutPolicy Logical mdspan layout policy.
+/// \tparam AccessorExtents Original extents used by the diagonal accessor to decode offsets.
 /// \param span Full generalized-diagonal mdspan.
 /// \return Rank-one strided mdspan over the stored diagonal components.
-template <class ElementType, class Extents>
+template <class ElementType, class Extents, class LayoutPolicy, class AccessorExtents>
+  requires(Extents::rank() == AccessorExtents::rank())
 [[nodiscard]] constexpr auto diagonal_components(
-    stdex::mdspan<ElementType, Extents, GeneratedLayout, diagonal_accessor<ElementType, Extents>> const& span)
+    stdex::mdspan<ElementType, Extents, LayoutPolicy, diagonal_accessor<ElementType, AccessorExtents>> const& span)
 {
   using index_type = typename Extents::index_type;
   using component_extents_type = stdex::dextents<index_type, 1>;

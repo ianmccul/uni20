@@ -423,4 +423,27 @@ TwoSiteEffectiveHamiltonian(Center const&, LeftEnvironment, FirstMpo, SecondMpo,
                                    std::remove_cvref_t<FirstMpo>, std::remove_cvref_t<SecondMpo>,
                                    std::remove_cvref_t<RightEnvironment>>;
 
+/// \brief Compile a two-site effective Hamiltonian borrowing fixed operand payloads.
+/// \details The returned operation retains identity mapped views by value, so
+///          keys, boundaries, and block descriptors are not borrowed from
+///          temporary view objects. The ultimate environment and MPO payload
+///          owners must outlive the returned operation.
+/// \param prototype Center value whose exact boundary and stored keys define the vector space.
+/// \param left_environment Left environment payload owner.
+/// \param first_mpo Left MPO-site payload owner.
+/// \param second_mpo Right MPO-site payload owner.
+/// \param right_environment Right environment payload owner.
+/// \return Compiled operation containing zero-copy views of all fixed operands.
+template <detail::MpoEffectiveCenter Center, detail::MpoEffectiveEnvironment LeftEnvironment,
+          detail::MpoEffectiveSite FirstMpo, detail::MpoEffectiveSite SecondMpo,
+          detail::MpoEffectiveEnvironment RightEnvironment>
+  requires detail::CompatibleMpoEffectiveScalars<Center, LeftEnvironment, FirstMpo, SecondMpo, RightEnvironment>
+[[nodiscard]] auto make_two_site_effective_hamiltonian(Center const& prototype, LeftEnvironment const& left_environment,
+                                                       FirstMpo const& first_mpo, SecondMpo const& second_mpo,
+                                                       RightEnvironment const& right_environment)
+{
+  return TwoSiteEffectiveHamiltonian(prototype, as_block_tensor_view(left_environment), as_block_tensor_view(first_mpo),
+                                     as_block_tensor_view(second_mpo), as_block_tensor_view(right_environment));
+}
+
 } // namespace uni20::tensor_network

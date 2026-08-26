@@ -15,6 +15,29 @@
 
 using namespace uni20;
 
+template <class Output, class Input>
+concept CanCopyBlockTensor = requires(Output& output, Input const& input) { uni20::copy(output, input); };
+
+template <class Output, class Input>
+concept CanAssignScaleBlockTensor =
+    requires(Output& output, Input const& input) { uni20::assign_scale(output, 2.0, input); };
+
+template <class Output, class Lhs, class Rhs>
+concept CanAddBlockTensor = requires(Output& output, Lhs const& lhs, Rhs const& rhs) { uni20::add(output, lhs, rhs); };
+
+template <class Output, class Input>
+concept CanAddInplaceBlockTensor = requires(Output& output, Input const& input) { uni20::add_inplace(output, input); };
+
+template <class Output, class Input>
+concept CanAxpyBlockTensor = requires(Output& output, Input const& input) { uni20::axpy(output, 2.0, input); };
+
+template <class Lhs, class Rhs>
+concept CanDefaultAddBlockTensor = requires(Lhs const& lhs, Rhs const& rhs) { uni20::add(lhs, rhs); };
+
+template <class Lhs, class Rhs>
+concept CanDenseAddBlockTensor =
+    requires(Lhs const& lhs, Rhs const& rhs) { uni20::add<PackedSparseBlockStorage<>>(lhs, rhs); };
+
 template <class Storage> class BlockTensorLinearTest : public ::testing::Test {};
 
 using ImmediateLinearStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
@@ -92,6 +115,50 @@ TYPED_TEST(BlockTensorLinearTest, AppliesLinearOperationsWithSparseZeroSemantics
   set_zero(output);
   for (Key const& key : output.stored_keys())
     EXPECT_DOUBLE_EQ(output.block(key)[], 0.0);
+}
+
+TEST(BlockTensorLinearTest, PreservesGeneralizedDiagonalOutputRepresentation)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const space(sym, {{q0, 2}}, "space");
+  using Dense = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  using Diagonal = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using Key = typename Dense::key_type;
+
+  static_assert(!DiagonalBlockTensorView<Dense>);
+  static_assert(DiagonalBlockTensorView<Diagonal>);
+  static_assert(CanCopyBlockTensor<Dense, Diagonal>);
+  static_assert(CanCopyBlockTensor<Diagonal, Diagonal>);
+  static_assert(!CanCopyBlockTensor<Diagonal, Dense>);
+  static_assert(!CanAssignScaleBlockTensor<Diagonal, Dense>);
+  static_assert(!CanAddBlockTensor<Diagonal, Diagonal, Dense>);
+  static_assert(!CanAddInplaceBlockTensor<Diagonal, Dense>);
+  static_assert(!CanAxpyBlockTensor<Diagonal, Dense>);
+  static_assert(CanDefaultAddBlockTensor<Diagonal, Diagonal>);
+  static_assert(!CanDefaultAddBlockTensor<Diagonal, Dense>);
+  static_assert(CanDenseAddBlockTensor<Diagonal, Dense>);
+
+  Key const key{{0, 0}};
+  Diagonal diagonal(sym, Domain{space}, Codomain{space}, {key});
+  Diagonal diagonal_copy(sym, Domain{space}, Codomain{space}, {key});
+  Dense dense(sym, Domain{space}, Codomain{space}, {key});
+  diagonal.diagonal_values(key)[0] = 2.0;
+  diagonal.diagonal_values(key)[1] = 3.0;
+
+  copy(diagonal_copy, diagonal);
+  EXPECT_DOUBLE_EQ(diagonal_copy.diagonal_values(key)[0], 2.0);
+  EXPECT_DOUBLE_EQ(diagonal_copy.diagonal_values(key)[1], 3.0);
+
+  scale(diagonal_copy, std::numeric_limits<double>::infinity());
+  EXPECT_TRUE(std::isinf(diagonal_copy.diagonal_values(key)[0]));
+  EXPECT_TRUE(std::isinf(diagonal_copy.diagonal_values(key)[1]));
+
+  copy(dense, diagonal);
+  EXPECT_DOUBLE_EQ((dense.block(key)[0, 0]), 2.0);
+  EXPECT_DOUBLE_EQ((dense.block(key)[0, 1]), 0.0);
+  EXPECT_DOUBLE_EQ((dense.block(key)[1, 0]), 0.0);
+  EXPECT_DOUBLE_EQ((dense.block(key)[1, 1]), 3.0);
 }
 
 TYPED_TEST(BlockTensorLinearTest, RejectsStructuralChangesBeforeModifyingOutput)

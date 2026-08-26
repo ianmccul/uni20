@@ -111,6 +111,13 @@ Krylov application may not silently change vector spaces. Runtime application
 groups terms by output block, uses beta zero then one, and may execute distinct
 output groups through the storage-selected synchronous scheduler batch.
 
+`make_two_site_effective_hamiltonian(...)` constructs the operation used by the
+DMRG sweep. It retains identity mapped views of the environments and MPO sites
+by value, so compiling each bond copies descriptor metadata but not numerical
+block payload. The cache and MPO owners therefore must outlive the local solve.
+The direct `TwoSiteEffectiveHamiltonian` constructor remains available when an
+operation should own moved operands or retain already-borrowed views.
+
 The current leaf plan is deliberately left-first. It allocates one rank-two
 temporary for `A * B`, then accumulates the second contraction through ordinary
 tensor dispatch. It does not yet compare left-first and right-first cost,

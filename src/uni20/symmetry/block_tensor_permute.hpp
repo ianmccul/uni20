@@ -160,4 +160,32 @@ template <std::size_t... Axis, class Tensor>
            !BorrowedBlockTensorView<Tensor>)
 auto permute(Tensor&&) = delete;
 
+namespace detail
+{
+
+template <class Tensor, std::size_t... Axis>
+auto as_block_tensor_view_impl(Tensor& tensor, std::index_sequence<Axis...>) -> decltype(permute<Axis...>(tensor))
+{
+  return permute<Axis...>(tensor);
+}
+
+} // namespace detail
+
+/// \brief Materialize a borrowed identity view over an existing BlockTensor view.
+/// \details The returned value owns its copied keys, boundaries, and dense-block
+///          descriptors but not their numerical payload. Constness follows the
+///          source. Replacing or structurally modifying the ultimate payload
+///          owner invalidates the view.
+/// \tparam Tensor BlockTensor-level source type, optionally const-qualified.
+/// \param tensor Lvalue source whose payload lifetime must cover the returned view.
+/// \return Zero-copy view with unchanged boundaries, keys, and dense-axis order.
+template <class Tensor>
+  requires BlockTensorView<Tensor> && requires(Tensor& tensor) {
+    detail::as_block_tensor_view_impl(tensor, std::make_index_sequence<block_tensor_type_t<Tensor>::order()>{});
+  }
+auto as_block_tensor_view(Tensor& tensor)
+{
+  return detail::as_block_tensor_view_impl(tensor, std::make_index_sequence<block_tensor_type_t<Tensor>::order()>{});
+}
+
 } // namespace uni20

@@ -125,4 +125,25 @@ TEST(PerformanceMeasurementsTest, DetailedBatchRecordsItemsAndRethrows)
   EXPECT_EQ(measurements[TestEvent::first].count, 0U);
 }
 
+TEST(PerformanceMeasurementsTest, UsesBoundaryOrderWhenDetailedBatchTimestampsTie)
+{
+  using uni20::performance::WallClock;
+  using uni20::performance::detail::BatchItemInterval;
+  auto const tied = WallClock::time_point{};
+
+  std::vector<BatchItemInterval> serial{
+      {.started = true, .completed = true, .start = tied, .finish = tied, .start_order = 0, .finish_order = 1},
+      {.started = true, .completed = true, .start = tied, .finish = tied, .start_order = 2, .finish_order = 3},
+  };
+  auto const serial_summary = uni20::performance::detail::summarize_batch(serial, tied, tied);
+  EXPECT_EQ(serial_summary.peak_concurrency, 1U);
+
+  std::vector<BatchItemInterval> overlapping{
+      {.started = true, .completed = true, .start = tied, .finish = tied, .start_order = 0, .finish_order = 2},
+      {.started = true, .completed = true, .start = tied, .finish = tied, .start_order = 1, .finish_order = 3},
+  };
+  auto const overlapping_summary = uni20::performance::detail::summarize_batch(overlapping, tied, tied);
+  EXPECT_EQ(overlapping_summary.peak_concurrency, 2U);
+}
+
 } // namespace

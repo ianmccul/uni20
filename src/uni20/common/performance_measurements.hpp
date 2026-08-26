@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <concepts>
 #include <cstddef>
@@ -271,6 +272,8 @@ struct BatchItemInterval
     bool completed = false;
     WallClock::time_point start = {};
     WallClock::time_point finish = {};
+    std::size_t start_order = 0;
+    std::size_t finish_order = 0;
 };
 
 inline auto summarize_batch(std::span<BatchItemInterval const> items, WallClock::time_point batch_start,
@@ -278,7 +281,8 @@ inline auto summarize_batch(std::span<BatchItemInterval const> items, WallClock:
 {
   BatchMeasurement result{.requested_items = items.size(),
                           .wall_duration = std::chrono::duration_cast<Duration>(batch_finish - batch_start)};
-  std::vector<std::pair<WallClock::time_point, int>> boundaries;
+  using boundary_type = std::pair<std::size_t, int>;
+  std::vector<boundary_type> boundaries;
   boundaries.reserve(items.size() * 2);
   std::optional<WallClock::time_point> first_start;
   std::optional<WallClock::time_point> last_start;
@@ -297,8 +301,8 @@ inline auto summarize_batch(std::span<BatchItemInterval const> items, WallClock:
     auto const duration = std::chrono::duration_cast<Duration>(item.finish - item.start);
     result.total_item_duration += duration;
     result.maximum_item_duration = std::max(result.maximum_item_duration, duration);
-    boundaries.emplace_back(item.start, 1);
-    boundaries.emplace_back(item.finish, -1);
+    boundaries.emplace_back(item.start_order, 1);
+    boundaries.emplace_back(item.finish_order, -1);
   }
 
   if (first_start)
@@ -312,14 +316,11 @@ inline auto summarize_batch(std::span<BatchItemInterval const> items, WallClock:
     result.return_after_last_finish = std::chrono::duration_cast<Duration>(batch_finish - *last_finish);
   }
 
-  std::ranges::sort(boundaries, [](auto const& lhs, auto const& rhs) {
-    if (lhs.first != rhs.first) return lhs.first < rhs.first;
-    return lhs.second > rhs.second;
-  });
+  std::ranges::sort(boundaries, {}, &boundary_type::first);
   std::size_t active = 0;
-  for (auto const& [time, delta] : boundaries)
+  for (auto const& [order, delta] : boundaries)
   {
-    static_cast<void>(time);
+    static_cast<void>(order);
     if (delta < 0)
       --active;
     else
@@ -365,9 +366,11 @@ void measure_batch(Measurements& measurements, Event event, std::size_t size, Ex
   else
   {
     std::vector<detail::BatchItemInterval> items(size);
+    std::atomic_size_t next_boundary_order = 0;
     auto wrapped = [&](std::size_t index) {
       auto& item = items[index];
       item.started = true;
+      item.start_order = next_boundary_order.fetch_add(1, std::memory_order_relaxed);
       item.start = WallClock::now();
       try
       {
@@ -376,10 +379,12 @@ void measure_batch(Measurements& measurements, Event event, std::size_t size, Ex
       catch (...)
       {
         item.finish = WallClock::now();
+        item.finish_order = next_boundary_order.fetch_add(1, std::memory_order_relaxed);
         item.completed = true;
         throw;
       }
       item.finish = WallClock::now();
+      item.finish_order = next_boundary_order.fetch_add(1, std::memory_order_relaxed);
       item.completed = true;
     };
 

@@ -29,8 +29,9 @@ thread-safe: coarse phase events are recorded by the calling thread.
 `DetailedMeasurements<Event, EventCount>` additionally retains individual
 `BatchMeasurement` records. Detailed item functions write disjoint slots, and
 the calling thread aggregates those slots after the synchronous batch joins.
-The measured item path therefore needs no profiling atomic, but it does perform
-two clock reads and ordinary slot writes per item.
+The measured item path performs two clock reads, ordinary slot writes, and two
+relaxed atomic increments which establish an unambiguous start/finish boundary
+order for overlap accounting.
 
 ## Algorithm Integration
 
@@ -81,6 +82,10 @@ One detailed batch record contains:
 - first-item start delay and item-start spread;
 - item-finish spread and return-after-last-finish duration;
 - peak overlap of measured item intervals.
+
+Wall durations use the steady clock. Peak overlap uses the independently
+sequenced start and finish boundaries, so equal clock timestamps preserve
+serial ordering and zero-duration items without an ambiguous tie-break.
 
 The executor contract must guarantee that each started index is invoked at most
 once and that no item remains active after return. Uni20's lightweight scheduler

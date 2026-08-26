@@ -10,9 +10,7 @@
 using namespace uni20;
 
 template <class Tensor>
-concept CanSwapTwoAxesAsRvalue = requires(Tensor&& tensor) {
-  permute<1, 0>(std::forward<Tensor>(tensor));
-};
+concept CanSwapTwoAxesAsRvalue = requires(Tensor&& tensor) { permute<1, 0>(std::forward<Tensor>(tensor)); };
 
 template <class Storage> class BlockTensorPermutationTest : public ::testing::Test {};
 
@@ -111,6 +109,32 @@ TYPED_TEST(BlockTensorPermutationTest, TensorUnitPermutationIsIdentityView)
   EXPECT_EQ(view.codomain(), tensor.codomain());
   EXPECT_EQ(view.block(Key{}).mdspan().data_handle(), tensor.block(Key{}).mdspan().data_handle());
   EXPECT_DOUBLE_EQ(view.block(Key{})[], 3.0);
+}
+
+TYPED_TEST(BlockTensorPermutationTest, MaterializesBorrowedIdentityMetadataWithoutCopyingPayload)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const columns(sym, {{q0, 3}}, "columns");
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Key const key{{0, 0}};
+  Tensor tensor(sym, Domain{rows}, Codomain{columns}, {key});
+  tensor.block(key)[1, 2] = 7.0;
+
+  auto view = as_block_tensor_view(std::as_const(tensor));
+  static_assert(BorrowedBlockTensorView<decltype(view)>);
+  static_assert(!MutableBlockTensorView<decltype(view)>);
+  EXPECT_EQ(view.domain(), tensor.domain());
+  EXPECT_EQ(view.codomain(), tensor.codomain());
+  ASSERT_EQ(view.stored_keys().size(), tensor.stored_keys().size());
+  EXPECT_EQ(view.stored_keys()[0], tensor.stored_keys()[0]);
+  EXPECT_EQ(view.block(key).mdspan().data_handle(), tensor.block(key).mdspan().data_handle());
+  EXPECT_DOUBLE_EQ((view.block(key)[1, 2]), 7.0);
+
+  tensor.block(key)[1, 2] = 11.0;
+  EXPECT_DOUBLE_EQ((view.block(key)[1, 2]), 11.0);
 }
 
 TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFactorExplicitly)
