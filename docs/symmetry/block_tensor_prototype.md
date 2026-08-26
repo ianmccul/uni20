@@ -53,6 +53,8 @@ operations:
   keys and strided dense-block axis permutations; and
 - synchronous adjacent pairwise contraction through ordinary tensor-level
   kernel dispatch into selectable immediate-host sparse output storage;
+- synchronous adjacent grouped contraction over one or more paired boundary
+  factors, including simultaneous dense-axis lowering;
 - scheduler-batch contraction grouped by independently writable output block;
 - structure-preserving copy, zero, scaling, addition, AXPY, inner-product, and
   norm operations over immediate, mapped, and per-block async values; and
@@ -586,6 +588,20 @@ zero. Therefore an exact-pattern output incurs no preliminary whole-vector
 zero pass. Output storage must not overlap either input; direct same-object
 aliases are rejected.
 
+An immediate-host grouped form contracts a planar adjacent factor group:
+
+```cpp
+auto result = contract_adjacent<count>(left, right);
+contract_adjacent<count>(output, left, right);
+```
+
+It contracts the last `count` codomain factors of `left` with the first
+`count` domain factors of `right`. Every paired space value must be exactly
+equal. All paired block coordinates are matched together and all paired dense
+degeneracy axes are passed to one ordinary dense tensor contraction. The
+single-factor `contract<left_axis, right_axis>` interface remains the explicit
+axis form and has the same sparse semantics.
+
 When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
 front end retains the left input's async storage policy by default and returns
 its `BlockTensor` structure immediately. The first async numerical lowering
@@ -654,22 +670,16 @@ submitting any numerical work.
 
 ## 12. Initial Tensor-Network Aliases
 
-The intended aliases are conceptually:
+The implemented aliases in `src/uni20/tensor_network/site_types.hpp` are:
 
 ```cpp
-template<class T, CompleteBlockStorage Storage = /* packed host complete */>
-using AMatrix = BlockTensor<
-    T,
-    Domain<BlockSpace, LocalSpace>,
-    Codomain<BlockSpace>,
-    Storage>;
-
-template<class T, SparseBlockStorage Storage = /* packed host sparse */>
-using MpoSite = BlockTensor<
-    T,
-    Domain<LocalSpace, LocalSpace>,
-    Codomain<LocalSpace, LocalSpace>,
-    Storage>;
+MpsSite<Scalar, LeftBond, Physical, RightBond, Storage>
+MpoSite<Scalar, LeftAuxiliary, InputPhysical,
+        RightAuxiliary, OutputPhysical, Storage>
+TwoSiteCenter<Scalar, LeftBond, LeftPhysical,
+              RightPhysical, RightBond, Storage>
+TwoSiteLocalOperator<Scalar, LeftPhysical, RightPhysical, Storage>
+ScalarEnvironment<Scalar, Storage>
 ```
 
 The `MpoSite` domain order is `(left auxiliary, ket)` and its codomain order is
@@ -680,8 +690,12 @@ An `MPO` is a chain of `MpoSite` values. It validates exact equality of each
 site's right auxiliary space with the next site's left auxiliary space. The
 chain is a separate owner and is not another spelling of one `BlockTensor`.
 
-Environment aliases use the same three-factor kinds as an A-matrix but select
-a storage implementation which permits missing legal blocks.
+The first `TwoSiteEffectiveHamiltonian` applies a local operator to a fixed
+`TwoSiteCenter` through mapped physical-leg bends and
+`contract_adjacent<2>`. It supplies the output-first callable required by
+`krylov::BlockTensorMatrixFreeOps`. General MPO and environment contraction is
+the next layer; `ScalarEnvironment` represents only the trivial length-two
+boundary case.
 
 ## 13. Deferred Extensions
 
@@ -730,6 +744,7 @@ permutations, const propagation, and left/right bend involution. Permutation
 tests cover boundary types and labels, key resorting, dense strides, inverse
 permutations, and the tensor unit. Pairwise contraction tests cover both input
 storage policies, packed and separate output, dense matrix multiplication,
+adjacent two-factor contraction with two dense degeneracy axes,
 cross-sector sparsity, repeated local-state accumulation into a rank-zero
 result, exact-space rejection, planar external-boundary order, and synchronous
 scheduler batching grouped by output block under both a recording debug
@@ -747,6 +762,10 @@ The Krylov adapter tests freeze a two-sector U(1) vector structure, reject
 boundary or stored-pattern changes, and run that BlockTensor through the native
 symmetric Lanczos solver without dense projection. Its matrix-free operation
 uses fixed-output BlockTensor contraction with a block-diagonal U(1) operator.
+The first DMRG-shaped integration test applies a U(1) two-site Heisenberg
+operator, obtains the singlet through native BlockTensor Lanczos, repartitions
+the center to 2/2, materializes its staged block SVD, and reconstructs the
+center without losing either charge sector.
 Contraction tests also cover fixed-output structure preflight, output-only zero
 blocks, direct alias rejection, and async output epoch ordering.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable

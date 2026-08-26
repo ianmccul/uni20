@@ -109,6 +109,57 @@ TYPED_TEST(BlockTensorContractionTest, ContractsDenseBlockAxisAsMatrixMultiplica
   EXPECT_DOUBLE_EQ((separate_result.block(result_key)[1, 1]), 154.0);
 }
 
+TYPED_TEST(BlockTensorContractionTest, ContractsAdjacentFactorGroupWithMultipleDenseAxes)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const first_bond(sym, {{q0, 2}}, "first-bond");
+  BlockSpace const second_bond(sym, {{q0, 3}}, "second-bond");
+  BlockSpace const columns(sym, {{q0, 2}}, "columns");
+
+  using Left =
+      BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace, BlockSpace>, typename TypeParam::left_storage>;
+  using Right =
+      BlockTensor<double, Domain<BlockSpace, BlockSpace>, Codomain<BlockSpace>, typename TypeParam::right_storage>;
+  typename Left::key_type const left_key{{0, 0, 0}};
+  typename Right::key_type const right_key{{0, 0, 0}};
+  Left left(sym, Domain{rows}, Codomain{first_bond, second_bond}, {left_key});
+  Right right(sym, Domain{first_bond, second_bond}, Codomain{columns}, {right_key});
+
+  auto left_block = left.block(left_key);
+  auto right_block = right.block(right_key);
+  for (std::size_t row = 0; row < 2; ++row)
+    for (std::size_t first = 0; first < 2; ++first)
+      for (std::size_t second = 0; second < 3; ++second)
+      {
+        left_block[row, first, second] = static_cast<double>(20 * row + 4 * first + second + 1);
+        for (std::size_t column = 0; column < 2; ++column)
+          right_block[first, second, column] = static_cast<double>(10 * first + 3 * second + column + 1);
+      }
+
+  auto result = contract_adjacent<2>(left, right);
+  using Result = decltype(result);
+  static_assert(std::same_as<typename Result::domain_type, Domain<BlockSpace>>);
+  static_assert(std::same_as<typename Result::codomain_type, Codomain<BlockSpace>>);
+  typename Result::key_type const result_key{{0, 0}};
+  auto result_block = result.block(result_key);
+  for (std::size_t row = 0; row < 2; ++row)
+    for (std::size_t column = 0; column < 2; ++column)
+    {
+      double expected = 0.0;
+      for (std::size_t first = 0; first < 2; ++first)
+        for (std::size_t second = 0; second < 3; ++second)
+          expected += left_block[row, first, second] * right_block[first, second, column];
+      EXPECT_DOUBLE_EQ((result_block[row, column]), expected);
+    }
+
+  Result fixed(sym, Domain{rows}, Codomain{columns}, {result_key});
+  fixed.block(result_key)[0, 0] = -1.0;
+  contract_adjacent<2>(fixed, left, right);
+  EXPECT_DOUBLE_EQ((fixed.block(result_key)[0, 0]), (result_block[0, 0]));
+}
+
 TEST(BlockTensorContractionTest, ContractsRealDiagonalBlocksWithComplexDenseBlocks)
 {
   Symmetry const sym{"N:U(1)"};
@@ -116,8 +167,7 @@ TEST(BlockTensorContractionTest, ContractsRealDiagonalBlocksWithComplexDenseBloc
   BlockSpace const rows(sym, {{q0, 2}}, "rows");
   BlockSpace const bond(sym, {{q0, 2}}, "bond");
   BlockSpace const columns(sym, {{q0, 2}}, "columns");
-  using Diagonal =
-      BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using Diagonal = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
   using Scalar = uni20::complex<double>;
   using Dense = BlockTensor<Scalar, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   typename Diagonal::key_type const diagonal_key{{0, 0}};

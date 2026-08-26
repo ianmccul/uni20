@@ -220,18 +220,18 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
 - Integrate future CUDA/MPI external waits with watchdog state so a legitimate
   device or communication wait is not diagnosed as stalled CPU dataflow.
 
-### 4. Implement the symmetry-aware block tensor
+### 4. Extend the symmetry-aware block tensor
 
-The symmetry layer has quantum-number and block-space foundations but no
-complete block-sparse Tensor execution path.
+The first bosonic U(1) immediate-host BlockTensor path is implemented, including
+sparse storage, mapped views, linear operations, adjacent contraction, staged
+block SVD, and matrix-free Krylov vector algebra. Remaining work is to extend
+that path without weakening its symmetry metadata contract.
 
-- Implement the `BlockTensor` data model with typed legs, explicit legal block
-  keys, placement metadata, and one layout/memory plan.
-- Generate dense block work only after applying the applicable selection rules.
-- Lower legal block operations into the existing raw dense operation and kernel
-  dispatch layers.
+- Add complete storage, the remaining planned space kinds, and broader
+  operation coverage.
+- Extend block worklists and placement records to CUDA and MPI storage.
 - Preserve quantum numbers, local spaces, orientations, and logical block keys
-  through worklists and backend lowering.
+  through every new backend lowering.
 - Keep any dense projection explicitly diagnostic and prevent it from feeding
   back into the symmetry-aware calculation.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
@@ -254,9 +254,8 @@ resident CUDA execution, and MPI-aware block placement. The goal is behavioral
 and performance parity through Uni20's current architecture without retaining
 the external TensorContraction implementation.
 
-- Establish a dense CPU two-site DMRG path first, using `Tensor`,
-  `Async<Tensor>`, dispatched dense kernels, matrix-free Krylov, and
-  `truncated_svd`.
+- Generalize the implemented U(1) length-two local-Hamiltonian/Lanczos/block-SVD
+  checkpoint to left/right environments and adjacent MPO sites.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware

@@ -33,7 +33,7 @@ guides define the exact contracts.
 | Scalar support | `float32`, `float64`, real and complex paths are first-class. Configured MPLAPACK builds add binary128 probes and selected dense/Krylov paths. |
 | Presentation and diagnostics | Implemented semantic reports, terminal/plain/ASCII rendering, width-aware tables, mdspan previews, structured kernel errors, source locations, and optional stacktrace formatting. |
 | Reverse-mode AD | Async value-level `Var<T>` and `ReverseValue<T>` foundations are implemented and tested. Tensor linalg differentiation is not yet wired through the operation layer. |
-| Symmetry and block sparsity | Quantum-number, U(1), block-space, local-space, and selection-rule foundations exist. A complete symmetry-aware `BlockTensor` and its lowering pipeline remain design work. |
+| Symmetry and block sparsity | Implemented bosonic U(1) `BlockTensor` host slice with typed domain/codomain spaces, sparse and packed block storage, mapped permutation/repartition views, structure-preserving linear operations, adjacent contraction, diagonal-block storage, staged block SVD, and matrix-free Krylov adaptation. CUDA, MPI, complete storage, and broader symmetry categories remain future work. |
 | Python | Nanobind smoke bindings and build metadata are implemented. Tensor operations, async values, packaging, and notebook display are future work. |
 | CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, stream and provider-resource awaiters, unified debug/oneTBB host/multi-device task schedulers, `CudaTensor` storage, and blocking or coroutine-aware cuBLAS matrix-product lowering are implemented. General CUDA Tensor kernel coverage, cuSOLVER operations, and distributed tensor execution remain future work. |
 
@@ -137,10 +137,10 @@ a complete tensor-network application suite. In particular:
 - There is no implicit host fallback for future device tensors and no implicit
   dense fallback for symmetry-aware tensors.
 - Python validates only the extension and build-information boundary today.
-- The `tensorcontraction-integration` branch contains a functional
-  MPI+CUDA+U(1) DMRG reference implementation, but that workflow is not yet
-  rebuilt through the pure-Uni20 Tensor, Async, dispatch, symmetry, CUDA, and
-  distributed-execution layers on `main`.
+- The first pure-Uni20 U(1) length-two local-Hamiltonian/Lanczos/block-SVD path
+  is implemented. The `tensorcontraction-integration` branch remains the
+  functional MPI+CUDA+U(1) finite-DMRG reference; environments, sweeps,
+  resident CUDA, and distributed execution are not yet rebuilt on `main`.
 
 ## Where to Continue
 

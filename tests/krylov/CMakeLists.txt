@@ -21,9 +21,11 @@ target_compile_definitions(uni20_krylov_tests PRIVATE
 add_test_module(krylov_block_tensor
   SOURCES
     test_block_tensor_vector.cpp
+    test_two_site_dmrg_slice.cpp
   LIBS
     uni20_krylov
     uni20_symmetry
+    uni20_tensor_network
 )
 
 if(UNI20_ENABLE_MPLAPACK)

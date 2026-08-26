@@ -1,11 +1,11 @@
 # Tensor-Network Documentation
 
-This directory combines current tensor-network design constraints with the
-functional reference implementation on the `tensorcontraction-integration`
-branch. Its MPS, MPO, DMRG, CUDA, MPI, model, and sparse-matrix code is not
-present on `main`, but it is not obsolete: it defines behavior, benchmarks, and
-capabilities that Uni20 intends to reproduce through its current Tensor,
-symmetry, dispatch, Async, CUDA, and distributed-execution architecture.
+This directory combines current tensor-network design constraints, the first
+pure-Uni20 BlockTensor DMRG-shaped path, and the functional reference
+implementation on the historical `tensorcontraction-integration` branch. The
+reference branch still defines later finite-sweep, CUDA, MPI, and performance
+targets; new implementation work uses the current Tensor, symmetry, dispatch,
+Async, CUDA, and distributed-execution architecture.
 
 ## Current Main-Branch Foundations
 
@@ -13,8 +13,10 @@ symmetry, dispatch, Async, CUDA, and distributed-execution architecture.
   foundations that are present on `main`.
 - [Tensor Operations](../tensor/operations.md) and
   [Tensor-Network Linear Algebra API Survey](../linalg/tensor_network_api_survey.md)
-  document the dense kernels, including truncating SVD, needed by the first
-  pure-Uni20 dense CPU DMRG path.
+  document the dense kernels used below BlockTensor operations.
+- [First Pure-Uni20 Two-Site DMRG Slice](two_site_dmrg_vertical_slice.md)
+  documents the implemented U(1) local-Hamiltonian, Lanczos, and staged
+  block-SVD integration checkpoint.
 
 ## TensorContraction Integration Reference
 

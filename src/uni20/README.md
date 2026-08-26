@@ -34,6 +34,8 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
   and front-end operations.
 - [`symmetry/`](symmetry/): quantum-number, block-space, U(1), and symmetry-factor
   infrastructure.
+- [`tensor_network/`](tensor_network/): canonical MPS/MPO/center aliases and
+  tensor-network algorithms built from BlockTensor operations.
 
 ## Layering Notes
 
