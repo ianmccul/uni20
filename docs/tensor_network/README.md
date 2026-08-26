@@ -49,12 +49,13 @@ Async, CUDA, and distributed-execution architecture.
 - [R/A/B/C Lanczos Fixtures](rabc_lanczos_fixtures.md) records the capture and
   replay workflow used to preserve numerical and performance evidence.
 
-The complete R/A/B/C and DMRG executables remain runnable only on the
+The resident CUDA/MPI R/A/B/C fixture executors remain runnable only on the
 integration branch. Pure Uni20 now implements immediate-host directional
 environment updates, validated finite MPS/MPO owners, directional environment
-caches, a fixed-center R/A/B/C term compiler, a matrix-free Krylov solve,
-selected block-SVD pair replacement, directional two-site traversal, and an
-alternating terminal-energy convergence driver. The remaining goal includes
+caches, a fixed-center sparse R/A/B/C compiler and dispatched host executor, a
+matrix-free Krylov solve, selected block-SVD pair replacement, directional
+two-site traversal, and an alternating terminal-energy convergence driver. The
+remaining goal includes
 post-truncation measurement, general initial-state canonicalization, resident
 CUDA execution, MPI placement, and full benchmark integration without
 retaining the external TensorContraction code lineage. The integration branch's

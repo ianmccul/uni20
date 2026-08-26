@@ -187,17 +187,25 @@ constexpr auto kernel_type_candidates(BackendSelector&& selector, Op const&, Arg
   return result;
 }
 
-/// \brief Probe whether a backend selector can dispatch an operation for the argument types.
+/// \brief Probe whether a backend selector type can dispatch operation argument types.
 /// \details Returns `yes` if any backend accepts all runtime instances, `maybe`
 ///          if at least one backend may accept an instance, and `no` otherwise.
-///          Argument values and backend state are not inspected. A single backend
-///          value is normalized to a one-entry backend list.
-template <class BackendSelector, class Op, class... Args>
-constexpr KernelTypeAcceptance probe_dispatch_kernel(BackendSelector&&, Op const&, Args&&...)
+///          A single backend type is normalized to a one-entry backend list.
+template <class BackendSelector, class Op, class... Args> consteval KernelTypeAcceptance probe_dispatch_kernel_types()
 {
   using backends_type = detail::normalized_backend_selector_t<BackendSelector>;
   static_assert(is_backend_list_v<backends_type>, "backend selectors must normalize to backend_list");
   return detail::probe_backend_list_types<std::remove_cvref_t<Op>, Args...>(std::type_identity<backends_type>{});
+}
+
+/// \brief Probe whether a backend selector can dispatch an operation for the argument types.
+/// \details This value-oriented convenience overload delegates to
+///          `probe_dispatch_kernel_types`; argument values and backend state are
+///          not inspected.
+template <class BackendSelector, class Op, class... Args>
+constexpr KernelTypeAcceptance probe_dispatch_kernel(BackendSelector&&, Op const&, Args&&...)
+{
+  return probe_dispatch_kernel_types<BackendSelector, Op, Args...>();
 }
 
 namespace detail

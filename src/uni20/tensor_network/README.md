@@ -36,10 +36,14 @@ in `linalg/` and `kernel/`; Krylov solvers continue to treat BlockTensor vectors
 as opaque.
 
 The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
-stored keys into a fixed-center R/A/B/C term plan. Its first execution policy
-is left-first and allocates a dense matrix temporary per term. Reuse-aware
-planning, post-truncation measurement, general initial-state canonicalization,
-CUDA placement, and MPI distribution remain separate extensions.
+stored keys into an immutable sparse `f(r,a,b,c)` plan using coordinate-indexed
+joins. Application lowers through `rabc_contract_op`. The first backend is a
+host right-first executor that forms each distinct `B_b * transpose(C_c)` once
+per application and then batches independent output-block accumulations. The
+logical plan contains no contraction-order or placement decision. Persistent
+scratch, left-first/hybrid planning, post-truncation measurement, general
+initial-state canonicalization, CUDA placement, and MPI distribution remain
+separate extensions.
 
 The corresponding contracts and implementation status are indexed in the
 [tensor-network documentation](../../../docs/tensor_network/).

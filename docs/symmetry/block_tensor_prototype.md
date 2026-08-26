@@ -720,9 +720,11 @@ The first `LocalTwoSiteEffectiveHamiltonian` applies a local operator to a fixed
 `contract_adjacent<2>`. It supplies the output-first callable required by
 `krylov::BlockTensorMatrixFreeOps`. The general `TwoSiteEffectiveHamiltonian`
 joins two `MpoSite` values and two `MpoEnvironment` values into a fixed-center
-R/A/B/C term plan. The current immediate-host executor evaluates each term
-left-first through dispatched dense contractions; it neither flattens the
-center nor constructs a high-rank BlockTensor intermediate.
+R/A/B/C coefficient plan. It snapshots and coalesces the sparse
+`f(r,a,b,c)` entries, then lowers application through `rabc_contract_op`. The
+current host backend reuses right-first `(B,C)` intermediates and batches
+independent output blocks through dispatched dense contractions; it neither
+flattens the center nor constructs a high-rank BlockTensor intermediate.
 
 `make_identity_mpo_environment`, `extend_left_environment`, and
 `extend_right_environment` provide the first environment-construction
