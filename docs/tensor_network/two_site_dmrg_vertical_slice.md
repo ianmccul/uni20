@@ -131,10 +131,19 @@ same site for expectation values. See
 [MPO Environment Updates](environment_updates.md) for the exact key joins and
 dense formulas.
 
+## Finite-Chain Cache Checkpoint
+
+`FiniteMps`, `FiniteMpo`, and `MpoEnvironmentCache` now provide validated chain
+ownership, complete or lazy left/right cache construction, and exact
+revision-based invalidation. Adjacent MPS sites can be replaced atomically while
+changing only their shared internal bond. See
+[Finite Chains And Environment Caches](finite_chains.md).
+
 ## Next Boundary
 
-The next finite-DMRG layer is chain ownership and environment-cache management:
-build complete left/right caches, absorb selected SVD factors according to
-sweep direction, replace adjacent sites, and invalidate or refresh only the
-affected cache entries. The term and environment plans can then be optimized
-independently with reusable intermediates, placement, CUDA, and MPI execution.
+The next finite-DMRG layer must absorb selected SVD factors according to sweep
+direction, construct the two replacement sites, and install them through the
+adjacent-pair mutation boundary. A first sweep driver can then reuse the left
+and right cache entries outside the active pair. Term and environment plans can
+be optimized independently with reusable intermediates, placement, CUDA, and
+MPI execution.

@@ -19,6 +19,9 @@ Async, CUDA, and distributed-execution architecture.
   Hamiltonian, Lanczos, and staged block-SVD integration checkpoints.
 - [MPO Environment Updates](environment_updates.md) specifies identity
   boundaries and the implemented left/right symmetry-preserving updates.
+- [Finite Chains And Environment Caches](finite_chains.md) specifies validated
+  MPS/MPO ownership, revision-tracked replacement, lazy directional cache
+  construction, and exact invalidation ranges.
 
 ## TensorContraction Integration Reference
 
@@ -36,11 +39,12 @@ Async, CUDA, and distributed-execution architecture.
 
 The complete R/A/B/C and DMRG executables remain runnable only on the
 integration branch. Pure Uni20 now implements immediate-host directional
-environment updates, a fixed-center R/A/B/C term compiler, and a matrix-free
-Krylov checkpoint, but not yet finite-chain environment caches or sweeps. The
-remaining goal includes resident CUDA execution, MPI placement, and full sweep
-integration without retaining the external TensorContraction code lineage. The
-integration branch's measured behavior feeds the
+environment updates, validated finite MPS/MPO owners, directional environment
+caches, a fixed-center R/A/B/C term compiler, and a matrix-free Krylov
+checkpoint, but not yet site replacement from selected SVD factors or sweeps.
+The remaining goal includes resident CUDA execution, MPI placement, and full
+sweep integration without retaining the external TensorContraction code
+lineage. The integration branch's measured behavior feeds the
 [architecture](../architecture/) and [symmetry](../symmetry/) designs and
 supplies regression targets for that work.
 

@@ -11,17 +11,21 @@ Current entry points:
   `TwoSiteCenter`, `TwoSiteLocalOperator`, and `ScalarEnvironment` aliases.
 - `environment.hpp`: identity boundary environments and immediate-host sparse
   left/right updates with distinct or shared bra/ket MPS sites.
+- `finite_chain.hpp`: validated homogeneous finite MPS and MPO owners with
+  revision-tracked site and adjacent-pair replacement.
+- `environment_cache.hpp`: lazy or complete directional environment caches
+  with exact revision-based invalidation.
 - `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
   MPO/environment two-site apply objects.
 
-Chain ownership, MPO compilation, environment-cache management, and sweep
-policy belong here when implemented. Generic symmetry selection and
-BlockTensor operations remain in `symmetry/`; tensor-network connectivity is
-planned here; dense numerical kernels remain in `linalg/` and `kernel/`;
-Krylov solvers continue to treat BlockTensor vectors as opaque.
+MPO compilation and sweep policy belong here when implemented. Generic
+symmetry selection and BlockTensor operations remain in `symmetry/`;
+tensor-network connectivity is implemented here; dense numerical kernels remain
+in `linalg/` and `kernel/`; Krylov solvers continue to treat BlockTensor vectors
+as opaque.
 
 The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
 stored keys into a fixed-center R/A/B/C term plan. Its first execution policy
 is left-first and allocates a dense matrix temporary per term. Reuse-aware
-planning, finite-chain cache construction, CUDA placement, and MPI distribution
-remain separate extensions.
+planning, SVD-driven site replacement, sweep traversal, CUDA placement, and MPI
+distribution remain separate extensions.

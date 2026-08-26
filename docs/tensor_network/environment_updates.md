@@ -29,8 +29,8 @@ right boundary states of a triangular MPO need not have the same auxiliary
 index.
 
 The first implementation accepts `BlockSpace` bonds, a `LocalSpace` auxiliary,
-and immediate sparse host output storage. A finite MPO-chain owner will later
-select the appropriate boundary state and call this primitive.
+and immediate sparse host output storage. `MpoEnvironmentCache` selects the two
+finite-chain boundary states explicitly and calls this primitive.
 
 ## Directional Updates
 
@@ -98,6 +98,10 @@ dense temporary per contribution. This is the correctness reference. Indexed
 joins, intermediate reuse, alternative multiplication order, async block
 epochs, CUDA placement, and MPI-distributed environments remain later
 execution-policy work.
+
+Finite-chain ownership, lazy or complete directional construction, and
+revision-based invalidation are specified in
+[Finite Chains And Environment Caches](finite_chains.md).
 
 ## Validation
 
