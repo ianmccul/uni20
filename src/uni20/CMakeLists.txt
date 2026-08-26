@@ -34,8 +34,9 @@ add_subdirectory(kernel)
 add_subdirectory(linalg)
 add_subdirectory(krylov)
 add_subdirectory(tensor_network)
+add_subdirectory(models)
 
-target_link_libraries(uni20 PUBLIC uni20_krylov uni20_tensor_network)
+target_link_libraries(uni20 PUBLIC uni20_krylov uni20_models uni20_tensor_network)
 
 # Configure the header file. We need to do this last, because subdirectories may set their own variables.
 if(NOT UNI20_BACKEND_BLAS OR

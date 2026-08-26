@@ -22,6 +22,10 @@ Current entry points:
 - `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
   MPO/environment two-site apply objects.
 
+Concrete physical-model constructors live one layer above this module in
+`models/`; they return these ordinary finite-chain owners rather than defining
+parallel tensor-network containers.
+
 MPO compilation and sweep policy belong here. Generic symmetry selection and
 BlockTensor operations remain in `symmetry/`;
 tensor-network connectivity is implemented here; dense numerical kernels remain

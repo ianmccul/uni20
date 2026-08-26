@@ -1,165 +1,125 @@
-# TensorContraction Integration Model Layer
+# Spin-Half Model Builders
 
-**Status:** functional integration-branch reference. The spin-half, Heisenberg,
-Fermi-Hubbard, and triangular-MPO helpers described here are not present on
-`main`. Their charge conventions, fermion signs, sectors, and model behavior
-are specifications for rebuilding the model layer over Uni20's current
-symmetry and Tensor APIs.
+**Status:** implemented U(1) spin-half construction checkpoint. The historical
+`tensorcontraction-integration` branch remains the reference for later
+U(1)xU(1) Fermi-Hubbard builders.
 
-## Scope
+The model layer constructs symmetry-aware finite-chain values over the ordinary
+`BlockTensor`, `FiniteMps`, and `FiniteMpo` types. It does not introduce a
+second tensor representation.
 
-This layer is intentionally narrow.
+## Local Space
 
-- `SpinHalfSite` is the first concrete local model bundle.
-- `make_spin_half_u1_site()` constructs a U(1)-symmetric spin-1/2 local space and
-  its standard symmetry-pure local operators.
-- `make_spin_half_heisenberg_bulk_component()` and
-  `make_spin_half_heisenberg_mpo()` provide the first hand-built triangular MPO
-  path for DMRG.
-- `FermiHubbardSite` is the first U(1)xU(1) local model bundle.
-- `make_fermi_hubbard_u1u1_site()` constructs the spinful fermion local space,
-  parity operator, creation/annihilation operators, and parity-modified hopping
-  operators.
-- `make_fermi_hubbard_bulk_component()` and `make_fermi_hubbard_mpo()` provide a
-  nearest-neighbor Fermi-Hubbard triangular MPO path for block-sparse DMRG.
+`models::make_spin_half_u1_site()` returns `SpinHalfU1Site`, containing:
 
-This is not the final long-term model hierarchy.
+- the chosen one-component U(1) `Symmetry`;
+- a `LocalSpace` ordered as `|up>`, `|down>`;
+- the corresponding `+1/2` and `-1/2` `QNum` values.
 
-## SpinHalfSite
+The component name defaults to `"Sz"`. The explicit ordering is used by the
+MPS and MPO builders, while all legality still follows from the stored quantum
+numbers rather than positional assumptions in contraction code.
 
-`uni20::SpinHalfSite` bundles:
-
-- `symmetry`
-- `space`
-- `up`, `down`
-- `identity`
-- `sz`
-- `sp`
-- `sm`
-- `sigma_z`
-
-The local states are ordered as:
-
-- `|up>` with `Sz = +1/2`
-- `|down>` with `Sz = -1/2`
-
-under the chosen U(1) component name, which defaults to `"Sz"`.
-
-## Symmetry-Pure Operators Only
-
-The prototype `LocalOperator` type always carried one definite `transforms_as()`
-label, so only symmetry-pure local operators are representable directly.
-
-That means:
-
-- `I`
-- `Sz`
-- `S+`
-- `S-`
-- `sigma_z`
-
-fit naturally in that U(1) layer.
-
-But operators such as `Sx`, `Sy`, `sigma_x`, and `sigma_y` do not transform as a
-single U(1) charge, so they are not represented as one `LocalOperator` here.
-
-The same rule applies to the Hubbard helpers. Each creation or annihilation
-operator carries one definite `(N,Sz)` transform charge. Fermion parity is a
-separate scalar local operator used to encode the nearest-neighbor
-Jordan-Wigner sign convention in the MPO.
-
-## Spin-1/2 Heisenberg MPO
-
-`make_spin_half_heisenberg_bulk_component(site, j, hz)` builds one repeated
-upper-triangular site component for the Hamiltonian
-
-`H = J sum_i [ 1/2 (S^+_i S^-_{i+1} + S^-_i S^+_{i+1}) + S^z_i S^z_{i+1} ] + h_z sum_i S^z_i`
-
-with virtual channel order:
-
-- `0`
-- `-1`
-- `+1`
-- `0`
-- `0`
-
-interpreted as:
-
-- start
-- pending `S^-`
-- pending `S^+`
-- pending `S^z`
-- finish
-
-`make_spin_half_heisenberg_mpo(length, site, j, hz)` then constructs a finite
-triangular MPO by repeating this same bulk component at every site.
-
-## U(1)xU(1) Fermi-Hubbard MPO
-
-`make_fermi_hubbard_u1u1_site()` follows the Matrix Product Toolkit
-`FermionU1U1` convention:
-
-- symmetry factors are `N:U(1),Sz:U(1)` by default
-- local states are ordered as `|0>`, `|up down>`, `|down>`, `|up>`
-- charges are `(0,0)`, `(2,0)`, `(1,-1/2)`, `(1,+1/2)`
-- `P=(-1)^N` is stored as an explicit scalar local operator
-
-The down-spin creation convention includes the local fermion sign:
-
-```text
-CHdown |0>  = |down>
-CHdown |up> = -|up down>
+```cpp
+auto const local = models::make_spin_half_u1_site();
 ```
 
-`make_fermi_hubbard_bulk_component(site, t, U)` builds one repeated
-upper-triangular component for
+## Néel Product MPS
+
+`models::make_neel_product_mps()` constructs an alternating normalized product
+state. Its default pattern is
 
 ```text
-H = -t sum_i,sigma (c^dagger_i,sigma c_{i+1,sigma}
-                    + c^dagger_{i+1,sigma} c_{i,sigma})
-    + U sum_i n_i,up n_i,down
+|up down up down ...>
 ```
 
-The virtual channel order is:
-
-- `0`
-- `Cup`
-- `CHup`
-- `Cdown`
-- `CHdown`
-- `0`
-
-The hopping channels store `O_i P_i` on the left site and the complementary
-fermion operator on the right site. This explicitly encodes the adjacent-site
-Jordan-Wigner sign and matches the Matrix Product Toolkit convention
-`-dot(CH(0), C(1)) + dot(C(0), CH(1))`.
-
-`make_fermi_hubbard_mpo(length, site, t, U)` constructs a finite triangular MPO
-by repeating this same bulk component at every site.
-
-The integration-branch `fermi_hubbard_u1u1_dmrg` example targeted the half-filled
-spin-zero sector. For an even chain length `L`, it initializes the strict
-U(1)xU(1) path from the alternating product state
+and `SpinHalfState::down` selects the opposite first state. Every site contains
+one scalar block of value one. Bond `i` contains one dimension-one sector whose
+charge is the cumulative sum of physical charges to its left:
 
 ```text
-|up>, |down>, |up>, |down>, ...
+q_bond(0) = 0
+q_bond(i+1) = q_bond(i) + q_physical(i)
 ```
 
-The cumulative MPS bond convention is `q_right = q_left + q_physical`, so this
-sets the final right boundary sector to `(N=L, Sz=0)`. Two-site SVD truncation
-then rebuilds intermediate bond spaces only from symmetry-allowed SVD sectors,
-so the sweep remains in that total sector. Odd lengths are rejected by the
-example because half filling with `Sz=0` is not possible for the alternating
-single-occupancy seed.
+Consequently each stored key obeys the MPS selection rule
+`q_right = q_left + q_physical`, and the final boundary records the total-charge
+sector. The rank-one state is normalized and both left- and right-canonical.
+This is the intended initial state for the first finite DMRG driver, so that
+driver does not require a separate canonicalization pass.
 
-## Boundary Convention
+```cpp
+auto mps = models::make_neel_product_mps(20, local);
+```
 
-The prototype first-pass builder kept the bulk virtual space unchanged at the
-boundaries rather than reducing the bond dimension there.
+## Open Heisenberg MPO
 
-This is deliberate:
+`models::make_spin_half_heisenberg_mpo()` constructs
 
-- it keeps the implementation simple
-- it matches the immediate DMRG prototype needs
-- boundary-specific optimizations can be added later without changing the bulk
-  operator layout
+```text
+H = J sum_i [S_i^z S_(i+1)^z
+             + 1/2 (S_i^+ S_(i+1)^- + S_i^- S_(i+1)^+)]
+    + h_z sum_i S_i^z
+```
+
+as a sparse `FiniteMpo`. The five-state interior auxiliary is ordered as:
+
+| Coordinate | Charge | Meaning |
+|---:|---:|---|
+| 0 | 0 | start |
+| 1 | -1 | pending `S-` channel, opened by `S+` |
+| 2 | +1 | pending `S+` channel, opened by `S-` |
+| 3 | 0 | pending `Sz` channel |
+| 4 | 0 | finish |
+
+In left-auxiliary row and right-auxiliary column order, the bulk operator is:
+
+```text
+[ I   S+   S-   Sz   h_z Sz ]
+[ 0    0    0    0   J/2 S- ]
+[ 0    0    0    0   J/2 S+ ]
+[ 0    0    0    0   J Sz   ]
+[ 0    0    0    0   I      ]
+```
+
+The left and right boundary auxiliary spaces each contain one scalar state.
+The first site retains the start row, the last site retains the finish column,
+and boundary coordinate zero therefore selects exactly the open-chain
+Hamiltonian. This is the boundary convention consumed directly by
+`MpoEnvironmentCache(mps, mpo, 0, 0)`.
+
+```cpp
+auto const mpo = models::make_spin_half_heisenberg_mpo(20, local, 1.0);
+tensor_network::MpoEnvironmentCache environments(mps, mpo, 0, 0);
+```
+
+For a one-site chain only the longitudinal-field term remains. A zero-length
+MPS or MPO is rejected. Couplings are real even when the requested storage
+scalar is complex, preserving the Hermitian model contract required by the
+current symmetric Lanczos DMRG path.
+
+## Storage And Labels
+
+Both builders currently return packed sparse host storage. This makes the
+small rank-one MPS and scalar MPO blocks immediately usable by the current host
+environment and sweep implementations while retaining the ordinary storage
+policy boundary for later builders.
+
+Every constructed leg receives a stable string label. Shared MPS and MPO bonds
+use exactly equal copied space values, including that label, so finite-chain
+connectivity validation remains strict. Directional SVD replacement preserves
+the internal MPS bond label.
+
+## Later Models
+
+The next model checkpoint can rebuild the integration branch's U(1)xU(1)
+Fermi-Hubbard convention:
+
+- local states `|0>`, `|up down>`, `|down>`, `|up>`;
+- charges `(0,0)`, `(2,0)`, `(1,-1/2)`, `(1,+1/2)`;
+- explicit fermion parity and signed down-spin creation;
+- pending hopping channels in a triangular MPO.
+
+That work should reuse the current `FiniteMps`/`FiniteMpo` construction surface
+and preserve its two symmetry factors. It must not lower the U(1)xU(1) state to
+a dense no-symmetry model.

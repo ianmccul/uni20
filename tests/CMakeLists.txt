@@ -14,6 +14,7 @@ add_subdirectory(backend)
 add_subdirectory(async)
 add_subdirectory(linalg)
 add_subdirectory(krylov)
+add_subdirectory(models)
 
 if(UNI20_BUILD_PYTHON)
   add_subdirectory(python)

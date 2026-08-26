@@ -260,6 +260,9 @@ the external TensorContraction implementation.
 - Extend the implemented finite-chain owners, revision-aware directional
   environment caches, selected-SVD factor absorption, and directional sweep
   traversal with convergence and post-truncation measurement.
+- Extend the implemented U(1) spin-half local-space, Néel product-MPS, and
+  reduced-boundary Heisenberg-MPO builders into an end-to-end converged sweep
+  driver and later model families.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware

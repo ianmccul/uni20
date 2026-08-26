@@ -28,13 +28,16 @@ Async, CUDA, and distributed-execution architecture.
 - [Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md) specifies local
   ground-state solving, mutation boundaries, traversal order, and incremental
   environment refresh.
+- [Spin-Half Model Builders](models.md) specifies the implemented U(1) local
+  space, normalized Néel product MPS, and reduced-boundary open Heisenberg MPO.
 
 ## TensorContraction Integration Reference
 
-- [Sparse Matrices](sparse_matrix.md), [Local Operators](operators.md),
-  [Models](models.md), and [Finite MPS and DMRG](mps.md) document the functional
-  branch implementation. They are capability and migration references, not a
-  source inventory for `main`.
+- [Sparse Matrices](sparse_matrix.md), [Local Operators](operators.md), and
+  [Finite MPS and DMRG](mps.md) document the functional branch implementation.
+  They are capability and migration references, not a source inventory for
+  `main`. The model guide above now distinguishes its implemented spin-half
+  surface from later integration-branch model targets.
 - [TensorContraction Integration Findings](contraction_integration_findings.md)
   records measured conclusions from the working CUDA/MPI integration.
 - [R/A/B/C Contraction Scheduling](rabc_contraction_scheduling.md) develops the
@@ -58,4 +61,5 @@ supplies regression targets for that work.
 Relevant current source foundations are the
 [dense Tensor layer](../../src/uni20/tensor/),
 [symmetry metadata](../../src/uni20/symmetry/), and
-[low-level tensor kernels](../../src/uni20/kernel/).
+[low-level tensor kernels](../../src/uni20/kernel/). Current physical-model
+construction lives in the [model layer](../../src/uni20/models/).
