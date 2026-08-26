@@ -1,12 +1,13 @@
 # TensorContraction Integration Finite-MPS and DMRG
 
 **Status:** functional reference implementation on the
-`tensorcontraction-integration` branch. None of the MPS, MPO, environment,
-TensorContraction, CUDA/MPI DMRG classes, or executables named below are present
-on `main`. Uni20 intends to reproduce this capability set in pure Uni20. The
-first dense CPU path should use the current `Tensor`, kernel-dispatch, Async,
-Krylov, and truncating-SVD layers; the later symmetry-aware path must recover
-the integration branch's U(1), resident CUDA, MPI placement, and block-sparse
+`tensorcontraction-integration` branch. The legacy finite-chain,
+TensorContraction, CUDA/MPI DMRG classes, and executables described below are
+not present on `main`. Current pure-Uni20 BlockTensor site types, environment
+updates, effective-Hamiltonian apply, Krylov integration, and staged block SVD
+are documented in [First Pure-Uni20 Two-Site DMRG Slice](two_site_dmrg_vertical_slice.md)
+and [MPO Environment Updates](environment_updates.md). The remaining work must
+recover the integration branch's resident CUDA, MPI placement, and full sweep
 behavior without mechanically copying its external bridge architecture.
 
 ## Scope

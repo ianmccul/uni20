@@ -122,10 +122,19 @@ relevant to the fixed total-charge-one center and reproduces the same `-3/4`
 Lanczos ground state as the local-operator path. A separate two-dimensional
 bond test verifies the exact `A * B * transpose(C)` dense geometry.
 
+## Environment Update Checkpoint
+
+Identity boundaries plus left and right `MpoEnvironment` updates are now
+implemented as symmetry-preserving sparse BlockTensor operations. Each update
+accepts distinct bra and ket MPS sites, while a convenience overload uses the
+same site for expectation values. See
+[MPO Environment Updates](environment_updates.md) for the exact key joins and
+dense formulas.
+
 ## Next Boundary
 
-The next finite-DMRG layer is chain ownership and environment construction:
-build and update left/right `MpoEnvironment` values from MPS/MPO sites, absorb
-selected SVD factors according to sweep direction, and replace adjacent sites.
-The term plan can then be optimized independently with reusable left/right
-intermediates, placement, CUDA, and MPI execution.
+The next finite-DMRG layer is chain ownership and environment-cache management:
+build complete left/right caches, absorb selected SVD factors according to
+sweep direction, replace adjacent sites, and invalidate or refresh only the
+affected cache entries. The term and environment plans can then be optimized
+independently with reusable intermediates, placement, CUDA, and MPI execution.

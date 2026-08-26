@@ -700,6 +700,14 @@ R/A/B/C term plan. The current immediate-host executor evaluates each term
 left-first through dispatched dense contractions; it neither flattens the
 center nor constructs a high-rank BlockTensor intermediate.
 
+`make_identity_mpo_environment`, `extend_left_environment`, and
+`extend_right_environment` provide the first environment-construction
+primitives. They join only stored environment, MPS, and MPO keys, allocate the
+reachable output pattern, and lower each dense contribution through ordinary
+tensor contraction dispatch. The bra MPS site is conjugated lazily. Primary
+overloads permit distinct bra and ket sites; convenience overloads use one MPS
+site for both.
+
 ## 13. Deferred Extensions
 
 The first prototype deliberately defers:
@@ -773,6 +781,9 @@ The general effective-Hamiltonian test factors the same interaction into
 neutral and charge-changing MPO channels, compiles environment/MPO paths into
 the fixed center pattern, rejects a non-closed pattern, and verifies
 nontrivial dense environment multiplication with scheduler-batched output.
+Environment tests construct multi-sector identity boundaries, update a U(1)
+Heisenberg product state from both directions, verify complex bra conjugation,
+accumulate repeated physical paths, and exercise nontrivial dense bond sizes.
 Contraction tests also cover fixed-output structure preflight, output-only zero
 blocks, direct alias rejection, and async output epoch ordering.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable

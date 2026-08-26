@@ -17,6 +17,8 @@ Async, CUDA, and distributed-execution architecture.
 - [First Pure-Uni20 Two-Site DMRG Slice](two_site_dmrg_vertical_slice.md)
   documents the implemented U(1) local and MPO/environment effective-
   Hamiltonian, Lanczos, and staged block-SVD integration checkpoints.
+- [MPO Environment Updates](environment_updates.md) specifies identity
+  boundaries and the implemented left/right symmetry-preserving updates.
 
 ## TensorContraction Integration Reference
 
@@ -33,13 +35,14 @@ Async, CUDA, and distributed-execution architecture.
   replay workflow used to preserve numerical and performance evidence.
 
 The complete R/A/B/C and DMRG executables remain runnable only on the
-integration branch. Pure Uni20 now implements a fixed-center immediate-host
-R/A/B/C term compiler and matrix-free Krylov checkpoint, but not yet finite-
-chain environment updates or sweeps. The remaining goal includes resident CUDA
-execution, MPI placement, and full sweep integration without retaining the
-external TensorContraction code lineage. The integration branch's measured
-behavior feeds the [architecture](../architecture/) and [symmetry](../symmetry/)
-designs and supplies regression targets for that work.
+integration branch. Pure Uni20 now implements immediate-host directional
+environment updates, a fixed-center R/A/B/C term compiler, and a matrix-free
+Krylov checkpoint, but not yet finite-chain environment caches or sweeps. The
+remaining goal includes resident CUDA execution, MPI placement, and full sweep
+integration without retaining the external TensorContraction code lineage. The
+integration branch's measured behavior feeds the
+[architecture](../architecture/) and [symmetry](../symmetry/) designs and
+supplies regression targets for that work.
 
 Relevant current source foundations are the
 [dense Tensor layer](../../src/uni20/tensor/),

@@ -257,6 +257,9 @@ the external TensorContraction implementation.
 - Extend the implemented immediate-host left-environment/MPO-pair/right-
   environment term plan with reusable intermediates and backend-aware
   left-first/right-first selection.
+- Build finite-chain owners and directional caches over the implemented
+  immediate-host identity, left-update, and right-update environment
+  primitives.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware
