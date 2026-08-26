@@ -15,6 +15,8 @@ Current entry points:
   revision-tracked site and adjacent-pair replacement.
 - `environment_cache.hpp`: lazy or complete directional environment caches
   with exact revision-based invalidation.
+- `two_site_split.hpp`: staged two-site block-SVD, directional singular-value
+  absorption, canonical site materialization, and finite-MPS replacement.
 - `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
   MPO/environment two-site apply objects.
 
@@ -27,5 +29,5 @@ as opaque.
 The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
 stored keys into a fixed-center R/A/B/C term plan. Its first execution policy
 is left-first and allocates a dense matrix temporary per term. Reuse-aware
-planning, SVD-driven site replacement, sweep traversal, CUDA placement, and MPI
-distribution remain separate extensions.
+planning, sweep traversal, CUDA placement, and MPI distribution remain separate
+extensions.

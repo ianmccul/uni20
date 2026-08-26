@@ -135,15 +135,25 @@ dense formulas.
 
 `FiniteMps`, `FiniteMpo`, and `MpoEnvironmentCache` now provide validated chain
 ownership, complete or lazy left/right cache construction, and exact
-revision-based invalidation. Adjacent MPS sites can be replaced atomically while
+revision-based invalidation. Adjacent MPS sites can be replaced together while
 changing only their shared internal bond. See
 [Finite Chains And Environment Caches](finite_chains.md).
 
+## Directional Split Checkpoint
+
+`decompose_two_site_center()` applies the staged block-SVD to the center cut.
+After explicit state selection, `materialize_two_site_mps_split()` absorbs the
+singular values into the site in the sweep direction and constructs a canonical
+MPS pair. `replace_two_site_from_svd()` installs that pair through the finite
+chain's revision-tracked replacement boundary while returning the diagonal
+bond tensor and truncation statistics. See
+[Directional Two-Site MPS Splitting](two_site_splitting.md).
+
 ## Next Boundary
 
-The next finite-DMRG layer must absorb selected SVD factors according to sweep
-direction, construct the two replacement sites, and install them through the
-adjacent-pair mutation boundary. A first sweep driver can then reuse the left
-and right cache entries outside the active pair. Term and environment plans can
-be optimized independently with reusable intermediates, placement, CUDA, and
-MPI execution.
+The next finite-DMRG layer is a directional sweep step that forms the two-site
+center, performs a supplied local solve, installs the selected split, and
+refreshes the environment on the completed side. A first sweep driver can then
+traverse all bonds using the two cache entries outside each active pair. Term
+and environment plans can be optimized independently with reusable
+intermediates, placement, CUDA, and MPI execution.

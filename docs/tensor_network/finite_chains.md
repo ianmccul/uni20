@@ -92,7 +92,9 @@ environments with one MPS as both bra and ket. Distinct bra/ket chain owners,
 per-block async epochs, backend placement, reusable contraction plans, CUDA,
 and MPI distribution remain later extensions.
 
-The next DMRG checkpoint should connect the existing two-site SVD
-materialization to `replace_pair()`: select a bond, absorb the singular values
-according to sweep direction, construct the two replacement `MpsSite` values,
-and reuse the two cache entries outside the active pair.
+The two-site block-SVD path now connects selected factors to `replace_pair()`,
+absorbs singular values according to sweep direction, and retains the diagonal
+bond tensor and truncation diagnostics. See
+[Directional Two-Site MPS Splitting](two_site_splitting.md). The next DMRG
+checkpoint is a directional sweep step that combines the cache, local solve,
+split, pair replacement, and incremental environment refresh.
