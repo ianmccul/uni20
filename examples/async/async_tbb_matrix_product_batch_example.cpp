@@ -137,6 +137,7 @@ template <class Scalar>
                                                   Scalar& shift)
 {
   uni20::DenseMatrix<Scalar> result(size, size);
+  uni20::fill(result, Scalar{});
   diagonal = Scalar{1} + static_cast<Scalar>(product % 5) / Scalar{16};
   shift = Scalar{1} / Scalar{4} + static_cast<Scalar>(product % 3) / Scalar{32};
   for (uni20::index_type index = 0; index < size; ++index)

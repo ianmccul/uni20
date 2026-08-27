@@ -78,12 +78,11 @@ template <class Output, class B> [[nodiscard]] constexpr bool is_obvious_rabc_al
 /// \param b Prototype center block family.
 /// \param c Prototype right block family.
 /// \return Prepared host executor owning the plan, schedule, and workspace.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni20::Scalar Scalar,
+template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
           detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C>
+  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
 [[nodiscard]] auto prepare_rabc_contract(linalg::backend_list<HostRightFirstRabcBackend<ContractionSelector>> selector,
-                                         Output const& output, RabcContractionPlan<Scalar> plan, A const& a, B const& b,
-                                         C const& c)
+                                         Output const& output, Plan plan, A const& a, B const& b, C const& c)
 {
   auto backend = std::move(std::get<0>(selector.entries));
   return PreparedHostRightFirstRabcContraction(std::move(backend.contraction_selector), output, std::move(plan), a, b,
@@ -97,11 +96,10 @@ template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni2
 /// \param b Prototype center block family.
 /// \param c Prototype right block family.
 /// \return Prepared executor selected from the output storage policy.
-template <detail::HostWritableRabcTensor Output, uni20::Scalar Scalar, detail::HostReadableRabcTensor A,
+template <detail::HostWritableRabcTensor Output, RabcPlan Plan, detail::HostReadableRabcTensor A,
           detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C>
-[[nodiscard]] auto prepare_rabc_contract(Output const& output, RabcContractionPlan<Scalar> plan, A const& a, B const& b,
-                                         C const& c)
+  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
+[[nodiscard]] auto prepare_rabc_contract(Output const& output, Plan plan, A const& a, B const& b, C const& c)
 {
   auto selector = linalg::select_backend(rabc_contract_op{}, output);
   return prepare_rabc_contract(std::move(selector), output, std::move(plan), a, b, c);
@@ -110,8 +108,10 @@ template <detail::HostWritableRabcTensor Output, uni20::Scalar Scalar, detail::H
 /// \brief Execute a fixed-output sparse R/A/B/C contraction with an explicit backend selector.
 /// \details Computes `R_r = sum(f(r,a,b,c) A_a B_b transpose(C_c))`.
 ///          The sparse plan contains only mathematical coefficients and block
-///          ordinals. The selected backend chooses contraction order,
-///          intermediate reuse, placement, and communication.
+///          keys. The selected backend resolves keys to storage bindings and
+///          chooses contraction order, intermediate reuse, placement, and
+///          communication. Stored output blocks with no contributing term are
+///          overwritten with zero.
 /// \pre Output numerical storage does not overlap any input family.
 /// \tparam BackendSelector Explicit R/A/B/C backend selector.
 /// \param selector Ordered backend selector.
@@ -120,10 +120,9 @@ template <detail::HostWritableRabcTensor Output, uni20::Scalar Scalar, detail::H
 /// \param a Left environment block family.
 /// \param b Input center block family.
 /// \param c Right environment block family, stored before transposition.
-template <linalg::KernelBackendSelector BackendSelector, MutableBlockTensorView Output, uni20::Scalar Scalar,
+template <linalg::KernelBackendSelector BackendSelector, MutableBlockTensorView Output, RabcPlan Plan,
           BlockTensorView A, BlockTensorView B, BlockTensorView C>
-void rabc_contract(BackendSelector&& selector, Output& output, RabcContractionPlan<Scalar> const& plan, A const& a,
-                   B const& b, C const& c)
+void rabc_contract(BackendSelector&& selector, Output& output, Plan const& plan, A const& a, B const& b, C const& c)
 {
   if (detail::is_obvious_rabc_alias(output, b))
     throw std::invalid_argument("R/A/B/C contraction output must not alias its input center");
@@ -134,8 +133,8 @@ void rabc_contract(BackendSelector&& selector, Output& output, RabcContractionPl
 /// \details Backend selection occurs while output storage and execution policy
 ///          remain available. Input placement remains visible to the selected
 ///          backend through the fixed block-tensor views.
-template <MutableBlockTensorView Output, uni20::Scalar Scalar, BlockTensorView A, BlockTensorView B, BlockTensorView C>
-void rabc_contract(Output& output, RabcContractionPlan<Scalar> const& plan, A const& a, B const& b, C const& c)
+template <MutableBlockTensorView Output, RabcPlan Plan, BlockTensorView A, BlockTensorView B, BlockTensorView C>
+void rabc_contract(Output& output, Plan const& plan, A const& a, B const& b, C const& c)
 {
   auto selector = linalg::select_backend(rabc_contract_op{}, output);
   rabc_contract(std::move(selector), output, plan, a, b, c);

@@ -1,5 +1,6 @@
 #include <uni20/symmetry/block_tensor_svd.hpp>
 #include <uni20/symmetry/u1.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <cmath>
 #include <cstddef>
@@ -43,6 +44,8 @@ int main()
   Key const q0_key{{0, 0}};
   Key const q1_key{{1, 1}};
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {q0_key, q1_key});
+  uni20::fill(matrix.block(q0_key), 0.0);
+  uni20::fill(matrix.block(q1_key), 0.0);
   matrix.block(q0_key)[0, 0] = 4.0;
   matrix.block(q0_key)[1, 1] = 1.0;
   matrix.block(q1_key)[0, 0] = 3.0;

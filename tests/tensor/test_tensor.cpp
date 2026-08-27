@@ -7,6 +7,8 @@
 #include <array>
 #include <concepts>
 #include <cstdint>
+#include <limits>
+#include <new>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -452,6 +454,23 @@ TEST(HostBufferTest, PreservesAllocationAlignmentForSmallBuffers)
 {
   uni20::HostBuffer<double> buffer(1);
   EXPECT_EQ(reinterpret_cast<std::uintptr_t>(buffer.data()) % uni20::HostStorage::allocation_alignment, 0);
+}
+
+TEST(HostBufferTest, HonorsOverAlignedElementTypes)
+{
+  struct alignas(128) over_aligned_value
+  {
+      double value;
+  };
+
+  uni20::HostBuffer<over_aligned_value> buffer(1);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(buffer.data()) % alignof(over_aligned_value), 0);
+}
+
+TEST(HostBufferTest, RejectsUnrepresentableByteSize)
+{
+  auto const size = std::numeric_limits<std::size_t>::max() / sizeof(double) + 1;
+  EXPECT_THROW(static_cast<void>(uni20::HostBuffer<double>{size}), std::bad_array_new_length);
 }
 
 TEST(HostBufferTest, ConstructsAndDestroysNontrivialElements)

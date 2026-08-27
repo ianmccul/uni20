@@ -161,9 +161,9 @@ template <class Block> void set_zero_block(Block&& block)
   using value_type = tensor_element_t<Block>;
   auto span = mdspec_of(block);
   if constexpr (MutableDiagonalMdspecLike<decltype(span)>)
-    uni20::transform_inplace(block.backend_selector(), diagonal_components(span), linalg::scale{value_type{}});
+    uni20::fill(block.backend_selector(), diagonal_components(span), value_type{});
   else
-    uni20::transform_inplace(std::forward<Block>(block), linalg::scale{value_type{}});
+    uni20::fill(std::forward<Block>(block), value_type{});
 }
 
 template <class Block, class Scalar> void scale_block(Block&& block, Scalar const& factor)
@@ -255,7 +255,7 @@ void set_zero(Tensor& tensor)
     {
       auto& block = tensor.async_block_by_ordinal(ordinal);
       using value_type = block_tensor_value_t<Tensor>;
-      uni20::transform_inplace(block, linalg::scale{value_type{}});
+      uni20::fill(block, value_type{});
     }
   }
 }
@@ -336,7 +336,7 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
       }
       else
       {
-        uni20::transform_inplace(output_block, linalg::scale{value_type{}});
+        uni20::fill(output_block, value_type{});
       }
     }
   }
@@ -456,7 +456,7 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
       }
       else
       {
-        uni20::transform_inplace(output_block, linalg::scale{value_type{}});
+        uni20::fill(output_block, value_type{});
       }
     }
   }

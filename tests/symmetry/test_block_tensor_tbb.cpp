@@ -2,6 +2,7 @@
 #include <uni20/async/tbb_scheduler.hpp>
 #include <uni20/symmetry/block_tensor_contract.hpp>
 #include <uni20/symmetry/block_tensor_svd.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <gtest/gtest.h>
 
@@ -72,6 +73,7 @@ TEST(BlockTensorTbbTest, ParallelPackedStorageFactorizesIndependentChargeSectors
   for (std::size_t sector = 0; sector < sectors.size(); ++sector)
   {
     auto block = matrix.block(Key{{sector, sector}});
+    uni20::fill(block, 0.0);
     for (uni20::index_type index = 0; index < block.extent(0); ++index)
       block[index, index] = static_cast<double>(sector + 1);
   }

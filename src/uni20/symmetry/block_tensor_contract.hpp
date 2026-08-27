@@ -525,7 +525,7 @@ void zero_unbound_pairwise_output_blocks(OutputTensor& output, Bindings const& b
                         unbound_ordinals.size(), [&](std::size_t index) {
                           auto block = output.block_by_ordinal(unbound_ordinals[index]);
                           using value_type = typename std::remove_cvref_t<OutputTensor>::value_type;
-                          uni20::transform_inplace(block, linalg::scale{value_type{}});
+                          uni20::fill(block, value_type{});
                         });
   }
   else
@@ -533,7 +533,7 @@ void zero_unbound_pairwise_output_blocks(OutputTensor& output, Bindings const& b
     using value_type = typename std::remove_cvref_t<OutputTensor>::value_type;
     for (auto const ordinal : unbound_ordinals)
     {
-      uni20::transform_inplace(output.async_block_by_ordinal(ordinal), linalg::scale{value_type{}});
+      uni20::fill(output.async_block_by_ordinal(ordinal), value_type{});
     }
   }
 }

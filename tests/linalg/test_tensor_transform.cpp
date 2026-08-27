@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -105,6 +106,16 @@ TEST(TensorTransformTest, UnaryTensorUpdateUsesExistingOutputValue)
   EXPECT_DOUBLE_EQ(values[1], 4.0);
   EXPECT_DOUBLE_EQ(values[2], 9.0);
   EXPECT_DOUBLE_EQ(values[3], 16.0);
+}
+
+TEST(TensorTransformTest, FillOverwritesWithoutReadingExistingValues)
+{
+  uni20::Tensor<double, 1> values(4);
+  uni20::fill(values, std::numeric_limits<double>::quiet_NaN());
+  uni20::fill(values, 0.0);
+
+  for (uni20::index_type index = 0; index < 4; ++index)
+    EXPECT_DOUBLE_EQ(values[index], 0.0);
 }
 
 TEST(TensorTransformTest, NamedNegateFunctorUsesTheGenericCpuBackend)

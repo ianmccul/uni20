@@ -168,6 +168,7 @@ TEST(LinalgDenseOpsDispatchTest, NonsymmetricEigenUnpacksRealConjugatePairs)
 {
   using Complex = uni20::complex<double>;
   uni20::DenseMatrix<double> matrix(2, 2);
+  uni20::fill(matrix, 0.0);
   matrix[0, 0] = 1.0;
   matrix[0, 1] = -2.0;
   matrix[1, 0] = 2.0;
@@ -187,6 +188,7 @@ TEST(LinalgDenseOpsDispatchTest, SchurAndReorderOperateOnDenseMatrices)
 {
   using Complex = uni20::complex<double>;
   uni20::DenseMatrix<double> matrix(2, 2);
+  uni20::fill(matrix, 0.0);
   matrix[0, 0] = 1.0;
   matrix[1, 1] = 3.0;
   std::vector<Complex> eigenvalues(2);

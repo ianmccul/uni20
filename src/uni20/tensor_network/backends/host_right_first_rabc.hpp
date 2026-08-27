@@ -65,7 +65,11 @@ concept HostWritableRabcTensor =
 template <class Output, class Plan, class A, class B, class C>
 concept CompatibleHostRabcOperands =
     HostWritableRabcTensor<Output> && HostReadableRabcTensor<A> && HostReadableRabcTensor<B> &&
-    HostReadableRabcTensor<C> &&
+    HostReadableRabcTensor<C> && RabcPlan<Plan> &&
+    std::same_as<typename std::remove_cvref_t<Plan>::r_key_type, block_tensor_key_t<Output>> &&
+    std::same_as<typename std::remove_cvref_t<Plan>::a_key_type, block_tensor_key_t<A>> &&
+    std::same_as<typename std::remove_cvref_t<Plan>::b_key_type, block_tensor_key_t<B>> &&
+    std::same_as<typename std::remove_cvref_t<Plan>::c_key_type, block_tensor_key_t<C>> &&
     std::same_as<typename std::remove_cvref_t<Plan>::scalar_type, block_tensor_value_t<Output>> &&
     std::same_as<block_tensor_value_t<Output>, block_tensor_value_t<A>> &&
     std::same_as<block_tensor_value_t<Output>, block_tensor_value_t<B>> &&
@@ -110,28 +114,66 @@ template <class Function> void execute_rabc_batch(SchedulerBatchBlockExecution, 
   async::execute_batch(size, std::forward<Function>(function));
 }
 
+template <uni20::Scalar Scalar> struct BoundRabcTerm
+{
+    std::size_t r_ordinal;
+    std::size_t a_ordinal;
+    std::size_t b_ordinal;
+    std::size_t c_ordinal;
+    Scalar coefficient;
+};
+
+template <class Tensor, class Key>
+[[nodiscard]] auto bind_rabc_keys(Tensor const& tensor, std::span<Key const> keys) -> std::vector<std::size_t>
+{
+  std::vector<std::size_t> result;
+  result.reserve(keys.size());
+  for (auto const& key : keys)
+  {
+    auto const found = std::ranges::lower_bound(tensor.stored_keys(), key);
+    if (found == tensor.stored_keys().end() || *found != key)
+      throw std::invalid_argument("R/A/B/C logical key is not stored by its operand");
+    result.push_back(static_cast<std::size_t>(found - tensor.stored_keys().begin()));
+  }
+  return result;
+}
+
 template <class Output, class Plan, class A, class B, class C>
   requires CompatibleHostRabcOperands<Output, Plan, A, B, C>
-void validate_rabc_operands(Output const& output, Plan const& plan, A const& a, B const& b, C const& c)
+[[nodiscard]] auto bind_rabc_operands(Output const& output, Plan const& plan, A const& a, B const& b, C const& c)
+    -> std::vector<BoundRabcTerm<typename std::remove_cvref_t<Plan>::scalar_type>>
 {
+  using scalar_type = typename std::remove_cvref_t<Plan>::scalar_type;
+  auto const r_ordinals = bind_rabc_keys(output, plan.r_keys());
+  auto const a_ordinals = bind_rabc_keys(a, plan.a_keys());
+  auto const b_ordinals = bind_rabc_keys(b, plan.b_keys());
+  auto const c_ordinals = bind_rabc_keys(c, plan.c_keys());
+
+  std::vector<BoundRabcTerm<scalar_type>> result;
+  result.reserve(plan.term_count());
   for (auto const& term : plan.terms())
   {
-    if (term.r_ordinal >= output.stored_block_count() || term.a_ordinal >= a.stored_block_count() ||
-        term.b_ordinal >= b.stored_block_count() || term.c_ordinal >= c.stored_block_count())
-    {
-      throw std::invalid_argument("R/A/B/C contraction term has an out-of-range block ordinal");
-    }
+    BoundRabcTerm<scalar_type> binding{.r_ordinal = r_ordinals[term.r_key_index],
+                                      .a_ordinal = a_ordinals[term.a_key_index],
+                                      .b_ordinal = b_ordinals[term.b_key_index],
+                                      .c_ordinal = c_ordinals[term.c_key_index],
+                                      .coefficient = term.coefficient};
 
-    auto const output_block = output.block_by_ordinal(term.r_ordinal);
-    auto const a_block = a.block_by_ordinal(term.a_ordinal);
-    auto const b_block = b.block_by_ordinal(term.b_ordinal);
-    auto const c_block = c.block_by_ordinal(term.c_ordinal);
+    auto const output_block = output.block_by_ordinal(binding.r_ordinal);
+    auto const a_block = a.block_by_ordinal(binding.a_ordinal);
+    auto const b_block = b.block_by_ordinal(binding.b_ordinal);
+    auto const c_block = c.block_by_ordinal(binding.c_ordinal);
     if (a_block.extent(1) != b_block.extent(0) || b_block.extent(1) != c_block.extent(1) ||
         output_block.extent(0) != a_block.extent(0) || output_block.extent(1) != c_block.extent(0))
-    {
       throw std::invalid_argument("R/A/B/C contraction term has incompatible dense block extents");
-    }
+    result.push_back(std::move(binding));
   }
+
+  std::ranges::stable_sort(result, [](auto const& lhs, auto const& rhs) {
+    return std::tuple{lhs.r_ordinal, lhs.a_ordinal, lhs.b_ordinal, lhs.c_ordinal} <
+           std::tuple{rhs.r_ordinal, rhs.a_ordinal, rhs.b_ordinal, rhs.c_ordinal};
+  });
+  return result;
 }
 
 struct RightFirstRabcGroup
@@ -140,11 +182,10 @@ struct RightFirstRabcGroup
     std::size_t c_ordinal;
 };
 
-template <class Plan>
-[[nodiscard]] auto make_right_first_groups(Plan const& plan, std::vector<std::size_t>& term_group)
+template <class Terms>
+[[nodiscard]] auto make_right_first_groups(Terms const& terms, std::vector<std::size_t>& term_group)
     -> std::vector<RightFirstRabcGroup>
 {
-  auto const terms = plan.terms();
   std::vector<std::size_t> order(terms.size());
   std::iota(order.begin(), order.end(), std::size_t{});
   std::ranges::stable_sort(order, [&](std::size_t lhs, std::size_t rhs) {
@@ -167,18 +208,20 @@ template <class Plan>
 } // namespace detail
 
 /// \brief Prepared host right-first executor for one fixed R/A/B/C structure.
-/// \details Construction validates block ordinals and extents, derives the
+/// \details Construction binds logical keys to storage ordinals, validates
+///          dense extents, derives the
 ///          unique `(B_b,C_c)` groups and output execution order, and allocates
 ///          every intermediate once. Repeated calls reuse that schedule and
 ///          workspace. The prepared object is tied to the plan and block
 ///          structures used at construction and is not safe for concurrent
 ///          execution.
-/// \tparam Scalar Scalar coefficient and block value type.
+/// \tparam Plan Execution-neutral logical coefficient plan.
 /// \tparam ContractionSelector Dense contraction backend selector.
-template <uni20::Scalar Scalar, linalg::KernelBackendSelector ContractionSelector>
+template <RabcPlan Plan, linalg::KernelBackendSelector ContractionSelector>
 class PreparedHostRightFirstRabcContraction {
   public:
-    using scalar_type = Scalar;
+    using plan_type = std::remove_cvref_t<Plan>;
+    using scalar_type = typename plan_type::scalar_type;
     using contraction_selector_type = ContractionSelector;
 
     /// \brief Compile a fixed host execution schedule and allocate its workspace.
@@ -190,13 +233,13 @@ class PreparedHostRightFirstRabcContraction {
     /// \param c Prototype right block family.
     template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
               detail::HostReadableRabcTensor C>
-      requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<scalar_type>, A, B, C>
+      requires detail::CompatibleHostRabcOperands<Output, plan_type, A, B, C>
     PreparedHostRightFirstRabcContraction(contraction_selector_type selector, Output const& output,
-                                          RabcContractionPlan<scalar_type> plan, A const& a, B const& b, C const& c)
+                                          plan_type plan, A const& a, B const& b, C const& c)
         : selector_(std::move(selector)), plan_(std::move(plan)), term_group_(plan_.term_count())
     {
-      detail::validate_rabc_operands(output, plan_, a, b, c);
-      groups_ = detail::make_right_first_groups(plan_, term_group_);
+      bound_terms_ = detail::bind_rabc_operands(output, plan_, a, b, c);
+      groups_ = detail::make_right_first_groups(bound_terms_, term_group_);
 
       intermediates_.reserve(groups_.size());
       for (auto const& group : groups_)
@@ -207,17 +250,16 @@ class PreparedHostRightFirstRabcContraction {
       }
 
       output_offsets_.assign(output.stored_block_count() + 1, 0);
-      for (auto const& term : plan_.terms())
+      for (auto const& term : bound_terms_)
         ++output_offsets_[term.r_ordinal + 1];
       std::partial_sum(output_offsets_.begin(), output_offsets_.end(), output_offsets_.begin());
 
       output_order_.resize(output.stored_block_count());
       std::iota(output_order_.begin(), output_order_.end(), std::size_t{});
       std::vector<long double> output_cost(output.stored_block_count(), 0);
-      auto const terms = plan_.terms();
-      for (std::size_t index = 0; index < terms.size(); ++index)
+      for (std::size_t index = 0; index < bound_terms_.size(); ++index)
       {
-        auto const& term = terms[index];
+        auto const& term = bound_terms_[index];
         auto const a_block = a.block_by_ordinal(term.a_ordinal);
         auto const& intermediate = intermediates_[term_group_[index]];
         output_cost[term.r_ordinal] +=
@@ -228,15 +270,16 @@ class PreparedHostRightFirstRabcContraction {
     }
 
     /// \brief Execute using the retained schedule and workspace.
-    /// \pre All operands have the same block ordinals and dense extents supplied
-    ///      at construction, and output storage does not overlap an input.
+    /// \pre All operands have the same stored logical-key sequences and dense
+    ///      extents supplied at construction, and output storage does not
+    ///      overlap an input.
     /// \param output Fixed-structure output block family.
     /// \param a Left block family matching the prepared prototype.
     /// \param b Center block family matching the prepared prototype.
     /// \param c Right block family matching the prepared prototype.
     template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
               detail::HostReadableRabcTensor C>
-      requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<scalar_type>, A, B, C>
+      requires detail::CompatibleHostRabcOperands<Output, plan_type, A, B, C>
     void operator()(Output& output, A const& a, B const& b, C const& c)
     {
       using execution_policy = typename block_tensor_type_t<Output>::storage_policy::block_execution_policy;
@@ -249,7 +292,6 @@ class PreparedHostRightFirstRabcContraction {
                          scalar_type{});
       });
 
-      auto const terms = plan_.terms();
       constexpr std::array<std::pair<std::size_t, std::size_t>, 1> left_dimensions{std::pair{1U, 0U}};
       detail::execute_rabc_batch(execution_policy{}, output_order_.size(), [&](std::size_t ordered_index) {
         std::size_t const output_ordinal = output_order_[ordered_index];
@@ -258,13 +300,13 @@ class PreparedHostRightFirstRabcContraction {
         std::size_t const last = output_offsets_[output_ordinal + 1];
         if (first == last)
         {
-          uni20::transform_inplace(output_block, linalg::scale{scalar_type{}});
+          uni20::fill(output_block, scalar_type{});
           return;
         }
 
         for (std::size_t index = first; index < last; ++index)
         {
-          auto const& term = terms[index];
+          auto const& term = bound_terms_[index];
           auto const a_block = a.block_by_ordinal(term.a_ordinal);
           scalar_type const beta = index == first ? scalar_type{} : scalar_type{1};
           linalg::contract(selector_, output_block, term.coefficient, a_block, intermediates_[term_group_[index]],
@@ -277,11 +319,12 @@ class PreparedHostRightFirstRabcContraction {
     [[nodiscard]] auto intermediate_count() const noexcept -> std::size_t { return intermediates_.size(); }
 
     /// \brief Return the immutable execution-neutral coefficient plan.
-    [[nodiscard]] auto plan() const noexcept -> RabcContractionPlan<scalar_type> const& { return plan_; }
+    [[nodiscard]] auto plan() const noexcept -> plan_type const& { return plan_; }
 
   private:
     contraction_selector_type selector_;
-    RabcContractionPlan<scalar_type> plan_;
+    plan_type plan_;
+    std::vector<detail::BoundRabcTerm<scalar_type>> bound_terms_;
     std::vector<std::size_t> term_group_;
     std::vector<detail::RightFirstRabcGroup> groups_;
     std::vector<ColumnMajorTensor<scalar_type, 2>> intermediates_;
@@ -289,26 +332,32 @@ class PreparedHostRightFirstRabcContraction {
     std::vector<std::size_t> output_order_;
 };
 
+template <class ContractionSelector, class Output, RabcPlan Plan, class A, class B, class C>
+PreparedHostRightFirstRabcContraction(ContractionSelector, Output const&, Plan, A const&, B const&, C const&)
+    -> PreparedHostRightFirstRabcContraction<std::remove_cvref_t<Plan>, std::remove_cvref_t<ContractionSelector>>;
+
 /// \brief Report host right-first eligibility for immediate matrix-block operands.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni20::Scalar Scalar,
+template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
           detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C>
+  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
 consteval auto kernel_accepts_types(HostRightFirstRabcBackend<ContractionSelector> const&, rabc_contract_op const&,
-                                    Output&, RabcContractionPlan<Scalar> const&, A const&, B const&, C const&)
+                                    Output&, Plan const&, A const&, B const&, C const&)
 {
-  if constexpr (detail::host_right_first_types_compatible<ContractionSelector, Output, Scalar, A, B, C>())
+  using scalar_type = typename std::remove_cvref_t<Plan>::scalar_type;
+  if constexpr (detail::host_right_first_types_compatible<ContractionSelector, Output, scalar_type, A, B, C>())
     return linalg::kernel_types_yes;
   else
     return linalg::kernel_types_no;
 }
 
 /// \brief Execute a host right-first R/A/B/C contraction.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni20::Scalar Scalar,
+template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
           detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C> &&
-           (detail::host_right_first_types_compatible<ContractionSelector, Output, Scalar, A, B, C>())
+  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C> &&
+           (detail::host_right_first_types_compatible<ContractionSelector, Output,
+                                                      typename std::remove_cvref_t<Plan>::scalar_type, A, B, C>())
 auto try_kernel(HostRightFirstRabcBackend<ContractionSelector> const& backend, rabc_contract_op const&, Output& output,
-                RabcContractionPlan<Scalar> const& plan, A const& a, B const& b, C const& c) -> linalg::KernelAttempt
+                Plan const& plan, A const& a, B const& b, C const& c) -> linalg::KernelAttempt
 {
   PreparedHostRightFirstRabcContraction prepared(backend.contraction_selector, output, plan, a, b, c);
   prepared(output, a, b, c);

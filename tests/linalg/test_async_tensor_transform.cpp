@@ -12,6 +12,7 @@
 #include <concepts>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -35,6 +36,7 @@ concept CanTransformInplace = requires(Output& output, Function&& function, Inpu
 };
 
 static_assert(CanAssignTransform<async_vector_type, std::plus<>, async_vector_type, async_vector_type>);
+static_assert(CanAssignTransform<async_vector_type, uni20::linalg::constant<double>>);
 static_assert(CanTransformInplace<async_vector_type, std::plus<>, async_vector_type>);
 static_assert(CanTransformInplace<async_vector_type, std::negate<>>);
 static_assert(!CanAssignTransform<vector_type, std::plus<>, async_vector_type, async_vector_type>);
@@ -121,6 +123,19 @@ TEST(AsyncTensorTransformTest, OverwriteConstructsOutputAndRetainsPendingInputsA
   EXPECT_DOUBLE_EQ(result[0], 11.5);
   EXPECT_DOUBLE_EQ(result[1], 22.5);
   EXPECT_DOUBLE_EQ(result[2], 33.5);
+}
+
+TEST(AsyncTensorTransformTest, FillOverwritesWithoutReadingExistingValues)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_vector_type values = make_vector({std::numeric_limits<double>::quiet_NaN(), 2.0, -3.0});
+
+  uni20::fill(values, 0.0);
+
+  auto const& result = values.get_wait(scheduler);
+  for (uni20::index_type index = 0; index < result.extent(0); ++index)
+    EXPECT_DOUBLE_EQ(result[index], 0.0);
 }
 
 TEST(AsyncTensorTransformTest, ExplicitSelectorResizesExistingOutput)

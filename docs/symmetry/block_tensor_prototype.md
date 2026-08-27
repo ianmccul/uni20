@@ -527,6 +527,10 @@ auto value = inner_product(lhs, rhs);
 auto magnitude = norm(tensor);
 ```
 
+`set_zero` is an overwrite operation implemented with constant fill. It does
+not multiply the existing values by zero, because newly allocated storage may
+be uninitialized and IEEE NaNs would survive multiplication by zero.
+
 These operations accept the `BlockTensorView` concept and refine it only for
 the access they perform: immediate host blocks, mutable blocks, or independent
 per-block async timelines. Owning `BlockTensor` values and zero-copy mapped
@@ -739,7 +743,10 @@ grouping, output order, and intermediate workspace once when the effective
 Hamiltonian is constructed. Repeated Krylov applications reuse that state and
 batch independent output blocks through dispatched dense contractions; the
 path neither flattens the center nor constructs a high-rank BlockTensor
-intermediate.
+intermediate. The logical plan retains canonical block keys rather than storage
+ordinals; backend preparation binds those keys to the concrete operands. Each
+application overwrites every stored output block, filling blocks without a
+contributing term with zero to preserve the implicit-zero sector semantics.
 
 `make_identity_mpo_environment`, `extend_left_environment`, and
 `extend_right_environment` provide the first environment-construction

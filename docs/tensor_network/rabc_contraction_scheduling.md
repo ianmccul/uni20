@@ -13,12 +13,16 @@ the input-center keys, environments, and MPO sites. Construction snapshots MPO
 coefficients into a canonical sparse plan:
 
 ```text
-f_t = (R_r, A_a, B_b, C_c, coefficient)
+R_keys, A_keys, B_keys, C_keys
+f_t = (r_key_index, a_key_index, b_key_index, c_key_index, coefficient)
 ```
 
 Duplicate `(r,a,b,c)` entries are summed and exact-zero coefficients are
-removed. The plan is an execution-order-neutral hypergraph: it contains no
-left-first, right-first, placement, or communication choice.
+removed. The sorted key tables retain logical block identity independently of
+the operands' physical storage order. The selected backend resolves those keys
+to storage ordinals and placement during preparation. The logical plan is an
+execution-order-neutral hypergraph: it contains no left-first, right-first,
+placement, or communication choice.
 
 Backend selection occurs while the output BlockTensor storage policy remains
 visible. The current `HostRightFirstRabcBackend` derives unique `(b,c)` groups
@@ -38,6 +42,11 @@ policy, while each output block's contributions remain serial. Dense
 contractions retain the operation-specific nested selector, so direct/looped
 GEMM and reference fallback remain available. A prepared host executor is tied
 to one plan and block structure and must not be invoked concurrently.
+
+`rabc_contract` is an overwrite operation. Every stored output block is
+assigned on each invocation; a block with no contributing term is filled with
+zero because missing symmetry sectors are implicitly zero. A future update
+operation representing `R += ABC` would instead preserve such blocks.
 
 This note records the intended Uni20 replacement for the temporary
 TensorContraction `Arranger`/`Swapper` scheduling model.

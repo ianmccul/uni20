@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <new>
 #include <utility>
 
 namespace uni20
@@ -123,8 +125,10 @@ template <typename ElementType> class HostBuffer {
     static auto allocate(size_type size) -> value_type*
     {
       if (size == 0) return nullptr;
+      if (size > std::numeric_limits<size_type>::max() / sizeof(value_type)) throw std::bad_array_new_length{};
 
-      auto* result = static_cast<value_type*>(detail::allocate_raw(sizeof(value_type) * size, 64));
+      constexpr size_type alignment = std::max<size_type>(64, alignof(value_type));
+      auto* result = static_cast<value_type*>(detail::allocate_raw(sizeof(value_type) * size, alignment));
       if constexpr (!uninitialized_ok<value_type>)
       {
         try

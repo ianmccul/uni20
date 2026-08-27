@@ -1,5 +1,6 @@
 #include <uni20/symmetry/block_tensor_svd.hpp>
 #include <uni20/symmetry/u1.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,7 @@ int main()
   using Key = Matrix::key_type;
   Key const key{{0, 0}};
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {key});
+  uni20::fill(matrix.block(key), 0.0);
   matrix.block(key)[0, 0] = 1.0;
   matrix.block(key)[1, 1] = 2.0;
 
