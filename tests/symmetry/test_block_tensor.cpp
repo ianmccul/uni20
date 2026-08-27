@@ -7,6 +7,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
@@ -18,6 +19,8 @@ static_assert(BlockTensorStorage<SeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<PackedSparseBlockStorage<>>);
 static_assert(BlockTensorStorage<ParallelPackedSparseBlockStorage<>>);
+static_assert(BlockTensorStorage<PackedCompleteBlockStorage<>>);
+static_assert(BlockTensorStorage<ParallelPackedCompleteBlockStorage<>>);
 static_assert(BlockTensorStorage<PackedDiagonalBlockStorage<>>);
 static_assert(BlockTensorStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
@@ -32,6 +35,8 @@ static_assert(!CompleteBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<PackedSparseBlockStorage<>>);
 static_assert(!CompleteBlockStorage<ParallelPackedSparseBlockStorage<>>);
+static_assert(CompleteBlockStorage<PackedCompleteBlockStorage<>>);
+static_assert(CompleteBlockStorage<ParallelPackedCompleteBlockStorage<>>);
 static_assert(!CompleteBlockStorage<AsyncSeparateSparseBlockStorage<>>);
 static_assert(!std::same_as<SeparateSparseBlockStorage<>, PackedSparseBlockStorage<>>);
 static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
@@ -42,6 +47,8 @@ static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(BlockTensorStorageFor<PackedCompleteBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<ParallelPackedCompleteBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
 static_assert(BlockTensorStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
@@ -50,12 +57,14 @@ static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(ImmediateLocalBlockStorageFor<PackedCompleteBlockStorage<>, double, 2, 2>);
+static_assert(ImmediateLocalBlockStorageFor<ParallelPackedCompleteBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(!ImmediateLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(!AsyncLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
-static_assert(std::same_as<SeparateSparseBlockStorage<>::backend_selector_type, VectorStorage::backend_selector_type>);
-static_assert(std::same_as<PackedSparseBlockStorage<>::backend_selector_type, VectorStorage::backend_selector_type>);
+static_assert(std::same_as<SeparateSparseBlockStorage<>::backend_selector_type, HostStorage::backend_selector_type>);
+static_assert(std::same_as<PackedSparseBlockStorage<>::backend_selector_type, HostStorage::backend_selector_type>);
 
 using ImmediateConceptTensor =
     BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
@@ -91,6 +100,59 @@ template <class Storage> class SparseBlockTensorTest : public ::testing::Test {}
 using SparseStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
                                             PackedSparseBlockStorage<>, ParallelPackedSparseBlockStorage<>>;
 TYPED_TEST_SUITE(SparseBlockTensorTest, SparseStorageTypes);
+
+template <class Storage> class CompleteBlockTensorTest : public ::testing::Test {};
+
+using CompleteStorageTypes = ::testing::Types<PackedCompleteBlockStorage<>, ParallelPackedCompleteBlockStorage<>>;
+TYPED_TEST_SUITE(CompleteBlockTensorTest, CompleteStorageTypes);
+
+TYPED_TEST(CompleteBlockTensorTest, DerivesCanonicalLegalKeysAndPackedOffsets)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const rows(sym, {{q0, 2}, {q1, 3}}, "rows");
+  BlockSpace const columns(sym, {{q0, 4}, {q1, 5}}, "columns");
+
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Tensor tensor(sym, Domain{rows}, Codomain{columns});
+
+  EXPECT_EQ(tensor.stored_block_count(), 2);
+  EXPECT_EQ(tensor.legal_block_count(), 2);
+  EXPECT_TRUE(tensor.has_all_legal_blocks());
+  EXPECT_EQ(tensor.stored_keys()[0], (Key{{0, 0}}));
+  EXPECT_EQ(tensor.stored_keys()[1], (Key{{1, 1}}));
+
+  auto const offsets = tensor.storage().offsets();
+  ASSERT_EQ(offsets.size(), 3);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 8);
+  EXPECT_EQ(offsets[2], 23);
+  EXPECT_EQ(tensor.storage().buffer().size(), 23);
+}
+
+TYPED_TEST(CompleteBlockTensorTest, RepresentsScalarUnitsAndEmptyLegalKeySets)
+{
+  Symmetry const sym{"N:U(1)"};
+
+  using ScalarTensor = BlockTensor<double, Domain<>, Codomain<>, TypeParam>;
+  ScalarTensor scalar(sym, Domain<>{}, Codomain<>{});
+  ASSERT_EQ(scalar.stored_block_count(), 1);
+  EXPECT_TRUE(scalar.has_all_legal_blocks());
+  scalar.block_by_ordinal(0)[] = 1.0;
+  EXPECT_DOUBLE_EQ(scalar.block_by_ordinal(0)[], 1.0);
+
+  BlockSpace const empty(sym, {}, "empty");
+  using EmptyTensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, TypeParam>;
+  EmptyTensor tensor(sym, Domain{empty}, Codomain{empty});
+  EXPECT_EQ(tensor.stored_block_count(), 0);
+  EXPECT_EQ(tensor.legal_block_count(), 0);
+  EXPECT_TRUE(tensor.has_all_legal_blocks());
+  ASSERT_EQ(tensor.storage().offsets().size(), 1);
+  EXPECT_EQ(tensor.storage().offsets()[0], 0);
+  EXPECT_EQ(tensor.storage().buffer().size(), 0);
+}
 
 TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDenseBlocks)
 {
@@ -132,8 +194,6 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoBlockSpacesCanonicalizeKeysAndExposeDe
   static_assert(!MdspecLike<decltype(block)>);
   EXPECT_EQ(block.extent(0), 3);
   EXPECT_EQ(block.extent(1), 5);
-  auto const initial_value = block[0, 0];
-  EXPECT_DOUBLE_EQ(initial_value, 0.0);
   block[2, 4] = 7.5;
 
   Tensor const& const_tensor = tensor;
@@ -170,7 +230,6 @@ TYPED_TEST(SparseBlockTensorTest, OrderZeroTensorUnitHasOneLegalScalarBlock)
 
   auto scalar = tensor.block(Key{});
   static_assert(decltype(scalar)::rank() == 0);
-  EXPECT_DOUBLE_EQ(scalar[], 0.0);
   scalar[] = 2.5;
   EXPECT_DOUBLE_EQ(tensor.block(Key{})[], 2.5);
 
@@ -250,8 +309,6 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoLocalSpacesKeepRepeatedChargeStatesDis
   auto first = tensor.block(Key{{0, 0}});
   auto repeated = tensor.block(Key{{1, 0}});
   static_assert(decltype(first)::rank() == 0);
-  EXPECT_DOUBLE_EQ(first[], 0.0);
-  EXPECT_DOUBLE_EQ(repeated[], 0.0);
 
   first[] = 1.0;
   repeated[] = 2.0;
@@ -299,7 +356,6 @@ TYPED_TEST(SparseBlockTensorTest, OrderTwoQNumSpacesUseOneCoordinateFreeScalarBl
 
   auto block = tensor.block(Key{});
   static_assert(decltype(block)::rank() == 0);
-  EXPECT_DOUBLE_EQ(block[], 0.0);
   block[] = 4.0;
   auto const stored_value = std::as_const(tensor).block(Key{})[];
   EXPECT_DOUBLE_EQ(stored_value, 4.0);
@@ -430,7 +486,6 @@ TYPED_TEST(SparseBlockTensorTest, OrderFourMpoLikeTensorUsesDomainCodomainSelect
 
   auto block = tensor.block(Key{{0, 1, 0, 1}});
   static_assert(decltype(block)::rank() == 0);
-  EXPECT_DOUBLE_EQ(block[], 0.0);
   block[] = 11.0;
 
   Tensor const& const_tensor = tensor;
@@ -503,6 +558,33 @@ TEST(BlockTensorTest, PackedStorageUsesOneContiguousBufferAndCanonicalOffsets)
   auto first = tensor.block(Key{{0, 1, 1}});
   auto second = tensor.block(Key{{1, 1, 2}});
   EXPECT_EQ(second.mdspan().data_handle() - first.mdspan().data_handle(), 10);
+}
+
+TEST(BlockTensorTest, AlignedPackedStoragePadsBlockStartsWithinOneBuffer)
+{
+  Symmetry const sym{"N:U(1)"};
+  BlockSpace const rows(sym, {
+                                 {make_qnum(sym, {{"N", 0}}), 3},
+                                 {make_qnum(sym, {{"N", 1}}), 2},
+                             });
+  BlockSpace const columns(sym, {
+                                    {make_qnum(sym, {{"N", 0}}), 3},
+                                    {make_qnum(sym, {{"N", 1}}), 2},
+                                });
+
+  using Storage = ParallelPackedSparseBlockStorage<HostStorage, 64>;
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  using Key = typename Tensor::key_type;
+  Tensor tensor(sym, Domain{rows}, Codomain{columns}, {Key{{0, 0}}, Key{{1, 1}}});
+
+  auto const offsets = tensor.storage().offsets();
+  ASSERT_EQ(offsets.size(), 3);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 16);
+  EXPECT_EQ(offsets[2], 20);
+  EXPECT_EQ(tensor.storage().buffer().size(), 20);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(tensor.block_by_ordinal(0).mdspan().data_handle()) % 64, 0);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(tensor.block_by_ordinal(1).mdspan().data_handle()) % 64, 0);
 }
 
 TEST(BlockTensorTest, AsyncSeparateStorageReturnsMdspecWithStableBlockEpochIdentity)

@@ -1,9 +1,10 @@
 # Bosonic Abelian BlockTensor Prototype
 
-**Status:** active design contract with the immediate and first async sparse
-host slices implemented. It defines the remaining bosonic abelian vertical
-slice. The broader [BlockTensor design](block_tensor.md) records later CUDA,
-MPI, recoupling, and view requirements.
+**Status:** active design contract with immediate sparse and packed-complete
+host storage plus the first async sparse host slice implemented. It defines the
+remaining bosonic abelian vertical slice. The broader
+[BlockTensor design](block_tensor.md) records later CUDA, MPI, recoupling, and
+view requirements.
 
 ## 1. Purpose
 
@@ -42,6 +43,8 @@ operations:
   buffer;
 - `ParallelPackedSparseBlockStorage`, with the same packed representation and
   synchronous scheduler-batch execution across disjoint output blocks;
+- `PackedCompleteBlockStorage` and `ParallelPackedCompleteBlockStorage`, which
+  canonically allocate every symmetry-legal block in one packed host buffer;
 - `PackedDiagonalBlockStorage`, with one contiguous host buffer containing only
   the generalized diagonal of each explicitly stored logical block;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
@@ -67,9 +70,9 @@ lvalue source reference and therefore cannot outlive their source tensor. They
 preserve immediate data handles or async block epoch identity while changing
 only logical and mapping metadata. Payload element writes remain valid, but
 assigning or structurally modifying a source invalidates every view transitively
-built from it. The slice does not yet provide complete storage, builders, the
-full numerical block-operation surface, packed async hazards, or the
-remaining space kinds described below.
+built from it. The slice does not yet provide builders, the full numerical
+block-operation surface, packed async hazards, or the remaining space kinds
+described below.
 
 ## 2. Initial Type Shape
 
@@ -333,10 +336,12 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The implemented slice provides six sparse host policies. All use:
+The implemented slice provides six sparse host policies and two packed-complete
+host policies. All use:
 
 - canonical block-key ordering;
-- zero initialization for newly allocated numerical values;
+- unspecified numerical values after allocation; every operation must overwrite
+  or explicitly initialize a block before reading it;
 - stable block bindings after construction.
 
 `SeparateSparseBlockStorage` owns one column-major dense `Tensor` for each
@@ -378,6 +383,14 @@ fixed during a batch, and distinct output-block items write disjoint element
 ranges. It is useful for temporary vectors that need both canonical packed
 allocation and block-level CPU scheduling.
 
+`PackedCompleteBlockStorage` uses the same contiguous representation but does
+not accept an explicit stored-key set. Its owning `BlockTensor` enumerates every
+symmetry-legal key in canonical order and constructs the packed offsets once.
+`ParallelPackedCompleteBlockStorage` adds the same synchronous disjoint-block
+batch execution policy. These policies provide the compile-time
+`CompleteBlockStorage` guarantee used by transient DMRG centers and their
+Krylov vectors; sparse MPO and environment storage remains independent.
+
 `AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
 stored key. Its `block(key)` result is a TensorView whose borrowed data
 descriptor identifies that exact async value. The view does not keep the owning
@@ -387,13 +400,11 @@ selected epoch, and failure propagation state. This literal per-block
 `Async<Tensor>` representation is useful when individual numerical values must
 remain pending. It is distinct from the lower-overhead synchronous batch policy.
 
-The next storage step is a distinct complete host policy which enumerates every
-legal key and models `CompleteBlockStorage`. A sparse value may happen to store
-all legal keys, but that runtime fact does not give its policy the compile-time
-complete-storage guarantee.
+A sparse value may happen to store all legal keys, but that runtime fact does
+not give its policy the compile-time complete-storage guarantee.
 
 `legal_block_keys()` returns those keys in canonical order for structural
-planning or explicit complete sparse materialization. Like
+planning or explicit sparse materialization. Like
 `legal_block_count()`, it scans the full Cartesian product of key-bearing
 boundary factors and is not intended as a repeated hot-path query. A
 charge-indexed implementation may replace this scan without changing the
@@ -554,8 +565,10 @@ Tensor wrappers are `inner_product` and `norm`.
 `krylov::BlockTensorVectorOps<Tensor>` uses this surface to define a Krylov
 vector space from one owning prototype. Membership requires the exact frozen
 symmetry, boundary values, and stored-key pattern. Consequently,
-`allocate_like` preserves block metadata and a matrix-free `matvec` cannot
-silently widen the vector space or flatten it into a dense tensor.
+`allocate_like` preserves block metadata: sparse policies reproduce the frozen
+key set, while complete policies rederive the same canonical legal-key set from
+the frozen boundaries. A matrix-free `matvec` cannot silently widen the vector
+space or flatten it into a dense tensor.
 `krylov::BlockTensorMatrixFreeOps<Tensor, Operator>` adds an owned output-first
 operation callable. It validates input and output membership before every
 apply, while the callable supplies the actual Hamiltonian or environment
@@ -593,15 +606,15 @@ For a coordinate-bearing contracted space, only blocks with the same basis or
 sector coordinate are paired. A `BlockSpace` degeneracy axis is contracted by
 the dense strided kernel. `LocalSpace` and `QNumSpace` add no artificial dense
 axis; their contributing scalar or external-axis blocks are multiplied and
-accumulated directly. The operation builds sparse output blocks only from
-stored contributing pairs and never materializes a whole-tensor dense bridge.
+accumulated directly. With sparse output storage, the operation builds blocks
+only from stored contributing pairs. With complete output storage, it allocates
+every legal result block and sets legal blocks without contributions to exact
+zero. Neither path materializes a whole-tensor dense bridge.
 `PackedSparseBlockStorage<>` is the default host output; callers may select a
-different sparse output policy as the third template argument only when its
-blocks provide immediate host access through the default mdspan accessor. The
-current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
-satisfy this contract. `ParallelSeparateSparseBlockStorage` also satisfies it;
-that policy groups all contributions to one output block into one synchronous
-batch item and returns only after every output block is complete.
+different immediate host output policy as the third template argument. The
+packed-complete policies use this path for transient complete centers. Parallel
+policies group all contributions to one output block into one synchronous batch
+item and return only after every output block is complete.
 
 The fixed-output form preserves the output's existing structure, which is the
 required convention for Krylov `matvec`. It validates the exact result symmetry
@@ -721,10 +734,12 @@ The first `LocalTwoSiteEffectiveHamiltonian` applies a local operator to a fixed
 `krylov::BlockTensorMatrixFreeOps`. The general `TwoSiteEffectiveHamiltonian`
 joins two `MpoSite` values and two `MpoEnvironment` values into a fixed-center
 R/A/B/C coefficient plan. It snapshots and coalesces the sparse
-`f(r,a,b,c)` entries, then lowers application through `rabc_contract_op`. The
-current host backend reuses right-first `(B,C)` intermediates and batches
-independent output blocks through dispatched dense contractions; it neither
-flattens the center nor constructs a high-rank BlockTensor intermediate.
+`f(r,a,b,c)` entries. The current host backend prepares its right-first `(B,C)`
+grouping, output order, and intermediate workspace once when the effective
+Hamiltonian is constructed. Repeated Krylov applications reuse that state and
+batch independent output blocks through dispatched dense contractions; the
+path neither flattens the center nor constructs a high-rank BlockTensor
+intermediate.
 
 `make_identity_mpo_environment`, `extend_left_environment`, and
 `extend_right_environment` provide the first environment-construction
@@ -811,7 +826,8 @@ Environment tests construct multi-sector identity boundaries, update a U(1)
 Heisenberg product state from both directions, verify complex bra conjugation,
 accumulate repeated physical paths, and exercise nontrivial dense bond sizes.
 Contraction tests also cover fixed-output structure preflight, output-only zero
-blocks, direct alias rejection, and async output epoch ordering.
+blocks, direct alias rejection, async output epoch ordering, and complete
+packed output allocation with zero-valued legal blocks that have no contribution.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation
@@ -831,7 +847,6 @@ The completed host prototype must additionally test:
 - `DenseSpace` contributing no key coordinate and one neutral dense axis with
   its full extent;
 - deterministic block-key ordering;
-- complete storage allocating every legal block;
 - sparse storage treating missing legal blocks as zero;
 - probes returning false or no block for illegal and legal-unstored keys;
 - illegal sparse-builder keys and direct access to unstored keys being rejected;

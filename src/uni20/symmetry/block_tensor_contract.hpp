@@ -173,7 +173,7 @@ struct PairwiseContractionOutputTraits
 
 template <class OutputStorage, class LeftTensor, class RightTensor, std::size_t ContractedCount = 1>
 concept HostReferenceContractionOutput =
-    PairwiseContractionSources<LeftTensor, RightTensor> && SparseBlockStorage<OutputStorage> &&
+    PairwiseContractionSources<LeftTensor, RightTensor> && BlockTensorStorage<OutputStorage> &&
     ImmediateLocalBlockStorageFor<
         OutputStorage,
         typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::value_type,
@@ -248,6 +248,20 @@ auto pairwise_contraction_result_keys(std::span<PairwiseContractionWorkItem<Trai
   std::ranges::sort(result_keys);
   result_keys.erase(std::unique(result_keys.begin(), result_keys.end()), result_keys.end());
   return result_keys;
+}
+
+template <class Result, class DomainType, class CodomainType, class Key>
+auto make_pairwise_contraction_result(Symmetry symmetry, DomainType domain, CodomainType codomain,
+                                      std::vector<Key> result_keys) -> Result
+{
+  if constexpr (CompleteBlockStorage<typename Result::storage_policy>)
+  {
+    return Result(symmetry, std::move(domain), std::move(codomain));
+  }
+  else
+  {
+    return Result(symmetry, std::move(domain), std::move(codomain), std::move(result_keys));
+  }
 }
 
 template <class Traits> struct LocalPairwiseContractionBinding
@@ -534,12 +548,13 @@ void zero_unbound_pairwise_output_blocks(OutputTensor& output, Bindings const& b
 ///          the dense leaf contraction lowers every contracted degeneracy axis
 ///          together through the ordinary tensor contraction dispatcher.
 /// \tparam ContractedCount Number of adjacent factor pairs to contract.
-/// \tparam OutputStorage Sparse immediate-host storage for the owning result.
+/// \tparam OutputStorage Immediate-host storage for the owning result. A
+///                       complete policy also stores legal zero result blocks.
 /// \tparam LeftTensor Left BlockTensor-like operand.
 /// \tparam RightTensor Right BlockTensor-like operand.
 /// \param left Operand contributing the contracted codomain suffix.
 /// \param right Operand contributing the contracted domain prefix.
-/// \return Sparse tensor over all uncontracted factors.
+/// \return Tensor over all uncontracted factors.
 /// \throws std::invalid_argument If symmetries or any paired space values differ.
 template <std::size_t ContractedCount, class OutputStorage = detail::DefaultPairwiseContractionStorage,
           class LeftTensor, class RightTensor>
@@ -563,8 +578,11 @@ auto contract_adjacent(LeftTensor const& left, RightTensor const& right)
   auto result_codomain = detail::make_pairwise_contraction_codomain<ContractedCount>(left, right);
   using result_type =
       BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
-  result_type result(left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
+  auto result = detail::make_pairwise_contraction_result<result_type>(
+      left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
+  if constexpr (CompleteBlockStorage<selected_output_storage>)
+    detail::zero_unbound_pairwise_output_blocks(result, bindings);
   detail::execute_immediate_pairwise_contraction<traits>(result, left, right, std::move(bindings));
   return result;
 }
@@ -597,7 +615,7 @@ void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor
   detail::execute_immediate_pairwise_contraction<traits>(output, left, right, std::move(bindings));
 }
 
-/// \brief Contract one adjacent BlockTensor factor pair into a sparse owning result.
+/// \brief Contract one adjacent BlockTensor factor pair into an owning result.
 /// \details This first host path contracts the rightmost codomain factor of
 ///          \p left with the leftmost domain factor of \p right. The explicit
 ///          axis positions must name those factors. Contracted spaces must be
@@ -606,13 +624,13 @@ void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor
 ///          no dense symmetry-erasing materialization is permitted.
 /// \tparam LeftAxis Flattened domain-then-codomain axis of \p left.
 /// \tparam RightAxis Flattened domain-then-codomain axis of \p right.
-/// \tparam OutputStorage Sparse storage policy whose blocks provide immediate
-///                       host default-accessor access for the owning result.
+/// \tparam OutputStorage Storage policy whose blocks provide immediate host
+///                       access for the owning result.
 /// \tparam LeftTensor Left BlockTensor-like operand.
 /// \tparam RightTensor Right BlockTensor-like operand.
 /// \param left Left operand, whose contracted factor must be its rightmost codomain factor.
 /// \param right Right operand, whose contracted factor must be its leftmost domain factor.
-/// \return Sparse tensor over the uncontracted boundary factors.
+/// \return Tensor over the uncontracted boundary factors.
 /// \throws std::invalid_argument If symmetries or contracted space values differ.
 template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = detail::DefaultPairwiseContractionStorage,
           class LeftTensor, class RightTensor>
@@ -636,8 +654,11 @@ auto contract(LeftTensor const& left, RightTensor const& right)
   auto result_codomain = detail::make_pairwise_contraction_codomain(left, right);
   using result_type =
       BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
-  result_type result(left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
+  auto result = detail::make_pairwise_contraction_result<result_type>(
+      left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
+  if constexpr (CompleteBlockStorage<selected_output_storage>)
+    detail::zero_unbound_pairwise_output_blocks(result, bindings);
   detail::execute_immediate_pairwise_contraction<traits>(result, left, right, std::move(bindings));
   return result;
 }

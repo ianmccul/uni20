@@ -46,7 +46,7 @@ auto result = run_two_site_dmrg(
     mpo,
     environments,
     run_options,
-    ParallelPackedSparseBlockStorage<>{});
+    ParallelPackedCompleteBlockStorage<>{});
 ```
 
 This does not change the persistent MPS or MPO storage. With an active
@@ -72,7 +72,7 @@ auto result = run_two_site_dmrg(
     environments,
     run_options,
     measurements,
-    ParallelPackedSparseBlockStorage<>{});
+    ParallelPackedCompleteBlockStorage<>{});
 ```
 
 `DetailedTwoSiteDmrgPerformanceMeasurements` additionally times Krylov vector
@@ -95,15 +95,18 @@ generic measurement levels, batch fields, and overhead contract are in
 and `i+1`:
 
 1. Contract the two current MPS sites over their shared bond using the selected
-   center storage, then copy that value into a center storing every
-   symmetry-legal key for the fixed external bonds and physical spaces. Blocks
-   absent from the current MPS are exact zero but remain available to the local
-   Hamiltonian.
+   center storage. A complete policy allocates every symmetry-legal center block
+   directly and zeros blocks without a contribution. For compatibility, a
+   sparse center policy is widened once into an explicitly complete sparse key
+   set. Blocks absent from the current MPS are exact zero but remain available
+   to the local Hamiltonian.
 2. Obtain `left[i]` and `right[i+2]` from the attached
    `MpoEnvironmentCache`.
 3. Compile a fixed-center `TwoSiteEffectiveHamiltonian` from those
-   environments and the two MPO sites. The sweep retains zero-copy identity
-   views for the local solve rather than copying the owning BlockTensor payloads.
+   environments and the two MPO sites. This also prepares the host R/A/B/C
+   grouping, output order, and reusable intermediate workspace. The sweep
+   retains zero-copy identity views for the local solve rather than copying the
+   owning BlockTensor payloads.
 4. Perform the configured fixed number of three-term Lanczos steps and use the
    smallest Ritz vector of that local projection.
 5. Apply the staged block SVD and global charge-sector truncation policy.

@@ -153,8 +153,8 @@ auto is_legal_block_key(Symmetry const& symmetry, DomainType const& domain, Codo
 /// \tparam T Numerical block element type.
 /// \tparam DomainType Ordered domain value type.
 /// \tparam CodomainType Ordered codomain value type.
-/// \tparam Storage Block storage policy; explicit-key construction requires a
-///                 sparse policy.
+/// \tparam Storage Block storage policy. Sparse policies accept an explicit
+///                 key set; complete policies derive every legal key.
 template <typename T, class DomainType, class CodomainType, BlockTensorStorage Storage>
   requires(detail::IsDomain<DomainType>::value && detail::IsCodomain<CodomainType>::value &&
            detail::PrototypeBoundary<DomainType>::value && detail::PrototypeBoundary<CodomainType>::value)
@@ -206,6 +206,16 @@ class BlockTensor {
         : BlockTensor(symmetry, std::move(domain), std::move(codomain), std::vector<key_type>(stored_keys))
     {}
 
+    /// \brief Construct a complete tensor containing every symmetry-legal block.
+    /// \param symmetry Explicit tensor symmetry context.
+    /// \param domain Ordered domain spaces.
+    /// \param codomain Ordered codomain spaces.
+    BlockTensor(Symmetry symmetry, domain_type domain, codomain_type codomain)
+      requires CompleteBlockStorage<storage_policy>
+        : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)),
+          storage_(this->make_complete_storage())
+    {}
+
     /// \brief Return the explicit symmetry context.
     auto symmetry() const -> Symmetry { return symmetry_; }
 
@@ -240,7 +250,7 @@ class BlockTensor {
     /// \brief Enumerate every symmetry-legal block key in canonical order.
     /// \details This scans the full Cartesian product of key-bearing boundary
     ///          factors and filters it through the selection rule. It is
-    ///          intended for structural planning and complete sparse
+    ///          intended for structural planning and explicit sparse
     ///          materialization, not repeated hot-path queries.
     auto legal_block_keys() const -> std::vector<key_type>
     {
@@ -430,17 +440,44 @@ class BlockTensor {
     /// \brief Return the concrete storage value.
     auto storage() const noexcept -> storage_type const& { return storage_; }
 
+    /// \brief Allocate a tensor with identical validated structure.
+    /// \details This operation is available when the storage implementation can
+    ///          reproduce its block placement without rebuilding it from the
+    ///          tensor boundaries. Numerical values are unspecified until an
+    ///          operation writes them.
+    /// \return Independent tensor with the same symmetry, boundaries, keys, and placement.
+    [[nodiscard]] auto allocate_like() const -> BlockTensor
+      requires requires(storage_type const& storage) {
+        { storage.allocate_like() } -> std::same_as<storage_type>;
+      }
+    {
+      return BlockTensor(symmetry_, domain_, codomain_, storage_.allocate_like(), ValidatedStorageTag{});
+    }
+
   private:
+    struct ValidatedStorageTag
+    {};
+
+    BlockTensor(Symmetry symmetry, domain_type domain, codomain_type codomain, storage_type storage,
+                ValidatedStorageTag)
+        : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)), storage_(std::move(storage))
+    {}
+
     auto make_storage(std::vector<key_type> stored_keys) -> storage_type
     {
       this->validate_boundaries();
+      return this->make_storage_from_validated_keys(std::move(stored_keys));
+    }
+
+    auto make_storage_from_validated_keys(std::vector<key_type> stored_keys) -> storage_type
+    {
       std::sort(stored_keys.begin(), stored_keys.end());
       if (std::adjacent_find(stored_keys.begin(), stored_keys.end()) != stored_keys.end())
       {
         throw std::invalid_argument("BlockTensor stored keys must be unique");
       }
 
-      std::vector<detail::SparseBlockSpec<static_key_coordinate_count, static_dense_block_order>> specs;
+      std::vector<detail::BlockSpec<static_key_coordinate_count, static_dense_block_order>> specs;
       specs.reserve(stored_keys.size());
       for (key_type const& key : stored_keys)
       {
@@ -450,6 +487,16 @@ class BlockTensor {
         specs.push_back({key, extents});
       }
       return storage_type(specs);
+    }
+
+    auto make_complete_storage() -> storage_type
+    {
+      this->validate_boundaries();
+      std::vector<key_type> stored_keys;
+      this->for_each_possible_key([&](key_type const& key) {
+        if (this->is_legal(key)) stored_keys.push_back(key);
+      });
+      return this->make_storage_from_validated_keys(std::move(stored_keys));
     }
 
     void validate_boundaries() const

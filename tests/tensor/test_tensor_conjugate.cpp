@@ -26,7 +26,7 @@ static_assert(uni20::ImmediateTensorView<conjugated_matrix>);
 static_assert(!uni20::OwningTensor<conjugated_matrix>);
 static_assert(!uni20::OwningTensor<uni20::ConstTensorView<complex_matrix>>);
 static_assert(!uni20::MutableImmediateTensorView<conjugated_matrix>);
-static_assert(std::same_as<typename conjugated_matrix::storage_policy, uni20::VectorStorage>);
+static_assert(std::same_as<typename conjugated_matrix::storage_policy, uni20::HostStorage>);
 static_assert(!ConjugatesRvalueTensor<complex_matrix>);
 static_assert(uni20::ReadTensorLease<conjugated_read_lease>);
 static_assert(!HasStorageObserver<conjugated_read_lease>);

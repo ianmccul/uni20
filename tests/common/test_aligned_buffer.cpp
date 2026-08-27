@@ -4,7 +4,10 @@
 #include <uni20/common/aligned_buffer.hpp>
 #include <uni20/core/types.hpp>
 
-static_assert(uni20::uninitialized_ok<uni20::complex<double>>, "complex<double> should be trivially copyable");
+static_assert(uni20::enable_uninitialized_storage<double>);
+static_assert(uni20::enable_uninitialized_storage<uni20::complex<double>>);
+static_assert(uni20::uninitialized_ok<uni20::complex<double>>,
+              "Uni20 complex values explicitly support uninitialized storage");
 
 // A helper type that counts how many times its ctor and dtor run.
 struct Tracker

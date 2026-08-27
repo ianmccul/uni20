@@ -65,6 +65,48 @@ template <class Output, class B> [[nodiscard]] constexpr bool is_obvious_rabc_al
 
 } // namespace detail
 
+/// \brief Prepare the single host right-first backend selected for fixed R/A/B/C operands.
+/// \details Preparation validates the fixed block structures, derives the
+///          backend-specific schedule, and allocates reusable intermediate
+///          storage. This overload intentionally accepts the currently
+///          supported one-entry prepared selector; future backend lists must
+///          define how preparation chooses and retains one accepted backend.
+/// \param selector Selected host R/A/B/C backend and nested dense selector.
+/// \param output Prototype fixed output structure.
+/// \param plan Execution-neutral coefficient plan transferred into the executor.
+/// \param a Prototype left block family.
+/// \param b Prototype center block family.
+/// \param c Prototype right block family.
+/// \return Prepared host executor owning the plan, schedule, and workspace.
+template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni20::Scalar Scalar,
+          detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
+  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C>
+[[nodiscard]] auto prepare_rabc_contract(linalg::backend_list<HostRightFirstRabcBackend<ContractionSelector>> selector,
+                                         Output const& output, RabcContractionPlan<Scalar> plan, A const& a, B const& b,
+                                         C const& c)
+{
+  auto backend = std::move(std::get<0>(selector.entries));
+  return PreparedHostRightFirstRabcContraction(std::move(backend.contraction_selector), output, std::move(plan), a, b,
+                                               c);
+}
+
+/// \brief Select and prepare the R/A/B/C backend for one fixed block structure.
+/// \param output Prototype fixed output structure and storage policy.
+/// \param plan Execution-neutral coefficient plan transferred into the executor.
+/// \param a Prototype left block family.
+/// \param b Prototype center block family.
+/// \param c Prototype right block family.
+/// \return Prepared executor selected from the output storage policy.
+template <detail::HostWritableRabcTensor Output, uni20::Scalar Scalar, detail::HostReadableRabcTensor A,
+          detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
+  requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<Scalar>, A, B, C>
+[[nodiscard]] auto prepare_rabc_contract(Output const& output, RabcContractionPlan<Scalar> plan, A const& a, B const& b,
+                                         C const& c)
+{
+  auto selector = linalg::select_backend(rabc_contract_op{}, output);
+  return prepare_rabc_contract(std::move(selector), output, std::move(plan), a, b, c);
+}
+
 /// \brief Execute a fixed-output sparse R/A/B/C contraction with an explicit backend selector.
 /// \details Computes `R_r = sum(f(r,a,b,c) A_a B_b transpose(C_c))`.
 ///          The sparse plan contains only mathematical coefficients and block

@@ -13,7 +13,7 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
-#include <uni20/storage/vectorstorage.hpp>
+#include <uni20/storage/host_storage.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -46,7 +46,7 @@ concept ReductionStorageTypedTensor =
 template <class... Inputs> struct reduction_result_storage
 {
     using selected_type = linalg::detail::first_backend_bound_storage_t<Inputs...>;
-    using type = std::conditional_t<std::is_void_v<selected_type>, VectorStorage, selected_type>;
+    using type = std::conditional_t<std::is_void_v<selected_type>, HostStorage, selected_type>;
 };
 
 template <class... Inputs> using reduction_result_storage_t = typename reduction_result_storage<Inputs...>::type;

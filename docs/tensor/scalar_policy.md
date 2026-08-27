@@ -43,6 +43,20 @@ replacement class. This keeps standard-library ABI, layout expectations, and
 interop behavior unchanged while giving Uni20 a single project-level spelling
 for complex scalars.
 
+`HostStorage` separates allocation from numerical initialization. Its real
+and complex scalar buffers are allocated without constructing or clearing their
+elements; values remain unspecified until an operation writes them. The public
+`uni20::enable_uninitialized_storage<T>` variable template is the corresponding
+value-type customization point. Its conservative default accepts trivially
+copyable and trivially destructible types. Uni20 explicitly opts
+`uni20::complex<Real>` into this behavior because the project relies on the
+standard complex scalar-array representation and the trivial lifetime behavior
+provided by supported standard libraries, including implementations whose type
+traits do not yet report complex as trivially copyable. Extension tensor value
+types may specialize the variable template only when allocating, copying object
+representations, and releasing storage without constructors or destructors is a
+valid lifetime model for that type.
+
 The canonical complex aliases are:
 
 | alias | meaning |

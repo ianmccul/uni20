@@ -150,7 +150,7 @@ kernels operate on resolved mdspans.
   source layout. `reshape_view_left` and `reshape_view_right` explicitly select
   the interpretation of a compatible `layout_stride` mapping; plain reshape
   never guesses that order.
-- `DenseMatrix<T>` is `Tensor<T, 2, VectorStorage, ColumnMajor>`; use
+- `DenseMatrix<T>` is `Tensor<T, 2, HostStorage, ColumnMajor>`; use
   `DenseMatrix<T, RowMajor>` when row-major ownership is preferred. Matrix-level
   linalg front ends accept either form and resolve mdspans internally.
 - Tensor operations should lower to dense primitives only after storage, layout,

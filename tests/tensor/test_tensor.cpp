@@ -6,6 +6,8 @@
 
 #include <array>
 #include <concepts>
+#include <cstdint>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -17,14 +19,17 @@ namespace
 
 using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
-using tensor_type = Tensor<int, 2, VectorStorage>;
-using strided_tensor_type = StridedTensor<int, 2, VectorStorage>;
+using tensor_type = Tensor<int, 2, HostStorage>;
+using strided_tensor_type = StridedTensor<int, 2, HostStorage>;
 using scalar_tensor_type = ScalarTensor<double>;
+
+static_assert(!HostStorage::storage_t<double>::initializes_elements);
+static_assert(!HostStorage::storage_t<uni20::complex<double>>::initializes_elements);
 
 struct ImmediateAndDescriptorStorage
 {
     template <class ElementType> using storage_t = std::vector<ElementType>;
-    using backend_selector_type = VectorStorage::backend_selector_type;
+    using backend_selector_type = HostStorage::backend_selector_type;
 
     template <class ElementType>
     [[nodiscard]] static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
@@ -52,14 +57,14 @@ struct ImmediateAndDescriptorStorage
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
-      return VectorStorage::backend_selector();
+      return HostStorage::backend_selector();
     }
 };
 
 struct ReadOnlyImmediateStorage
 {
     template <class ElementType> using storage_t = std::vector<ElementType>;
-    using backend_selector_type = VectorStorage::backend_selector_type;
+    using backend_selector_type = HostStorage::backend_selector_type;
 
     template <class ElementType>
     [[nodiscard]] static auto make_handle(storage_t<ElementType> const& storage) noexcept -> ElementType const*
@@ -69,7 +74,7 @@ struct ReadOnlyImmediateStorage
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
-      return VectorStorage::backend_selector();
+      return HostStorage::backend_selector();
     }
 };
 
@@ -246,10 +251,10 @@ using access_test_const_mdspan = stdex::mdspan<int const, extents_2d>;
 using instrumented_read_mdspan_lease = read_mdspan_lease<access_test_const_mdspan, InstrumentedTensorAccessState>;
 using instrumented_write_mdspan_lease = write_mdspan_lease<access_test_mutable_mdspan, InstrumentedTensorAccessState>;
 using instrumented_read_tensor_lease =
-    read_tensor_lease<access_test_const_mdspan, InstrumentedTensorAccessState, access_test_selector, VectorStorage>;
+    read_tensor_lease<access_test_const_mdspan, InstrumentedTensorAccessState, access_test_selector, HostStorage>;
 using instrumented_write_tensor_lease =
     write_tensor_lease<access_test_mutable_mdspan, access_test_const_mdspan, InstrumentedTensorAccessState,
-                       access_test_selector, VectorStorage>;
+                       access_test_selector, HostStorage>;
 
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
@@ -267,10 +272,10 @@ concept HasStorageObserver = requires(T& value) { value.storage(); };
 template <class T>
 concept CanBorrowReadFromRvalue = requires(T&& value) { acquire_host_read_access_sync(std::move(value)); };
 
-static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
+static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, HostStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
-static_assert(std::same_as<RowMajorTensor<int, 2>, Tensor<int, 2, VectorStorage, RowMajor>>);
-static_assert(std::same_as<strided_tensor_type, Tensor<int, 2, VectorStorage, stdex::layout_stride>>);
+static_assert(std::same_as<RowMajorTensor<int, 2>, Tensor<int, 2, HostStorage, RowMajor>>);
+static_assert(std::same_as<strided_tensor_type, Tensor<int, 2, HostStorage, stdex::layout_stride>>);
 static_assert(!std::constructible_from<tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
 static_assert(std::constructible_from<strided_tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
 
@@ -294,7 +299,7 @@ static_assert(!MutableImmediateTensorView<tensor_type const>);
 static_assert(!MdspanLike<tensor_type>);
 static_assert(!MdspecLike<tensor_type>);
 static_assert(!StridedMdspanLike<tensor_type>);
-static_assert(std::same_as<tensor_storage_policy_t<tensor_type>, VectorStorage>);
+static_assert(std::same_as<tensor_storage_policy_t<tensor_type>, HostStorage>);
 static_assert(std::same_as<mutable_tensor_mdspec_t<tensor_type>, mutable_immediate_tensor_mdspan_t<tensor_type>>);
 static_assert(HostReadableMdspec<access_test_const_mdspan>);
 static_assert(HostWritableMdspec<access_test_mutable_mdspan>);
@@ -389,7 +394,7 @@ constexpr bool can_assign_element_v =
     std::is_assignable_v<typename std::remove_reference_t<Span>::reference,
                          std::remove_const_t<typename std::remove_reference_t<Span>::value_type>>;
 
-TEST(TensorTest, DefaultMappingUsesColumnMajorVectorStorage)
+TEST(TensorTest, DefaultMappingUsesColumnMajorHostStorage)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
@@ -419,6 +424,46 @@ TEST(TensorTest, DefaultMappingUsesColumnMajorVectorStorage)
   EXPECT_EQ((tensor[1, 2]), expected.back());
   EXPECT_EQ(tensor.mapping().stride(0), 1);
   EXPECT_EQ(tensor.mapping().stride(1), 2);
+}
+
+TEST(HostBufferTest, CopyMoveAndResizePreserveInitializedPrefix)
+{
+  HostBuffer<int> source(4, 7);
+  source[1] = 11;
+
+  HostBuffer<int> copy = source;
+  EXPECT_EQ(copy.size(), 4u);
+  EXPECT_EQ(copy[0], 7);
+  EXPECT_EQ(copy[1], 11);
+
+  copy.resize(2);
+  EXPECT_EQ(copy.size(), 2u);
+  EXPECT_EQ(copy[0], 7);
+  EXPECT_EQ(copy[1], 11);
+
+  HostBuffer<int> moved = std::move(copy);
+  EXPECT_TRUE(copy.empty());
+  EXPECT_EQ(moved.size(), 2u);
+  EXPECT_EQ(moved[0], 7);
+  EXPECT_EQ(moved[1], 11);
+}
+
+TEST(HostBufferTest, PreservesAllocationAlignmentForSmallBuffers)
+{
+  uni20::HostBuffer<double> buffer(1);
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(buffer.data()) % uni20::HostStorage::allocation_alignment, 0);
+}
+
+TEST(HostBufferTest, ConstructsAndDestroysNontrivialElements)
+{
+  HostBuffer<std::string> buffer(2);
+  EXPECT_EQ(buffer[0], "");
+  EXPECT_EQ(buffer[1], "");
+
+  buffer[0] = "host";
+  buffer.resize(3);
+  EXPECT_EQ(buffer[0], "host");
+  EXPECT_EQ(buffer[2], "");
 }
 
 TEST(TensorTest, StridesUseNormalizedImmediateAndDeferredMetadata)
@@ -480,14 +525,13 @@ TEST(TensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
   EXPECT_EQ(tensor.size(), 6);
 }
 
-TEST(TensorTest, ScalarTensorDefaultConstructsItsSoleElement)
+TEST(TensorTest, ScalarTensorAllocatesItsSoleElement)
 {
   scalar_tensor_type scalar;
 
   EXPECT_EQ(scalar.rank(), 0);
   EXPECT_EQ(scalar.size(), 1);
   EXPECT_EQ(scalar.storage().size(), 1u);
-  EXPECT_DOUBLE_EQ(scalar[], 0.0);
 
   scalar[] = 3.5;
   scalar_tensor_type const& const_scalar = scalar;
@@ -719,7 +763,7 @@ TEST(TensorTest, ResolvedMdspansShareOwnedStorage)
   EXPECT_EQ(const_span.data_handle(), tensor.handle());
   EXPECT_EQ((const_span[0, 0]), 9);
   EXPECT_EQ((const_span[1, 2]), 42);
-  EXPECT_EQ(tensor.backend_selector(), VectorStorage::backend_selector());
+  EXPECT_EQ(tensor.backend_selector(), HostStorage::backend_selector());
 }
 
 TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)

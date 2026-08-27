@@ -93,10 +93,25 @@ TEST(RabcContraction, DispatchesRightFirstAndReusesSharedBcGroup)
   EXPECT_EQ(
       uni20::linalg::probe_dispatch_kernel(selector, uni20::tensor_network::rabc_contract_op{}, output, plan, a, b, c),
       uni20::linalg::KernelTypeAcceptance::yes);
-  uni20::tensor_network::rabc_contract(output, plan, a, b, c);
+  auto prepared = uni20::tensor_network::prepare_rabc_contract(output, plan, a, b, c);
+  EXPECT_EQ(prepared.intermediate_count(), 1);
+  prepared(output, a, b, c);
 
   auto r0 = output.block_by_ordinal(0);
   auto r1 = output.block_by_ordinal(1);
+  for (uni20::index_type row = 0; row < 2; ++row)
+  {
+    for (uni20::index_type column = 0; column < 2; ++column)
+    {
+      EXPECT_DOUBLE_EQ((r0[row, column]), (b0[row, column]));
+      EXPECT_DOUBLE_EQ((r1[row, column]), (2.0 * b0[row, column]));
+    }
+  }
+
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 2; ++column)
+      b0[row, column] *= 3.0;
+  prepared(output, a, b, c);
   for (uni20::index_type row = 0; row < 2; ++row)
   {
     for (uni20::index_type column = 0; column < 2; ++column)

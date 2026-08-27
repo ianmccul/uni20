@@ -69,8 +69,8 @@ TEST(TensorGeneratedTest, GeneratedStorageDefersBackendSelectionToConcreteStorag
 
   auto selector = uni20::linalg::select_backend(uni20::linalg::copy_op{}, output, generated);
   auto generated_first = uni20::linalg::select_backend(uni20::linalg::copy_op{}, generated, output);
-  static_assert(std::same_as<decltype(selector), typename uni20::VectorStorage::backend_selector_type>);
-  static_assert(std::same_as<decltype(generated_first), typename uni20::VectorStorage::backend_selector_type>);
+  static_assert(std::same_as<decltype(selector), typename uni20::HostStorage::backend_selector_type>);
+  static_assert(std::same_as<decltype(generated_first), typename uni20::HostStorage::backend_selector_type>);
 }
 
 TEST(TensorGeneratedTest, GeneratedAdaptorUsesStorageFallbackWhenNoConcreteOperandExists)

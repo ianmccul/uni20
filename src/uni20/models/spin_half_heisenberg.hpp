@@ -56,9 +56,11 @@ struct SpinHalfU1Site
     auto qnum(SpinHalfState state) const -> QNum const& { return state == SpinHalfState::up ? up : down; }
 };
 
-/// \brief Packed finite MPS type produced by the spin-half model builders.
-template <RealOrComplex Scalar>
-using SpinHalfU1Mps = tensor_network::FiniteMps<Scalar, BlockSpace, LocalSpace, PackedSparseBlockStorage<>>;
+/// \brief Finite MPS type produced by the spin-half model builders.
+/// \tparam Scalar Real or complex tensor element type.
+/// \tparam Storage Block storage policy used by every MPS site.
+template <RealOrComplex Scalar, BlockTensorStorage Storage = PackedSparseBlockStorage<>>
+using SpinHalfU1Mps = tensor_network::FiniteMps<Scalar, BlockSpace, LocalSpace, Storage>;
 
 /// \brief Packed finite MPO type produced by the spin-half model builders.
 template <RealOrComplex Scalar>
@@ -208,14 +210,15 @@ auto single_heisenberg_site(SpinHalfU1Site const& local, LocalSpace const& left,
 ///          and every site contains one scalar block with value one. The
 ///          resulting product state is canonical from either direction.
 /// \tparam Scalar Real or complex MPS element type.
+/// \tparam Storage Block storage policy used by every MPS site.
 /// \param length Positive number of sites.
 /// \param local U(1) spin-half local space.
 /// \param first State placed on site zero; later sites alternate.
-/// \return Packed finite MPS in the corresponding total-charge sector.
+/// \return Finite MPS in the corresponding total-charge sector.
 /// \throws std::invalid_argument If \p length is zero.
-template <RealOrComplex Scalar = double>
+template <RealOrComplex Scalar = double, BlockTensorStorage Storage = PackedSparseBlockStorage<>>
 [[nodiscard]] auto make_neel_product_mps(std::size_t length, SpinHalfU1Site const& local,
-                                         SpinHalfState first = SpinHalfState::up) -> SpinHalfU1Mps<Scalar>
+                                         SpinHalfState first = SpinHalfState::up) -> SpinHalfU1Mps<Scalar, Storage>
 {
   if (length == 0) throw std::invalid_argument("Neel product MPS requires at least one site");
 
@@ -231,7 +234,7 @@ template <RealOrComplex Scalar = double>
                        detail::mps_bond_label(site + 1));
   }
 
-  using mps_type = SpinHalfU1Mps<Scalar>;
+  using mps_type = SpinHalfU1Mps<Scalar, Storage>;
   using site_type = typename mps_type::site_type;
   std::vector<site_type> sites;
   sites.reserve(length);

@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <initializer_list>
@@ -129,13 +130,13 @@ struct HostGemmPlatform
     void write_physical(Tensor& tensor, std::vector<uni20::tensor_element_t<Tensor>> const& values)
     {
       ASSERT_EQ(values.size(), tensor.storage().size());
-      tensor.storage() = values;
+      std::ranges::copy(values, tensor.storage().begin());
     }
 
     template <class Tensor>
     [[nodiscard]] auto read_physical(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
     {
-      return tensor.storage();
+      return {tensor.storage().begin(), tensor.storage().end()};
     }
 
     template <class BackendSelector, class OutputTensor, class Scalar, class LhsTensor, class RhsTensor>

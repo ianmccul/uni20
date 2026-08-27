@@ -17,7 +17,7 @@
  */
 
 #include <algorithm>
-#include <bit>
+#include <complex>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
@@ -69,7 +69,7 @@ template <typename T> struct aligned_destructor_deleter
     }
 };
 
-/// \brief Allocate raw storage with the requested alignment, adjusting for small buffers.
+/// \brief Allocate raw storage with the requested alignment.
 /// \param bytes Total number of bytes requested.
 /// \param align Desired alignment in bytes.
 /// \return Pointer to aligned storage suitable for manual placement new.
@@ -77,16 +77,6 @@ template <typename T> struct aligned_destructor_deleter
 /// \ingroup internal
 inline void* allocate_raw(std::size_t bytes, std::size_t align)
 {
-  // if the buffer is smaller than the requested alignment,
-  // drop the alignment to avoid wasted space:
-  if (bytes < align)
-  {
-    // bit_floor(bytes) is the largest power-of-two ≤ bytes
-    auto pf = std::bit_floor(bytes);
-    // never go below pointer alignment:
-    align = std::max<std::size_t>(pf, alignof(void*));
-  }
-
   void* ptr = nullptr;
 #if defined(_MSC_VER)
   ptr = _aligned_malloc(bytes, align);
@@ -116,12 +106,26 @@ template <typename T> using aligned_buf_with_dtor_t = std::unique_ptr<T[], align
 
 } // namespace detail
 
-/// \brief Concept that evaluates to true when `T` can be copied into raw storage safely.
-/// \note Implies trivial copy constructor, move constructor, and destructor.
+/// \brief Opt a type into allocation without construction or destruction.
+/// \details The default accepts types that the standard library reports as
+///          trivially copyable and trivially destructible. The standard complex
+///          specializations are explicitly accepted as a practical extension:
+///          Uni20 relies on their scalar-array representation and trivial
+///          lifetime behavior even on standard libraries whose type traits do
+///          not yet report them as trivially copyable.
 /// \tparam T Candidate element type.
 /// \ingroup common_utilities
 template <typename T>
-concept uninitialized_ok = std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
+inline constexpr bool enable_uninitialized_storage =
+    std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
+
+template <typename Real>
+inline constexpr bool enable_uninitialized_storage<std::complex<Real>> =
+    std::is_trivially_destructible_v<std::complex<Real>>;
+
+/// \brief Whether raw allocation may establish storage for `T` without construction.
+template <typename T>
+concept uninitialized_ok = enable_uninitialized_storage<std::remove_cv_t<T>>;
 
 /// \brief Allocate raw, aligned storage for `T[N]` without running constructors or destructors.
 /// \details When `T` is not trivially copyable you must placement-new each element before use
@@ -134,6 +138,7 @@ concept uninitialized_ok = std::is_trivially_copyable_v<T> && std::is_trivially_
 /// \ingroup common_utilities
 template <typename T> detail::aligned_buf_t<T> allocate_uninitialized_buffer(std::size_t N, std::size_t align = 64)
 {
+  if (N == 0) return detail::aligned_buf_t<T>{nullptr, detail::aligned_deleter<T>{}};
   void* raw = detail::allocate_raw(sizeof(T) * N, align);
   return detail::aligned_buf_t<T>(static_cast<T*>(raw), detail::aligned_deleter<T>{});
 }
@@ -157,6 +162,10 @@ template <typename T> auto allocate_temporary_buffer(std::size_t N, std::size_t 
   }
   else
   {
+    if (N == 0)
+    {
+      return detail::aligned_buf_with_dtor_t<T>{nullptr, detail::aligned_destructor_deleter<T>{0}};
+    }
     // allocate raw
     void* raw = detail::allocate_raw(sizeof(T) * N, align);
     T* ptr = static_cast<T*>(raw);
@@ -190,6 +199,10 @@ template <typename T> auto allocate_temporary_buffer_uninitialized(std::size_t N
   }
   else
   {
+    if (N == 0)
+    {
+      return detail::aligned_buf_with_dtor_t<T>{nullptr, detail::aligned_destructor_deleter<T>{0}};
+    }
     void* raw = detail::allocate_raw(sizeof(T) * N, align);
     T* ptr = static_cast<T*>(raw);
     // *** no placement‐new here! user must do it. ***

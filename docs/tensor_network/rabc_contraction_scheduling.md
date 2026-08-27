@@ -2,9 +2,9 @@
 
 **Status:** active architecture informed by the separate TensorContraction
 prototype. Pure Uni20 now has a neutral sparse `f(r,a,b,c)` plan, a dispatched
-R/A/B/C operation, and a host right-first backend with `(B,C)` reuse. Persistent
-scratch, left-first/hybrid selection, CUDA/MPI placement, and the cost model
-described below remain future work.
+R/A/B/C operation, and a host right-first backend with prepared `(B,C)` reuse.
+Left-first/hybrid selection, CUDA/MPI placement, and the cost model described
+below remain future work.
 
 ## Current Pure-Uni20 Reference Path
 
@@ -20,21 +20,24 @@ Duplicate `(r,a,b,c)` entries are summed and exact-zero coefficients are
 removed. The plan is an execution-order-neutral hypergraph: it contains no
 left-first, right-first, placement, or communication choice.
 
-Application dispatches `rabc_contract_op` while the output BlockTensor storage
-policy remains visible. The current `HostRightFirstRabcBackend` derives unique
-`(b,c)` groups and evaluates:
+Backend selection occurs while the output BlockTensor storage policy remains
+visible. The current `HostRightFirstRabcBackend` derives unique `(b,c)` groups
+and evaluates:
 
 ```text
 Y_bc = B_b * transpose(C_c)
 R_r += f_rabc * A_a * Y_bc
 ```
 
-Every `Y_bc` is formed once per application. Distinct intermediates and output
-blocks use the output storage's synchronous block-batch policy, while each
-output block's contributions remain serial. Dense contractions retain the
-operation-specific nested selector, so direct/looped GEMM and reference
-fallback remain available. Temporary storage is currently rebuilt for each
-application rather than retained across Krylov matvecs.
+Every `Y_bc` is formed once per application. For a fixed effective Hamiltonian,
+`prepare_rabc_contract` validates the block structures, derives the grouping
+and output order, and allocates every intermediate before the Krylov loop.
+Repeated applications reuse that schedule and workspace. Distinct
+intermediates and output blocks use the output storage's synchronous block-batch
+policy, while each output block's contributions remain serial. Dense
+contractions retain the operation-specific nested selector, so direct/looped
+GEMM and reference fallback remain available. A prepared host executor is tied
+to one plan and block structure and must not be invoked concurrently.
 
 This note records the intended Uni20 replacement for the temporary
 TensorContraction `Arranger`/`Swapper` scheduling model.

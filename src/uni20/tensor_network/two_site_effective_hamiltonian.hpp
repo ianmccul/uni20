@@ -122,7 +122,9 @@ LocalTwoSiteEffectiveHamiltonian(Hamiltonian) -> LocalTwoSiteEffectiveHamiltonia
 ///          two adjacent MPO sites, and right environment into an immutable
 ///          sparse R/A/B/C term plan for one fixed center structure and
 ///          snapshots their scalar coefficients into an immutable sparse
-///          `f(r,a,b,c)` tensor. Repeated applications dispatch as `R = f A B C`.
+///          `f(r,a,b,c)` tensor. Construction also selects and prepares the
+///          current R/A/B/C backend so repeated applications reuse its schedule
+///          and intermediate workspace.
 ///          No whole-center dense projection or high-rank BlockTensor
 ///          intermediate is formed. The two environments are retained by
 ///          value. If either is a borrowed view, its ultimate payload owner
@@ -189,7 +191,9 @@ class TwoSiteEffectiveHamiltonian {
           left_environment_(std::move(left_environment)), right_environment_(std::move(right_environment))
     {
       this->validate_operand_spaces(prototype, first_mpo, second_mpo);
-      plan_ = this->make_plan(first_mpo, second_mpo);
+      auto plan = this->make_plan(first_mpo, second_mpo);
+      prepared_rabc_.emplace(
+          prepare_rabc_contract(prototype, std::move(plan), left_environment_, prototype, right_environment_));
     }
 
     /// \brief Overwrite a compatible fixed center with one planned Hamiltonian apply.
@@ -202,7 +206,7 @@ class TwoSiteEffectiveHamiltonian {
                std::same_as<block_tensor_key_t<Output>, key_type> &&
                std::same_as<block_tensor_domain_t<Output>, domain_type> &&
                std::same_as<block_tensor_codomain_t<Output>, codomain_type>
-    void operator()(Output& output, Input const& input) const
+    void operator()(Output& output, Input const& input)
     {
       this->require_center(output);
       this->require_center(input);
@@ -214,14 +218,23 @@ class TwoSiteEffectiveHamiltonian {
         }
       }
 
-      rabc_contract(output, plan_, left_environment_, input, right_environment_);
+      (*prepared_rabc_)(output, left_environment_, input, right_environment_);
     }
 
     /// \brief Return the number of compiled logical R/A/B/C contributions.
-    [[nodiscard]] auto term_count() const noexcept -> std::size_t { return plan_.term_count(); }
+    [[nodiscard]] auto term_count() const noexcept -> std::size_t { return prepared_rabc_->plan().term_count(); }
 
-    /// \brief Return the immutable sparse coefficient plan used by dispatch.
-    [[nodiscard]] auto plan() const noexcept -> RabcContractionPlan<scalar_type> const& { return plan_; }
+    /// \brief Return the immutable sparse coefficient plan used by the prepared backend.
+    [[nodiscard]] auto plan() const noexcept -> RabcContractionPlan<scalar_type> const&
+    {
+      return prepared_rabc_->plan();
+    }
+
+    /// \brief Return the number of retained host right-first intermediate blocks.
+    [[nodiscard]] auto prepared_intermediate_count() const noexcept -> std::size_t
+    {
+      return prepared_rabc_->intermediate_count();
+    }
 
   private:
     void validate_operand_spaces(center_type const& prototype, first_mpo_type const& first_mpo,
@@ -350,7 +363,11 @@ class TwoSiteEffectiveHamiltonian {
     std::vector<key_type> stored_keys_;
     left_environment_type left_environment_;
     right_environment_type right_environment_;
-    RabcContractionPlan<scalar_type> plan_;
+    using prepared_rabc_type = decltype(prepare_rabc_contract(
+        std::declval<center_type const&>(), std::declval<RabcContractionPlan<scalar_type>>(),
+        std::declval<left_environment_type const&>(), std::declval<center_type const&>(),
+        std::declval<right_environment_type const&>()));
+    std::optional<prepared_rabc_type> prepared_rabc_;
 };
 
 template <class Center, class LeftEnvironment, class FirstMpo, class SecondMpo, class RightEnvironment>

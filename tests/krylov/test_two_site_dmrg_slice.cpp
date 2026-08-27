@@ -189,6 +189,7 @@ TEST(TwoSiteDmrgSlice, CompilesMpoAndEnvironmentsIntoSparseEffectiveHamiltonianP
   auto effective_hamiltonian = uni20::tensor_network::make_two_site_effective_hamiltonian(
       initial, left_environment, first_mpo, second_mpo, right_environment);
   EXPECT_EQ(effective_hamiltonian.term_count(), 4);
+  EXPECT_GT(effective_hamiltonian.prepared_intermediate_count(), 0);
 
   Center applied = make_center(symmetry, left_bond, left_physical, right_physical, right_bond);
   effective_hamiltonian(applied, initial);

@@ -35,8 +35,9 @@ namespace uni20::tensor_network
 
 /// \brief Host executor that reuses right-first `(B_b,C_c)` intermediates.
 /// \details The retained selector performs each dense pairwise contraction.
-///          The sparse logical plan remains order-neutral; this backend derives
-///          its right-first groups for each invocation.
+///          The sparse logical plan remains order-neutral. One-shot dispatch
+///          prepares transient state, while `prepare_rabc_contract` retains
+///          grouping and workspace for repeated applications.
 /// \tparam ContractionSelector Dense contraction backend selector.
 template <linalg::KernelBackendSelector ContractionSelector> struct HostRightFirstRabcBackend
 {
@@ -163,78 +164,130 @@ template <class Plan>
   return groups;
 }
 
-template <class Output, class Plan, class A, class B, class C, class ContractionSelector>
-  requires CompatibleHostRabcOperands<Output, Plan, A, B, C>
-void execute_host_right_first_rabc(ContractionSelector const& selector, Output& output, Plan const& plan, A const& a,
-                                   B const& b, C const& c)
-{
-  using scalar_type = block_tensor_value_t<Output>;
-  auto const terms = plan.terms();
-  std::vector<std::size_t> term_group(terms.size());
-  auto const groups = make_right_first_groups(plan, term_group);
-
-  std::vector<ColumnMajorTensor<scalar_type, 2>> intermediates;
-  intermediates.reserve(groups.size());
-  for (auto const& group : groups)
-  {
-    auto const b_block = b.block_by_ordinal(group.b_ordinal);
-    auto const c_block = c.block_by_ordinal(group.c_ordinal);
-    intermediates.emplace_back(b_block.extent(0), c_block.extent(0));
-  }
-
-  using execution_policy = typename block_tensor_type_t<Output>::storage_policy::block_execution_policy;
-  constexpr std::array<std::pair<std::size_t, std::size_t>, 1> right_dimensions{std::pair{1U, 1U}};
-  execute_rabc_batch(execution_policy{}, groups.size(), [&](std::size_t group_index) {
-    auto const& group = groups[group_index];
-    auto const b_block = b.block_by_ordinal(group.b_ordinal);
-    auto const c_block = c.block_by_ordinal(group.c_ordinal);
-    linalg::contract(selector, intermediates[group_index], scalar_type{1}, b_block, c_block, right_dimensions,
-                     scalar_type{});
-  });
-
-  std::vector<std::size_t> output_offsets(output.stored_block_count() + 1, 0);
-  for (auto const& term : terms)
-    ++output_offsets[term.r_ordinal + 1];
-  std::partial_sum(output_offsets.begin(), output_offsets.end(), output_offsets.begin());
-
-  std::vector<std::size_t> output_order(output.stored_block_count());
-  std::iota(output_order.begin(), output_order.end(), std::size_t{});
-  std::vector<long double> output_cost(output.stored_block_count(), 0);
-  for (std::size_t index = 0; index < terms.size(); ++index)
-  {
-    auto const& term = terms[index];
-    auto const a_block = a.block_by_ordinal(term.a_ordinal);
-    auto const& intermediate = intermediates[term_group[index]];
-    output_cost[term.r_ordinal] +=
-        static_cast<long double>(a_block.extent(0)) * a_block.extent(1) * intermediate.extent(1);
-  }
-  std::ranges::stable_sort(output_order,
-                           [&](std::size_t lhs, std::size_t rhs) { return output_cost[lhs] > output_cost[rhs]; });
-
-  constexpr std::array<std::pair<std::size_t, std::size_t>, 1> left_dimensions{std::pair{1U, 0U}};
-  execute_rabc_batch(execution_policy{}, output_order.size(), [&](std::size_t ordered_index) {
-    std::size_t const output_ordinal = output_order[ordered_index];
-    auto output_block = output.block_by_ordinal(output_ordinal);
-    std::size_t const first = output_offsets[output_ordinal];
-    std::size_t const last = output_offsets[output_ordinal + 1];
-    if (first == last)
-    {
-      uni20::transform_inplace(output_block, linalg::scale{scalar_type{}});
-      return;
-    }
-
-    for (std::size_t index = first; index < last; ++index)
-    {
-      auto const& term = terms[index];
-      auto const a_block = a.block_by_ordinal(term.a_ordinal);
-      scalar_type const beta = index == first ? scalar_type{} : scalar_type{1};
-      linalg::contract(selector, output_block, term.coefficient, a_block, intermediates[term_group[index]],
-                       left_dimensions, beta);
-    }
-  });
-}
-
 } // namespace detail
+
+/// \brief Prepared host right-first executor for one fixed R/A/B/C structure.
+/// \details Construction validates block ordinals and extents, derives the
+///          unique `(B_b,C_c)` groups and output execution order, and allocates
+///          every intermediate once. Repeated calls reuse that schedule and
+///          workspace. The prepared object is tied to the plan and block
+///          structures used at construction and is not safe for concurrent
+///          execution.
+/// \tparam Scalar Scalar coefficient and block value type.
+/// \tparam ContractionSelector Dense contraction backend selector.
+template <uni20::Scalar Scalar, linalg::KernelBackendSelector ContractionSelector>
+class PreparedHostRightFirstRabcContraction {
+  public:
+    using scalar_type = Scalar;
+    using contraction_selector_type = ContractionSelector;
+
+    /// \brief Compile a fixed host execution schedule and allocate its workspace.
+    /// \param selector Dense contraction selector retained for every application.
+    /// \param output Prototype defining output block ordinals and extents.
+    /// \param plan Execution-neutral coefficient plan retained by value.
+    /// \param a Prototype left block family.
+    /// \param b Prototype center block family.
+    /// \param c Prototype right block family.
+    template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
+              detail::HostReadableRabcTensor C>
+      requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<scalar_type>, A, B, C>
+    PreparedHostRightFirstRabcContraction(contraction_selector_type selector, Output const& output,
+                                          RabcContractionPlan<scalar_type> plan, A const& a, B const& b, C const& c)
+        : selector_(std::move(selector)), plan_(std::move(plan)), term_group_(plan_.term_count())
+    {
+      detail::validate_rabc_operands(output, plan_, a, b, c);
+      groups_ = detail::make_right_first_groups(plan_, term_group_);
+
+      intermediates_.reserve(groups_.size());
+      for (auto const& group : groups_)
+      {
+        auto const b_block = b.block_by_ordinal(group.b_ordinal);
+        auto const c_block = c.block_by_ordinal(group.c_ordinal);
+        intermediates_.emplace_back(b_block.extent(0), c_block.extent(0));
+      }
+
+      output_offsets_.assign(output.stored_block_count() + 1, 0);
+      for (auto const& term : plan_.terms())
+        ++output_offsets_[term.r_ordinal + 1];
+      std::partial_sum(output_offsets_.begin(), output_offsets_.end(), output_offsets_.begin());
+
+      output_order_.resize(output.stored_block_count());
+      std::iota(output_order_.begin(), output_order_.end(), std::size_t{});
+      std::vector<long double> output_cost(output.stored_block_count(), 0);
+      auto const terms = plan_.terms();
+      for (std::size_t index = 0; index < terms.size(); ++index)
+      {
+        auto const& term = terms[index];
+        auto const a_block = a.block_by_ordinal(term.a_ordinal);
+        auto const& intermediate = intermediates_[term_group_[index]];
+        output_cost[term.r_ordinal] +=
+            static_cast<long double>(a_block.extent(0)) * a_block.extent(1) * intermediate.extent(1);
+      }
+      std::ranges::stable_sort(output_order_,
+                               [&](std::size_t lhs, std::size_t rhs) { return output_cost[lhs] > output_cost[rhs]; });
+    }
+
+    /// \brief Execute using the retained schedule and workspace.
+    /// \pre All operands have the same block ordinals and dense extents supplied
+    ///      at construction, and output storage does not overlap an input.
+    /// \param output Fixed-structure output block family.
+    /// \param a Left block family matching the prepared prototype.
+    /// \param b Center block family matching the prepared prototype.
+    /// \param c Right block family matching the prepared prototype.
+    template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
+              detail::HostReadableRabcTensor C>
+      requires detail::CompatibleHostRabcOperands<Output, RabcContractionPlan<scalar_type>, A, B, C>
+    void operator()(Output& output, A const& a, B const& b, C const& c)
+    {
+      using execution_policy = typename block_tensor_type_t<Output>::storage_policy::block_execution_policy;
+      constexpr std::array<std::pair<std::size_t, std::size_t>, 1> right_dimensions{std::pair{1U, 1U}};
+      detail::execute_rabc_batch(execution_policy{}, groups_.size(), [&](std::size_t group_index) {
+        auto const& group = groups_[group_index];
+        auto const b_block = b.block_by_ordinal(group.b_ordinal);
+        auto const c_block = c.block_by_ordinal(group.c_ordinal);
+        linalg::contract(selector_, intermediates_[group_index], scalar_type{1}, b_block, c_block, right_dimensions,
+                         scalar_type{});
+      });
+
+      auto const terms = plan_.terms();
+      constexpr std::array<std::pair<std::size_t, std::size_t>, 1> left_dimensions{std::pair{1U, 0U}};
+      detail::execute_rabc_batch(execution_policy{}, output_order_.size(), [&](std::size_t ordered_index) {
+        std::size_t const output_ordinal = output_order_[ordered_index];
+        auto output_block = output.block_by_ordinal(output_ordinal);
+        std::size_t const first = output_offsets_[output_ordinal];
+        std::size_t const last = output_offsets_[output_ordinal + 1];
+        if (first == last)
+        {
+          uni20::transform_inplace(output_block, linalg::scale{scalar_type{}});
+          return;
+        }
+
+        for (std::size_t index = first; index < last; ++index)
+        {
+          auto const& term = terms[index];
+          auto const a_block = a.block_by_ordinal(term.a_ordinal);
+          scalar_type const beta = index == first ? scalar_type{} : scalar_type{1};
+          linalg::contract(selector_, output_block, term.coefficient, a_block, intermediates_[term_group_[index]],
+                           left_dimensions, beta);
+        }
+      });
+    }
+
+    /// \brief Return the number of retained `(B,C)` intermediate blocks.
+    [[nodiscard]] auto intermediate_count() const noexcept -> std::size_t { return intermediates_.size(); }
+
+    /// \brief Return the immutable execution-neutral coefficient plan.
+    [[nodiscard]] auto plan() const noexcept -> RabcContractionPlan<scalar_type> const& { return plan_; }
+
+  private:
+    contraction_selector_type selector_;
+    RabcContractionPlan<scalar_type> plan_;
+    std::vector<std::size_t> term_group_;
+    std::vector<detail::RightFirstRabcGroup> groups_;
+    std::vector<ColumnMajorTensor<scalar_type, 2>> intermediates_;
+    std::vector<std::size_t> output_offsets_;
+    std::vector<std::size_t> output_order_;
+};
 
 /// \brief Report host right-first eligibility for immediate matrix-block operands.
 template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni20::Scalar Scalar,
@@ -257,8 +310,8 @@ template <class ContractionSelector, detail::HostWritableRabcTensor Output, uni2
 auto try_kernel(HostRightFirstRabcBackend<ContractionSelector> const& backend, rabc_contract_op const&, Output& output,
                 RabcContractionPlan<Scalar> const& plan, A const& a, B const& b, C const& c) -> linalg::KernelAttempt
 {
-  detail::validate_rabc_operands(output, plan, a, b, c);
-  detail::execute_host_right_first_rabc(backend.contraction_selector, output, plan, a, b, c);
+  PreparedHostRightFirstRabcContraction prepared(backend.contraction_selector, output, plan, a, b, c);
+  prepared(output, a, b, c);
   return linalg::KernelAttempt::success;
 }
 

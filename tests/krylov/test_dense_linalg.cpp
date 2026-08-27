@@ -112,6 +112,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   }
 
   uni20::krylov::Matrix<Scalar> upper(3, 3);
+  uni20::krylov::laset(upper, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   uni20::krylov::lacpy(upper, matrix, uni20::krylov::MatrixFill::Upper);
 
   for (uni20::index_type col = 0; col < upper.cols(); ++col)
@@ -199,6 +200,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, AppliesRankOneUpdates)
   using Scalar = TypeParam;
 
   uni20::krylov::Matrix<Scalar> matrix(2, 2);
+  uni20::krylov::laset(matrix, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   std::vector<Scalar> x{Scalar{1}, Scalar{2}};
   std::vector<Scalar> y{Scalar{3}, Scalar{4}};
 
@@ -215,6 +217,7 @@ TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
   using Scalar = uni20::complex<double>;
 
   uni20::krylov::Matrix<Scalar> matrix(1, 2);
+  uni20::krylov::laset(matrix, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   std::vector<Scalar> x{Scalar{2.0, 1.0}};
   std::vector<Scalar> y{Scalar{1.0, -1.0}, Scalar{3.0, 2.0}};
 

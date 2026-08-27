@@ -7,6 +7,7 @@
 
 #include "deferred_host_tensor.hpp"
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <memory>
@@ -167,11 +168,11 @@ TEST(TensorTransformTest, NamedArithmeticFunctorsUseTheGenericCpuBackend)
   uni20::assign_transform(products, uni20::linalg::multiply{}, lhs, rhs);
   uni20::assign_transform(quotients, uni20::linalg::divide{}, lhs, rhs);
 
-  EXPECT_EQ(squared.storage(), (std::vector<double>{4.0, 16.0, 64.0}));
-  EXPECT_EQ(reciprocals.storage(), (std::vector<double>{0.5, -0.25, 0.125}));
-  EXPECT_EQ(differences.storage(), (std::vector<double>{1.5, -6.0, 12.0}));
-  EXPECT_EQ(products.storage(), (std::vector<double>{1.0, -8.0, -32.0}));
-  EXPECT_EQ(quotients.storage(), (std::vector<double>{4.0, -2.0, -2.0}));
+  EXPECT_TRUE(std::ranges::equal(squared.storage(), std::array{4.0, 16.0, 64.0}));
+  EXPECT_TRUE(std::ranges::equal(reciprocals.storage(), std::array{0.5, -0.25, 0.125}));
+  EXPECT_TRUE(std::ranges::equal(differences.storage(), std::array{1.5, -6.0, 12.0}));
+  EXPECT_TRUE(std::ranges::equal(products.storage(), std::array{1.0, -8.0, -32.0}));
+  EXPECT_TRUE(std::ranges::equal(quotients.storage(), std::array{4.0, -2.0, -2.0}));
 }
 
 TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)

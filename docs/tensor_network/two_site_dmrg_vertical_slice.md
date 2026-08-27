@@ -117,13 +117,14 @@ compiling each bond copies descriptor metadata but not environment payload.
 The environment-cache owners must outlive the local solve. MPO payloads are not
 retained after their coefficients have been compiled into `f`.
 
-Application lowers through the dispatched `rabc_contract_op`. The current host
-backend is right-first: it computes each distinct
-`B_b * transpose(C_c)` intermediate once per application, then accumulates
-independent output groups through ordinary dense contraction dispatch. The
-canonical `f` plan remains neutral so future backends can choose left-first,
-right-first, or mixed execution from the same hypergraph. Persistent scratch,
-device placement, communication, and hybrid planning remain deferred.
+The current host backend is right-first. Effective-Hamiltonian construction
+prepares each distinct `(B_b,C_c)` group, the output order, and reusable
+intermediate storage before the local Krylov loop. Every application computes
+each `B_b * transpose(C_c)` value once, then accumulates independent output
+groups through ordinary dense contraction dispatch. The canonical `f` plan
+remains neutral so future backends can choose left-first, right-first, or mixed
+execution from the same hypergraph. Device placement, communication, and hybrid
+planning remain deferred.
 
 The U(1) test factors the Heisenberg interaction into neutral `Sz` and two
 charge-changing MPO channels. The compiled planner produces only the four terms
