@@ -38,6 +38,28 @@ template <class Lhs, class Rhs>
 concept CanDenseAddBlockTensor =
     requires(Lhs const& lhs, Rhs const& rhs) { uni20::add<PackedSparseBlockStorage<>>(lhs, rhs); };
 
+template <class OutputStorage, class Lhs, class Rhs>
+concept CanAddBlockTensorWithStorage =
+    requires(Lhs const& lhs, Rhs const& rhs) { uni20::add<OutputStorage>(lhs, rhs); };
+
+using ImmediateLinearConceptTensor =
+    BlockTensor<double, Domain<LocalSpace>, Codomain<LocalSpace>, PackedSparseBlockStorage<>>;
+using AsyncLinearConceptTensor =
+    BlockTensor<double, Domain<LocalSpace>, Codomain<LocalSpace>, AsyncSeparateSparseBlockStorage<>>;
+
+static_assert(CanAddBlockTensorWithStorage<PackedSparseBlockStorage<>, ImmediateLinearConceptTensor,
+                                           ImmediateLinearConceptTensor>);
+static_assert(CanAddBlockTensorWithStorage<AsyncSeparateSparseBlockStorage<>, AsyncLinearConceptTensor,
+                                           AsyncLinearConceptTensor>);
+static_assert(!CanAddBlockTensorWithStorage<AsyncSeparateSparseBlockStorage<>, ImmediateLinearConceptTensor,
+                                            ImmediateLinearConceptTensor>);
+static_assert(
+    !CanAddBlockTensorWithStorage<PackedSparseBlockStorage<>, AsyncLinearConceptTensor, AsyncLinearConceptTensor>);
+static_assert(!CanAddBlockTensorWithStorage<PackedCompleteBlockStorage<>, ImmediateLinearConceptTensor,
+                                            ImmediateLinearConceptTensor>);
+static_assert(!CanAddBlockTensorWithStorage<PackedDiagonalBlockStorage<>, ImmediateLinearConceptTensor,
+                                            ImmediateLinearConceptTensor>);
+
 template <class Storage> class BlockTensorLinearTest : public ::testing::Test {};
 
 using ImmediateLinearStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,

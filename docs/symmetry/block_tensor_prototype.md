@@ -535,7 +535,10 @@ These operations accept the `BlockTensorView` concept and refine it only for
 the access they perform: immediate host blocks, mutable blocks, or independent
 per-block async timelines. Owning `BlockTensor` values and zero-copy mapped
 views therefore use the same numerical surface. Operations which allocate a
-new tensor retain an explicit storage-policy choice for the owning result.
+new tensor retain an explicit storage-policy choice for the owning result. That
+policy must preserve the operands' immediate or per-block async execution mode;
+cross-mode materialization is an explicit operation rather than an implicit
+effect of a linear operation.
 
 All operands must have exactly equal symmetry, domain, and codomain values.
 Boundary labels and explicit duality therefore participate in compatibility.

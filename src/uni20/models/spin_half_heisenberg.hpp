@@ -210,13 +210,14 @@ auto single_heisenberg_site(SpinHalfU1Site const& local, LocalSpace const& left,
 ///          and every site contains one scalar block with value one. The
 ///          resulting product state is canonical from either direction.
 /// \tparam Scalar Real or complex MPS element type.
-/// \tparam Storage Block storage policy used by every MPS site.
+/// \tparam Storage Immediate local block storage policy used by every MPS site.
 /// \param length Positive number of sites.
 /// \param local U(1) spin-half local space.
 /// \param first State placed on site zero; later sites alternate.
 /// \return Finite MPS in the corresponding total-charge sector.
 /// \throws std::invalid_argument If \p length is zero.
 template <RealOrComplex Scalar = double, BlockTensorStorage Storage = PackedSparseBlockStorage<>>
+  requires ImmediateLocalBlockStorageFor<Storage, Scalar, 3, 2>
 [[nodiscard]] auto make_neel_product_mps(std::size_t length, SpinHalfU1Site const& local,
                                          SpinHalfState first = SpinHalfState::up) -> SpinHalfU1Mps<Scalar, Storage>
 {
@@ -242,7 +243,12 @@ template <RealOrComplex Scalar = double, BlockTensorStorage Storage = PackedSpar
   {
     SpinHalfState const state = site % 2 == 0 ? first : detail::opposite(first);
     typename site_type::key_type const key{{0, SpinHalfU1Site::coordinate(state), 0}};
-    site_type value(local.symmetry, Domain{bonds[site], local.space}, Codomain{bonds[site + 1]}, {key});
+    site_type value = [&]() -> site_type {
+      if constexpr (SparseBlockStorage<Storage>)
+        return site_type(local.symmetry, Domain{bonds[site], local.space}, Codomain{bonds[site + 1]}, {key});
+      else
+        return site_type(local.symmetry, Domain{bonds[site], local.space}, Codomain{bonds[site + 1]});
+    }();
     value.block(key)[0, 0] = Scalar{1};
     sites.push_back(std::move(value));
   }

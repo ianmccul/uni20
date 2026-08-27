@@ -47,10 +47,19 @@ concept CompatibleLinearOutputRepresentation =
     BlockTensorView<Output> && (BlockTensorView<Inputs> && ...) &&
     (!DiagonalBlockTensorView<Output> || (DiagonalBlockTensorView<Inputs> && ...));
 
-template <class OutputStorage, class... Inputs>
+template <class OutputStorage, class FirstInput, class... OtherInputs>
 concept CompatibleLinearOutputStorage =
-    BlockTensorStorage<OutputStorage> && (BlockTensorView<Inputs> && ...) &&
-    (!DiagonalBlockStorage<OutputStorage> || (DiagonalBlockTensorView<Inputs> && ...));
+    BlockTensorStorage<OutputStorage> && BlockTensorView<FirstInput> && (BlockTensorView<OtherInputs> && ...) &&
+    (!DiagonalBlockStorage<OutputStorage> ||
+     (DiagonalBlockTensorView<FirstInput> && (DiagonalBlockTensorView<OtherInputs> && ...))) &&
+    ((ImmediateBlockTensorView<FirstInput> && (ImmediateBlockTensorView<OtherInputs> && ...) &&
+      ImmediateLocalBlockStorageFor<OutputStorage, block_tensor_value_t<FirstInput>,
+                                    block_tensor_type_t<FirstInput>::key_coordinate_count(),
+                                    block_tensor_type_t<FirstInput>::dense_block_order()>) ||
+     (AsyncBlockTensorView<FirstInput> && (AsyncBlockTensorView<OtherInputs> && ...) &&
+      AsyncLocalBlockStorageFor<OutputStorage, block_tensor_value_t<FirstInput>,
+                                block_tensor_type_t<FirstInput>::key_coordinate_count(),
+                                block_tensor_type_t<FirstInput>::dense_block_order()>));
 
 template <class Lhs, class Rhs> void require_compatible_block_tensor_values(Lhs const& lhs, Rhs const& rhs)
 {
@@ -556,7 +565,8 @@ void axpy(Output& output, Scalar factor, Input const& input)
 
 /// \brief Return the sum of two BlockTensor values using the union of stored keys.
 /// \details A selected generalized-diagonal output policy requires both inputs
-///          to have generalized-diagonal block representations.
+///          to have generalized-diagonal block representations. The selected
+///          storage must use the same immediate or async execution mode as both inputs.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 /// \tparam OutputStorage Sparse output policy, or `void` to preserve the left policy.
 template <class OutputStorage = void, BlockTensorView Lhs, BlockTensorView Rhs>

@@ -95,11 +95,13 @@ generic measurement levels, batch fields, and overhead contract are in
 and `i+1`:
 
 1. Contract the two current MPS sites over their shared bond using the selected
-   center storage. A complete policy allocates every symmetry-legal center block
-   directly and zeros blocks without a contribution. For compatibility, a
-   sparse center policy is widened once into an explicitly complete sparse key
-   set. Blocks absent from the current MPS are exact zero but remain available
-   to the local Hamiltonian.
+   immediate local center storage with ordinary dense blocks. A complete policy
+   allocates every symmetry-legal center block directly and zeros blocks without
+   a contribution. For compatibility, a sparse center policy is widened once
+   into an explicitly complete sparse key set. Async and generalized-diagonal
+   center policies are not accepted by this synchronous solver. Blocks absent
+   from the current MPS are exact zero but remain available to the local
+   Hamiltonian.
 2. Obtain `left[i]` and `right[i+2]` from the attached
    `MpoEnvironmentCache`.
 3. Compile a fixed-center `TwoSiteEffectiveHamiltonian` from those

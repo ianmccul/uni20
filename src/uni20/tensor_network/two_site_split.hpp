@@ -75,6 +75,10 @@ concept SplitPhysicalSpace =
     BlockTensorSpace<Space> && BlockTensorSpaceTraits<std::remove_cvref_t<Space>>::has_block_coordinate &&
     !BlockTensorSpaceTraits<std::remove_cvref_t<Space>>::has_dense_axis;
 
+template <class Storage, class Scalar>
+concept ImmediateMpsSiteStorage = SparseBlockStorage<Storage> && !DiagonalBlockStorage<Storage> &&
+                                  ImmediateLocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 3, 2>;
+
 template <class Tensor, std::size_t Index>
 using split_domain_space_t = typename block_tensor_domain_t<Tensor>::template space_type<Index>;
 
@@ -151,6 +155,7 @@ template <detail::ImmediateHostTwoSiteCenter Center>
 ///         exact truncation statistics.
 /// \throws std::invalid_argument If the selection is empty or the sweep direction is invalid.
 template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class Decomposition>
+  requires detail::ImmediateMpsSiteStorage<OutputStorage, typename Decomposition::scalar_type>
 [[nodiscard]] auto materialize_two_site_mps_split(Decomposition const& decomposition,
                                                   BlockSvdSelection<typename Decomposition::real_type> const& selection,
                                                   MpsSweepDirection direction,
@@ -200,7 +205,7 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class
 /// \param options Selected internal-bond label.
 /// \return Installed bond spectrum and truncation statistics.
 template <typename Scalar, Space Bond, Space Physical, BlockTensorStorage SiteStorage, class Decomposition>
-  requires std::same_as<Bond, BlockSpace>
+  requires std::same_as<Bond, BlockSpace> && detail::ImmediateMpsSiteStorage<SiteStorage, Scalar>
 [[nodiscard]] auto replace_two_site_from_svd(FiniteMps<Scalar, Bond, Physical, SiteStorage>& mps,
                                              std::size_t first_index, Decomposition const& decomposition,
                                              BlockSvdSelection<typename Decomposition::real_type> const& selection,

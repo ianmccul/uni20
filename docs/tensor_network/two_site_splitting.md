@@ -80,7 +80,9 @@ the direction of travel carries the canonical center.
 ## Materialization And Installation
 
 `materialize_two_site_mps_split()` constructs two owning `MpsSite` values in a
-selected sparse storage policy. It also returns the real diagonal
+selected immediate sparse storage policy with ordinary dense blocks. Async,
+complete, and generalized-diagonal site policies are not materialization targets
+for this synchronous path. The operation also returns the real diagonal
 `singular_values` tensor, exact truncation statistics, and the absorption
 direction. The selected state set must be nonempty; an empty internal MPS bond
 is rejected even though empty selections remain useful for other block-SVD

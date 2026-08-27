@@ -14,6 +14,15 @@
 namespace
 {
 
+template <class Storage>
+concept NeelProductMpsStorage = requires(uni20::models::SpinHalfU1Site const& local) {
+  uni20::models::make_neel_product_mps<double, Storage>(4, local);
+};
+
+static_assert(NeelProductMpsStorage<uni20::PackedSparseBlockStorage<>>);
+static_assert(NeelProductMpsStorage<uni20::PackedCompleteBlockStorage<>>);
+static_assert(!NeelProductMpsStorage<uni20::AsyncSeparateSparseBlockStorage<>>);
+
 class RecordingBatchScheduler : public uni20::async::DebugScheduler {
   public:
     std::size_t batch_calls = 0;
@@ -73,6 +82,21 @@ TEST(SpinHalfHeisenbergModelTest, BuildsNormalizedNeelProductMpsWithCumulativeCh
 TEST(SpinHalfHeisenbergModelTest, BuildsNeelProductMpsWithSelectedStorage)
 {
   using storage_type = uni20::ParallelSeparateSparseBlockStorage<>;
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto const mps = uni20::models::make_neel_product_mps<double, storage_type>(4, local);
+
+  static_assert(std::same_as<typename std::remove_cvref_t<decltype(mps)>::storage_policy, storage_type>);
+  ASSERT_EQ(mps.size(), 4);
+  for (std::size_t site = 0; site < mps.size(); ++site)
+  {
+    ASSERT_EQ(mps.site(site).stored_block_count(), 1);
+    EXPECT_DOUBLE_EQ((mps.site(site).block_by_ordinal(0)[0, 0]), 1.0);
+  }
+}
+
+TEST(SpinHalfHeisenbergModelTest, BuildsNeelProductMpsWithCompleteStorage)
+{
+  using storage_type = uni20::PackedCompleteBlockStorage<>;
   auto const local = uni20::models::make_spin_half_u1_site();
   auto const mps = uni20::models::make_neel_product_mps<double, storage_type>(4, local);
 

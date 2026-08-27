@@ -200,6 +200,11 @@ template <uni20::Real Real, class InstalledBond> struct TwoSiteDmrgStepResult
 namespace detail
 {
 
+template <class Storage, class MpsChain>
+concept TwoSiteDmrgCenterStorage = BlockTensorStorage<Storage> && !DiagonalBlockStorage<Storage> && requires {
+  typename MpsChain::value_type;
+} && ImmediateLocalBlockStorageFor<Storage, typename MpsChain::value_type, 4, 2>;
+
 inline void validate_two_site_dmrg_direction(MpsSweepDirection direction)
 {
   if (direction != MpsSweepDirection::left_to_right && direction != MpsSweepDirection::right_to_left)
@@ -361,7 +366,8 @@ auto solve_two_site_ground_state(Center const& initial, EffectiveHamiltonian eff
 /// \return Local energy, residual and work diagnostics, and selected bond data.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+           performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto
 optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
                             MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache, std::size_t first_site,
@@ -444,6 +450,7 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
 /// \brief Optimize and replace one adjacent MPS pair without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
 [[nodiscard]] auto
 optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
                             MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache, std::size_t first_site,
@@ -475,7 +482,8 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
 /// \return One result per bond in visitation order.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+           performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                                        MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,
                                        MpsSweepDirection direction,
@@ -509,6 +517,7 @@ template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
 /// \brief Traverse every adjacent bond once without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
 [[nodiscard]] auto
 sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                     MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache, MpsSweepDirection direction,
@@ -541,7 +550,8 @@ sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
 /// \return Ordered sweep summaries and final convergence state.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+           performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto run_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                                      MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,
                                      TwoSiteDmrgRunOptions<make_real_t<typename MpsChain::value_type>> const& options,
@@ -621,6 +631,7 @@ template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
 /// \brief Run alternating directional sweeps without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
+  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
 [[nodiscard]] auto
 run_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                   MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,
