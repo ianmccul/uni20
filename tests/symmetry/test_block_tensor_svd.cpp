@@ -18,6 +18,9 @@ namespace
 
 using namespace uni20;
 
+static_assert(!std::is_constructible_v<BlockSvdSelection<double>, std::vector<BlockSvdStateId>,
+                                       linalg::SvdTruncationInfo<double>>);
+
 class RecordingBatchScheduler : public async::DebugScheduler {
   public:
     std::size_t batch_calls = 0;

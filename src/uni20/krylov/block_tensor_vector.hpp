@@ -133,9 +133,18 @@ template <class Tensor> class BlockTensorVectorOps {
       for (std::size_t ordinal = 0; ordinal < tensor.stored_block_count(); ++ordinal)
       {
         auto block = tensor.block_by_ordinal(ordinal);
-        std::size_t block_dimension = 1;
-        for (std::size_t axis = 0; axis < tensor_type::dense_block_order(); ++axis)
-          block_dimension *= static_cast<std::size_t>(block.extent(axis));
+        std::size_t block_dimension;
+        if constexpr (DiagonalBlockTensorView<tensor_type>)
+        {
+          auto descriptor = mdspec_of(block);
+          block_dimension = static_cast<std::size_t>(diagonal_components(descriptor).extent(0));
+        }
+        else
+        {
+          block_dimension = 1;
+          for (std::size_t axis = 0; axis < tensor_type::dense_block_order(); ++axis)
+            block_dimension *= static_cast<std::size_t>(block.extent(axis));
+        }
         dimension += block_dimension;
       }
       return dimension;

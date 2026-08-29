@@ -204,6 +204,12 @@ TEST(CpuTensorContractionTest, ContractsRankTwoDiagonalComponentsOnEitherSide)
 
   auto lhs_span = lhs.mdspan();
   auto right_output_span = right_output.mdspan();
+  using diagonal_mdspan_type = decltype(rhs_diagonal);
+  using dense_mdspan_type = decltype(lhs_span);
+  static_assert(!uni20::linalg::cpu::ContractionCompatible<diagonal_mdspan_type, double, diagonal_mdspan_type,
+                                                           dense_mdspan_type, 2, 2, 1>);
+  static_assert(uni20::linalg::cpu::ContractionCompatible<diagonal_mdspan_type, double, diagonal_mdspan_type,
+                                                          diagonal_mdspan_type, 2, 2, 1>);
   auto const right_axes =
       uni20::linalg::make_contraction_axes<2, 2>(std::array<std::pair<std::size_t, std::size_t>, 1>{{{1, 0}}});
   uni20::linalg::cpu::contract(right_output_span, 2.0, lhs_span, rhs_diagonal, 0.5, right_axes);

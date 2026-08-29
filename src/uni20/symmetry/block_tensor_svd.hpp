@@ -53,14 +53,19 @@ template <uni20::Real Real> struct BlockSvdState
     Real singular_value;
 };
 
+template <uni20::Real Real> class BlockSvdSelection;
+
+template <uni20::Real Real>
+[[nodiscard]] auto make_svd_selection(std::span<BlockSvdState<Real> const> spectrum,
+                                      std::span<BlockSvdStateId const> requested) -> BlockSvdSelection<Real>;
+
+template <uni20::Real Real>
+[[nodiscard]] auto select_svd_states(std::span<BlockSvdState<Real> const> spectrum,
+                                     linalg::SvdTruncationPolicy<Real> const& policy = {}) -> BlockSvdSelection<Real>;
+
 /// \brief Arbitrary paired-state selection from a block-SVD spectrum.
 template <uni20::Real Real> class BlockSvdSelection {
   public:
-    /// \brief Construct a validated selection result.
-    BlockSvdSelection(std::vector<BlockSvdStateId> state_ids, linalg::SvdTruncationInfo<Real> truncation)
-        : state_ids_(std::move(state_ids)), truncation_(std::move(truncation))
-    {}
-
     /// \brief Return selected state identities in global spectrum order.
     auto state_ids() const noexcept -> std::span<BlockSvdStateId const> { return state_ids_; }
 
@@ -68,6 +73,18 @@ template <uni20::Real Real> class BlockSvdSelection {
     auto truncation() const noexcept -> linalg::SvdTruncationInfo<Real> const& { return truncation_; }
 
   private:
+    BlockSvdSelection(std::vector<BlockSvdStateId> state_ids, linalg::SvdTruncationInfo<Real> truncation)
+        : state_ids_(std::move(state_ids)), truncation_(std::move(truncation))
+    {}
+
+    template <uni20::Real OtherReal>
+    friend auto make_svd_selection(std::span<BlockSvdState<OtherReal> const> spectrum,
+                                   std::span<BlockSvdStateId const> requested) -> BlockSvdSelection<OtherReal>;
+
+    template <uni20::Real OtherReal>
+    friend auto select_svd_states(std::span<BlockSvdState<OtherReal> const> spectrum,
+                                  linalg::SvdTruncationPolicy<OtherReal> const& policy) -> BlockSvdSelection<OtherReal>;
+
     std::vector<BlockSvdStateId> state_ids_;
     linalg::SvdTruncationInfo<Real> truncation_;
 };
@@ -632,7 +649,7 @@ template <uni20::Real Real>
 /// \brief Apply the standard truncation policy to a globally sorted block-SVD spectrum.
 template <uni20::Real Real>
 [[nodiscard]] auto select_svd_states(std::span<BlockSvdState<Real> const> spectrum,
-                                     linalg::SvdTruncationPolicy<Real> const& policy = {}) -> BlockSvdSelection<Real>
+                                     linalg::SvdTruncationPolicy<Real> const& policy) -> BlockSvdSelection<Real>
 {
   std::vector<Real> values;
   values.reserve(spectrum.size());

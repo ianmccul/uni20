@@ -86,6 +86,23 @@ TEST(BlockTensorVectorOpsTest, FreezesStructureAndAllocatesWithoutDenseProjectio
   EXPECT_THROW(static_cast<void>(ops.vector_dimension(different_pattern)), std::invalid_argument);
 }
 
+TEST(BlockTensorVectorOpsTest, CountsCompressedDiagonalDegreesOfFreedom)
+{
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const space(symmetry, {{q0, 3}, {q1, 2}}, "diagonal-state");
+  using DiagonalTensor = uni20::BlockTensor<double, uni20::Domain<uni20::BlockSpace>,
+                                            uni20::Codomain<uni20::BlockSpace>, uni20::PackedDiagonalBlockStorage<>>;
+  using DiagonalKey = typename DiagonalTensor::key_type;
+  DiagonalTensor prototype(symmetry, uni20::Domain{space}, uni20::Codomain{space},
+                           {DiagonalKey{{0, 0}}, DiagonalKey{{1, 1}}});
+
+  uni20::krylov::BlockTensorVectorOps<DiagonalTensor> ops(prototype);
+  EXPECT_EQ(ops.problem_dimension(), 5);
+  EXPECT_EQ(ops.vector_dimension(prototype), 5);
+}
+
 TEST(BlockTensorVectorOpsTest, RunsU1BlockTensorThroughSymmetricLanczos)
 {
   uni20::Symmetry const symmetry{"N:U(1)"};

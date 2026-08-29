@@ -50,6 +50,21 @@ concept ReadableDiagonalComponents =
     contraction_input_expressions<decltype(diagonal_components(std::declval<std::remove_cvref_t<Span> const&>())),
                                   Scalar>(std::make_index_sequence<1>{});
 
+template <class OutputMdspan, class LhsMdspan, class RhsMdspan, std::size_t LhsRank, std::size_t RhsRank,
+          std::size_t ContractedRank>
+consteval bool contraction_preserves_output_structure()
+{
+  constexpr std::size_t output_rank = ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank;
+  if constexpr (!uni20::DiagonalMdspecLike<OutputMdspan> || output_rank <= 1)
+    return true;
+  else if constexpr (LhsRank == 0)
+    return uni20::DiagonalMdspecLike<RhsMdspan>;
+  else if constexpr (RhsRank == 0)
+    return uni20::DiagonalMdspecLike<LhsMdspan>;
+  else
+    return ContractedRank > 0 && uni20::DiagonalMdspecLike<LhsMdspan> && uni20::DiagonalMdspecLike<RhsMdspan>;
+}
+
 template <class Span, std::size_t Rank, std::size_t... Axis>
 constexpr decltype(auto) element_at(Span& span, std::array<uni20::index_type, Rank> const& indices,
                                     std::index_sequence<Axis...>)
@@ -200,6 +215,8 @@ concept ContractionCompatible =
         std::make_index_sequence<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank>{}) &&
     detail::contraction_input_expressions<LhsMdspan, Scalar>(std::make_index_sequence<LhsRank>{}) &&
     detail::contraction_input_expressions<RhsMdspan, Scalar>(std::make_index_sequence<RhsRank>{}) &&
+    detail::contraction_preserves_output_structure<OutputMdspan, LhsMdspan, RhsMdspan, LhsRank, RhsRank,
+                                                   ContractedRank>() &&
     requires(Scalar value) {
       value += value * value;
       { value == Scalar{} } -> std::convertible_to<bool>;
