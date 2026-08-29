@@ -626,6 +626,41 @@ All configurations reproduced the same final energy to approximately
 implemented defaults: one CUDA submitter per device, cuBLAS handle capacity
 equal to stream capacity, and two cuSOLVER handles.
 
+#### Large-bond follow-up
+
+A single-run 2026-08-29 follow-up extended the same resident-CUDA protocol to
+larger bond dimensions. These runs used `L=100`, real U(1) arithmetic, a Neel
+product state, four local matvecs, eight block participants, one CUDA
+submitter, two cuSOLVER handles, single-threaded host BLAS, and disabled
+instrumentation. NVML remained unavailable because the installed userspace and
+kernel driver versions differed, so these results do not control GPU clocks or
+report live device-memory use.
+
+| Maximum states | CUDA streams | Growth time | Steady traversals | Steady mean | End-to-end time |
+|---:|---:|---:|---:|---:|---:|
+| 2048 | 4 | 72.209 s | 46.022, 52.574 s | 49.298 s | 170.805 s |
+| 4096 | 4 | 138.406 s | 133.734, 175.855 s | 154.794 s | 447.995 s |
+| 4096 | 8 | 129.525 s | 132.278, 176.665 s | 154.471 s | 438.467 s |
+| 5120 | 4 | 286.406 s | 270.156 s right-to-left | 270.156 s | 556.562 s |
+
+The `m=2048` steady mean is 16.9% below the earlier 59.330-second orientation
+point. At `m=4096`, four and eight streams give effectively the same steady
+mean; eight streams reduce growth by 6.4% and end-to-end time by 2.1% relative
+to four streams. The new `m=4096` end-to-end time is 20.0% below the earlier
+548.402-second run, while its steady mean is 7.4% higher. These are individual
+runs without clock telemetry, so the mixed result is not evidence of a
+steady-state regression. The `m=5120` row contains only the more expensive
+right-to-left direction and must not be compared as a bidirectional mean.
+
+Device capacity, rather than runtime, limited the next points. `m=6144`
+completed its final growth traversal and installed a 6144-state MPS, but the
+first subsequent steady-state packed center allocation failed with
+`cudaErrorMemoryAllocation`. `m=8192` failed the corresponding packed center
+allocation during its first attempted 8192-state growth traversal. Thus 5120
+is the largest full steady traversal demonstrated on the 32 GiB GV100 in this
+fixture; the measurements only bound the current allocation pattern and are
+not a general maximum bond dimension for the device.
+
 ### 4.2 Why multiple CUDA submitters regress
 
 This is not a CUDA correctness limitation or a universal recommendation to use
