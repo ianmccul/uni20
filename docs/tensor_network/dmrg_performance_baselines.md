@@ -677,6 +677,22 @@ they are not bidirectional steady-state means. Their success also confirms
 that the `L=100` failures reflect aggregate resident-plus-temporary pressure,
 not an intrinsic inability to allocate or execute an 8192-state center.
 
+The matching `L=60` host runs used packed host storage, eight oneTBB
+participants, single-threaded MKL, and disabled instrumentation:
+
+| Maximum states | Growth time | Steady traversal | End-to-end time | Peak host RSS |
+|---:|---:|---:|---:|---:|
+| 2048 | 15.977 s | 34.349, 38.627 s; mean 36.488 s | 88.953 s | 2.584 GiB |
+| 4096 | 78.083 s | 256.523 s left-to-right | 334.606 s | 7.774 GiB |
+| 6144 | 447.573 s | 902.762 s right-to-left | 1350.335 s | 15.798 GiB |
+
+The CPU process averaged 4.03, 3.82, and 3.78 occupied cores respectively,
+despite the eight-participant arena. At `m=6144`, the direction-matched CUDA
+traversal is 5.84 times faster and the complete growth-plus-steady fixture is
+4.38 times faster. CPU and CUDA terminal energies differ by about `2e-13`.
+These are single-run orientation points; the one-direction rows are not
+bidirectional steady-state means.
+
 ### 4.2 Why multiple CUDA submitters regress
 
 This is not a CUDA correctness limitation or a universal recommendation to use
