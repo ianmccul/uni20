@@ -103,6 +103,34 @@ current two-site growth trajectory. `m=512` uses nine directional traversals;
 `m=1024` uses ten. oneTBB concurrency is selected with `--block-threads` while
 OpenBLAS remains single-threaded.
 
+These historical fixtures stop on the first traversal that can reach the
+requested cap. They measure the complete rank-growth trajectory, not repeated
+work at steady `m`. In particular, the `m=512` run spends almost the entire
+fixture below 512 and first reaches that cap during its ninth traversal. Keep
+these results as end-to-end growth baselines rather than relabelling them as
+steady-dimension measurements.
+
+The example's `--steady-sweeps=N` mode implements the complementary protocol.
+It verifies the retained dimension after every alternating growth traversal,
+excludes those traversals from the steady timer, and then measures `N`
+additional traversals. For a CPU/CUDA comparison at `m=512`, use the same
+optimized binary and request at least one measured traversal in each direction:
+
+```bash
+spin_half_heisenberg_dmrg_example \
+    --execution=cpu --sites=100 --max-states=512 --steady-sweeps=2 \
+    --local-matvecs=4 --block-threads=8
+
+spin_half_heisenberg_dmrg_example \
+    --execution=cuda --cuda-device=0 --cuda-streams=8 \
+    --sites=100 --max-states=512 --steady-sweeps=2 \
+    --local-matvecs=4 --block-threads=8
+```
+
+Set the linked BLAS implementation to one thread for both commands. CUDA
+runtime setup and initial placement are outside the reported growth and steady
+timers; each traversal timer includes an execution-domain synchronization.
+
 Representative commands are:
 
 ```bash
@@ -308,6 +336,136 @@ remaining short block batches now dominate a much shorter run. This table is a
 single interactive-laptop pass and should be replaced by repeated medians when
 the next parallel checkpoint is evaluated.
 
+### 3.4 First resident CUDA steady-dimension orientation
+
+A first uninstrumented resident-CUDA pass on `polaron` used the same GCC 13
+Release executable for both domains, `L=100`, a Néel product state, real
+arithmetic, four local matvecs, eight block participants, and two measured
+traversals after the requested bond cap was observed. CPU BLAS was restricted
+to one MKL thread. CUDA used Quadro GV100 device 0 and eight streams. Each value
+below is the mean of the left-to-right and right-to-left steady traversals from
+one run, not a repeated-run median:
+
+| Maximum states | CPU steady traversal | CUDA steady traversal | CUDA / CPU |
+|---:|---:|---:|---:|
+| 128 | 0.225 s | 18.063 s | 80.27x |
+| 256 | 0.956 s | 20.742 s | 21.70x |
+| 512 | 2.492 s | 28.705 s | 11.52x |
+| 1024 | 16.477 s | 38.133 s | 2.31x |
+| 2048 | 96.569 s | 59.330 s | 0.61x |
+| 4096 | 744.433 s | 143.790 s | 0.19x |
+
+CPU and CUDA terminal energies and discarded weights agreed at every point to
+the expected floating-point accuracy. These timings establish an optimization
+baseline, not a general hardware-performance claim. In U(1), the global bond
+dimension is divided among charge sectors, so `m=512` still produces dense
+provider calls much smaller than 512-by-512. The weak CUDA growth from `m=128`
+to `m=256`, compared with the CPU growth, is consistent with stream, lease,
+provider, and kernel submission costs dominating these small blocks. On this
+fixture the first observed crossover lies between `m=1024` and `m=2048`; at
+`m=2048`, CUDA is about 1.63 times faster than CPU. The two `m=2048` CPU
+traversals took 74.735 and 118.403 seconds, while the CUDA traversals took
+56.702 and 61.958 seconds. The reported mean therefore covers a real
+directional imbalance rather than repeated measurements of one direction.
+
+At `m=4096`, CUDA is about 5.18 times faster than CPU. The CPU traversals took
+649.913 and 838.952 seconds; the CUDA traversals took 122.874 and 164.707
+seconds, giving direction-matched speedups of 5.29 and 5.09. Complete growth
+plus steady measurement took 1,652.816 seconds on CPU and 548.402 seconds on
+CUDA, a 3.01 times end-to-end speedup. Terminal energies differed by less than
+`4e-13` between domains.
+
+Peak observed device allocation during `m=4096` growth was about 7.0 GiB, well
+below the GV100's 32 GiB capacity. The CPU process reached about 14.9 GB
+resident memory; a point observation during a steady traversal reported CPU
+use equivalent to roughly 3.8 occupied cores. Higher bond dimensions are
+currently limited by benchmark duration before device memory.
+
+A detailed `L=100` attribution pass on 2026-08-28 used the same steady-state
+protocol. The top-level phase means and fractions were:
+
+| Phase | `m=128` time | `m=128` fraction | `m=512` time | `m=512` fraction |
+|---|---:|---:|---:|---:|
+| Complete traversal | 17.146 s | 100.0% | 26.465 s | 100.0% |
+| Center construction | 0.172 s | 1.0% | 0.189 s | 0.7% |
+| Local eigensolver | 11.731 s | 68.4% | 14.075 s | 53.2% |
+| Block SVD | 2.912 s | 17.0% | 8.402 s | 31.7% |
+| Factor materialization | 1.058 s | 6.2% | 2.415 s | 9.1% |
+| Environment update | 1.204 s | 7.0% | 1.326 s | 5.0% |
+
+The local-eigensolver rows contain these inclusive subphases:
+
+| Local-solver subphase | `m=128` time | Traversal fraction | `m=512` time | Traversal fraction |
+|---|---:|---:|---:|---:|
+| Effective-Hamiltonian application | 7.639 s | 44.5% | 9.385 s | 35.5% |
+| Krylov vector update | 2.042 s | 11.9% | 2.323 s | 8.8% |
+| Krylov reduction | 1.542 s | 9.0% | 1.793 s | 6.8% |
+
+The sector SVDs already overlap: summed sector-item time versus batch wall time
+was 33.211 versus 5.802 seconds at `m=128`, and 113.333 versus 16.772 seconds
+at `m=512`. Those ratios correspond to about 5.7 and 6.8 effective concurrent
+sector factorizations. Increasing host parallelism alone is therefore not the
+next SVD optimization; reducing per-sector provider overhead or batching
+compatible small sectors is more promising.
+
+An Nsight Systems trace of the shorter `L=20`, `m=128` fixture used the required
+`--cuda-event-trace=false` setting. Profiling increased complete runtime from
+about 13.8 to 30.4 seconds, so its API durations are not timing baselines. Its
+counts expose the execution granularity: 325,820 kernel launches, 520,590 CUDA
+event creations, 520,614 event destructions, 540,175 event records, and 383,503
+host-function submissions across growth and two steady traversals. The GPU
+executed 379,950 kernels and memory operations with 1.492 seconds of summed
+device activity. The 54,130 memory copies moved only 5.609 MB in total.
+
+An unprofiled run reported 29.01 seconds user time and 24.34 seconds system time
+over 14.62 seconds wall time, with 2,054,606 voluntary context switches. Active
+one-second `nvidia-smi dmon` samples generally showed 10--25% SM utilization and
+zero reported memory-engine utilization. Together these measurements identify
+host orchestration, short provider calls, and fine-grained dependency tracking
+as the small-dimension limit, rather than PCIe volume or device memory
+bandwidth.
+
+A stream-count orientation on the same short fixture first measured one pass at
+each count. Three additional runs at two, four, and eight streams confirmed
+that the two-stream result was not just one favorable sample:
+
+| CUDA streams | Initial mean | Four-sample median where repeated |
+|---:|---:|---:|
+| 1 | 5.348 s | - |
+| 2 | 2.164 s | 2.056 s |
+| 4 | 2.241 s | 2.370 s |
+| 8 | 2.385 s | 2.257 s |
+| 16 | 2.395 s | - |
+
+One stream is also structurally disadvantaged by the current resource lease:
+the stream returns to the idle pool only after its tail completion, so the host
+cannot pipeline the next independent submission on that sole stream. Two
+streams restore useful provider overlap. More than two did not repay their
+extra cross-stream dependency and orchestration cost on this small fixture,
+although the `L=100` SVD measurements above demonstrate useful concurrency well
+beyond two streams. Stream count should eventually follow the available work
+in each phase rather than remain one global constant.
+
+Packed CUDA BlockTensor storage subsequently gained allocation-wide linear
+operations. Packed padding is initialized to zero, and whole-allocation
+`set_zero`, scale, exact-layout copy, AXPY, inner product, and norm operations
+preserve that invariant. A repeated two-stream run of the same short fixture
+then gave steady-traversal means of 1.848, 1.667, and 1.698 seconds, with a
+median of 1.698 seconds. This is 17.4% below the earlier two-stream median of
+2.056 seconds. Terminal energy remained within
+`7.1e-15` of the reference value.
+
+A second Nsight trace confirms that the improvement comes from coarser
+execution rather than a provider-algorithm change. Relative to the earlier
+trace, GPU kernel and memory-operation instances fell from 379,950 to 287,962,
+kernel launches from 325,820 to 252,660, host-function submissions from 383,503
+to 310,355, and memory copies from 54,130 to 35,302. Most directly, cuBLAS norm
+kernels fell from 22,576 to 1,664 because each packed vector now uses one norm
+call instead of one call per stored block. Summed device activity fell from
+1.492 to 1.061 seconds. The earlier trace used eight streams and the new trace
+used two, and profiler overhead makes their API durations unsuitable as wall
+time comparisons; operation counts are the relevant evidence here.
+
 ## 4. Cost-Ordered Effective-Hamiltonian Groups
 
 The effective-Hamiltonian plan originally submitted output groups in canonical
@@ -347,6 +505,230 @@ A separate prototype replaced `parallel_for` with a manual atomic-index worker
 loop. At `m=256`, the existing `parallel_for` took 5.75 s and 6.04 s with four
 and eight participants; the manual loop took 5.94 s and 6.18 s. There is no
 evidence for replacing the scheduler primitive.
+
+Later CUDA host-worker profiling separated arena concurrency from CUDA
+submission concurrency. `TbbScheduler` retains `auto_partitioner` for uncapped
+CPU batches, while `TbbSchedulerBatchOptions::maximum_concurrency` can run a
+bounded number of dynamic batch runners. The DMRG example exposes that cap as
+`--cuda-submitters=N`; it is independent of `--cuda-streams=N` and bounded by
+`--block-threads=N`. This prevents CUDA submission tuning from reducing the
+arena capacity available to ordinary host scheduler work.
+
+On the `L=20`, `m=128`, four-stream fixture with eight arena participants,
+three runs at each submitter count gave these steady-traversal medians:
+
+| CUDA submitters | Median steady traversal |
+|---:|---:|
+| 1 | 0.666 s |
+| 2 | 0.819 s |
+| 4 | 1.156 s |
+| 8 | 1.516 s |
+
+The same one-versus-two ordering remained at larger dimensions. Single runs at
+`L=20`, `m=512` took 0.742 versus 0.928 seconds, and single runs at `L=100`,
+`m=512` took 11.706 versus 13.032 seconds. One submitter can issue independent
+operations onto successive streams; it does not restrict execution to one
+stream.
+
+Holding the submitter count at one then isolated stream capacity on the short
+fixture:
+
+| CUDA streams | Three-run median steady traversal |
+|---:|---:|
+| 1 | 1.397 s |
+| 2 | 0.851 s |
+| 4 | 0.558 s |
+| 8 | 0.558 s |
+
+The example therefore defaults to one CUDA submitter and four streams. At that
+stream capacity, the provider defaults are four cuBLAS handles and two cuSOLVER
+handles. `--cuda-cublas-handles` and `--cuda-cusolver-handles` may tune those
+pool sizes independently. All four controls remain explicit because larger
+provider operations and future batched kernels may shift the optimum.
+
+After CUDA buffer destruction was changed to enqueue completion-dependent
+`cudaFreeAsync` on a device-local reclamation stream, the same four-stream,
+one-submitter short fixture produced steady-traversal means of 0.553, 0.517,
+and 0.709 seconds. Their 0.553-second median is effectively unchanged from the
+earlier 0.558-second checkpoint. Two `L=100`, `m=512` repeats averaged 12.752
+and 11.778 seconds; the latter matches the earlier 11.706-second orientation
+within ordinary run variation. Energies and discarded weights were unchanged.
+Asynchronous reclamation therefore removes a host-blocking lifetime boundary
+without a measurable standalone end-to-end effect while the cuSOLVER SVD
+wrapper still synchronizes each operation.
+
+### 4.1 Provider handle pools and the single-submitter default
+
+A 2026-08-29 follow-up measured the implemented per-device cuBLAS and cuSOLVER
+handle pools. The unprofiled release fixture used device 0 on polaron, one CUDA
+submitter, four streams, eight block threads, single-threaded host BLAS, and two
+steady traversals after growth. Every configuration was repeated three times.
+No competing compute process was using either GV100. The NVIDIA kernel/userspace
+driver version mismatch prevented `nvidia-smi` telemetry, so these measurements
+do not claim controlled clocks or power state. The command shape was:
+
+```bash
+MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+spin_half_heisenberg_dmrg_example \
+    --execution=cuda --cuda-device=0 --cuda-streams=4 --cuda-submitters=1 \
+    --sites=20 --max-states=128 --steady-sweeps=2 \
+    --local-matvecs=4 --block-threads=8
+```
+
+The provider comparisons added `--cuda-cublas-handles=N` or
+`--cuda-cusolver-handles=N`; the `m=512` comparison changed only
+`--max-states`.
+
+The `L=20`, `m=128` handle-count comparison was:
+
+| Provider configuration | Median steady traversal | Three-run range | Relative to default |
+|---|---:|---:|---:|
+| cuBLAS 4, cuSOLVER 2 (default) | **0.544 s** | 0.529--0.553 s | 1.00x |
+| cuBLAS 2, cuSOLVER 2 | 0.577 s | 0.576--0.597 s | 1.06x |
+| cuBLAS 1, cuSOLVER 2 | 1.025 s | 1.013--1.029 s | 1.88x |
+| cuBLAS 4, cuSOLVER 1 | 0.538 s | 0.536--0.540 s | 0.99x |
+| cuBLAS 4, cuSOLVER 4 | 0.536 s | 0.534--0.538 s | 0.98x |
+
+The cuBLAS result remained at `m=512`:
+
+| cuBLAS handles | Median steady traversal | Three-run range | Relative to four handles |
+|---:|---:|---:|---:|
+| 4 | **0.657 s** | 0.645--0.663 s | 1.00x |
+| 2 | 0.693 s | 0.684--0.710 s | 1.05x |
+| 1 | 1.099 s | 1.079--1.113 s | 1.67x |
+
+This demonstrates why provider capacity is independent of host submission
+concurrency. One host lane can submit onto several handle/stream leases and keep
+them in flight until their stream-tail callbacks return the handles. Restricting
+cuBLAS to one handle serializes that useful device queueing even though there is
+still only one submitting host thread. The default of one cuBLAS handle per
+stream is therefore materially useful rather than merely excess capacity.
+
+The cuSOLVER count is currently unobservable in steady runtime because each SVD
+wrapper synchronizes its stream before returning. One submitter can consequently
+use only one cuSOLVER lease at a time. The one-, two-, and four-handle results are
+within ordinary run variation. Two handles remain a bounded default for the
+planned asynchronous SVD boundary, where one submitter will be able to retain
+several independent solver operations.
+
+Repeating the submitter comparison with the new default pools gave:
+
+| CUDA submitters | Median steady traversal | Three-run range | Relative to one submitter |
+|---:|---:|---:|---:|
+| 1 | **0.544 s** | 0.529--0.553 s | 1.00x |
+| 2 | 0.760 s | 0.611--0.839 s | 1.40x |
+| 4 | 1.126 s | 1.068--1.130 s | 2.07x |
+| 8 | 1.423 s | 1.235--1.442 s | 2.61x |
+
+All configurations reproduced the same final energy to approximately
+`1e-14`. The default result is also consistent with the immediately preceding
+0.553-second asynchronous-reclamation checkpoint. These results support the
+implemented defaults: one CUDA submitter per device, cuBLAS handle capacity
+equal to stream capacity, and two cuSOLVER handles.
+
+### 4.2 Why multiple CUDA submitters regress
+
+This is not a CUDA correctness limitation or a universal recommendation to use
+one host thread per GPU. CUDA supports calls from multiple host threads, and
+multithreaded submission can be useful when host-side providers block, when
+different software producers cannot be cheaply serialized, or when separate
+threads drive separate devices. NVIDIA also documents the corresponding cost:
+the CPU wrapper time for a kernel launch includes driver mutex contention during
+multithreaded launching. CUDA 11.4 specifically improved interthread locking for
+parallel CUDA Graph launches, which further demonstrates that this is a known
+implementation cost rather than a prohibited execution model.
+
+The CUDA Runtime contract is deliberately broader: any API call may block or
+synchronize because an internal resource is contended or unavailable, and the
+specific behavior may change. A long launch call alone does not prove lock
+contention. A sufficiently fast stream of small launches may instead fill the
+GPU command queue and block until submission space becomes available. OS Runtime
+lock traces, CUDA API attribution, GPU queue state, and unprofiled wall time must
+therefore be considered together.
+
+The Uni20 recommendation is narrower: default to one general CUDA submission
+lane for the current fine-grained, single-context, single-device block workload
+when that lane can already keep the available streams supplied. Add
+provider-specific host concurrency only when measurements show that a blocking
+or host-intensive provider call otherwise underfeeds the device.
+
+Relevant NVIDIA references are:
+
+- [CUDA API synchronization behavior](https://docs.nvidia.com/cuda/cuda-runtime-api/api-sync-behavior.html),
+  including blocking on contended or unavailable internal resources;
+- [Understanding overhead and latency in Nsight Systems](https://developer.nvidia.com/blog/?p=20916),
+  including driver mutex contention during multithreaded launches;
+- [CUDA 11.4 graph-launch improvements](https://developer.nvidia.com/blog/discovering-new-features-in-cuda-11-4/),
+  including interthread-lock contention in parallel graph launch;
+- [CUDA asynchronous kernel launches](https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/intro-to-cuda-cpp.html),
+  which permit one host lane to enqueue work without waiting for device
+  completion.
+
+An Nsight Systems comparison on 2026-08-29 used the same `L=20`, `m=128`,
+four-stream workload with one and two CUDA submitters. CUDA event tracing was
+disabled as required. The profiler substantially inflates absolute runtime, so
+the durations below diagnose where the relative regression occurs rather than
+serving as benchmark timings. Both traces performed the same 199,138 kernel
+launches.
+
+| CUDA host API | One submitter | Two submitters | Ratio |
+|---|---:|---:|---:|
+| `cudaLaunchKernel` | 0.934 s | 1.705 s | 1.83x |
+| `cudaLaunchHostFunc` | 0.613 s | 1.444 s | 2.36x |
+| `cudaEventCreateWithFlags` | 0.122 s | 0.944 s | 7.74x |
+| `cudaMemcpyAsync` | 0.147 s | 0.313 s | 2.13x |
+| `cudaMallocAsync` | 0.071 s | 0.119 s | 1.68x |
+| `cudaStreamSynchronize` | 0.047 s | 0.069 s | 1.47x |
+
+Driver call chains exposed read/write-lock contention in `libcuda.so`, including
+paths through kernel launch and the host callbacks that return provider handles
+and streams. The ordinary cuBLAS path acquires an actually-idle stream and
+handle, enqueues dependency waits and the provider operation, records one shared
+access-completion event, and enqueues tail callbacks that return the handle and
+stream. One host submitter can therefore fill every stream-pool slot before it
+waits for another slot. A second submitter does not increase the four-stream
+in-flight limit; it primarily races the first through the same driver, event,
+callback, and allocation paths.
+
+The GPU trace confirms that the added host concurrency produced little useful
+device concurrency. With one submitter, the kernels occupied 587.480 ms and did
+not overlap. With two submitters, only 46.395 ms had two kernels active, while
+summed kernel duration grew to 772.784 ms and the union of GPU-busy intervals
+grew to 726.390 ms. Kernel overlap was therefore too small to compensate for
+host contention and slower concurrent device execution.
+
+Packed CUDA BlockTensor storage is not serializing all blocks through one
+completion ledger. Its blocks share one physical allocation, but each partition
+has its own `CudaBuffer` access state. Disjoint sector operations can therefore
+be in flight independently.
+
+cuSOLVER exposes a distinct issue. The current exact-SVD wrapper submits the
+factorization, copies device `devInfo` toward the host, and then synchronizes the
+operation stream before returning. A single scheduler submitter consequently
+cannot overlap separate sector SVD wrappers. Two submitters did produce a peak
+of two concurrent sector tasks, but those small sector operations became slower:
+
+| CUDA submitters | Median SVD batch wall | Median summed item time | Peak item overlap |
+|---:|---:|---:|---:|
+| 1 | 0.125 s | 0.125 s | 1 |
+| 2 | 0.157 s | 0.307 s | 2 |
+
+The item interval includes sector assembly, copies, provider work, and the final
+stream synchronization; it is not a pure factorization measurement. Provider
+tracing nevertheless showed that the 662 `cusolverDnDgesvd` host calls themselves
+grew from 0.521 seconds total with one submitter to 1.029 seconds with two.
+
+This does not imply that independent cuSOLVER operations cannot overlap. The
+intended design separates general CUDA submission from solver concurrency. One
+general submission lane remains appropriate for fine-grained block operations.
+An asynchronous SVD boundary can submit independent sectors sequentially from
+one host lane onto separate handles and streams, retain every operation's
+workspace and access state, and join the completions only after all eligible
+sectors have been submitted. The provider calls remain serial on the host, while
+their pending device work may overlap. If a routine's host call is itself too
+long to supply multiple streams, a small provider-specific lane can be measured
+without exposing all ordinary CUDA work to multiple submitters. See
+[CUDA/cuSOLVER Architecture Notes](../backends/cuda/cusolver.md).
 
 ## 5. Local Matrix Product Toolkit Orientation
 
