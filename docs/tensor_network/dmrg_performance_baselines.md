@@ -661,6 +661,22 @@ is the largest full steady traversal demonstrated on the 32 GiB GV100 in this
 fixture; the measurements only bound the current allocation pattern and are
 not a general maximum bond dimension for the device.
 
+Reducing the fixture to `L=60` released enough resident MPS and environment
+storage to extend the full-traversal measurements. All other settings matched
+the four-stream rows above:
+
+| Maximum states | Growth time | Steady traversal | End-to-end time |
+|---:|---:|---:|---:|
+| 6144 | 153.855 s | 154.473 s right-to-left | 308.328 s |
+| 8192 | 159.958 s | 245.219 s right-to-left | 405.177 s |
+
+Both runs completed without device allocation failure. The `m=8192` terminal
+energy was stable to the displayed precision and its maximum discarded weight
+was `1.1e-32`. These one-direction rows establish feasibility and scale, but
+they are not bidirectional steady-state means. Their success also confirms
+that the `L=100` failures reflect aggregate resident-plus-temporary pressure,
+not an intrinsic inability to allocate or execute an 8192-state center.
+
 ### 4.2 Why multiple CUDA submitters regress
 
 This is not a CUDA correctness limitation or a universal recommendation to use
