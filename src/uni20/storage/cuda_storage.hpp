@@ -13,13 +13,15 @@
 
 #include <concepts>
 #include <cstddef>
+#include <span>
 #include <type_traits>
+#include <vector>
 
 namespace uni20::cuda
 {
 
-/// \brief Non-owning opaque view into one CUDA buffer.
-/// \details The view carries allocation identity and an element offset, but
+/// \brief Non-owning opaque view into one logical CUDA buffer.
+/// \details The view carries completion-domain identity and an element offset, but
 ///          deliberately exposes no raw device pointer or host-side value
 ///          conversion. CUDA lowering must first acquire synchronized access
 ///          to `buffer()` on an operation stream.
@@ -53,7 +55,7 @@ template <class ElementType> class CudaBufferView {
       return *buffer_;
     }
 
-    /// \brief Return this view's element offset from the allocation start.
+    /// \brief Return this view's element offset from the logical buffer start.
     [[nodiscard]] constexpr std::size_t element_offset() const noexcept { return offset_; }
 
     /// \brief Return a view advanced by an element offset.
@@ -139,15 +141,24 @@ namespace uni20
 ///          mdspec representation.
 struct CudaStorage
 {
+    /// \brief Byte alignment guaranteed by CUDA runtime device allocations.
+    static constexpr std::size_t allocation_alignment = 256;
+
     using context_type = cuda::DeviceResources;
     using accessor_factory_type = cuda::CudaAccessorFactory;
-#if UNI20_BACKEND_CUBLAS
+#if UNI20_BACKEND_CUSOLVER && UNI20_BACKEND_CUBLAS
+    using backend_selector_type =
+        linalg::backend_list<linalg::CusolverBackend, linalg::CublasBackend, linalg::CudaReferenceBackend>;
+#elif UNI20_BACKEND_CUSOLVER
+    using backend_selector_type = linalg::backend_list<linalg::CusolverBackend, linalg::CudaReferenceBackend>;
+#elif UNI20_BACKEND_CUBLAS
     using backend_selector_type = linalg::backend_list<linalg::CublasBackend, linalg::CudaReferenceBackend>;
 #else
     using backend_selector_type = linalg::backend_list<linalg::CudaReferenceBackend>;
 #endif
 
     template <class ElementType> using storage_t = cuda::CudaBuffer<ElementType>;
+    template <class ElementType> using packed_storage_t = cuda::PartitionedCudaBuffer<ElementType>;
 
     template <class ElementType>
     [[nodiscard]] static auto make_storage(context_type& context, std::size_t size) -> storage_t<ElementType>
@@ -162,10 +173,70 @@ struct CudaStorage
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage, std::size_t size)
-        -> storage_t<ElementType>
+    [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage,
+                                                std::size_t size) -> storage_t<ElementType>
     {
       return storage_t<ElementType>{storage.resources(), size};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_packed_storage(std::size_t size,
+                                                  std::span<std::size_t const> offsets) -> packed_storage_t<ElementType>
+    {
+      return make_packed_storage<ElementType>(cuda::device_resources(), size, offsets);
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto make_packed_storage(context_type& context, std::size_t size,
+                                                  std::span<std::size_t const> offsets) -> packed_storage_t<ElementType>
+    {
+      std::vector<cuda::CudaBufferRange> ranges;
+      if (!offsets.empty())
+      {
+        CHECK_EQUAL(offsets.back(), size);
+        ranges.reserve(offsets.size() - 1);
+        for (std::size_t ordinal = 0; ordinal + 1 < offsets.size(); ++ordinal)
+          ranges.push_back(
+              cuda::CudaBufferRange{.offset = offsets[ordinal], .size = offsets[ordinal + 1] - offsets[ordinal]});
+      }
+      return packed_storage_t<ElementType>{context, size, ranges};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto
+    make_packed_storage_like(packed_storage_t<ElementType> const& storage, std::size_t size,
+                             std::span<std::size_t const> offsets) -> packed_storage_t<ElementType>
+    {
+      return make_packed_storage<ElementType>(storage.resources(), size, offsets);
+    }
+
+    /// \brief Initialize only the alignment gaps in a packed CUDA allocation.
+    /// \details Uni20's real and complex scalar zeros have an all-zero CUDA
+    ///          object representation. Block payloads remain uninitialized.
+    template <RealOrComplex ElementType>
+    static void initialize_packed_padding(packed_storage_t<ElementType>& storage, std::span<std::size_t const> offsets,
+                                          std::span<std::size_t const> block_ends)
+    {
+      CHECK_EQUAL(offsets.size(), block_ends.size() + 1);
+      bool has_padding = false;
+      for (std::size_t ordinal = 0; ordinal < block_ends.size(); ++ordinal)
+      {
+        CHECK(block_ends[ordinal] <= offsets[ordinal + 1], block_ends[ordinal], offsets[ordinal + 1]);
+        has_padding = has_padding || block_ends[ordinal] != offsets[ordinal + 1];
+      }
+      if (!has_padding) return;
+
+      auto stream = storage.resources().streams().acquire();
+      auto access = storage.write_synchronized_with(stream);
+      cuda::ScopedDevice guard(storage.device().ordinal());
+      for (std::size_t ordinal = 0; ordinal < block_ends.size(); ++ordinal)
+      {
+        auto const padding_size = offsets[ordinal + 1] - block_ends[ordinal];
+        if (padding_size == 0) continue;
+        cuda::check(cudaMemsetAsync(access.data() + block_ends[ordinal], 0, padding_size * sizeof(ElementType),
+                                    stream.native_handle()),
+                    "zero packed CUDA BlockTensor padding", stream.device());
+      }
     }
 
     template <class ElementType>
@@ -175,23 +246,43 @@ struct CudaStorage
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType>& storage) noexcept
-        -> cuda::CudaBufferView<ElementType>
+    [[nodiscard]] static auto
+    make_data_descriptor(storage_t<ElementType>& storage) noexcept -> cuda::CudaBufferView<ElementType>
     {
       return cuda::CudaBufferView<ElementType>{storage};
     }
 
     template <class ElementType>
-    [[nodiscard]] static auto make_data_descriptor(storage_t<ElementType> const& storage) noexcept
-        -> cuda::CudaBufferView<ElementType const>
+    [[nodiscard]] static auto
+    make_data_descriptor(storage_t<ElementType> const& storage) noexcept -> cuda::CudaBufferView<ElementType const>
     {
       return cuda::CudaBufferView<ElementType const>{storage};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto
+    make_packed_data_descriptor(packed_storage_t<ElementType>& storage,
+                                std::size_t ordinal) noexcept -> cuda::CudaBufferView<ElementType>
+    {
+      return cuda::CudaBufferView<ElementType>{storage.buffer(ordinal)};
+    }
+
+    template <class ElementType>
+    [[nodiscard]] static auto
+    make_packed_data_descriptor(packed_storage_t<ElementType> const& storage,
+                                std::size_t ordinal) noexcept -> cuda::CudaBufferView<ElementType const>
+    {
+      return cuda::CudaBufferView<ElementType const>{storage.buffer(ordinal)};
     }
 
     /// \brief Return the ordered backend list for CUDA device storage.
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
-#if UNI20_BACKEND_CUBLAS
+#if UNI20_BACKEND_CUSOLVER && UNI20_BACKEND_CUBLAS
+      return backend_selector_type{linalg::CusolverBackend{}, linalg::CublasBackend{}, linalg::CudaReferenceBackend{}};
+#elif UNI20_BACKEND_CUSOLVER
+      return backend_selector_type{linalg::CusolverBackend{}, linalg::CudaReferenceBackend{}};
+#elif UNI20_BACKEND_CUBLAS
       return backend_selector_type{linalg::CublasBackend{}, linalg::CudaReferenceBackend{}};
 #else
       return backend_selector_type{linalg::CudaReferenceBackend{}};

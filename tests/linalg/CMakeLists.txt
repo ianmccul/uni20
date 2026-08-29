@@ -60,10 +60,11 @@ endif()
 if(TARGET uni20_backend_cuda)
   add_test_module(linalg_cuda
     SOURCES
+      test_cuda_block_tensor.cpp
       test_cuda_conjugate_inplace.cpp
       test_cuda_copy.cpp
       test_cuda_transform.cpp
-    LIBS uni20_linalg uni20_async uni20_backend_cuda
+    LIBS uni20_linalg uni20_async uni20_backend_cuda uni20_symmetry TBB::tbb
   )
   target_sources(uni20_linalg_cuda_tests PRIVATE test_cuda_descriptor_compile.cu)
   set_target_properties(uni20_linalg_cuda_tests PROPERTIES

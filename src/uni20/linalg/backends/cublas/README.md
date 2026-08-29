@@ -6,7 +6,8 @@ available, then lower fixed operands before dispatch. `CublasBackend` validates
 their mdspec metadata, blocks for an execution lease, opens synchronized
 CUDA buffer access, and calls the provider-ready leaf.
 
-The current first operation is GEMM. Direct Tensor dispatch uses the blocking
+The current operations are GEMM plus full inner-product and Euclidean-norm
+reductions. Direct Tensor dispatch uses the blocking
 `try_kernel` entry point. Coroutine dispatch detects the backend's
 `try_make_kernel_task` customization, which prepares the same operands, binds a CUDA
 child to their device, awaits an execution lease, and invokes the prepared
@@ -15,6 +16,9 @@ provider leaf without redispatching.
 The ordinary adapter is `gemm.hpp`; it has no dependency on coroutine runtime
 support. Async Tensor lowering additionally includes `gemm_task.hpp`, keeping
 task creation and resource awaiters out of synchronous-only targets.
+`reductions.hpp` accepts exhaustive raw CUDA descriptors and returns a host
+scalar through the checked cuBLAS level-one wrappers. Transformed or
+non-exhaustive descriptors decline rather than bypassing accessor semantics.
 
 CUDA-mdspan recognition, buffer bounds and device validation, completion-ledger
 access, and the shared blocking/coroutine preparation path are private

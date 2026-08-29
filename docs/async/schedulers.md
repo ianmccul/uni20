@@ -63,8 +63,11 @@ coroutines:
 `DebugScheduler` executes indices deterministically using its configured
 `fifo`, `reverse`, or seeded `random` ordering. `TbbScheduler` executes a
 one-participant batch directly and otherwise uses a oneTBB `parallel_for`
-inside its arena. `TbbNumaScheduler` selects one managed arena for the batch;
-placement-aware partitioning across NUMA nodes remains a later policy.
+inside its arena. An optional `TbbSchedulerBatchOptions::maximum_concurrency`
+cap uses that many dynamic runners over the batch index space, independently
+of the arena's coroutine-task concurrency. `TbbNumaScheduler` selects one
+managed arena for the batch; placement-aware partitioning across NUMA nodes
+remains a later policy.
 
 A batch item may call ordinary scheduler APIs. In particular, scheduling work
 and then using `get_wait()` is supported by both the recursive DebugScheduler
@@ -108,6 +111,8 @@ Use `DebugScheduler` as the first tool for dependency bugs.
 Execution model:
 
 - tasks are dispatched into oneTBB `task_arena` + `task_group`
+- arenas use oneTBB's fast worker-leave policy so an idle arena bypasses the
+  delayed-leave `sched_yield` retention loop
 - initial admission and rescheduling register activations with
   `task_group::defer()` and publish them through non-blocking
   `task_arena::enqueue()`
@@ -119,7 +124,9 @@ Execution model:
 - `run_all()` resumes if paused, then waits for task-group completion of the
   currently submitted activations
 - lightweight batches execute synchronously as a `parallel_for` in the arena;
-  they are separate from coroutine activation accounting
+  an optional dynamic-runner cap limits simultaneous batch items independently
+  of arena concurrency, and batches remain separate from coroutine activation
+  accounting
 
 The task group owns each scheduled resumption while it runs. If that resumption
 suspends the coroutine on an epoch or external event, the TBB task finishes and
@@ -191,6 +198,11 @@ routing with the host schedulers.
 - `TbbCudaScheduler` extends `TbbScheduler` with one worker-only arena per
   enrolled CUDA device. The host and device arenas share task-group, pause,
   wait, watchdog, and rescheduling state.
+- Each CUDA device arena defaults to one participating worker, so general CUDA
+  work has one host submission lane per device. Setting
+  `TbbCudaSchedulerOptions::cuda_max_concurrency_per_device` explicitly retains
+  the capability to measure or use concurrent submission. This limit is
+  independent of stream count and provider-handle pool sizes.
 - Each CUDA arena installs a `task_scheduler_observer`. Every participating
   worker saves its previous CUDA device, selects the arena device, and restores
   the previous selection on exit.

@@ -99,6 +99,14 @@ queue, task wakeup mechanism, or value ownership.
   operations use one write guard; they do not add a separate read guard for the
   same buffer.
 
+`cuda::AccessCompletion`
+
+: Records one operation-tail completion after a backend has submitted all work
+  using several access guards. Releasing every participating guard through the
+  object publishes the same immutable completion to each buffer ledger. If the
+  event cannot be recorded, construction synchronizes the stream and subsequent
+  releases return their live tokens without publishing an event.
+
 `cuda::Stream`
 
 : A reference-counted lease of one `StreamPool` slot. Access guards keep a copy
@@ -169,13 +177,15 @@ auto b = rhs.read_synchronized_with(stream);
 
 launch_on(stream, out.data(), a.data(), b.data());
 
-a.release();
-b.release();
-out.release();
+AccessCompletion completion(stream);
+completion.release(out);
+completion.release(a);
+completion.release(b);
 ```
 
-Lexical destruction provides the same completion publication when explicit
-early release is unnecessary.
+Lexical destruction remains the independent single-guard release path. A
+backend operation with several guards uses `AccessCompletion` so equivalent
+operation-tail dependencies share one event.
 
 Each access guard performs these construction steps:
 
@@ -188,13 +198,14 @@ Each access guard performs these construction steps:
 4. Enqueue waits for the copied predecessor completions.
 5. Expose only the pointer permitted by the guard type.
 
-Explicit release or guard destruction records one completion at the stream tail
-and briefly locks the buffer state to publish that completion and return the
+Independent explicit release or guard destruction records one completion at the
+stream tail. Operation-level release records one shared completion before
+briefly locking each buffer state to publish it and return the corresponding
 live access token. Publication and token return are one state transition: a
 causally later conflicting acquisition sees either the live predecessor guard
-or its recorded completion. The state mutex is not held
-while the caller launches CUDA work. Independent operations and compatible
-readers can therefore queue and execute concurrently.
+or its recorded completion. The state mutex is not held while the caller
+launches CUDA work. Independent operations and compatible readers can therefore
+queue and execute concurrently.
 
 The construction snapshot and release publication are intentionally not one
 transaction. Their correctness follows from the causal contract: a conflicting
@@ -222,6 +233,8 @@ Scoped stream and buffer access are RAII resources.
   synchronized before destruction continues. Omitting the completion is then
   safe because the device access has finished, and the live token can be
   returned without publishing a false dependency.
+- If operation-level event recording fails, `AccessCompletion` applies the same
+  synchronized fallback before returning any participating live token.
 - Moving, resetting, or destroying a buffer with live access tokens is a
   fail-fast contract violation.
 - Destroying the final `Stream` reference enqueues the stream-pool return

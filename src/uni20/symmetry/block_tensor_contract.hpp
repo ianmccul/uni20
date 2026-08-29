@@ -1,7 +1,7 @@
 /**
  * \file block_tensor_contract.hpp
  * \ingroup symmetry
- * \brief Defines the first host pairwise BlockTensor contraction.
+ * \brief Defines local pairwise BlockTensor contraction.
  */
 
 #pragma once
@@ -12,7 +12,6 @@
 #include <uni20/linalg/ops/contract.hpp>
 #include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/symmetry/block_tensor_mapped_view.hpp>
-#include <uni20/tensor/access.hpp>
 #include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
@@ -38,9 +37,7 @@ concept PairwiseContractionSources =
     BlockTensorView<LeftTensor> && BlockTensorView<RightTensor> &&
     (std::remove_cvref_t<LeftTensor>::codomain_type::size() > 0) &&
     (std::remove_cvref_t<RightTensor>::domain_type::size() > 0) &&
-    requires(block_tensor_value_t<LeftTensor> lhs, block_tensor_value_t<RightTensor> rhs) {
-      { lhs * rhs };
-    } &&
+    requires(block_tensor_value_t<LeftTensor> lhs, block_tensor_value_t<RightTensor> rhs) { lhs* rhs; } &&
     Scalar<std::remove_cvref_t<decltype(std::declval<block_tensor_value_t<LeftTensor>>() *
                                         std::declval<block_tensor_value_t<RightTensor>>())>>;
 
@@ -61,12 +58,12 @@ template <class Tensor> using pairwise_const_block_t = block_tensor_const_block_
 
 template <class Tensor> using pairwise_mutable_block_t = block_tensor_mutable_block_t<Tensor>;
 
-template <class Block>
-concept HostReferenceReadableBlock = ImmediateTensorView<Block> && HostReadableMdspec<tensor_mdspec_t<Block>>;
-
 template <class Tensor>
-concept HostReferenceContractionSource =
-    ImmediateBlockTensorView<Tensor> && HostReferenceReadableBlock<pairwise_const_block_t<Tensor>>;
+concept LocalContractionSource =
+    BlockTensorView<Tensor> && !AsyncBlockTensorView<Tensor> &&
+    LocalBlockStorageFor<
+        typename std::remove_cvref_t<Tensor>::storage_policy, typename std::remove_cvref_t<Tensor>::value_type,
+        std::remove_cvref_t<Tensor>::key_coordinate_count(), std::remove_cvref_t<Tensor>::dense_block_order()>;
 
 template <std::size_t ContractedCount = 1, class LeftTensor, class RightTensor>
   requires PairwiseContractionSources<LeftTensor, RightTensor>
@@ -172,16 +169,19 @@ struct PairwiseContractionOutputTraits
 };
 
 template <class OutputStorage, class LeftTensor, class RightTensor, std::size_t ContractedCount = 1>
-concept HostReferenceContractionOutput =
+concept LocalContractionOutput =
     PairwiseContractionSources<LeftTensor, RightTensor> && BlockTensorStorage<OutputStorage> &&
-    ImmediateLocalBlockStorageFor<
+    LocalBlockStorageFor<
         OutputStorage,
         typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::value_type,
         PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::key_count,
         PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::dense_order> &&
-    MutableImmediateTensorView<typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor,
-                                                                        ContractedCount>::block_type> &&
-    HostReferenceReadableBlock<
+    !AsyncLocalBlockStorageFor<
+        OutputStorage,
+        typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::value_type,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::key_count,
+        PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::dense_order> &&
+    MutableTensorView<
         typename PairwiseContractionOutputTraits<OutputStorage, LeftTensor, RightTensor, ContractedCount>::block_type>;
 
 template <class Traits, class LeftKey, class RightKey>
@@ -220,8 +220,8 @@ template <class Traits> struct PairwiseContractionWorkItem
 };
 
 template <class Traits, class LeftTensor, class RightTensor>
-auto make_pairwise_contraction_worklist(LeftTensor const& left, RightTensor const& right)
-    -> std::vector<PairwiseContractionWorkItem<Traits>>
+auto make_pairwise_contraction_worklist(LeftTensor const& left,
+                                        RightTensor const& right) -> std::vector<PairwiseContractionWorkItem<Traits>>
 {
   std::vector<PairwiseContractionWorkItem<Traits>> worklist;
   for (auto const& left_key : left.stored_keys())
@@ -392,9 +392,13 @@ concept CompatibleFixedPairwiseContractionOutput =
                  typename PairwiseContractionTraits<LeftTensor, RightTensor, ContractedCount>::codomain_type>;
 
 template <class OutputTensor, class LeftTensor, class RightTensor, std::size_t ContractedCount = 1>
-concept HostReferenceFixedPairwiseContractionOutput =
+concept LocalFixedPairwiseContractionOutput =
     CompatibleFixedPairwiseContractionOutput<OutputTensor, LeftTensor, RightTensor, ContractedCount> &&
-    MutableImmediateBlockTensorView<OutputTensor> && HostReferenceReadableBlock<pairwise_mutable_block_t<OutputTensor>>;
+    LocalBlockStorageFor<typename std::remove_cvref_t<OutputTensor>::storage_policy,
+                         typename std::remove_cvref_t<OutputTensor>::value_type,
+                         std::remove_cvref_t<OutputTensor>::key_coordinate_count(),
+                         std::remove_cvref_t<OutputTensor>::dense_block_order()> &&
+    !MutableAsyncBlockTensorView<OutputTensor>;
 
 template <class OutputTensor, class LeftTensor, class RightTensor>
 concept AsyncMatrixFixedPairwiseContractionOutput =
@@ -413,8 +417,8 @@ template <class Lhs, class Rhs> constexpr auto same_pairwise_tensor_object(Lhs c
 }
 
 template <class Traits, class LeftTensor, class RightTensor, std::size_t... Axis>
-auto pairwise_contracted_spaces_equal(LeftTensor const& left, RightTensor const& right, std::index_sequence<Axis...>)
-    -> bool
+auto pairwise_contracted_spaces_equal(LeftTensor const& left, RightTensor const& right,
+                                      std::index_sequence<Axis...>) -> bool
 {
   return ((left.codomain().template space<Traits::left_codomain_size - Traits::contracted_count + Axis>() ==
            right.domain().template space<Axis>()) &&
@@ -464,8 +468,8 @@ void validate_fixed_pairwise_contraction_output(OutputTensor const& output, Left
 }
 
 template <class Traits, class OutputTensor, class LeftTensor, class RightTensor>
-void execute_immediate_pairwise_contraction(OutputTensor& output, LeftTensor const& left, RightTensor const& right,
-                                            std::vector<LocalPairwiseContractionBinding<Traits>> bindings)
+void execute_local_pairwise_contraction(OutputTensor& output, LeftTensor const& left, RightTensor const& right,
+                                        std::vector<LocalPairwiseContractionBinding<Traits>> bindings)
 {
   using left_type = typename Traits::left_type;
   using value_type = typename std::remove_cvref_t<OutputTensor>::value_type;
@@ -519,7 +523,7 @@ void zero_unbound_pairwise_output_blocks(OutputTensor& output, Bindings const& b
   }
   if (unbound_ordinals.empty()) return;
 
-  if constexpr (MutableImmediateTensorView<pairwise_mutable_block_t<OutputTensor>>)
+  if constexpr (!MutableAsyncBlockTensorView<OutputTensor>)
   {
     execute_block_batch(typename std::remove_cvref_t<OutputTensor>::storage_policy::block_execution_policy{},
                         unbound_ordinals.size(), [&](std::size_t index) {
@@ -548,7 +552,7 @@ void zero_unbound_pairwise_output_blocks(OutputTensor& output, Bindings const& b
 ///          the dense leaf contraction lowers every contracted degeneracy axis
 ///          together through the ordinary tensor contraction dispatcher.
 /// \tparam ContractedCount Number of adjacent factor pairs to contract.
-/// \tparam OutputStorage Immediate-host storage for the owning result. A
+/// \tparam OutputStorage Local storage for the owning result. A
 ///                       complete policy also stores legal zero result blocks.
 /// \tparam LeftTensor Left BlockTensor-like operand.
 /// \tparam RightTensor Right BlockTensor-like operand.
@@ -561,8 +565,8 @@ template <std::size_t ContractedCount, class OutputStorage = detail::DefaultPair
   requires detail::PairwiseContractionSources<LeftTensor, RightTensor> && (ContractedCount > 0) &&
            (ContractedCount <= std::remove_cvref_t<LeftTensor>::codomain_type::size()) &&
            (ContractedCount <= std::remove_cvref_t<RightTensor>::domain_type::size()) &&
-           detail::HostReferenceContractionSource<LeftTensor> && detail::HostReferenceContractionSource<RightTensor> &&
-           detail::HostReferenceContractionOutput<
+           detail::LocalContractionSource<LeftTensor> && detail::LocalContractionSource<RightTensor> &&
+           detail::LocalContractionOutput<
                detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>, LeftTensor, RightTensor,
                ContractedCount>
 auto contract_adjacent(LeftTensor const& left, RightTensor const& right)
@@ -583,7 +587,7 @@ auto contract_adjacent(LeftTensor const& left, RightTensor const& right)
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
   if constexpr (CompleteBlockStorage<selected_output_storage>)
     detail::zero_unbound_pairwise_output_blocks(result, bindings);
-  detail::execute_immediate_pairwise_contraction<traits>(result, left, right, std::move(bindings));
+  detail::execute_local_pairwise_contraction<traits>(result, left, right, std::move(bindings));
   return result;
 }
 
@@ -600,8 +604,8 @@ template <std::size_t ContractedCount, class OutputTensor, class LeftTensor, cla
   requires detail::PairwiseContractionSources<LeftTensor, RightTensor> && (ContractedCount > 0) &&
            (ContractedCount <= std::remove_cvref_t<LeftTensor>::codomain_type::size()) &&
            (ContractedCount <= std::remove_cvref_t<RightTensor>::domain_type::size()) &&
-           detail::HostReferenceContractionSource<LeftTensor> && detail::HostReferenceContractionSource<RightTensor> &&
-           detail::HostReferenceFixedPairwiseContractionOutput<OutputTensor, LeftTensor, RightTensor, ContractedCount>
+           detail::LocalContractionSource<LeftTensor> && detail::LocalContractionSource<RightTensor> &&
+           detail::LocalFixedPairwiseContractionOutput<OutputTensor, LeftTensor, RightTensor, ContractedCount>
 void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor const& right)
 {
   using traits = detail::PairwiseContractionTraits<LeftTensor, RightTensor, ContractedCount>;
@@ -612,7 +616,7 @@ void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor
 
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, output, worklist);
   detail::zero_unbound_pairwise_output_blocks(output, bindings);
-  detail::execute_immediate_pairwise_contraction<traits>(output, left, right, std::move(bindings));
+  detail::execute_local_pairwise_contraction<traits>(output, left, right, std::move(bindings));
 }
 
 /// \brief Contract one adjacent BlockTensor factor pair into an owning result.
@@ -624,8 +628,7 @@ void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor
 ///          no dense symmetry-erasing materialization is permitted.
 /// \tparam LeftAxis Flattened domain-then-codomain axis of \p left.
 /// \tparam RightAxis Flattened domain-then-codomain axis of \p right.
-/// \tparam OutputStorage Storage policy whose blocks provide immediate host
-///                       access for the owning result.
+/// \tparam OutputStorage Local storage policy for the owning result.
 /// \tparam LeftTensor Left BlockTensor-like operand.
 /// \tparam RightTensor Right BlockTensor-like operand.
 /// \param left Left operand, whose contracted factor must be its rightmost codomain factor.
@@ -634,9 +637,9 @@ void contract_adjacent(OutputTensor& output, LeftTensor const& left, RightTensor
 /// \throws std::invalid_argument If symmetries or contracted space values differ.
 template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = detail::DefaultPairwiseContractionStorage,
           class LeftTensor, class RightTensor>
-  requires detail::PairwiseContractionSources<LeftTensor, RightTensor> &&
-           detail::HostReferenceContractionSource<LeftTensor> && detail::HostReferenceContractionSource<RightTensor> &&
-           detail::HostReferenceContractionOutput<
+  requires detail::PairwiseContractionSources<LeftTensor, RightTensor> && detail::LocalContractionSource<LeftTensor> &&
+           detail::LocalContractionSource<RightTensor> &&
+           detail::LocalContractionOutput<
                detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>, LeftTensor,
                RightTensor> &&
            (LeftAxis == std::remove_cvref_t<LeftTensor>::order() - 1) && (RightAxis == 0)
@@ -659,7 +662,7 @@ auto contract(LeftTensor const& left, RightTensor const& right)
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
   if constexpr (CompleteBlockStorage<selected_output_storage>)
     detail::zero_unbound_pairwise_output_blocks(result, bindings);
-  detail::execute_immediate_pairwise_contraction<traits>(result, left, right, std::move(bindings));
+  detail::execute_local_pairwise_contraction<traits>(result, left, right, std::move(bindings));
   return result;
 }
 
@@ -677,9 +680,9 @@ auto contract(LeftTensor const& left, RightTensor const& right)
 /// \throws std::invalid_argument If input spaces are incompatible, the output
 ///         is an input object, or its fixed structure cannot represent the result.
 template <std::size_t LeftAxis, std::size_t RightAxis, class OutputTensor, class LeftTensor, class RightTensor>
-  requires detail::PairwiseContractionSources<LeftTensor, RightTensor> &&
-           detail::HostReferenceContractionSource<LeftTensor> && detail::HostReferenceContractionSource<RightTensor> &&
-           detail::HostReferenceFixedPairwiseContractionOutput<OutputTensor, LeftTensor, RightTensor> &&
+  requires detail::PairwiseContractionSources<LeftTensor, RightTensor> && detail::LocalContractionSource<LeftTensor> &&
+           detail::LocalContractionSource<RightTensor> &&
+           detail::LocalFixedPairwiseContractionOutput<OutputTensor, LeftTensor, RightTensor> &&
            (LeftAxis == std::remove_cvref_t<LeftTensor>::order() - 1) && (RightAxis == 0)
 void contract(OutputTensor& output, LeftTensor const& left, RightTensor const& right)
 {
@@ -691,7 +694,7 @@ void contract(OutputTensor& output, LeftTensor const& left, RightTensor const& r
 
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, output, worklist);
   detail::zero_unbound_pairwise_output_blocks(output, bindings);
-  detail::execute_immediate_pairwise_contraction<traits>(output, left, right, std::move(bindings));
+  detail::execute_local_pairwise_contraction<traits>(output, left, right, std::move(bindings));
 }
 
 /// \brief Schedule independent dense-block matrix products for an adjacent contraction.

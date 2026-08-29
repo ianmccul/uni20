@@ -1,12 +1,9 @@
 # CUDA/cuSOLVER Architecture Notes
 
-**Status:** active design note. A complete cuSOLVER Tensor backend is not
-implemented on the current main branch.
-
-These notes describe the intended direction for the future native uni20
-CUDA/cuSOLVER runtime.  They are not a statement of current implementation
-status.  The temporary TensorContraction bridge currently has a narrower
-host-facing cuSOLVER SVD path.
+**Status:** the first native Tensor backend is implemented. It provides a
+blocking real `float`/`double` exact SVD for tall column-major CUDA matrices and
+a device-resident BlockTensor sector bridge used by the first CUDA two-site
+DMRG sweep path.
 
 The generic host-execution and dispatch contract is defined in
 [CUDA Kernel Dispatch and Device Scheduling](kernel_dispatch.md). This note
@@ -39,24 +36,33 @@ The key interpretation for uni20 is:
 
 ## Resource Model
 
-The preferred native Uni20 model is one execution context and scheduler per
-CUDA device. The context owns bounded pools of cuSOLVER handles, actually-idle
-streams, workspaces, and completion resources:
+Uni20 has one canonical `DeviceResources` set per enrolled CUDA device. It owns
+the actually-idle stream pool and lazily constructs a bounded cuSOLVER handle
+pool:
 
 ```text
 CUDA device context
   -> device scheduler arena
   -> actually-idle stream pool
   -> exclusive cuSOLVER handle pool
-  -> workspace and completion resources
+  -> per-operation workspace and completion resources
 ```
 
-A solver request acquires resources in provider order: reserve an exclusive
-cuSOLVER handle first, then await an actually-idle stream and any operation
-workspace. Once admitted, setting the handle stream, invoking cuSOLVER, and
-recording submission completion form one non-suspending operation. Keeping
-handles independent from streams lets a scarce handle rotate onto whichever
-pool stream becomes idle next.
+The handle pool belongs to the device rather than to scheduler threads. Host
+submission concurrency, stream capacity, and cuSOLVER handle capacity are
+separate tunables. The scheduler must retain the capability to use multiple
+host submitters for a device, but one is the default for general fine-grained
+CUDA work. The initial target for cuSOLVER is two handles per device, independent
+of that default submitter count. The canonical pool now implements that default,
+capped by stream capacity. `cusolver::execution_pool(resources, count)` may set a
+different count before the first provider use.
+
+A solver request acquires an exclusive cuSOLVER handle first and then an
+actually-idle stream. The first blocking backend allocates workspace with
+`cudaMallocAsync`, binds the handle to the leased stream, calls the provider,
+copies `devInfo` to host, and synchronizes that stream before returning. Keeping
+handles independent from streams lets a handle rotate onto whichever pool
+stream becomes idle next.
 
 Do not create and destroy cuSOLVER handles per operation. Handle creation is
 runtime state setup, not useful numerical work. Handles are device-local leased
@@ -78,19 +84,21 @@ launching and coordinating many device kernels, even though device work may
 remain pending after the API returns. Scheduler concurrency and handle-pool
 capacity therefore provide separate bounds.
 
-Multiple cuSOLVER leases become useful when the operation boundary is resident
-and asynchronous. For example, block-sparse SVD can submit independent symmetry
-sectors, publish GPU completion tokens, and let dependent work resume later.
+Multiple cuSOLVER leases are already useful at the blocking boundary. A
+scheduler batch can run independent symmetry sectors from multiple application
+or oneTBB worker threads; each participant blocks only on its own provider call
+and operation stream. A future asynchronous backend can retain the same pool
+while publishing GPU completion tokens instead of synchronizing in the call.
 
 Raw cuSOLVER handles remain internal to RAII leases and backend adapters. An
 internal coroutine may await ordered resource admission, but the actual
 backend walk and cuSOLVER call are ordinary non-coroutine code. No further
 `co_await` occurs while the provider call is in progress.
 
-The first implementation runs cuSOLVER directly on the device scheduler. A
-separate provider scheduler or lane is justified only if profiling shows that
-host-intensive calls starve lightweight submission or unrelated device
-continuations.
+The first implementation runs cuSOLVER directly from the active scheduler batch
+participant. A separate provider scheduler or lane is justified only if
+profiling shows that host-intensive calls starve lightweight submission or
+unrelated device continuations.
 
 ## Host Blocking Boundaries
 
@@ -115,45 +123,136 @@ needs `devInfo` on the CPU before returning must enqueue a D2H copy and wait, so
 the wrapper is host-blocking even if the solver call itself was submitted
 asynchronously.
 
+### Host API return versus solver completion
+
+Calling a cuSOLVER routine and completing the solver operation are different
+boundaries. NVIDIA states that cuSOLVER keeps execution asynchronous as much as
+possible, but it does not promise that every provider call is a negligible or
+strictly nonblocking host operation. A call can perform substantial host-side
+planning, launch many kernels, or contain implementation-specific
+synchronization before it returns. The selected stream remains the authoritative
+completion boundary for the device outputs.
+
+This permits one host submission lane to maintain multiple in-flight solver
+operations when the provider calls return before their device work completes:
+
+```text
+host lane
+  -> acquire handle A and stream A
+  -> submit sector A SVD; retain its resources until stream A completes
+  -> acquire handle B and stream B
+  -> submit sector B SVD; retain its resources until stream B completes
+  -> ...
+  -> wait for or compose all sector completions
+```
+
+The provider calls are serial on that host lane, but work already submitted to
+different streams may execute concurrently on the GPU. Each in-flight operation
+needs an exclusive handle because binding a stream mutates handle state. It also
+needs retained workspace, input/output access state, device `devInfo`, and any
+host destination used for an asynchronous result copy.
+
+The current exact SVD wrapper does not use this model. It enqueues the
+factorization, copies `devInfo` asynchronously into a stack variable, and
+immediately synchronizes the stream. The stack destination and immediate error
+check therefore make the whole wrapper host-blocking. An asynchronous wrapper
+would instead retain a pinned host `devInfo` destination in the pending
+operation, record or publish the stream completion, and check the value only
+after completion. Singular values needed for global truncation can use the same
+submit-all-then-join structure.
+
+One host lane is not an unconditional design requirement. If profiling shows
+that a particular solver routine spends enough time inside the host API call to
+underfeed the GPU, a small provider-specific submission lane may be useful. That
+limit must remain separate from general CUDA block-operation submission:
+allowing every fine-grained GEMM, copy, event, and callback operation to use the
+same host parallelism creates driver contention without increasing stream
+capacity.
+
+### Asynchronous SVD implementation consequences
+
+Removing the explicit stream synchronization is simple at the provider call,
+but the retained operation must replace several assumptions currently supplied
+by that synchronization:
+
+- `devInfo` cannot be copied into a stack variable. A pending SVD must retain a
+  pinned host destination, or retain device status storage, until its completion
+  is collected.
+- The input/output buffer accesses must publish one shared operation-tail
+  completion instead of using `release_after_synchronization()`. The existing
+  CUDA buffer completion machinery already supports this.
+- The workspace and device-status allocations use stream-ordered allocation and
+  can enqueue their frees after the solver work. They do not require the host to
+  retain their C++ wrappers until device completion.
+- Owning CUDA tensor temporaries may leave scope once every access guard has
+  published its completion. `CudaBuffer` transfers those completions to its
+  shared allocation and queues `cudaFreeAsync` on the device-local reclamation
+  stream, so ordinary tensor destruction does not restore host blocking.
+- The cuSOLVER handle must remain unavailable until the operation stream reaches
+  the conservative handle-return boundary. The existing execution-lease tail
+  callback already provides that behavior.
+- Provider submission errors remain immediate and terminal after work has been
+  enqueued. Numerical failure reported through `devInfo` is deferred and must be
+  checked when the pending result is collected.
+
+The current block-SVD path has an additional ordering constraint. Each sector
+function immediately copies its singular values to host after the SVD. That copy
+would wait for the same sector and preserve serialization even if the provider
+wrapper returned early. The useful one-submitter structure is therefore:
+
+```text
+phase 1: for each sector in cost order
+  assemble device matrix
+  submit SVD on a leased handle and stream
+  enqueue pinned host copies of devInfo and compact singular values
+  retain a pending sector result
+
+phase 2: for each pending sector
+  wait for or compose completion
+  validate devInfo
+  publish host singular values and device-resident factors
+```
+
+With a two-handle pool, the third submission may wait for either earlier handle
+to return. That is intentional admission control: one host lane can keep at most
+two solver operations in flight without creating unbounded workspace pressure.
+If any collection reports failure, all already-submitted sector operations must
+still be drained before the batch propagates the error. Performance measurement
+must also attribute completion rather than the return of the submission call;
+the current lightweight-batch item timer would otherwise report only enqueue
+time as sector SVD time.
+
 ## SVD Boundary
 
-The original TensorContraction bridge used this host-facing shape:
+The exact Tensor backend currently accepts four mutable CUDA-buffer mdspecs:
+the destructive input matrix, singular values, left vectors, and right-adjoint
+vectors. It supports real `float` and `double`, reduced or full vectors, tall
+column-major matrices, valid nonzero buffer offsets, and one CUDA device across
+all operands. Unsupported shapes or layouts decline before resource admission.
+Complex scalars, wide matrices, row-major lowering, singular-values-only forms,
+and an asynchronous Tensor entry point remain future work.
+
+The BlockTensor bridge keeps bulk factorization data resident:
 
 ```text
-host MatrixFamily center
-  -> copy dense matrix to cuSOLVER
-  -> run single-block SVD
-  -> copy U, S, Vt back to host
-  -> split MPS tensors on CPU
+packed CUDA BlockTensor with one logical buffer per block
+  -> assemble one dense matrix per charge sector on CUDA
+  -> transpose wide sectors on-device when required
+  -> run independent cuSOLVER SVDs from a scheduler batch
+  -> retain U, S, and Vt in CUDA tensors
+  -> copy only compact singular values to host for global selection
+  -> gather selected factors directly into CUDA BlockTensor storage
 ```
 
-The first CUDA DMRG bridge keeps this path as a fallback, but the dense
-placeholder-symmetry path can pack resident two-site vector blocks directly into
-cuSOLVER input memory:
-
-```text
-resident two-site blocks
-  -> pack one dense placeholder-symmetry SVD input on GPU
-  -> run single-block cuSOLVER SVD
-  -> copy singular values and split site blocks to host-owned FiniteMPS
-```
-
-The U(1) prototype has a stricter active-data boundary:
-
-```text
-resident two-site blocks
-  -> assemble one dense SVD input per charge sector on GPU
-  -> run independent cuSOLVER SVDs by symmetry sector
-  -> copy singular values and devInfo scalars to host for truncation decisions
-  -> scatter U/Vt directly into resident block-sparse MPS tensors
-  -> materialize those tensors to host only at an explicit cold-storage boundary
-```
-
-The current implementation centralizes those sector SVDs on one target GPU.
-That is enough to enforce the active-tensor residency model and remove U/Vt host
-copies.  Distributing sectors across CUDA devices and MPI workers is a placement
-policy problem and should be layered on top of the same resident block-sparse
-API rather than reintroducing implicit host tensors.
+Each packed CUDA block retains an independent completion ledger even though all
+blocks share one physical allocation. This permits concurrent block transfers
+and multiple blocking cuSOLVER calls from different scheduler participants.
+Measured and unmeasured BlockTensor entry points share this same bridge; the
+measured form attributes the per-sector scheduler batch to its caller-supplied
+event. Repartitioned centers obtain device placement from their retained block
+descriptors rather than requiring access to an owning storage object. The
+current bridge requires one dense axis on each side of the SVD boundary and one
+CUDA device across all blocks.
 
 ## Scheduler Boundary
 
@@ -175,24 +274,26 @@ This keeps the split clear:
 - GPU storage/runtime: buffer access completions, stream/event synchronization,
   resource leasing, and device work submission;
 - cuSOLVER backend: a non-suspending solver call that consumes leased resources
-  and publishes submission/completion tokens.
+  and either publishes completion state or synchronizes at a documented
+  blocking boundary.
 
-The `CudaTask` establishes affinity before device-sensitive work, then suspends
-until its composite stream/handle/workspace request is available. The relevant
-backend walk executes without suspension. Once the solver API returns and the
-completion event is recorded, the scheduler participant is free; operation
-resources remain retained until their provider-specific release boundary.
+The current exact SVD entry point is ordinary blocking code rather than a
+`CudaTask`. It acquires resources inside the selected backend, executes without
+operation-tag redispatch, and returns after stream synchronization. Future
+coroutine entry points may await resource admission, but the provider call
+itself remains an ordinary non-coroutine leaf.
 
 ## Open Questions
 
 - Whether profiling eventually justifies a separate bounded cuSOLVER execution
   lane rather than direct execution on the device scheduler.
-- Which routine families permit a cuSOLVER handle to be reused immediately
-  after the host API returns, rather than after device completion.
+- Which routine families return early enough for one host lane to keep multiple
+  streams supplied.
+- Whether a provider-specific retained handle can be safely reused after host
+  API return; the conservative implementation retains it until stream completion.
 - Whether block-sparse SVD should use one cuSOLVER call per sector, batched
   Jacobi SVD for many small sectors, or a hybrid policy.
 - How much cuSOLVER workspace should be cached per handle or operation class,
-  and how workspace
-  pressure should interact with the broader CUDA allocator.
+  and how workspace pressure should interact with the broader CUDA allocator.
 - How MPI client-server scheduling should assign symmetry-sector SVD blocks to
   remote CUDA workers.

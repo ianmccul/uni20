@@ -36,6 +36,13 @@ struct CublasBackend
     friend constexpr bool operator==(CublasBackend const&, CublasBackend const&) = default;
 };
 
+/// \brief Backend value for cuSOLVER dense factorization kernels.
+struct CusolverBackend
+{
+    static constexpr std::string_view name = "cusolver";
+    friend constexpr bool operator==(CusolverBackend const&, CusolverBackend const&) = default;
+};
+
 /// \brief Backend value for generic CUDA runtime kernels and transfers.
 struct CudaReferenceBackend
 {

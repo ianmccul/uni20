@@ -13,9 +13,10 @@ implemented under `src/uni20/async/`.
 - `cuda_error_presentation.hpp`: presentation-layer rendering for CUDA failures.
 - `device.hpp`: validated device identities and process-wide immutable hardware
   capability caching.
-- `buffer.hpp`: typed move-only device allocations and scoped read/write access
-  guards. Each buffer owns its completion ledger and briefly locks only that
-  ledger when publishing access completions. A consumed buffer may instead be
+- `buffer.hpp`: typed move-only logical device buffers and scoped read/write
+  access guards. Each buffer owns its completion ledger and briefly locks only
+  that ledger when publishing access completions. Validated disjoint logical
+  buffers may share one physical allocation. A consumed buffer may instead be
   moved directly into an `OwningReadAccess` state.
 - `runtime.hpp`: scoped process-wide CUDA initialization, canonical per-device
   resources, device guards, reference-counted stream-pool leases, immutable
@@ -56,12 +57,24 @@ and eventual pointer accessor live in
 - `Stream::record_completion()` creates and records the private event on the
   producer stream's device. Consumers install same- or cross-device dependencies
   with `stream.wait_on(completion)`.
+- Backends submitting one operation through several buffer accesses use one
+  `AccessCompletion` to publish the operation-tail event to every participating
+  ledger. Operations that already synchronize their stream release their guards
+  through `release_after_synchronization()` and publish no event.
 - Buffer dependencies use completion events and `cudaStreamWaitEvent`; the pool
   does not attempt dependent-task stream affinity.
 - `cuda::CudaBuffer<T>` retains the latest exclusive-writer completion and reader
   completions since that writer as a completion ledger. The existing async
   `EpochQueue` or synchronous program order remains the causal model; CUDA
   buffer access does not build another DAG or wait for future host publication.
+- `cuda::PartitionedCudaBuffer<T>` consumes one allocation into validated
+  disjoint logical children. The children share allocation lifetime but retain
+  independent completion ledgers, which is the packed CUDA BlockTensor
+  concurrency boundary.
+- Logical-buffer destruction transfers its completion ledger to the shared
+  allocation. The final owner orders `cudaFreeAsync` on a device-local
+  reclamation stream; ordinary destruction does not consume an operation stream
+  or wait for the GPU. Runtime shutdown drains pending reclamation.
 - Submitters use `buffer.read_synchronized_with(stream)` and
   `buffer.write_synchronized_with(stream)` to construct scoped
   `ReadAccess<T>` and `WriteAccess<T>` guards. Raw device pointers are exposed

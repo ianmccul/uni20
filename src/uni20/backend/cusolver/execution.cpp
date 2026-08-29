@@ -1,20 +1,18 @@
-#include <uni20/backend/cublas/execution.hpp>
+#include <uni20/backend/cusolver/execution.hpp>
 
-#include <uni20/backend/cublas/cublas_error.hpp>
-#include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/backend/cuda/cuda_error.hpp>
+#include <uni20/backend/cusolver/cusolver_error.hpp>
 #include <uni20/common/trace.hpp>
 
 #include <cuda_runtime_api.h>
 
-#include <memory>
+#include <algorithm>
 #include <new>
 #include <utility>
 #include <vector>
 
-namespace uni20::cublas
+namespace uni20::cusolver
 {
-
 namespace
 {
 
@@ -47,10 +45,10 @@ void CUDART_CB return_handle_callback(void* raw_payload) noexcept
   }
   catch (...)
   {
-    PANIC("cuBLAS handle return callback failed and stream synchronization also failed", stream.device());
+    PANIC("cuSOLVER handle return failed and stream synchronization also failed", stream.device());
   }
   delete payload;
-  PANIC("failed to enqueue cuBLAS handle return callback", stream.device(), cudaGetErrorName(status),
+  PANIC("failed to enqueue cuSOLVER handle return callback", stream.device(), cudaGetErrorName(status),
         cudaGetErrorString(status));
 }
 
@@ -62,11 +60,11 @@ void CUDART_CB return_handle_callback(void* raw_payload) noexcept
   }
   catch (...)
   {
-    PANIC("CUDA device selection failed while returning a cuBLAS handle and stream synchronization also failed",
+    PANIC("CUDA device selection failed while returning a cuSOLVER handle and stream synchronization also failed",
           stream.device());
   }
   delete payload;
-  PANIC("CUDA device selection failed while returning a cuBLAS handle", stream.device());
+  PANIC("CUDA device selection failed while returning a cuSOLVER handle", stream.device());
 }
 
 } // namespace
@@ -74,7 +72,7 @@ void CUDART_CB return_handle_callback(void* raw_payload) noexcept
 HandleSlot::HandleSlot(int device) : device_(device)
 {
   cuda::ScopedDevice guard(device_);
-  check(cublasCreate(&handle_), "cublasCreate", device_);
+  check(cusolverDnCreate(&handle_), "cusolverDnCreate", device_);
 }
 
 HandleSlot::HandleSlot(HandleSlot&& other) noexcept
@@ -99,8 +97,7 @@ void HandleSlot::bind(cuda::Stream const& stream)
   CHECK(handle_ != nullptr);
   CHECK_EQUAL(device_, stream.device());
   cuda::ScopedDevice guard(device_);
-  check(cublasSetPointerMode(handle_, CUBLAS_POINTER_MODE_HOST), "cublasSetPointerMode", device_);
-  check(cublasSetStream(handle_, stream.native_handle()), "cublasSetStream", device_);
+  check(cusolverDnSetStream(handle_, stream.native_handle()), "cusolverDnSetStream", device_);
 }
 
 void HandleSlot::reset() noexcept
@@ -109,15 +106,13 @@ void HandleSlot::reset() noexcept
   try
   {
     cuda::ScopedDevice guard(device_);
-    cublasStatus_t const status = cublasDestroy(handle_);
-    if (status != CUBLAS_STATUS_SUCCESS)
-    {
-      PANIC("cuBLAS cleanup operation failed", "cublasDestroy", device_, status_name(status));
-    }
+    auto const status = cusolverDnDestroy(handle_);
+    if (status != CUSOLVER_STATUS_SUCCESS)
+      PANIC("cuSOLVER cleanup operation failed", "cusolverDnDestroy", device_, status_name(status));
   }
   catch (...)
   {
-    PANIC("CUDA device selection failed while destroying a cuBLAS handle", device_);
+    PANIC("CUDA device selection failed while destroying a cuSOLVER handle", device_);
   }
   handle_ = nullptr;
   device_ = -1;
@@ -151,7 +146,6 @@ void ExecutionLease::release() noexcept
 {
   if (!handle_) return;
   CHECK(stream_);
-
   auto* payload = new (std::nothrow) DeferredHandleReturn{std::move(handle_)};
   if (payload == nullptr)
   {
@@ -161,9 +155,9 @@ void ExecutionLease::release() noexcept
     }
     catch (...)
     {
-      PANIC("failed to allocate cuBLAS handle return payload and stream synchronization failed", stream_.device());
+      PANIC("failed to allocate cuSOLVER handle return payload and stream synchronization failed", stream_.device());
     }
-    PANIC("failed to allocate cuBLAS handle return callback payload", stream_.device());
+    PANIC("failed to allocate cuSOLVER handle return callback payload", stream_.device());
   }
 
   cudaError_t status = cudaSuccess;
@@ -176,18 +170,14 @@ void ExecutionLease::release() noexcept
   {
     device_selection_failure(stream_, payload);
   }
-
-  if (status != cudaSuccess)
-  {
-    callback_registration_failure(status, stream_, payload);
-  }
+  if (status != cudaSuccess) callback_registration_failure(status, stream_, payload);
   stream_ = {};
 }
 
 ExecutionPool::ExecutionPool(cuda::StreamPool& streams, std::size_t handle_count)
     : streams_(&streams), handles_(make_handle_slots(streams.device(), handle_count))
 {
-  CHECK(handle_count <= streams.size(), "cuBLAS handle count exceeds CUDA stream capacity", handle_count,
+  CHECK(handle_count <= streams.size(), "cuSOLVER handle count exceeds CUDA stream capacity", handle_count,
         streams.size());
 }
 
@@ -214,15 +204,17 @@ ExecutionLease ExecutionPool::make_lease(cuda::ResourceLease<HandleSlot> handle,
 
 ExecutionPool& execution_pool(cuda::DeviceResources& resources)
 {
-  return resources.provider_resource<ExecutionPool>(resources.streams(), resources.streams().size());
+  constexpr std::size_t default_handle_count = 2;
+  auto const handle_count = std::min(default_handle_count, resources.streams().size());
+  return resources.provider_resource<ExecutionPool>(resources.streams(), handle_count);
 }
 
 ExecutionPool& execution_pool(cuda::DeviceResources& resources, std::size_t handle_count)
 {
   auto& result = resources.provider_resource<ExecutionPool>(resources.streams(), handle_count);
   CHECK_EQUAL(result.handle_count(), handle_count,
-              "cuBLAS execution pool must be configured before its first provider use", resources.device().ordinal());
+              "cuSOLVER execution pool must be configured before its first provider use", resources.device().ordinal());
   return result;
 }
 
-} // namespace uni20::cublas
+} // namespace uni20::cusolver

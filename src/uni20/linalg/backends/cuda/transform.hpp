@@ -36,13 +36,17 @@ template <class Mdspec> using transform_scalar_t = std::remove_cv_t<typename std
 
 template <class OutputMdspec, class... InputMdspecs>
 concept RawCudaOverwriteMdspecs =
-    (sizeof...(InputMdspecs) > 0) && uni20::MutableMdspecLike<OutputMdspec> &&
-    (uni20::MdspecLike<InputMdspecs> && ...) && is_raw_mutable_cuda_mdspec<OutputMdspec> &&
-    (is_raw_const_cuda_mdspec<InputMdspecs> && ...) &&
+    uni20::MutableMdspecLike<OutputMdspec> && (uni20::MdspecLike<InputMdspecs> && ...) &&
+    is_raw_mutable_cuda_mdspec<OutputMdspec> && (is_raw_const_cuda_mdspec<InputMdspecs> && ...) &&
     ((std::remove_cvref_t<OutputMdspec>::rank() == std::remove_cvref_t<InputMdspecs>::rank()) && ...) &&
     (std::same_as<transform_scalar_t<OutputMdspec>, transform_scalar_t<InputMdspecs>> && ...) &&
     (std::remove_cvref_t<OutputMdspec>::rank() == 0 ||
      (uni20::StridedMdspecLike<OutputMdspec> && (uni20::StridedMdspecLike<InputMdspecs> && ...)));
+
+template <class OutputMdspec, class Value>
+concept SupportedFillMdspec = RawCudaOverwriteMdspecs<OutputMdspec> &&
+                              std::same_as<transform_scalar_t<OutputMdspec>, std::remove_cvref_t<Value>> &&
+                              supports_elementwise_arithmetic<transform_scalar_t<OutputMdspec>>;
 
 template <class OutputMdspec, class InputMdspec, class Function>
 concept SupportedStatelessUnaryMdspecs =
@@ -58,6 +62,21 @@ template <class OutputMdspec, class LhsMdspec, class RhsMdspec, class Function>
 concept SupportedStatelessBinaryMdspecs =
     RawCudaOverwriteMdspecs<OutputMdspec, LhsMdspec, RhsMdspec> && RegisteredStatelessBinary<Function> &&
     supports_elementwise_arithmetic<transform_scalar_t<OutputMdspec>>;
+
+template <class OutputMdspec, class Factor>
+concept SupportedInplaceScaleMdspec =
+    RawCudaOverwriteMdspecs<OutputMdspec> &&
+    supports_elementwise_scale<transform_scalar_t<OutputMdspec>, std::remove_cvref_t<Factor>>;
+
+template <class OutputMdspec, class InputMdspec, class Function>
+concept SupportedInplaceStatelessBinaryMdspecs =
+    RawCudaOverwriteMdspecs<OutputMdspec, InputMdspec> && RegisteredStatelessBinary<Function> &&
+    supports_elementwise_arithmetic<transform_scalar_t<OutputMdspec>>;
+
+template <class OutputMdspec, class InputMdspec, class Factor>
+concept SupportedAddScaledMdspecs =
+    RawCudaOverwriteMdspecs<OutputMdspec, InputMdspec> &&
+    supports_elementwise_scale<transform_scalar_t<OutputMdspec>, std::remove_cvref_t<Factor>>;
 
 template <class Scalar, std::size_t InputCount, std::size_t MaximumRank> struct OverwriteTransformPlan
 {
@@ -76,6 +95,8 @@ template <class Scalar, std::size_t InputCount, std::size_t MaximumRank> struct 
     bool has_work = false;
 };
 
+template <class Scalar> using FillPlan = OverwriteTransformPlan<Scalar, 0, elementwise_arithmetic_maximum_rank>;
+
 template <class Scalar>
 using UnaryArithmeticPlan = OverwriteTransformPlan<Scalar, 1, elementwise_arithmetic_maximum_rank>;
 
@@ -88,15 +109,29 @@ struct ScalePlan : OverwriteTransformPlan<Scalar, 1, elementwise_scale_maximum_r
 template <class Scalar>
 using BinaryArithmeticPlan = OverwriteTransformPlan<Scalar, 2, elementwise_arithmetic_maximum_rank>;
 
+template <class Scalar, class Factor>
+struct InplaceScalePlan : OverwriteTransformPlan<Scalar, 0, elementwise_arithmetic_maximum_rank>
+{
+    Factor factor{};
+};
+
+template <class Scalar>
+using InplaceBinaryPlan = OverwriteTransformPlan<Scalar, 1, elementwise_arithmetic_maximum_rank>;
+
+template <class Scalar, class Factor>
+struct AddScaledPlan : OverwriteTransformPlan<Scalar, 1, elementwise_arithmetic_maximum_rank>
+{
+    Factor factor{};
+};
+
 template <std::size_t MaximumRank, class OutputMdspec, class... InputMdspecs>
   requires uni20::MutableMdspecLike<OutputMdspec> && (uni20::MdspecLike<InputMdspecs> && ...) &&
            ((std::remove_cvref_t<OutputMdspec>::rank() == std::remove_cvref_t<InputMdspecs>::rank()) && ...) &&
            (std::remove_cvref_t<OutputMdspec>::rank() == 0 ||
             (uni20::StridedMdspecLike<OutputMdspec> && (uni20::StridedMdspecLike<InputMdspecs> && ...)))
-[[nodiscard]] bool
-try_make_elementwise_transform_plan(OutputMdspec const& output,
-                                    LoweredStridedElementwisePlan<sizeof...(InputMdspecs) + 1, MaximumRank>& plan,
-                                    InputMdspecs const&... inputs)
+[[nodiscard]] bool try_make_elementwise_transform_plan(
+    OutputMdspec const& output, LoweredStridedElementwisePlan<sizeof...(InputMdspecs) + 1, MaximumRank>& plan,
+    InputMdspecs const&... inputs)
 {
   auto host_plan = make_multi_iteration_plan(std::tuple{output.mapping(), inputs.mapping()...});
   return try_lower_strided_elementwise_plan<MaximumRank>(host_plan, plan);
@@ -116,18 +151,21 @@ template <class Plan, class OutputMdspec, class... InputMdspecs>
 {
   using output_type = std::remove_cvref_t<OutputMdspec>;
 
-  bool extents_match = true;
-  auto check_extents = [&](auto const& input) {
-    for (std::size_t axis = 0; axis < output_type::rank(); ++axis)
-    {
-      if (output.extent(axis) != input.extent(axis)) extents_match = false;
-    }
-  };
-  (check_extents(inputs), ...);
-  if (!extents_match)
+  if constexpr (sizeof...(InputMdspecs) > 0)
   {
-    plan.attempt = KernelAttempt::unsupported_shape;
-    return plan;
+    bool extents_match = true;
+    auto check_extents = [&](auto const& input) {
+      for (std::size_t axis = 0; axis < output_type::rank(); ++axis)
+      {
+        if (output.extent(axis) != input.extent(axis)) extents_match = false;
+      }
+    };
+    (check_extents(inputs), ...);
+    if (!extents_match)
+    {
+      plan.attempt = KernelAttempt::unsupported_shape;
+      return plan;
+    }
   }
 
   if (!output.mapping().is_unique() ||
@@ -159,27 +197,30 @@ template <class Plan, class OutputMdspec, class... InputMdspecs>
             plan.output_span_size <= plan.output_buffer->size() - plan.output_offset,
         plan.output_offset, plan.output_span_size, plan.output_buffer->size());
 
-  std::size_t input_index = 0;
-  auto capture_input = [&](auto& input) {
-    auto const input_span_size = required_span_size(input);
-    if (!input_span_size) return false;
-
-    auto input_descriptor = input.data_descriptor();
-    auto const* input_buffer = std::addressof(input_descriptor.buffer());
-    auto const input_offset = input_descriptor.element_offset();
-    CHECK(input_offset <= input_buffer->size() && *input_span_size <= input_buffer->size() - input_offset, input_offset,
-          *input_span_size, input_buffer->size());
-
-    plan.input_buffers[input_index] = input_buffer;
-    plan.input_offsets[input_index] = input_offset;
-    plan.input_span_sizes[input_index] = *input_span_size;
-    ++input_index;
-    return true;
-  };
-  if (!(capture_input(inputs) && ...))
+  if constexpr (sizeof...(InputMdspecs) > 0)
   {
-    plan.attempt = KernelAttempt::unsupported_shape;
-    return plan;
+    std::size_t input_index = 0;
+    auto capture_input = [&](auto& input) {
+      auto const input_span_size = required_span_size(input);
+      if (!input_span_size) return false;
+
+      auto input_descriptor = input.data_descriptor();
+      auto const* input_buffer = std::addressof(input_descriptor.buffer());
+      auto const input_offset = input_descriptor.element_offset();
+      CHECK(input_offset <= input_buffer->size() && *input_span_size <= input_buffer->size() - input_offset,
+            input_offset, *input_span_size, input_buffer->size());
+
+      plan.input_buffers[input_index] = input_buffer;
+      plan.input_offsets[input_index] = input_offset;
+      plan.input_span_sizes[input_index] = *input_span_size;
+      ++input_index;
+      return true;
+    };
+    if (!(capture_input(inputs) && ...))
+    {
+      plan.attempt = KernelAttempt::unsupported_shape;
+      return plan;
+    }
   }
 
   for (std::size_t input = 0; input < Plan::input_count; ++input)
@@ -208,6 +249,14 @@ template <class Function, class OutputMdspec, class InputMdspec>
   return prepare_overwrite_transform(UnaryArithmeticPlan<scalar_type>{}, output, input);
 }
 
+template <class OutputMdspec, class Value>
+  requires SupportedFillMdspec<OutputMdspec, Value>
+[[nodiscard]] auto prepare_fill(OutputMdspec& output)
+{
+  using scalar_type = transform_scalar_t<OutputMdspec>;
+  return prepare_overwrite_transform(FillPlan<scalar_type>{}, output);
+}
+
 template <class OutputMdspec, class InputMdspec, class Factor>
   requires SupportedScaleMdspecs<OutputMdspec, InputMdspec, Factor>
 [[nodiscard]] auto prepare_scale(OutputMdspec& output, InputMdspec& input, Factor factor)
@@ -215,6 +264,36 @@ template <class OutputMdspec, class InputMdspec, class Factor>
   using scalar_type = transform_scalar_t<OutputMdspec>;
   using factor_type = std::remove_cvref_t<Factor>;
   ScalePlan<scalar_type, factor_type> plan;
+  plan.factor = std::move(factor);
+  return prepare_overwrite_transform(std::move(plan), output, input);
+}
+
+template <class OutputMdspec, class Factor>
+  requires SupportedInplaceScaleMdspec<OutputMdspec, Factor>
+[[nodiscard]] auto prepare_inplace_scale(OutputMdspec& output, Factor factor)
+{
+  using scalar_type = transform_scalar_t<OutputMdspec>;
+  using factor_type = std::remove_cvref_t<Factor>;
+  InplaceScalePlan<scalar_type, factor_type> plan;
+  plan.factor = std::move(factor);
+  return prepare_overwrite_transform(std::move(plan), output);
+}
+
+template <class Function, class OutputMdspec, class InputMdspec>
+  requires SupportedInplaceStatelessBinaryMdspecs<OutputMdspec, InputMdspec, Function>
+[[nodiscard]] auto prepare_inplace_stateless_binary(OutputMdspec& output, InputMdspec& input)
+{
+  using scalar_type = transform_scalar_t<OutputMdspec>;
+  return prepare_overwrite_transform(InplaceBinaryPlan<scalar_type>{}, output, input);
+}
+
+template <class OutputMdspec, class InputMdspec, class Factor>
+  requires SupportedAddScaledMdspecs<OutputMdspec, InputMdspec, Factor>
+[[nodiscard]] auto prepare_add_scaled(OutputMdspec& output, InputMdspec& input, Factor factor)
+{
+  using scalar_type = transform_scalar_t<OutputMdspec>;
+  using factor_type = std::remove_cvref_t<Factor>;
+  AddScaledPlan<scalar_type, factor_type> plan;
   plan.factor = std::move(factor);
   return prepare_overwrite_transform(std::move(plan), output, input);
 }
@@ -272,6 +351,11 @@ template <class Plan, class Launch> void execute_overwrite_transform(Plan const&
   }
 
   std::forward<Launch>(launch)(output, input_data, stream.native_handle(), device);
+
+  uni20::cuda::AccessCompletion completion(stream);
+  completion.release(output_access);
+  for (auto& input_access : input_accesses)
+    if (input_access) completion.release(*input_access);
 }
 
 template <class Scalar, RegisteredStatelessUnary Function>
@@ -287,6 +371,22 @@ void execute_stateless_unary(UnaryArithmeticPlan<Scalar> const& plan, Function f
     else
     {
       PANIC("unsupported scalar reached CUDA reference unary arithmetic");
+    }
+  });
+}
+
+template <class Scalar> void execute_fill(FillPlan<Scalar> const& plan, Scalar value)
+{
+  execute_overwrite_transform(plan, [&](Scalar* output, auto const&, cudaStream_t stream, int device) {
+    if constexpr (supports_elementwise_arithmetic<Scalar>)
+    {
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_fill(output, value, elementwise_plan, stream, device);
+      });
+    }
+    else
+    {
+      PANIC("unsupported scalar reached CUDA reference elementwise fill");
     }
   });
 }
@@ -324,7 +424,77 @@ void execute_stateless_binary(BinaryArithmeticPlan<Scalar> const& plan, Function
   });
 }
 
+template <class Scalar, class Factor> void execute_inplace_scale(InplaceScalePlan<Scalar, Factor> const& plan)
+{
+  execute_overwrite_transform(plan, [&](Scalar* output, auto const&, cudaStream_t stream, int device) {
+    if constexpr (supports_elementwise_scale<Scalar, Factor>)
+    {
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_inplace_scale(output, plan.factor, elementwise_plan, stream, device);
+      });
+    }
+    else
+    {
+      PANIC("unsupported scalar reached CUDA reference in-place scaling");
+    }
+  });
+}
+
+template <class Scalar, RegisteredStatelessBinary Function>
+void execute_inplace_stateless_binary(InplaceBinaryPlan<Scalar> const& plan, Function function)
+{
+  execute_overwrite_transform(plan, [&](Scalar* output, auto const& inputs, cudaStream_t stream, int device) {
+    if constexpr (supports_elementwise_arithmetic<Scalar>)
+    {
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_inplace_binary(output, inputs[0], function, elementwise_plan, stream, device);
+      });
+    }
+    else
+    {
+      PANIC("unsupported scalar reached CUDA reference in-place binary arithmetic");
+    }
+  });
+}
+
+template <class Scalar, class Factor> void execute_add_scaled(AddScaledPlan<Scalar, Factor> const& plan)
+{
+  execute_overwrite_transform(plan, [&](Scalar* output, auto const& inputs, cudaStream_t stream, int device) {
+    if constexpr (supports_elementwise_scale<Scalar, Factor>)
+    {
+      plan.elementwise_plan.visit([&](auto const& elementwise_plan) {
+        enqueue_elementwise_add_scaled(output, inputs[0], plan.factor, elementwise_plan, stream, device);
+      });
+    }
+    else
+    {
+      PANIC("unsupported scalar reached CUDA reference add-scaled update");
+    }
+  });
+}
+
 } // namespace detail::cuda_reference
+
+/// \brief Report CUDA eligibility for a retained-value fill transform.
+template <class Value, uni20::MutableMdspecLike OutputMdspec>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, transform_op<constant<Value>> const&, OutputMdspec&)
+{
+  if constexpr (detail::cuda_reference::SupportedFillMdspec<OutputMdspec, Value>)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Fill a CUDA mdspec with one retained scalar value.
+template <class Value, class OutputMdspec>
+  requires detail::cuda_reference::SupportedFillMdspec<OutputMdspec, Value>
+KernelAttempt try_kernel(CudaReferenceBackend, transform_op<constant<Value>> const& operation, OutputMdspec& output)
+{
+  auto preparation = detail::cuda_reference::prepare_fill<OutputMdspec, Value>(output);
+  if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
+  detail::cuda_reference::execute_fill(preparation, operation.function.value);
+  return KernelAttempt::success;
+}
 
 /// \brief Report CUDA eligibility for a registered stateless unary transform.
 template <detail::cuda_reference::RegisteredStatelessUnary Function, uni20::MutableMdspecLike OutputMdspec,
@@ -395,6 +565,76 @@ KernelAttempt try_kernel(CudaReferenceBackend, transform_op<Function> const& ope
   auto preparation = detail::cuda_reference::prepare_stateless_binary<Function>(output, lhs, rhs);
   if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
   detail::cuda_reference::execute_stateless_binary(preparation, operation.function);
+  return KernelAttempt::success;
+}
+
+/// \brief Report CUDA eligibility for in-place scaling.
+template <class Factor, uni20::MutableMdspecLike OutputMdspec>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, transform_inplace_op<scale<Factor>> const&,
+                                    OutputMdspec&)
+{
+  if constexpr (detail::cuda_reference::SupportedInplaceScaleMdspec<OutputMdspec, Factor>)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Scale a CUDA mdspec in place.
+template <class Factor, class OutputMdspec>
+  requires detail::cuda_reference::SupportedInplaceScaleMdspec<OutputMdspec, Factor>
+KernelAttempt try_kernel(CudaReferenceBackend, transform_inplace_op<scale<Factor>> const& operation,
+                         OutputMdspec& output)
+{
+  auto preparation = detail::cuda_reference::prepare_inplace_scale(output, operation.function.factor);
+  if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
+  detail::cuda_reference::execute_inplace_scale(preparation);
+  return KernelAttempt::success;
+}
+
+/// \brief Report CUDA eligibility for a registered in-place binary transform.
+template <detail::cuda_reference::RegisteredStatelessBinary Function, uni20::MutableMdspecLike OutputMdspec,
+          uni20::MdspecLike InputMdspec>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, transform_inplace_op<Function> const&, OutputMdspec&,
+                                    InputMdspec&)
+{
+  if constexpr (detail::cuda_reference::SupportedInplaceStatelessBinaryMdspecs<OutputMdspec, InputMdspec, Function>)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Apply a registered in-place binary transform to CUDA mdspecs.
+template <detail::cuda_reference::RegisteredStatelessBinary Function, class OutputMdspec, class InputMdspec>
+  requires detail::cuda_reference::SupportedInplaceStatelessBinaryMdspecs<OutputMdspec, InputMdspec, Function>
+KernelAttempt try_kernel(CudaReferenceBackend, transform_inplace_op<Function> const& operation, OutputMdspec& output,
+                         InputMdspec& input)
+{
+  auto preparation = detail::cuda_reference::prepare_inplace_stateless_binary<Function>(output, input);
+  if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
+  detail::cuda_reference::execute_inplace_stateless_binary(preparation, operation.function);
+  return KernelAttempt::success;
+}
+
+/// \brief Report CUDA eligibility for an in-place add-scaled transform.
+template <class Factor, uni20::MutableMdspecLike OutputMdspec, uni20::MdspecLike InputMdspec>
+consteval auto kernel_accepts_types(CudaReferenceBackend const&, transform_inplace_op<add_scaled<Factor>> const&,
+                                    OutputMdspec&, InputMdspec&)
+{
+  if constexpr (detail::cuda_reference::SupportedAddScaledMdspecs<OutputMdspec, InputMdspec, Factor>)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Accumulate a scaled CUDA mdspec into another.
+template <class Factor, class OutputMdspec, class InputMdspec>
+  requires detail::cuda_reference::SupportedAddScaledMdspecs<OutputMdspec, InputMdspec, Factor>
+KernelAttempt try_kernel(CudaReferenceBackend, transform_inplace_op<add_scaled<Factor>> const& operation,
+                         OutputMdspec& output, InputMdspec& input)
+{
+  auto preparation = detail::cuda_reference::prepare_add_scaled(output, input, operation.function.factor);
+  if (!kernel_attempt_succeeded(preparation.attempt)) return preparation.attempt;
+  detail::cuda_reference::execute_add_scaled(preparation);
   return KernelAttempt::success;
 }
 

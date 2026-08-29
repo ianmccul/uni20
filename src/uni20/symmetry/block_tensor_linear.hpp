@@ -7,6 +7,7 @@
 #pragma once
 
 #include <uni20/async/debug_scheduler.hpp>
+#include <uni20/config.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/async/transform.hpp>
@@ -16,6 +17,10 @@
 #include <uni20/tensor/copy_into.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/transform.hpp>
+
+#if UNI20_BACKEND_CUDA
+#include <uni20/linalg/backends/cuda/partitioned_buffer_linear.hpp>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -165,6 +170,25 @@ template <class Lhs, class Rhs> constexpr auto same_block_tensor_object(Lhs cons
   }
 }
 
+#if UNI20_BACKEND_CUDA
+
+template <class Tensor>
+concept CudaPartitionedBlockTensor = BlockTensorView<Tensor> && requires(Tensor& tensor, Tensor const& const_tensor) {
+  { tensor.storage().buffer() } -> std::same_as<cuda::PartitionedCudaBuffer<block_tensor_value_t<Tensor>>&>;
+  { const_tensor.storage().buffer() } -> std::same_as<cuda::PartitionedCudaBuffer<block_tensor_value_t<Tensor>> const&>;
+  { const_tensor.storage().offsets() } -> std::same_as<std::span<std::size_t const>>;
+};
+
+template <CudaPartitionedBlockTensor Lhs, CudaPartitionedBlockTensor Rhs>
+[[nodiscard]] bool same_packed_layout(Lhs const& lhs, Rhs const& rhs)
+{
+  return std::ranges::equal(lhs.stored_keys(), rhs.stored_keys()) &&
+         std::ranges::equal(lhs.storage().offsets(), rhs.storage().offsets()) &&
+         lhs.storage().buffer().size() == rhs.storage().buffer().size();
+}
+
+#endif
+
 template <class Block> void set_zero_block(Block&& block)
 {
   using value_type = tensor_element_t<Block>;
@@ -243,14 +267,20 @@ using selected_linear_storage_t =
 } // namespace detail
 
 /// \brief Set every stored numerical block to zero without changing structure.
-/// \details Legal but unstored blocks remain implicit zero. Immediate block
-///          policies complete before return; async block storage schedules one
-///          update on each block timeline.
-template <MutableBlockTensorView Tensor>
-  requires(MutableImmediateBlockTensorView<Tensor> || MutableAsyncBlockTensorView<Tensor>)
-void set_zero(Tensor& tensor)
+/// \details Legal but unstored blocks remain implicit zero. Ordinary block
+///          views dispatch through their storage-domain backend; async block
+///          storage schedules one update on each block timeline.
+template <MutableBlockTensorView Tensor> void set_zero(Tensor& tensor)
 {
-  if constexpr (MutableImmediateBlockTensorView<Tensor>)
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::CudaPartitionedBlockTensor<Tensor> &&
+                linalg::cuda_partitioned_fill_scalar<block_tensor_value_t<Tensor>>)
+  {
+    linalg::cuda_partitioned_set_zero(tensor.storage().buffer());
+    return;
+  }
+#endif
+  if constexpr (!MutableAsyncBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -271,11 +301,17 @@ void set_zero(Tensor& tensor)
 
 /// \brief Multiply every stored numerical block by a scalar in place.
 /// \details The stored key pattern is unchanged, including when the factor is zero.
-template <MutableBlockTensorView Tensor, class Scalar>
-  requires(MutableImmediateBlockTensorView<Tensor> || MutableAsyncBlockTensorView<Tensor>)
-void scale(Tensor& tensor, Scalar factor)
+template <MutableBlockTensorView Tensor, class Scalar> void scale(Tensor& tensor, Scalar factor)
 {
-  if constexpr (MutableImmediateBlockTensorView<Tensor>)
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::CudaPartitionedBlockTensor<Tensor> &&
+                linalg::cuda_partitioned_scale_scalars<block_tensor_value_t<Tensor>, Scalar>)
+  {
+    linalg::cuda_partitioned_scale(tensor.storage().buffer(), factor);
+    return;
+  }
+#endif
+  if constexpr (!MutableAsyncBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -303,7 +339,7 @@ void scale(Tensor& tensor, Scalar factor)
 template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
            detail::CompatibleLinearOutputRepresentation<Output, Input> &&
-           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+           ((!MutableAsyncBlockTensorView<Output> && !AsyncBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void assign_scale(Output& output, Scalar factor, Input const& input)
 {
@@ -315,7 +351,19 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
     return;
   }
 
-  if constexpr (MutableImmediateBlockTensorView<Output>)
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::CudaPartitionedBlockTensor<Output> && detail::CudaPartitionedBlockTensor<Input> &&
+                linalg::cuda_partitioned_scale_scalars<block_tensor_value_t<Output>, Scalar>)
+  {
+    if (detail::same_packed_layout(output, input))
+    {
+      linalg::cuda_partitioned_assign_scale(output.storage().buffer(), factor, input.storage().buffer());
+      return;
+    }
+  }
+#endif
+
+  if constexpr (!MutableAsyncBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, output.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -359,7 +407,7 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
 template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
            detail::CompatibleLinearOutputRepresentation<Output, Input> &&
-           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+           ((!MutableAsyncBlockTensorView<Output> && !AsyncBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void copy(Output& output, Input const& input)
 {
@@ -378,8 +426,7 @@ void copy(Output& output, Input const& input)
 template <MutableBlockTensorView Output, BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Output, Lhs> && detail::CompatibleBlockTensorValues<Output, Rhs> &&
            detail::CompatibleLinearOutputRepresentation<Output, Lhs, Rhs> &&
-           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Lhs> &&
-             ImmediateBlockTensorView<Rhs>) ||
+           ((!MutableAsyncBlockTensorView<Output> && !AsyncBlockTensorView<Lhs> && !AsyncBlockTensorView<Rhs>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
 void add(Output& output, Lhs const& lhs, Rhs const& rhs)
 {
@@ -407,7 +454,7 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
     return;
   }
 
-  if constexpr (MutableImmediateBlockTensorView<Output>)
+  if constexpr (!MutableAsyncBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, output.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -481,7 +528,7 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
 template <MutableBlockTensorView Output, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
            detail::CompatibleLinearOutputRepresentation<Output, Input> &&
-           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+           ((!MutableAsyncBlockTensorView<Output> && !AsyncBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void add_inplace(Output& output, Input const& input)
 {
@@ -493,8 +540,20 @@ void add_inplace(Output& output, Input const& input)
     scale(output, value_type{2});
     return;
   }
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::CudaPartitionedBlockTensor<Output> && detail::CudaPartitionedBlockTensor<Input> &&
+                linalg::cuda_partitioned_scale_scalars<block_tensor_value_t<Output>, block_tensor_value_t<Output>>)
+  {
+    if (detail::same_packed_layout(output, input))
+    {
+      using value_type = block_tensor_value_t<Output>;
+      linalg::cuda_partitioned_axpy(output.storage().buffer(), value_type{1}, input.storage().buffer());
+      return;
+    }
+  }
+#endif
 
-  if constexpr (MutableImmediateBlockTensorView<Output>)
+  if constexpr (!MutableAsyncBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, input.stored_block_count(),
                                        [&](std::size_t input_ordinal) {
@@ -526,7 +585,7 @@ void add_inplace(Output& output, Input const& input)
 template <MutableBlockTensorView Output, class Scalar, BlockTensorView Input>
   requires detail::CompatibleBlockTensorValues<Output, Input> &&
            detail::CompatibleLinearOutputRepresentation<Output, Input> &&
-           ((MutableImmediateBlockTensorView<Output> && ImmediateBlockTensorView<Input>) ||
+           ((!MutableAsyncBlockTensorView<Output> && !AsyncBlockTensorView<Input>) ||
             (MutableAsyncBlockTensorView<Output> && AsyncBlockTensorView<Input>))
 void axpy(Output& output, Scalar factor, Input const& input)
 {
@@ -538,8 +597,19 @@ void axpy(Output& output, Scalar factor, Input const& input)
     scale(output, value_type{1} + factor);
     return;
   }
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::CudaPartitionedBlockTensor<Output> && detail::CudaPartitionedBlockTensor<Input> &&
+                linalg::cuda_partitioned_scale_scalars<block_tensor_value_t<Output>, Scalar>)
+  {
+    if (detail::same_packed_layout(output, input))
+    {
+      linalg::cuda_partitioned_axpy(output.storage().buffer(), factor, input.storage().buffer());
+      return;
+    }
+  }
+#endif
 
-  if constexpr (MutableImmediateBlockTensorView<Output>)
+  if constexpr (!MutableAsyncBlockTensorView<Output>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Output>{}, input.stored_block_count(),
                                        [&](std::size_t input_ordinal) {
@@ -593,15 +663,23 @@ template <class OutputStorage = void, BlockTensorView Lhs, BlockTensorView Rhs>
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 template <BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Lhs, Rhs> && RealOrComplex<block_tensor_value_t<Lhs>> &&
-           ((ImmediateBlockTensorView<Lhs> && ImmediateBlockTensorView<Rhs>) ||
-            (AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
+               ((!AsyncBlockTensorView<Lhs> && !AsyncBlockTensorView<Rhs>) ||
+                (AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
 [[nodiscard]] auto inner_product_host(Lhs const& lhs, Rhs const& rhs) -> block_tensor_value_t<Lhs>
 {
   detail::require_compatible_block_tensor_values(lhs, rhs);
   using value_type = block_tensor_value_t<Lhs>;
+#if UNI20_BACKEND_CUBLAS
+  if constexpr (detail::CudaPartitionedBlockTensor<Lhs> && detail::CudaPartitionedBlockTensor<Rhs> &&
+                cublas::CublasLevelOneScalar<value_type>)
+  {
+    if (detail::same_packed_layout(lhs, rhs))
+      return linalg::cuda_partitioned_inner_product_host(lhs.storage().buffer(), rhs.storage().buffer());
+  }
+#endif
   auto const bindings = detail::stored_key_intersection_bindings(lhs, rhs);
   std::vector<value_type> partials(bindings.size());
-  if constexpr (ImmediateBlockTensorView<Lhs>)
+  if constexpr (!AsyncBlockTensorView<Lhs>)
   {
     detail::execute_linear_block_batch(detail::reduction_execution_policy_t<Lhs, Rhs>{}, bindings.size(),
                                        [&](std::size_t index) {
@@ -644,7 +722,7 @@ template <BlockTensorView Lhs, BlockTensorView Rhs>
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 template <BlockTensorView Lhs, BlockTensorView Rhs>
   requires detail::CompatibleBlockTensorValues<Lhs, Rhs> && RealOrComplex<block_tensor_value_t<Lhs>> &&
-           ((ImmediateBlockTensorView<Lhs> && ImmediateBlockTensorView<Rhs>) ||
+           ((!AsyncBlockTensorView<Lhs> && !AsyncBlockTensorView<Rhs>) ||
             (AsyncBlockTensorView<Lhs> && AsyncBlockTensorView<Rhs>))
 [[nodiscard]] auto inner_product(Lhs const& lhs, Rhs const& rhs)
 {
@@ -658,13 +736,17 @@ template <BlockTensorView Lhs, BlockTensorView Rhs>
 /// \details Legal but unstored blocks contribute zero. Per-block norms are
 ///          combined in canonical key order.
 template <BlockTensorView Tensor>
-  requires RealOrComplex<block_tensor_value_t<Tensor>> &&
-           (ImmediateBlockTensorView<Tensor> || AsyncBlockTensorView<Tensor>)
+  requires RealOrComplex<block_tensor_value_t<Tensor>>
 [[nodiscard]] auto norm_host(Tensor const& tensor) -> make_real_t<block_tensor_value_t<Tensor>>
 {
+#if UNI20_BACKEND_CUBLAS
+  if constexpr (detail::CudaPartitionedBlockTensor<Tensor> &&
+                cublas::CublasLevelOneScalar<block_tensor_value_t<Tensor>>)
+    return linalg::cuda_partitioned_norm_host(tensor.storage().buffer());
+#endif
   using real_type = make_real_t<block_tensor_value_t<Tensor>>;
   std::vector<real_type> partials(tensor.stored_block_count());
-  if constexpr (ImmediateBlockTensorView<Tensor>)
+  if constexpr (!AsyncBlockTensorView<Tensor>)
   {
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
@@ -706,8 +788,7 @@ template <BlockTensorView Tensor>
 
 /// \brief Return the Euclidean BlockTensor norm in a host rank-zero Tensor.
 template <BlockTensorView Tensor>
-  requires RealOrComplex<block_tensor_value_t<Tensor>> &&
-           (ImmediateBlockTensorView<Tensor> || AsyncBlockTensorView<Tensor>)
+  requires RealOrComplex<block_tensor_value_t<Tensor>>
 [[nodiscard]] auto norm(Tensor const& tensor)
 {
   using real_type = make_real_t<block_tensor_value_t<Tensor>>;

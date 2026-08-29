@@ -2,29 +2,22 @@
 
 /**
  * \file execution.hpp
- * \ingroup backend_cublas
- * \brief cuBLAS handle slots and dynamically paired stream execution leases.
+ * \ingroup backend_cusolver
+ * \brief cuSOLVER handle slots and dynamically paired stream execution leases.
  */
 
 #include <uni20/backend/cuda/resource_pool.hpp>
 #include <uni20/backend/cuda/runtime.hpp>
 
-#include <cublas_v2.h>
+#include <cusolverDn.h>
 
 #include <cstddef>
 #include <optional>
 
-namespace uni20::cuda
-{
-class DeviceResources;
-}
-
-namespace uni20::cublas
+namespace uni20::cusolver
 {
 
-class ExecutionAcquireAwaiter;
-
-/// \brief One expensive reusable cuBLAS handle and its handle-local state.
+/// \brief One reusable cuSOLVER handle and its handle-local state.
 class HandleSlot {
   public:
     explicit HandleSlot(int device);
@@ -34,25 +27,20 @@ class HandleSlot {
     HandleSlot& operator=(HandleSlot&& other) noexcept;
     ~HandleSlot();
 
-    /// \brief Return the device on which this handle was created.
     [[nodiscard]] int device() const noexcept { return device_; }
+    [[nodiscard]] cusolverDnHandle_t native_handle() const noexcept { return handle_; }
 
-    /// \brief Return the raw handle for narrow provider-wrapper use.
-    [[nodiscard]] cublasHandle_t native_handle() const noexcept { return handle_; }
-
-    /// \brief Establish deterministic host-pointer mode and bind one operation stream.
+    /// \brief Bind one operation stream to the exclusively leased handle.
     void bind(cuda::Stream const& stream);
 
   private:
     void reset() noexcept;
 
     int device_ = -1;
-    cublasHandle_t handle_ = nullptr;
+    cusolverDnHandle_t handle_ = nullptr;
 };
 
-/// \brief Move-only dynamic pairing of one cuBLAS handle slot and one idle stream.
-/// \details The handle returns to its pool at the submitted stream tail. The
-///          stream follows its own reference-counted idle-pool lifetime.
+/// \brief Move-only pairing of one cuSOLVER handle slot and one idle stream.
 class ExecutionLease {
   public:
     using handle_lease_type = cuda::ResourceLease<HandleSlot>;
@@ -64,16 +52,11 @@ class ExecutionLease {
     ExecutionLease& operator=(ExecutionLease&& other) noexcept;
     ~ExecutionLease();
 
-    /// \brief Return whether this lease owns both required execution resources.
     [[nodiscard]] explicit operator bool() const noexcept
     {
       return static_cast<bool>(handle_) && static_cast<bool>(stream_);
     }
-
-    /// \brief Access the exclusively leased cuBLAS handle slot.
     [[nodiscard]] HandleSlot& handle() const { return handle_.get(); }
-
-    /// \brief Access the dynamically selected CUDA stream.
     [[nodiscard]] cuda::Stream const& stream() const noexcept { return stream_; }
 
     /// \brief Publish deferred handle return at the current stream tail.
@@ -86,37 +69,21 @@ class ExecutionLease {
     cuda::Stream stream_;
 
     friend class ExecutionPool;
-    friend class ExecutionAcquireAwaiter;
 };
 
-/// \brief Device-local cuBLAS handle pool combined with a shared idle-stream pool.
-/// \details Handle slots and streams are independent persistent pools. Each
-///          execution acquisition reserves a handle first, then obtains an
-///          actually-idle stream and returns the temporary pair. The execution
-///          pool and its stream pool must outlive all leases and deferred handle
-///          returns.
+/// \brief Device-local cuSOLVER handle pool paired with the shared stream pool.
 class ExecutionPool {
   public:
-    /// \brief Construct `handle_count` cuBLAS handles for the stream pool's device.
     ExecutionPool(cuda::StreamPool& streams, std::size_t handle_count);
     ExecutionPool(ExecutionPool const&) = delete;
     ExecutionPool& operator=(ExecutionPool const&) = delete;
     ExecutionPool(ExecutionPool&&) = delete;
     ExecutionPool& operator=(ExecutionPool&&) = delete;
 
-    /// \brief Try to acquire a handle and stream without waiting.
     [[nodiscard]] std::optional<ExecutionLease> try_acquire();
-
-    /// \brief Block until a handle and then an idle stream are available.
     [[nodiscard]] ExecutionLease acquire();
-
-    /// \brief Return the CUDA device served by this execution pool.
     [[nodiscard]] int device() const noexcept { return streams_->device(); }
-
-    /// \brief Return the fixed number of provider handles.
     [[nodiscard]] std::size_t handle_count() const noexcept { return handles_.size(); }
-
-    /// \brief Return the number of currently idle provider handles.
     [[nodiscard]] std::size_t idle_handle_count() const noexcept { return handles_.idle_count(); }
 
   private:
@@ -124,22 +91,19 @@ class ExecutionPool {
 
     cuda::StreamPool* streams_;
     cuda::ResourcePool<HandleSlot> handles_;
-
-    friend class ExecutionAcquireAwaiter;
 };
 
-/// \brief Return the lazily constructed cuBLAS execution pool for one CUDA device.
-/// \details The device resources own the pool and retain it until after every
-///          Tensor and operation using those resources has finished. Unless the
-///          pool was configured explicitly, it contains one handle per stream.
+/// \brief Return the lazily constructed cuSOLVER execution pool for one device.
+/// \details Unless configured explicitly, the pool contains two handles, capped
+///          by the device's stream capacity.
 [[nodiscard]] ExecutionPool& execution_pool(cuda::DeviceResources& resources);
 
-/// \brief Configure or return the canonical cuBLAS execution pool for one device.
+/// \brief Configure or return the canonical cuSOLVER execution pool for one device.
 /// \details This first-use configuration must precede concurrent provider use.
 ///          Repeated calls must request the same handle count. The handle count
 ///          cannot exceed the device's stream capacity.
 /// \param resources Device resources that own the canonical pool.
-/// \param handle_count Number of reusable cuBLAS handles.
+/// \param handle_count Number of reusable cuSOLVER handles.
 [[nodiscard]] ExecutionPool& execution_pool(cuda::DeviceResources& resources, std::size_t handle_count);
 
-} // namespace uni20::cublas
+} // namespace uni20::cusolver

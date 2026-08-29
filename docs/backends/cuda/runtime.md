@@ -233,6 +233,38 @@ before its stream pool. `cublas::execution_pool(resources)` uses that registry s
 repeated GEMM calls reuse the same handles. The installed runtime owns the
 canonical resource registry for each enrolled device.
 
+Provider pools are per-device resources, not per-thread resources. A oneTBB
+worker or application thread may lease any idle handle for the enrolled device;
+the lease supplies exclusive mutable access until the provider-specific release
+boundary. Permanent thread-to-handle pairing would make provider capacity scale
+with scheduler concurrency, fragment idle handles across workers, and prevent
+one submission lane from maintaining several independent in-flight operations.
+
+Host submission concurrency, stream count, and each provider's handle count are
+independent limits:
+
+```text
+host submitters per device       default 1, configurable
+actually-idle streams per device configurable
+cuBLAS handles per device        provider-specific, configurable
+cuSOLVER handles per device      target default 2, configurable
+```
+
+One handle must never be mutated concurrently. Multiple handles do not require
+multiple host threads: an asynchronous submission lane may lease successive
+handles while earlier operations retain their own leases. Conversely, a
+host-blocking provider wrapper requires multiple submitting threads to use
+multiple handles concurrently. Defaults therefore belong to each provider and
+must not be inferred from the number of scheduler participants.
+
+The canonical cuBLAS pool defaults to one handle per stream because ordinary
+calls return before stream completion. The canonical cuSOLVER pool defaults to
+two handles, capped by the stream count. A caller may establish another count
+with `cublas::execution_pool(resources, count)` or
+`cusolver::execution_pool(resources, count)` before the first provider use.
+Later explicit configuration must request the same count. Counts cannot exceed
+stream capacity because every execution lease requires both resources.
+
 There is no resource cycle under the implemented contract:
 
 - provider operations always acquire handle before stream;
@@ -272,10 +304,13 @@ runtime.
 
 `uni20::cuda::DeviceResources` owns a validated device, its idle stream pool,
 and lazily constructed provider resources.
-`uni20::cuda::CudaBuffer<T>` is a move-only owner of one typed CUDA allocation
-associated with that resource set. It uses `cudaMallocAsync` when the device supports
-stream-ordered memory pools and records that allocation as the buffer's current
-writer completion; otherwise it falls back to `cudaMalloc`. The resource set must
+`uni20::cuda::CudaBuffer<T>` is a move-only logical device buffer associated
+with that resource set. It normally owns one typed CUDA allocation, but a
+validated disjoint partition may give several logical buffers shared ownership
+of one allocation. Each logical buffer retains an independent completion
+ledger. Physical allocation uses `cudaMallocAsync` when the device supports
+stream-ordered memory pools and otherwise falls back to `cudaMalloc`. The
+resource set also owns a dedicated reclamation stream. The resource set must
 outlive its buffers and every active stream handle acquired from its stream
 pool.
 
@@ -291,6 +326,13 @@ reader count and a single-writer flag. It does not queue the caller or wait for
 another host guard to release. Guard release records its stream tail in the
 completion ledger, allowing the next causally ordered operation to be submitted
 without waiting for the GPU to catch up.
+
+Buffer destruction follows the same delayed-completion model. Each logical
+buffer transfers its final ledger to the shared allocation. The last owner
+makes the reclamation stream wait on those completions and enqueues
+`cudaFreeAsync`, without waiting on the host or taking an operation-stream slot.
+Runtime shutdown drains pending reclamation. The fallback for devices without
+stream-ordered allocator support remains blocking.
 
 Scoped access is used as follows:
 

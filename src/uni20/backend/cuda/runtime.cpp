@@ -136,6 +136,64 @@ class Completion::State {
     cudaEvent_t event_ = nullptr;
 };
 
+namespace detail
+{
+
+// Device-local stream that orders allocation release after buffer accesses.
+class AllocationReclaimer {
+  public:
+    AllocationReclaimer(int device, unsigned int stream_flags) : device_(device)
+    {
+      ScopedDevice guard(device_);
+      check(cudaStreamCreateWithFlags(&stream_, stream_flags), "cudaStreamCreateWithFlags allocation reclaimer",
+            device_);
+    }
+
+    AllocationReclaimer(AllocationReclaimer const&) = delete;
+    AllocationReclaimer& operator=(AllocationReclaimer const&) = delete;
+
+    ~AllocationReclaimer()
+    {
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaStreamSynchronize(stream_), "cudaStreamSynchronize allocation reclaimer", device_);
+      check_cleanup(cudaStreamDestroy(stream_), "cudaStreamDestroy allocation reclaimer", device_);
+    }
+
+    void defer_after(std::span<Completion const> completions) noexcept
+    {
+      std::lock_guard lock(mutex_);
+      CleanupDeviceGuard guard(device_);
+      for (Completion const& completion : completions)
+      {
+        if (!completion) continue;
+        check_cleanup(cudaStreamWaitEvent(stream_, completion.state_->native_handle()),
+                      "cudaStreamWaitEvent allocation reclaimer", device_);
+      }
+    }
+
+    void release_async(void* allocation) noexcept
+    {
+      CHECK(allocation != nullptr);
+      std::lock_guard lock(mutex_);
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaFreeAsync(allocation, stream_), "cudaFreeAsync allocation reclaimer", device_);
+    }
+
+    void synchronize() noexcept
+    {
+      std::lock_guard lock(mutex_);
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaStreamSynchronize(stream_), "cudaStreamSynchronize allocation reclaimer", device_);
+    }
+
+  private:
+    int device_;
+    cudaStream_t stream_ = nullptr;
+    std::mutex mutex_;
+};
+
+} // namespace detail
+
 namespace
 {
 
@@ -605,9 +663,10 @@ void Stream::State::wait_on(Completion const& completion) const
 }
 
 DeviceResources::DeviceResources(Config config)
-    : device_(config.device),
-      streams_(
-          {.device = config.device.ordinal(), .stream_count = config.stream_count, .stream_flags = config.stream_flags})
+    : device_(config.device), streams_({.device = config.device.ordinal(),
+                                        .stream_count = config.stream_count,
+                                        .stream_flags = config.stream_flags}),
+      allocation_reclaimer_(std::make_unique<detail::AllocationReclaimer>(config.device.ordinal(), config.stream_flags))
 {}
 
 DeviceResources::~DeviceResources() noexcept
@@ -632,14 +691,36 @@ DeviceResources::~DeviceResources() noexcept
     PANIC("failed to synchronize CUDA provider-resource cleanup", device_.ordinal());
   }
 
-  CHECK_EQUAL(this->live_buffer_count(), 0, "destroying CUDA device resources while buffers still borrow them",
+  allocation_reclaimer_->synchronize();
+
+  CHECK_EQUAL(this->live_allocation_count(), 0, "destroying CUDA device resources while allocations still borrow them",
               device_.ordinal());
 }
 
-void DeviceResources::unregister_buffer() noexcept
+void DeviceResources::unregister_allocation() noexcept
 {
-  auto const previous = live_buffer_count_.fetch_sub(1, std::memory_order_acq_rel);
-  CHECK(previous > 0, "CUDA device-resource buffer count underflow", device_.ordinal());
+  auto const previous = live_allocation_count_.fetch_sub(1, std::memory_order_acq_rel);
+  CHECK(previous > 0, "CUDA device-resource allocation count underflow", device_.ordinal());
+}
+
+void DeviceResources::defer_allocation_release_after(std::span<Completion const> completions) noexcept
+{
+  allocation_reclaimer_->defer_after(completions);
+}
+
+void DeviceResources::release_allocation(void* allocation, bool blocking) noexcept
+{
+  CHECK(allocation != nullptr);
+  if (device_.capabilities().memory_pools_supported)
+  {
+    allocation_reclaimer_->release_async(allocation);
+    if (blocking) allocation_reclaimer_->synchronize();
+    return;
+  }
+
+  allocation_reclaimer_->synchronize();
+  CleanupDeviceGuard guard(device_.ordinal());
+  check_cleanup(cudaFree(allocation), "cudaFree allocation reclaimer fallback", device_.ordinal());
 }
 
 void DeviceResources::destroy_provider_resources() noexcept

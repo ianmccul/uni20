@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
@@ -31,8 +32,10 @@ template <typename T> class CudaBuffer;
 
 namespace detail
 {
+class AllocationReclaimer;
 class StreamWaiter;
-}
+template <typename T> class CudaAllocation;
+} // namespace detail
 
 /// \brief Temporarily select one CUDA device and restore the previous device on destruction.
 class ScopedDevice {
@@ -125,6 +128,7 @@ class Completion {
 
     friend class Stream;
     friend class Stream::State;
+    friend class detail::AllocationReclaimer;
 };
 
 namespace detail
@@ -210,7 +214,8 @@ class StreamPool {
 ///          installed CUDA runtime. Direct construction remains useful for
 ///          focused tests and low-level bring-up. The resources object must
 ///          outlive every buffer, stream lease, and provider lease created from
-///          it.
+///          it. A dedicated reclamation stream orders allocation release after
+///          buffer completion events without consuming an operation-stream slot.
 class DeviceResources {
   public:
     /// \brief Configuration for one device's mutable CUDA resources.
@@ -257,10 +262,10 @@ class DeviceResources {
       return result;
     }
 
-    /// \brief Return the number of live CUDA buffers borrowing these resources.
-    [[nodiscard]] std::size_t live_buffer_count() const noexcept
+    /// \brief Return the number of live CUDA allocations borrowing these resources.
+    [[nodiscard]] std::size_t live_allocation_count() const noexcept
     {
-      return live_buffer_count_.load(std::memory_order_acquire);
+      return live_allocation_count_.load(std::memory_order_acquire);
     }
 
   private:
@@ -276,17 +281,21 @@ class DeviceResources {
         Resource value;
     };
 
-    void register_buffer() noexcept { live_buffer_count_.fetch_add(1, std::memory_order_relaxed); }
-    void unregister_buffer() noexcept;
+    void register_allocation() noexcept { live_allocation_count_.fetch_add(1, std::memory_order_relaxed); }
+    void unregister_allocation() noexcept;
+    void defer_allocation_release_after(std::span<Completion const> completions) noexcept;
+    void release_allocation(void* allocation, bool blocking) noexcept;
     void destroy_provider_resources() noexcept;
 
     Device device_;
     StreamPool streams_;
+    std::unique_ptr<detail::AllocationReclaimer> allocation_reclaimer_;
     std::mutex provider_resources_mutex_;
     std::unordered_map<std::type_index, std::unique_ptr<ProviderResourceBase>> provider_resources_;
-    std::atomic<std::size_t> live_buffer_count_ = 0;
+    std::atomic<std::size_t> live_allocation_count_ = 0;
 
     template <typename> friend class CudaBuffer;
+    template <typename> friend class detail::CudaAllocation;
 };
 
 /// \brief Configuration for one scoped process-wide CUDA runtime installation.

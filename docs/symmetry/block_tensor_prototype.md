@@ -1,7 +1,7 @@
 # Bosonic Abelian BlockTensor Prototype
 
-**Status:** active design contract with immediate sparse and packed-complete
-host storage plus the first async sparse host slice implemented. It defines the
+**Status:** active design contract with immediate host storage, packed CUDA
+storage, and the first async sparse host slice implemented. It defines the
 remaining bosonic abelian vertical slice. The broader
 [BlockTensor design](block_tensor.md) records later CUDA, MPI, recoupling, and
 view requirements.
@@ -39,12 +39,12 @@ operations:
   dense `Tensor` per block;
 - `ParallelSeparateSparseBlockStorage`, with the same separate ownership and
   synchronous scheduler-batch execution across independent output blocks;
-- `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
-  buffer;
+- `PackedSparseBlockStorage`, with canonical offsets into one contiguous leaf
+  allocation;
 - `ParallelPackedSparseBlockStorage`, with the same packed representation and
   synchronous scheduler-batch execution across disjoint output blocks;
 - `PackedCompleteBlockStorage` and `ParallelPackedCompleteBlockStorage`, which
-  canonically allocate every symmetry-legal block in one packed host buffer;
+  canonically allocate every symmetry-legal block in one packed allocation;
 - `PackedDiagonalBlockStorage`, with one contiguous host buffer containing only
   the generalized diagonal of each explicitly stored logical block;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
@@ -57,7 +57,7 @@ operations:
 - zero-copy bosonic left/right `repartition` views with transformed canonical
   keys and strided dense-block axis permutations; and
 - synchronous adjacent pairwise contraction through ordinary tensor-level
-  kernel dispatch into selectable immediate-host sparse output storage;
+  kernel dispatch into selectable local sparse output storage;
 - synchronous adjacent grouped contraction over one or more paired boundary
   factors, including simultaneous dense-axis lowering;
 - scheduler-batch contraction grouped by independently writable output block;
@@ -65,14 +65,16 @@ operations:
   norm operations over immediate, mapped, and per-block async values; and
 - the first storage-selected async lowering for rank-two dense block GEMMs.
 
-This slice is host-resident. Mapped permutation and repartition views retain an
-lvalue source reference and therefore cannot outlive their source tensor. They
-preserve immediate data handles or async block epoch identity while changing
-only logical and mapping metadata. Payload element writes remain valid, but
-assigning or structurally modifying a source invalidates every view transitively
-built from it. The slice does not yet provide builders, the full numerical
-block-operation surface, packed async hazards, or the remaining space kinds
-described below.
+Most structural operations have a local-storage path. Fixed packed CUDA
+BlockTensors support resident vector operations, dense-kernel lowering,
+pairwise contraction, per-charge SVD, and selected-factor materialization.
+Mapped permutation and repartition views retain an lvalue source reference and
+therefore cannot outlive their source tensor. They preserve immediate data
+handles or async block epoch identity while changing only logical and mapping
+metadata. Payload element writes remain valid, but assigning or structurally
+modifying a source invalidates every view transitively built from it. The slice
+does not yet provide the full numerical block-operation surface, packed async
+host hazards, or multi-device factorization.
 
 ## 2. Initial Type Shape
 
@@ -282,13 +284,16 @@ Each view exposes its immediate or descriptor-backed mdspec without itself
 modeling `MdspecLike`. The positive execution and placement refinements are:
 
 ```cpp
+LocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
 ImmediateLocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
 AsyncLocalBlockStorageFor<Storage, T, KeyCount, DenseOrder>
 DistributedBlockStorageFor<Storage, T, KeyCount, DenseOrder>
 ```
 
-The immediate refinement requires actual mdspans. The async refinement requires
-one `Async<Tensor>`-like value per block in this first implementation. The
+The local refinement excludes distributed ownership without constraining the
+leaf memory domain or acquisition model. The immediate refinement additionally
+requires actual mdspans. The async refinement requires one
+`Async<Tensor>`-like value per block in this first implementation. The
 distributed refinement is the compile-time seam for a later placement-aware
 policy. Completeness, sparse layout, execution mode, leaf memory kind, and
 distribution remain separate properties even when one concrete `Storage` type
@@ -378,18 +383,41 @@ scheduler controls serial debug ordering or TBB parallelism, and the result is
 fully computed when `contract` returns.
 
 `ParallelPackedSparseBlockStorage` applies the same synchronous execution
-contract to `PackedSparseBlockStorage`. The packed buffer and its offsets remain
-fixed during a batch, and distinct output-block items write disjoint element
-ranges. It is useful for temporary vectors that need both canonical packed
-allocation and block-level CPU scheduling.
+contract to `PackedSparseBlockStorage`. The packed allocation and its offsets
+remain fixed during a batch, and distinct output-block items write disjoint
+element ranges. It is useful for temporary vectors that need both canonical
+packed allocation and block-level scheduling. Host storage exposes ordinary
+offset mdspans. `CudaStorage` creates one physical allocation partitioned into
+one logical `CudaBuffer` per block. Those logical buffers share allocation
+lifetime but retain independent completion ledgers, so different scheduler
+items may submit work for disjoint blocks on different CUDA streams.
 
 `PackedCompleteBlockStorage` uses the same contiguous representation but does
 not accept an explicit stored-key set. Its owning `BlockTensor` enumerates every
 symmetry-legal key in canonical order and constructs the packed offsets once.
 `ParallelPackedCompleteBlockStorage` adds the same synchronous disjoint-block
-batch execution policy. These policies provide the compile-time
+batch execution policy. For CUDA leaf storage it uses the same independently
+synchronized logical block partition as the parallel sparse policy. These
+policies provide the compile-time
 `CompleteBlockStorage` guarantee used by transient DMRG centers and their
 Krylov vectors; sparse MPO and environment storage remains independent.
+
+Aligned packed storage records both block-start offsets and the exclusive end
+of each numerical payload. Elements between a payload end and the next block
+start are storage padding. Construction initializes that padding to numerical
+zero while leaving block payloads unspecified. Allocation-wide zeroing,
+scaling, copying between identical layouts, AXPY, inner products, and norms may
+therefore process the complete physical allocation: each operation preserves
+zero padding. A nonzero fill is different and must skip the gaps or restore
+them to zero before an allocation-wide reduction.
+
+For packed CUDA storage, compatible fixed linear operations use one aggregate
+buffer access and one elementwise kernel rather than dispatching one kernel per
+block. Exact-layout inner products and norms use one cuBLAS level-one call.
+Inputs with different key patterns or physical offsets, mapped BlockTensor
+views, and unsupported scalar operations retain the ordinary blockwise path.
+The aggregate access publishes one shared completion to every logical block
+ledger, so subsequent independent block scheduling remains valid.
 
 `AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
 stored key. Its `block(key)` result is a TensorView whose borrowed data
@@ -674,8 +702,9 @@ storage, execution context, and placement. The planned controlled families are:
 - parallel CPU storage with immediate blocks and synchronous scheduler batches
   grouped by independently writable output;
 - per-block async storage for values that need independent epoch timelines;
-- CUDA storage with `CudaTensor` block data, CUDA mdspec lowering, and device
-  completion tracked by the CUDA buffer ledger; and
+- CUDA storage with packed block data, CUDA mdspec lowering, one shared physical
+  allocation, and device completion tracked independently for each logical
+  block buffer; and
 - `MpiBlockStorage<LocalStorage>`, with globally replicated logical placement
   metadata and each mutable dense block wholly owned by one MPI process.
 
@@ -685,10 +714,12 @@ a remote or distributed dense operand. MPI therefore does not imply
 `Async<BlockTensor>`.
 
 Storage buffers use retainable ownership and access state so scheduled work
-outlives borrowed block descriptors safely. A future packed async host policy
-may initially hazard its whole allocation conservatively. Later subrange or
-coalesced-group hazards provide finer scheduling without changing logical
-boundaries.
+outlives borrowed block descriptors safely. Packed CUDA storage validates its
+disjoint static partition at construction. Child buffer descriptors retain the
+shared allocation while preventing a whole-allocation access ledger from
+bypassing their per-block completion domains. A future packed async host policy
+may use an analogous subrange or coalesced-group hazard representation without
+changing logical boundaries.
 
 Numerical lowering follows:
 
@@ -741,12 +772,14 @@ The first `LocalTwoSiteEffectiveHamiltonian` applies a local operator to a fixed
 `krylov::BlockTensorMatrixFreeOps`. The general `TwoSiteEffectiveHamiltonian`
 joins two `MpoSite` values and two `MpoEnvironment` values into a fixed-center
 R/A/B/C coefficient plan. It snapshots and coalesces the sparse
-`f(r,a,b,c)` entries. The current host backend prepares its right-first `(B,C)`
+`f(r,a,b,c)` entries. The current backend prepares its right-first `(B,C)`
 grouping, output order, and intermediate workspace once when the effective
-Hamiltonian is constructed. Repeated Krylov applications reuse that state and
-batch independent output blocks through dispatched dense contractions; the
-path neither flattens the center nor constructs a high-rank BlockTensor
-intermediate. The logical plan retains canonical block keys rather than storage
+Hamiltonian is constructed. Immediate host and packed CUDA centers retain
+their respective leaf storage in that workspace. Repeated Krylov applications
+reuse that state and batch independent output blocks through dispatched dense
+contractions; the path neither flattens the center nor constructs a high-rank
+BlockTensor intermediate. The logical plan retains canonical block keys rather
+than storage
 ordinals; backend preparation binds those keys to the concrete operands. Each
 application overwrites every stored output block, filling blocks without a
 contributing term with zero to preserve the implicit-zero sector semantics.
@@ -766,10 +799,10 @@ The first prototype deliberately defers:
 - non-abelian fusion multiplicities and coupling descriptors;
 - recoupling, braiding, and category-dependent block factors;
 - lazy transpose, conjugate, adjoint, scaled, and non-bosonic repartition views;
-- CUDA, mixed CPU/GPU, packed async, and MPI storage;
+- mixed CPU/GPU, packed async, multi-device CUDA, and MPI storage;
 - replicated immutable block tensors;
 - coalescing and placement policies beyond canonical packed host storage;
-- asynchronous, CUDA, and distributed block-SVD factorization and
+- asynchronous, generalized CUDA, and distributed block-SVD factorization and
   materialization;
 - runtime-order Python-facing tensors.
 
