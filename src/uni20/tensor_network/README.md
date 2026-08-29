@@ -22,8 +22,9 @@ Current entry points:
 - `two_site_dmrg.hpp`: fixed-work local ground-state updates, directional
   finite-chain traversal with incremental environment refresh, and alternating
   terminal-energy convergence.
-- `two_site_effective_hamiltonian.hpp`: immediate-host output-first local and
-  MPO/environment two-site apply objects.
+- `two_site_effective_hamiltonian.hpp`: output-first local and MPO/environment
+  two-site apply objects; the planned MPO path accepts descriptor-backed center
+  and environment blocks.
 
 Concrete physical-model constructors live one layer above this module in
 `models/`; they return these ordinary finite-chain owners rather than defining
@@ -35,16 +36,20 @@ tensor-network connectivity is implemented here; dense numerical kernels remain
 in `linalg/` and `kernel/`; Krylov solvers continue to treat BlockTensor vectors
 as opaque.
 
-The immediate-host `TwoSiteEffectiveHamiltonian` compiles environment and MPO
+`TwoSiteEffectiveHamiltonian` compiles environment and MPO
 stored keys into an immutable sparse `f(r,a,b,c)` plan using coordinate-indexed
-joins. The first backend is a host right-first executor. Effective-Hamiltonian
+joins. MPO scalar coefficient blocks remain immediate; center and environment
+blocks may use immediate host or packed CUDA storage. The first backend is a
+right-first executor whose intermediates preserve the center leaf storage. Effective-Hamiltonian
 construction selects and prepares that backend once, retaining its `(B,C)`
 grouping, output order, and intermediate workspace across Krylov matvecs. Each
 application forms each distinct `B_b * transpose(C_c)` once and then batches
 independent output-block accumulations. The logical plan contains no
-contraction-order or placement decision. Left-first/hybrid planning,
-post-truncation measurement, general initial-state canonicalization, CUDA
-placement, and MPI distribution remain separate extensions.
+contraction-order or placement decision. The fixed-step local Lanczos path now
+has a single-device CUDA-resident checkpoint. Left-first/hybrid planning,
+complete CUDA sweeps, post-truncation measurement, general initial-state
+canonicalization, multi-device placement, and MPI distribution remain separate
+extensions.
 
 The corresponding contracts and implementation status are indexed in the
 [tensor-network documentation](../../../docs/tensor_network/).

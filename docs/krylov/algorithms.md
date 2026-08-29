@@ -47,6 +47,13 @@ and then invokes `operation(output, input)`. The callable may retain immutable
 Hamiltonian and environment state. Its application must overwrite the existing
 output value rather than replace the output's fixed block structure.
 
+Packed CUDA BlockTensor vectors use the same interface. Allocation preserves
+the prototype's CUDA resources; fixed vector updates dispatch per-block CUDA
+kernels; and full inner products and norms use cuBLAS over exhaustive raw CUDA
+descriptors, synchronizing only the host scalar result. The Krylov algorithm
+does not branch on storage. Its small projected tridiagonal eigensystem remains
+host-resident and uses the ordinary LAPACK path.
+
 Generalized symmetric paths may additionally use `metric_inner_product(x, y)`.
 When it is absent, the current wrapper applies `B*y` into backend-owned scratch
 and then calls the ordinary inner product.

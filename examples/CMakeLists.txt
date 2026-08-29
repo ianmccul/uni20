@@ -27,6 +27,8 @@ uni20_add_example(spin_half_heisenberg_dmrg_example models/spin_half_heisenberg_
 add_test(NAME SpinHalfHeisenbergDmrgExample COMMAND spin_half_heisenberg_dmrg_example --check)
 add_test(NAME SpinHalfHeisenbergDmrgComplexExample
          COMMAND spin_half_heisenberg_dmrg_example --scalar=complex --check)
+add_test(NAME SpinHalfHeisenbergDmrgSteadySweepExample
+         COMMAND spin_half_heisenberg_dmrg_example --sites=4 --max-states=4 --steady-sweeps=2)
 
 if(TARGET uni20_backend_cuda)
   uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common

@@ -1,7 +1,7 @@
 /**
- * \file host_right_first_rabc.hpp
+ * \file right_first_rabc.hpp
  * \ingroup tensor_network
- * \brief Host right-first backend for sparse R/A/B/C contractions.
+ * \brief Storage-domain right-first backend for sparse R/A/B/C contractions.
  */
 
 #pragma once
@@ -33,40 +33,33 @@
 namespace uni20::tensor_network
 {
 
-/// \brief Host executor that reuses right-first `(B_b,C_c)` intermediates.
+/// \brief Executor that reuses right-first `(B_b,C_c)` intermediates.
 /// \details The retained selector performs each dense pairwise contraction.
 ///          The sparse logical plan remains order-neutral. One-shot dispatch
 ///          prepares transient state, while `prepare_rabc_contract` retains
 ///          grouping and workspace for repeated applications.
+/// \tparam IntermediateStorage Dense storage policy used for retained intermediates.
 /// \tparam ContractionSelector Dense contraction backend selector.
-template <linalg::KernelBackendSelector ContractionSelector> struct HostRightFirstRabcBackend
+template <class IntermediateStorage, linalg::KernelBackendSelector ContractionSelector> struct RightFirstRabcBackend
 {
-    static constexpr std::string_view name = "host_right_first_rabc";
+    static constexpr std::string_view name = "right_first_rabc";
 
     ContractionSelector contraction_selector;
 };
-
-template <class ContractionSelector>
-HostRightFirstRabcBackend(ContractionSelector) -> HostRightFirstRabcBackend<std::remove_cvref_t<ContractionSelector>>;
 
 namespace detail
 {
 
 template <class Tensor>
-concept HostReadableRabcTensor =
-    ImmediateBlockTensorView<Tensor> && (block_tensor_type_t<Tensor>::dense_block_order() == 2) &&
-    HostReadableTensor<block_tensor_const_block_t<Tensor>>;
+concept ReadableRabcTensor = BlockTensorView<Tensor> && (block_tensor_type_t<Tensor>::dense_block_order() == 2);
 
 template <class Tensor>
-concept HostWritableRabcTensor =
-    MutableImmediateBlockTensorView<Tensor> && (block_tensor_type_t<Tensor>::dense_block_order() == 2) &&
-    HostWritableTensor<block_tensor_mutable_block_t<Tensor>>;
+concept WritableRabcTensor = MutableBlockTensorView<Tensor> && (block_tensor_type_t<Tensor>::dense_block_order() == 2);
 
 template <class Output, class Plan, class A, class B, class C>
-concept CompatibleHostRabcOperands =
-    HostWritableRabcTensor<Output> && HostReadableRabcTensor<A> && HostReadableRabcTensor<B> &&
-    HostReadableRabcTensor<C> && RabcPlan<Plan> &&
-    std::same_as<typename std::remove_cvref_t<Plan>::r_key_type, block_tensor_key_t<Output>> &&
+concept CompatibleRabcOperands =
+    WritableRabcTensor<Output> && ReadableRabcTensor<A> && ReadableRabcTensor<B> && ReadableRabcTensor<C> &&
+    RabcPlan<Plan> && std::same_as<typename std::remove_cvref_t<Plan>::r_key_type, block_tensor_key_t<Output>> &&
     std::same_as<typename std::remove_cvref_t<Plan>::a_key_type, block_tensor_key_t<A>> &&
     std::same_as<typename std::remove_cvref_t<Plan>::b_key_type, block_tensor_key_t<B>> &&
     std::same_as<typename std::remove_cvref_t<Plan>::c_key_type, block_tensor_key_t<C>> &&
@@ -81,10 +74,10 @@ using mutable_rabc_mdspec_t = decltype(mdspec_of(std::declval<block_tensor_mutab
 template <class Tensor>
 using const_rabc_mdspec_t = decltype(mdspec_of(std::declval<block_tensor_const_block_t<Tensor> const&>()));
 
-template <class ContractionSelector, class Output, class Scalar, class A, class B, class C>
-consteval bool host_right_first_types_compatible()
+template <class IntermediateStorage, class ContractionSelector, class Output, class Scalar, class A, class B, class C>
+consteval bool right_first_types_compatible()
 {
-  using intermediate_type = ColumnMajorTensor<Scalar, 2>;
+  using intermediate_type = ColumnMajorTensor<Scalar, 2, IntermediateStorage>;
   using intermediate_mutable_mdspec = decltype(mdspec_of(std::declval<intermediate_type&>()));
   using intermediate_const_mdspec = decltype(mdspec_of(std::declval<intermediate_type const&>()));
   using output_mdspec = mutable_rabc_mdspec_t<Output>;
@@ -101,6 +94,25 @@ consteval bool host_right_first_types_compatible()
                                           Scalar&, a_mdspec&, intermediate_const_mdspec&, Scalar&>() ==
       linalg::KernelTypeAcceptance::yes;
   return right_product_is_total && accumulation_is_total;
+}
+
+template <class IntermediateStorage, uni20::Scalar Scalar, TensorView Prototype>
+[[nodiscard]] auto make_rabc_intermediate(Prototype const& prototype, index_type rows,
+                                          index_type columns) -> ColumnMajorTensor<Scalar, 2, IntermediateStorage>
+{
+  using intermediate_type = ColumnMajorTensor<Scalar, 2, IntermediateStorage>;
+  if constexpr (requires {
+                  mdspec_of(prototype).data_descriptor().buffer().resources();
+                  intermediate_type(mdspec_of(prototype).data_descriptor().buffer().resources(), rows, columns);
+                })
+  {
+    auto descriptor = mdspec_of(prototype);
+    return intermediate_type(descriptor.data_descriptor().buffer().resources(), rows, columns);
+  }
+  else
+  {
+    return intermediate_type(rows, columns);
+  }
 }
 
 template <class Function> void execute_rabc_batch(SerialBlockExecution, std::size_t size, Function&& function)
@@ -139,7 +151,7 @@ template <class Tensor, class Key>
 }
 
 template <class Output, class Plan, class A, class B, class C>
-  requires CompatibleHostRabcOperands<Output, Plan, A, B, C>
+  requires CompatibleRabcOperands<Output, Plan, A, B, C>
 [[nodiscard]] auto bind_rabc_operands(Output const& output, Plan const& plan, A const& a, B const& b, C const& c)
     -> std::vector<BoundRabcTerm<typename std::remove_cvref_t<Plan>::scalar_type>>
 {
@@ -154,10 +166,10 @@ template <class Output, class Plan, class A, class B, class C>
   for (auto const& term : plan.terms())
   {
     BoundRabcTerm<scalar_type> binding{.r_ordinal = r_ordinals[term.r_key_index],
-                                      .a_ordinal = a_ordinals[term.a_key_index],
-                                      .b_ordinal = b_ordinals[term.b_key_index],
-                                      .c_ordinal = c_ordinals[term.c_key_index],
-                                      .coefficient = term.coefficient};
+                                       .a_ordinal = a_ordinals[term.a_key_index],
+                                       .b_ordinal = b_ordinals[term.b_key_index],
+                                       .c_ordinal = c_ordinals[term.c_key_index],
+                                       .coefficient = term.coefficient};
 
     auto const output_block = output.block_by_ordinal(binding.r_ordinal);
     auto const a_block = a.block_by_ordinal(binding.a_ordinal);
@@ -183,8 +195,8 @@ struct RightFirstRabcGroup
 };
 
 template <class Terms>
-[[nodiscard]] auto make_right_first_groups(Terms const& terms, std::vector<std::size_t>& term_group)
-    -> std::vector<RightFirstRabcGroup>
+[[nodiscard]] auto make_right_first_groups(Terms const& terms,
+                                           std::vector<std::size_t>& term_group) -> std::vector<RightFirstRabcGroup>
 {
   std::vector<std::size_t> order(terms.size());
   std::iota(order.begin(), order.end(), std::size_t{});
@@ -207,7 +219,7 @@ template <class Terms>
 
 } // namespace detail
 
-/// \brief Prepared host right-first executor for one fixed R/A/B/C structure.
+/// \brief Prepared right-first executor for one fixed R/A/B/C structure.
 /// \details Construction binds logical keys to storage ordinals, validates
 ///          dense extents, derives the
 ///          unique `(B_b,C_c)` groups and output execution order, and allocates
@@ -215,27 +227,30 @@ template <class Terms>
 ///          workspace. The prepared object is tied to the plan and block
 ///          structures used at construction and is not safe for concurrent
 ///          execution.
+/// \tparam IntermediateStorage Dense storage policy used for retained intermediates.
 /// \tparam Plan Execution-neutral logical coefficient plan.
 /// \tparam ContractionSelector Dense contraction backend selector.
-template <RabcPlan Plan, linalg::KernelBackendSelector ContractionSelector>
-class PreparedHostRightFirstRabcContraction {
+template <class IntermediateStorage, RabcPlan Plan, linalg::KernelBackendSelector ContractionSelector>
+class PreparedRightFirstRabcContraction {
   public:
     using plan_type = std::remove_cvref_t<Plan>;
     using scalar_type = typename plan_type::scalar_type;
     using contraction_selector_type = ContractionSelector;
 
-    /// \brief Compile a fixed host execution schedule and allocate its workspace.
+    using intermediate_type = ColumnMajorTensor<scalar_type, 2, IntermediateStorage>;
+
+    /// \brief Compile a fixed execution schedule and allocate its workspace.
     /// \param selector Dense contraction selector retained for every application.
     /// \param output Prototype defining output block ordinals and extents.
     /// \param plan Execution-neutral coefficient plan retained by value.
     /// \param a Prototype left block family.
     /// \param b Prototype center block family.
     /// \param c Prototype right block family.
-    template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
-              detail::HostReadableRabcTensor C>
-      requires detail::CompatibleHostRabcOperands<Output, plan_type, A, B, C>
-    PreparedHostRightFirstRabcContraction(contraction_selector_type selector, Output const& output,
-                                          plan_type plan, A const& a, B const& b, C const& c)
+    template <detail::WritableRabcTensor Output, detail::ReadableRabcTensor A, detail::ReadableRabcTensor B,
+              detail::ReadableRabcTensor C>
+      requires detail::CompatibleRabcOperands<Output, plan_type, A, B, C>
+    PreparedRightFirstRabcContraction(contraction_selector_type selector, Output const& output, plan_type plan,
+                                      A const& a, B const& b, C const& c)
         : selector_(std::move(selector)), plan_(std::move(plan)), term_group_(plan_.term_count())
     {
       bound_terms_ = detail::bind_rabc_operands(output, plan_, a, b, c);
@@ -246,7 +261,8 @@ class PreparedHostRightFirstRabcContraction {
       {
         auto const b_block = b.block_by_ordinal(group.b_ordinal);
         auto const c_block = c.block_by_ordinal(group.c_ordinal);
-        intermediates_.emplace_back(b_block.extent(0), c_block.extent(0));
+        intermediates_.push_back(detail::make_rabc_intermediate<IntermediateStorage, scalar_type>(
+            b_block, b_block.extent(0), c_block.extent(0)));
       }
 
       output_offsets_.assign(output.stored_block_count() + 1, 0);
@@ -277,9 +293,9 @@ class PreparedHostRightFirstRabcContraction {
     /// \param a Left block family matching the prepared prototype.
     /// \param b Center block family matching the prepared prototype.
     /// \param c Right block family matching the prepared prototype.
-    template <detail::HostWritableRabcTensor Output, detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B,
-              detail::HostReadableRabcTensor C>
-      requires detail::CompatibleHostRabcOperands<Output, plan_type, A, B, C>
+    template <detail::WritableRabcTensor Output, detail::ReadableRabcTensor A, detail::ReadableRabcTensor B,
+              detail::ReadableRabcTensor C>
+      requires detail::CompatibleRabcOperands<Output, plan_type, A, B, C>
     void operator()(Output& output, A const& a, B const& b, C const& c)
     {
       using execution_policy = typename block_tensor_type_t<Output>::storage_policy::block_execution_policy;
@@ -327,39 +343,37 @@ class PreparedHostRightFirstRabcContraction {
     std::vector<detail::BoundRabcTerm<scalar_type>> bound_terms_;
     std::vector<std::size_t> term_group_;
     std::vector<detail::RightFirstRabcGroup> groups_;
-    std::vector<ColumnMajorTensor<scalar_type, 2>> intermediates_;
+    std::vector<intermediate_type> intermediates_;
     std::vector<std::size_t> output_offsets_;
     std::vector<std::size_t> output_order_;
 };
 
-template <class ContractionSelector, class Output, RabcPlan Plan, class A, class B, class C>
-PreparedHostRightFirstRabcContraction(ContractionSelector, Output const&, Plan, A const&, B const&, C const&)
-    -> PreparedHostRightFirstRabcContraction<std::remove_cvref_t<Plan>, std::remove_cvref_t<ContractionSelector>>;
-
-/// \brief Report host right-first eligibility for immediate matrix-block operands.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
-          detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
-consteval auto kernel_accepts_types(HostRightFirstRabcBackend<ContractionSelector> const&, rabc_contract_op const&,
-                                    Output&, Plan const&, A const&, B const&, C const&)
+/// \brief Report right-first eligibility for matrix-block operands.
+template <class IntermediateStorage, class ContractionSelector, detail::WritableRabcTensor Output, RabcPlan Plan,
+          detail::ReadableRabcTensor A, detail::ReadableRabcTensor B, detail::ReadableRabcTensor C>
+  requires detail::CompatibleRabcOperands<Output, Plan, A, B, C>
+consteval auto kernel_accepts_types(RightFirstRabcBackend<IntermediateStorage, ContractionSelector> const&,
+                                    rabc_contract_op const&, Output&, Plan const&, A const&, B const&, C const&)
 {
   using scalar_type = typename std::remove_cvref_t<Plan>::scalar_type;
-  if constexpr (detail::host_right_first_types_compatible<ContractionSelector, Output, scalar_type, A, B, C>())
+  if constexpr (detail::right_first_types_compatible<IntermediateStorage, ContractionSelector, Output, scalar_type, A,
+                                                     B, C>())
     return linalg::kernel_types_yes;
   else
     return linalg::kernel_types_no;
 }
 
-/// \brief Execute a host right-first R/A/B/C contraction.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
-          detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C> &&
-           (detail::host_right_first_types_compatible<ContractionSelector, Output,
-                                                      typename std::remove_cvref_t<Plan>::scalar_type, A, B, C>())
-auto try_kernel(HostRightFirstRabcBackend<ContractionSelector> const& backend, rabc_contract_op const&, Output& output,
-                Plan const& plan, A const& a, B const& b, C const& c) -> linalg::KernelAttempt
+/// \brief Execute a storage-domain right-first R/A/B/C contraction.
+template <class IntermediateStorage, class ContractionSelector, detail::WritableRabcTensor Output, RabcPlan Plan,
+          detail::ReadableRabcTensor A, detail::ReadableRabcTensor B, detail::ReadableRabcTensor C>
+  requires detail::CompatibleRabcOperands<Output, Plan, A, B, C> &&
+               (detail::right_first_types_compatible<IntermediateStorage, ContractionSelector, Output,
+                                                     typename std::remove_cvref_t<Plan>::scalar_type, A, B, C>())
+auto try_kernel(RightFirstRabcBackend<IntermediateStorage, ContractionSelector> const& backend, rabc_contract_op const&,
+                Output& output, Plan const& plan, A const& a, B const& b, C const& c) -> linalg::KernelAttempt
 {
-  PreparedHostRightFirstRabcContraction prepared(backend.contraction_selector, output, plan, a, b, c);
+  PreparedRightFirstRabcContraction<IntermediateStorage, std::remove_cvref_t<Plan>, ContractionSelector> prepared(
+      backend.contraction_selector, output, plan, a, b, c);
   prepared(output, a, b, c);
   return linalg::KernelAttempt::success;
 }

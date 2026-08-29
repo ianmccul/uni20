@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <uni20/async/debug_scheduler.hpp>
 #include <uni20/common/performance_measurements.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/core/numeric_limits.hpp>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -96,8 +98,8 @@ using DetailedTwoSiteDmrgPerformanceMeasurements =
 /// \pre `event` is not `TwoSiteDmrgPerformanceEvent::count`.
 /// \param event Event identifier to name.
 /// \return Static event name suitable for reports and table labels.
-[[nodiscard]] constexpr auto two_site_dmrg_performance_event_name(TwoSiteDmrgPerformanceEvent event) noexcept
-    -> std::string_view
+[[nodiscard]] constexpr auto
+two_site_dmrg_performance_event_name(TwoSiteDmrgPerformanceEvent event) noexcept -> std::string_view
 {
   using enum TwoSiteDmrgPerformanceEvent;
   switch (event)
@@ -200,10 +202,129 @@ template <uni20::Real Real, class InstalledBond> struct TwoSiteDmrgStepResult
 namespace detail
 {
 
-template <class Storage, class MpsChain>
-concept TwoSiteDmrgCenterStorage = BlockTensorStorage<Storage> && !DiagonalBlockStorage<Storage> && requires {
-  typename MpsChain::value_type;
-} && ImmediateLocalBlockStorageFor<Storage, typename MpsChain::value_type, 4, 2>;
+/// \brief Local non-diagonal storage suitable for two-site center blocks.
+/// \details This structural requirement does not imply that center construction,
+///          environment placement, factorization, or another complete DMRG step
+///          is implemented for every conforming leaf memory domain.
+/// \tparam Storage Candidate BlockTensor storage policy.
+/// \tparam Scalar Numerical center element type.
+template <class Storage, class Scalar>
+concept TwoSiteCenterStorageFor =
+    LocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 4, 2> && !DiagonalBlockStorage<Storage> &&
+    !AsyncLocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 4, 2>;
+
+template <class Function>
+void execute_materialization_batch(SerialBlockExecution, std::size_t size, Function&& function)
+{
+  for (std::size_t index = 0; index < size; ++index)
+    function(index);
+}
+
+template <class Function>
+void execute_materialization_batch(SchedulerBatchBlockExecution, std::size_t size, Function&& function)
+{
+  async::execute_batch(size, std::forward<Function>(function));
+}
+
+/// \brief Materialize a local BlockTensor view into a selected storage policy.
+/// \details Each stored block is copied through tensor-level dispatch so a
+///          differing leaf memory domain performs an explicit domain transfer.
+///          Missing blocks are initialized to zero when the output storage
+///          contains a wider legal block set than the input.
+/// \tparam OutputStorage Destination BlockTensor storage policy.
+/// \tparam StoreAllLegalBlocks Whether sparse output stores every legal key.
+/// \param input Source tensor or mapped tensor view.
+/// \return Owning BlockTensor in `OutputStorage`.
+template <BlockTensorStorage OutputStorage, bool StoreAllLegalBlocks, BlockTensorView Input>
+  requires LocalBlockStorageFor<OutputStorage, block_tensor_value_t<Input>,
+                                block_tensor_type_t<Input>::key_coordinate_count(),
+                                block_tensor_type_t<Input>::dense_block_order()>
+[[nodiscard]] auto materialize_local_block_tensor(Input const& input)
+{
+  using output_type = BlockTensor<block_tensor_value_t<Input>, block_tensor_domain_t<Input>,
+                                  block_tensor_codomain_t<Input>, OutputStorage>;
+  auto output = [&] {
+    if constexpr (CompleteBlockStorage<OutputStorage>)
+    {
+      return output_type(input.symmetry(), input.domain(), input.codomain());
+    }
+    else
+    {
+      using key_type = typename output_type::key_type;
+      auto keys = [&] {
+        if constexpr (StoreAllLegalBlocks)
+          return input.legal_block_keys();
+        else
+          return std::vector<key_type>(input.stored_keys().begin(), input.stored_keys().end());
+      }();
+      return output_type(input.symmetry(), input.domain(), input.codomain(), std::move(keys));
+    }
+  }();
+  using value_type = block_tensor_value_t<Input>;
+  execute_materialization_batch(
+      typename OutputStorage::block_execution_policy{}, output.stored_block_count(), [&](std::size_t output_ordinal) {
+        auto const& key = output.stored_keys()[output_ordinal];
+        auto const found = std::ranges::lower_bound(input.stored_keys(), key);
+        auto output_block = output.block_by_ordinal(output_ordinal);
+        if (found == input.stored_keys().end() || *found != key)
+        {
+          uni20::fill(output_block, value_type{});
+          return;
+        }
+        auto const input_ordinal = static_cast<std::size_t>(found - input.stored_keys().begin());
+        auto input_block = input.block_by_ordinal(input_ordinal);
+        uni20::copy(output_block, input_block);
+      });
+  return output;
+}
+
+/// \brief Construct a two-site center in the requested local storage.
+/// \details Contraction executes directly in the selected leaf memory domain.
+///          A sparse selected policy is subsequently widened to the complete
+///          legal center key set required by Krylov iteration.
+template <BlockTensorStorage CenterStorage, BlockTensorView Left, BlockTensorView Right>
+[[nodiscard]] auto make_two_site_center(Left const& left, Right const& right)
+{
+  if constexpr (CompleteBlockStorage<CenterStorage>)
+  {
+    return contract_adjacent<1, CenterStorage>(left, right);
+  }
+  else
+  {
+    auto contracted = contract_adjacent<1, CenterStorage>(left, right);
+    return materialize_local_block_tensor<CenterStorage, true>(contracted);
+  }
+}
+
+/// \brief Sparse environment storage matched to a two-site center memory domain.
+/// \details Environment block presence remains sparse, while block execution
+///          follows the center's serial or scheduler-batch policy.
+template <class CenterStorage>
+using DmrgEnvironmentStorage =
+    std::conditional_t<std::same_as<typename CenterStorage::block_execution_policy, SchedulerBatchBlockExecution>,
+                       ParallelPackedSparseBlockStorage<typename CenterStorage::leaf_storage_policy>,
+                       PackedSparseBlockStorage<typename CenterStorage::leaf_storage_policy>>;
+
+/// \brief Place an environment in the center's leaf memory domain.
+/// \details Matching domains return a borrowed zero-copy view. Cross-domain
+///          placement returns an owning BlockTensor; callers must retain that
+///          object for every descriptor borrowed by asynchronous execution.
+/// \param environment Cached environment to place.
+/// \return Borrowed same-domain view or owning cross-domain materialization.
+template <class CenterStorage, BlockTensorView Environment>
+[[nodiscard]] auto place_environment_for_center(Environment const& environment)
+{
+  using environment_storage = typename block_tensor_type_t<Environment>::storage_policy;
+  if constexpr (std::same_as<typename CenterStorage::leaf_storage_policy,
+                             typename environment_storage::leaf_storage_policy>)
+  {
+    return as_block_tensor_view(environment);
+  }
+  else
+  {
+    return materialize_local_block_tensor<DmrgEnvironmentStorage<CenterStorage>, false>(environment);
+  }
+}
 
 inline void validate_two_site_dmrg_direction(MpsSweepDirection direction)
 {
@@ -352,9 +473,9 @@ auto solve_two_site_ground_state(Center const& initial, EffectiveHamiltonian eff
 /// \throws std::invalid_argument If the pair, cache, direction, or options are invalid.
 /// \tparam MpsChain Concrete finite MPS owner type.
 /// \tparam MpoChain Concrete finite MPO owner type.
-/// \tparam EnvironmentStorage Immediate host storage used by the cache.
+/// \tparam EnvironmentStorage Sparse local storage used by the cache.
 /// \tparam Measurements Compile-time-selected performance measurement policy.
-/// \tparam CenterStorage Immediate host storage used by the transient center and Krylov vectors.
+/// \tparam CenterStorage Local ordinary-block storage used by the transient center and Krylov vectors.
 /// \param mps Mutable MPS whose selected pair is replaced by the fixed-work local update.
 /// \param mpo Immutable MPO defining the effective Hamiltonian.
 /// \param cache Environment cache attached to exactly \p mps and \p mpo.
@@ -366,7 +487,7 @@ auto solve_two_site_ground_state(Center const& initial, EffectiveHamiltonian eff
 /// \return Local energy, residual and work diagnostics, and selected bond data.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type> &&
            performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto
 optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
@@ -390,25 +511,17 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
   return performance::measure_duration(measurements, TwoSiteDmrgPerformanceEvent::bond_update, [&] {
     static_cast<void>(center_storage);
     auto initial = performance::measure_duration(measurements, TwoSiteDmrgPerformanceEvent::center_construction, [&] {
-      auto current = contract_adjacent<1, CenterStorage>(mps.site(first_site), mps.site(first_site + 1));
-      if constexpr (CompleteBlockStorage<CenterStorage>)
-      {
-        return current;
-      }
-      else
-      {
-        using center_type = std::remove_cvref_t<decltype(current)>;
-        center_type result(current.symmetry(), current.domain(), current.codomain(), current.legal_block_keys());
-        copy(result, current);
-        return result;
-      }
+      return detail::make_two_site_center<CenterStorage>(mps.site(first_site), mps.site(first_site + 1));
     });
     auto local_solution =
         performance::measure_duration(measurements, TwoSiteDmrgPerformanceEvent::local_eigensolver, [&] {
           auto const& left_environment = cache.left_environment(first_site);
           auto const& right_environment = cache.right_environment(first_site + 2);
-          auto effective_hamiltonian = make_two_site_effective_hamiltonian(
-              initial, left_environment, mpo.site(first_site), mpo.site(first_site + 1), right_environment);
+          auto placed_left = detail::place_environment_for_center<CenterStorage>(left_environment);
+          auto placed_right = detail::place_environment_for_center<CenterStorage>(right_environment);
+          auto effective_hamiltonian =
+              TwoSiteEffectiveHamiltonian(initial, std::move(placed_left), as_block_tensor_view(mpo.site(first_site)),
+                                          as_block_tensor_view(mpo.site(first_site + 1)), std::move(placed_right));
           return detail::solve_two_site_ground_state(initial, std::move(effective_hamiltonian), options.local_solver,
                                                      measurements);
         });
@@ -450,7 +563,7 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
 /// \brief Optimize and replace one adjacent MPS pair without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type>
 [[nodiscard]] auto
 optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
                             MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache, std::size_t first_site,
@@ -469,9 +582,9 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
 /// \throws std::invalid_argument If the chain has fewer than two sites or the direction is invalid.
 /// \tparam MpsChain Concrete finite MPS owner type.
 /// \tparam MpoChain Concrete finite MPO owner type.
-/// \tparam EnvironmentStorage Immediate host storage used by the cache.
+/// \tparam EnvironmentStorage Sparse local storage used by the cache.
 /// \tparam Measurements Compile-time-selected performance measurement policy.
-/// \tparam CenterStorage Immediate host storage used by the transient center and Krylov vectors.
+/// \tparam CenterStorage Local ordinary-block storage used by the transient center and Krylov vectors.
 /// \param mps Mutable finite MPS.
 /// \param mpo Immutable finite MPO.
 /// \param cache Environment cache attached to both chain objects.
@@ -482,7 +595,7 @@ optimize_two_site_dmrg_bond(MpsChain& mps, MpoChain const& mpo,
 /// \return One result per bond in visitation order.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type> &&
            performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                                        MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,
@@ -517,7 +630,7 @@ template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
 /// \brief Traverse every adjacent bond once without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type>
 [[nodiscard]] auto
 sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                     MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache, MpsSweepDirection direction,
@@ -538,9 +651,9 @@ sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
 /// \throws std::invalid_argument If the chain, cache, or options are invalid.
 /// \tparam MpsChain Concrete finite MPS owner type.
 /// \tparam MpoChain Concrete finite MPO owner type.
-/// \tparam EnvironmentStorage Immediate host storage used by the cache.
+/// \tparam EnvironmentStorage Sparse local storage used by the cache.
 /// \tparam Measurements Compile-time-selected performance measurement policy.
-/// \tparam CenterStorage Immediate host storage used by the transient center and Krylov vectors.
+/// \tparam CenterStorage Local ordinary-block storage used by the transient center and Krylov vectors.
 /// \param mps Mutable finite MPS, initially canonical for the first direction.
 /// \param mpo Immutable finite MPO.
 /// \param cache Environment cache attached to both chain objects.
@@ -550,7 +663,7 @@ sweep_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
 /// \return Ordered sweep summaries and final convergence state.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage, class Measurements,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain> &&
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type> &&
            performance::DurationMeasurementPolicy<Measurements, TwoSiteDmrgPerformanceEvent>
 [[nodiscard]] auto run_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                                      MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,
@@ -631,7 +744,7 @@ template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
 /// \brief Run alternating directional sweeps without performance measurements.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage,
           BlockTensorStorage CenterStorage = typename MpsChain::storage_policy>
-  requires detail::TwoSiteDmrgCenterStorage<CenterStorage, MpsChain>
+  requires detail::TwoSiteCenterStorageFor<CenterStorage, typename MpsChain::value_type>
 [[nodiscard]] auto
 run_two_site_dmrg(MpsChain& mps, MpoChain const& mpo,
                   MpoEnvironmentCache<MpsChain, MpoChain, EnvironmentStorage>& cache,

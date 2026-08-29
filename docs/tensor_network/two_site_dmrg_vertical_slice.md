@@ -1,6 +1,6 @@
 # First Pure-Uni20 Two-Site DMRG Slice
 
-**Status:** implemented immediate-host U(1) integration checkpoint.
+**Status:** implemented immediate-host and single-device CUDA-resident U(1) sweeps.
 
 ## Scope
 
@@ -83,7 +83,7 @@ reconstructs the original center to numerical tolerance.
 
 ## MPO And Environment Planner
 
-`TwoSiteEffectiveHamiltonian` compiles the general immediate-host operands:
+`TwoSiteEffectiveHamiltonian` compiles the general operands:
 
 ```text
 left environment + two MPO sites + center + right environment
@@ -117,14 +117,49 @@ compiling each bond copies descriptor metadata but not environment payload.
 The environment-cache owners must outlive the local solve. MPO payloads are not
 retained after their coefficients have been compiled into `f`.
 
-The current host backend is right-first. Effective-Hamiltonian construction
+MPO coefficient blocks remain immediately host-readable because construction
+snapshots their scalar values into the sparse `f` plan. Center and environment
+blocks need only model `BlockTensorView`; they may expose immediate mdspans or
+descriptor-backed CUDA mdspecs.
+
+The current backend is right-first. Effective-Hamiltonian construction
 prepares each distinct `(B_b,C_c)` group, the output order, and reusable
 intermediate storage before the local Krylov loop. Every application computes
 each `B_b * transpose(C_c)` value once, then accumulates independent output
 groups through ordinary dense contraction dispatch. The canonical `f` plan
 remains neutral so future backends can choose left-first, right-first, or mixed
-execution from the same hypergraph. Device placement, communication, and hybrid
-planning remain deferred.
+execution from the same hypergraph. The prepared intermediate leaf storage
+matches the fixed center storage, so a packed CUDA center and CUDA environments
+dispatch their dense contractions to cuBLAS without host materialization.
+Multi-device placement, communication, and hybrid planning remain deferred.
+
+## CUDA-Resident Sweep Checkpoint
+
+`PackedCompleteBlockStorage<CudaStorage>` supplies descriptor-backed dense
+blocks with stable offsets into one CUDA allocation. Each block is also an
+independent logical CUDA buffer with its own completion ledger. The fixed
+BlockTensor vector primitives dispatch fill, copy, scale, and AXPY through CUDA
+kernels. Selecting `ParallelPackedCompleteBlockStorage<CudaStorage>` submits
+independent blocks from the scheduler batch without giving up packed allocation.
+Full block inner products and Euclidean norms use cuBLAS dot and norm routines;
+only the scalar result is synchronized back to the host. The small projected
+tridiagonal eigensystem remains a host LAPACK operation.
+
+The CUDA regressions cover both a manually resident local eigensolver and
+end-to-end resident bond and directional-sweep updates. The MPS and environment
+cache use packed CUDA storage. Center contraction, the right-first R/A/B/C
+workspace, fixed local Krylov solve, selected site factors, and completed-side
+environment updates remain in that memory domain. MPO scalar coefficient tables
+remain on the host and are no longer retained after plan construction.
+
+The native cuSOLVER Tensor SVD backend supports blocking real tall-matrix
+factorizations. Its CUDA BlockTensor bridge assembles charge-sector matrices on
+the device and launches independent sector factorizations from scheduler
+participants. Wide sectors are transposed and their factors restored on-device.
+U, S, and Vh remain resident; only compact singular-value arrays are copied to
+the host for global selection. Selected U/Vh columns are gathered directly into
+resident site storage, with the singular values applied by a CUDA transform on
+the factor selected by the sweep direction.
 
 The U(1) test factors the Heisenberg interaction into neutral `Sz` and two
 charge-changing MPO channels. The compiled planner produces only the four terms
@@ -161,15 +196,17 @@ bond tensor and truncation statistics. See
 
 ## Directional Sweep Checkpoint
 
-The immediate-host directional sweep now forms each center, solves the cached
-MPO effective Hamiltonian, installs its selected split, and refreshes the
-completed-side environment before visiting the next bond. See
+The directional sweep forms each center, solves the cached MPO effective
+Hamiltonian in the selected local center storage, installs its selected split,
+and refreshes the completed-side environment in the same leaf memory domain
+before visiting the next bond. See
 [Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md).
 
 ## Next Boundary
 
 Alternating directional traversal and zero-discard terminal-energy convergence
-are now implemented. The next finite-DMRG layer is post-truncation measurement
-and general initial-state canonicalization. Term and environment plans can be
-optimized independently with reusable intermediates, placement, CUDA, and MPI
-execution.
+are implemented for a host or single-device CUDA-resident MPS and environment
+cache. MPO coefficients and the compact truncation spectrum remain host-side.
+Post-truncation measurement, general initial-state canonicalization,
+multi-device placement, asynchronous provider completion, and MPI execution
+remain independent extensions.

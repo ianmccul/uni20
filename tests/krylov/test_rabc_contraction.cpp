@@ -26,7 +26,7 @@ struct NoContractBackend
     static constexpr std::string_view name = "no_contract";
 };
 
-using UnsupportedRabcBackend = uni20::tensor_network::HostRightFirstRabcBackend<NoContractBackend>;
+using UnsupportedRabcBackend = uni20::tensor_network::RightFirstRabcBackend<uni20::HostStorage, NoContractBackend>;
 static_assert(
     uni20::linalg::probe_dispatch_kernel_types<UnsupportedRabcBackend, uni20::tensor_network::rabc_contract_op,
                                                MatrixBlocks&, RabcPlan const&, MatrixBlocks const&, MatrixBlocks const&,
@@ -56,11 +56,11 @@ void set_identity(auto block, double factor)
 
 TEST(RabcContraction, CanonicalizesDuplicateSparseCoefficients)
 {
-  RabcPlan const plan = make_plan(
-      {{.r_key_index = 1, .a_key_index = 0, .b_key_index = 1, .c_key_index = 0, .coefficient = 2.0},
-       {.r_key_index = 0, .a_key_index = 1, .b_key_index = 0, .c_key_index = 1, .coefficient = 5.0},
-       {.r_key_index = 1, .a_key_index = 0, .b_key_index = 1, .c_key_index = 0, .coefficient = -0.5},
-       {.r_key_index = 0, .a_key_index = 1, .b_key_index = 0, .c_key_index = 1, .coefficient = -5.0}});
+  RabcPlan const plan =
+      make_plan({{.r_key_index = 1, .a_key_index = 0, .b_key_index = 1, .c_key_index = 0, .coefficient = 2.0},
+                 {.r_key_index = 0, .a_key_index = 1, .b_key_index = 0, .c_key_index = 1, .coefficient = 5.0},
+                 {.r_key_index = 1, .a_key_index = 0, .b_key_index = 1, .c_key_index = 0, .coefficient = -0.5},
+                 {.r_key_index = 0, .a_key_index = 1, .b_key_index = 0, .c_key_index = 1, .coefficient = -5.0}});
 
   ASSERT_EQ(plan.term_count(), 1);
   EXPECT_EQ(plan.terms()[0].r_key_index, 1);
@@ -87,9 +87,9 @@ TEST(RabcContraction, DispatchesRightFirstAndReusesSharedBcGroup)
   b0[1, 0] = 3.0;
   b0[1, 1] = 4.0;
 
-  RabcPlan const plan = make_plan(
-      {{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0},
-       {.r_key_index = 1, .a_key_index = 1, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
+  RabcPlan const plan =
+      make_plan({{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0},
+                 {.r_key_index = 1, .a_key_index = 1, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
 
   auto selector = uni20::linalg::select_backend(uni20::tensor_network::rabc_contract_op{}, output);
   EXPECT_EQ(
@@ -139,8 +139,8 @@ TEST(RabcContraction, ZerosOutputBlocksWithoutTerms)
   set_identity(c.block_by_ordinal(0), 1.0);
   set_identity(output.block_by_ordinal(1), 9.0);
 
-  RabcPlan const plan = make_plan(
-      {{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
+  RabcPlan const plan =
+      make_plan({{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
   uni20::tensor_network::rabc_contract(output, plan, a, b, c);
 
   auto unused = output.block_by_ordinal(1);
@@ -170,8 +170,8 @@ TEST(RabcContraction, RejectsMissingLogicalKeysAndObviousCenterAliasing)
       {{.r_key_index = 2, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
   EXPECT_THROW(uni20::tensor_network::rabc_contract(output, invalid_plan, a, b, c), std::invalid_argument);
 
-  RabcPlan const aliasing_plan = make_plan(
-      {{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
+  RabcPlan const aliasing_plan =
+      make_plan({{.r_key_index = 0, .a_key_index = 0, .b_key_index = 0, .c_key_index = 0, .coefficient = 1.0}});
   EXPECT_THROW(uni20::tensor_network::rabc_contract(b, aliasing_plan, a, b, c), std::invalid_argument);
 }
 

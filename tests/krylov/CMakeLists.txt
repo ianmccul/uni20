@@ -34,6 +34,18 @@ add_test_module(krylov_block_tensor
     uni20_tensor_network
 )
 
+if(TARGET uni20_backend_cublas AND TARGET uni20_backend_cusolver)
+  add_test_module(krylov_block_tensor_cuda
+    SOURCES
+      test_cuda_rabc_contraction.cpp
+    LIBS
+      uni20_tensor_network
+      uni20_backend_cuda
+      uni20_backend_cublas
+      uni20_backend_cusolver
+  )
+endif()
+
 if(UNI20_ENABLE_MPLAPACK)
   add_executable(uni20_krylov_mplapack_binary128_tests
     test_mplapack_binary128_krylov_solvers.cpp

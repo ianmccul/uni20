@@ -30,7 +30,7 @@ namespace uni20::tensor_network
 ///          members while the cache exists.
 /// \tparam MpsChain Concrete `FiniteMps` type.
 /// \tparam MpoChain Concrete `FiniteMpo` type.
-/// \tparam EnvironmentStorage Immediate sparse host storage for cached values.
+/// \tparam EnvironmentStorage Sparse local storage for cached values.
 template <class MpsChain, class MpoChain, SparseBlockStorage EnvironmentStorage = SeparateSparseBlockStorage<>>
 class MpoEnvironmentCache {
   public:
@@ -41,10 +41,7 @@ class MpoEnvironmentCache {
     using auxiliary_space_type = typename mpo_type::auxiliary_space_type;
     using environment_type =
         MpoEnvironment<value_type, bond_space_type, auxiliary_space_type, bond_space_type, EnvironmentStorage>;
-    using mps_block_type = block_tensor_const_block_t<typename mps_type::site_type>;
     using mpo_block_type = block_tensor_const_block_t<typename mpo_type::site_type>;
-    using environment_block_type =
-        typename EnvironmentStorage::template storage_t<value_type, 3, 2>::mutable_block_type;
 
     static_assert(std::same_as<value_type, typename mpo_type::value_type>,
                   "MPS and MPO chains must have the same scalar type");
@@ -54,12 +51,13 @@ class MpoEnvironmentCache {
                   "the first finite environment cache requires BlockSpace bonds");
     static_assert(std::same_as<auxiliary_space_type, LocalSpace>,
                   "the first finite environment cache requires LocalSpace MPO auxiliaries");
-    static_assert(ImmediateBlockTensorView<typename mps_type::site_type>);
-    static_assert(HostAccessibleMdspan<immediate_tensor_mdspan_t<mps_block_type>>);
+    static_assert(BlockTensorView<typename mps_type::site_type>);
     static_assert(ImmediateBlockTensorView<typename mpo_type::site_type>);
     static_assert(HostAccessibleMdspan<immediate_tensor_mdspan_t<mpo_block_type>>);
-    static_assert(ImmediateLocalBlockStorageFor<EnvironmentStorage, value_type, 3, 2>);
-    static_assert(HostAccessibleMdspan<mutable_immediate_tensor_mdspan_t<environment_block_type>>);
+    static_assert(detail::EnvironmentStorageFor<EnvironmentStorage, value_type>);
+    static_assert(std::same_as<typename mps_type::storage_policy::leaf_storage_policy,
+                               typename EnvironmentStorage::leaf_storage_policy>,
+                  "MPS sites and cached environments must use one leaf memory domain");
 
     /// \brief Construct boundary entries and validate the coupled chains.
     /// \param mps Borrowed finite MPS owner.
@@ -229,7 +227,7 @@ class MpoEnvironmentCache {
 
 /// \brief Deduce chain owner types while retaining the default environment storage.
 template <class MpsChain, class MpoChain>
-MpoEnvironmentCache(MpsChain const&, MpoChain const&, std::size_t, std::size_t)
-    -> MpoEnvironmentCache<MpsChain, MpoChain>;
+MpoEnvironmentCache(MpsChain const&, MpoChain const&, std::size_t,
+                    std::size_t) -> MpoEnvironmentCache<MpsChain, MpoChain>;
 
 } // namespace uni20::tensor_network
