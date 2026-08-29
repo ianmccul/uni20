@@ -50,12 +50,16 @@ template <class Key> void require_canonical_rabc_keys(std::vector<Key> const& ke
 } // namespace detail
 
 /// \brief Immutable sparse coefficient tensor for an R/A/B/C contraction.
-/// \details The four sorted key tables provide logical block identity. Terms
-///          index those tables and are canonicalized by `(r,a,b,c)`; duplicate
-///          coefficients are summed and exact zeros are omitted. Storage
-///          ordinals and placement are resolved only during backend preparation.
-///          The plan contains no left-first, right-first, placement, or
-///          communication decisions.
+/// \details The four sorted key tables provide logical block identity relative
+///          to the symmetry and boundaries for which the caller constructs the
+///          plan. Terms index those tables and are canonicalized by
+///          `(r,a,b,c)`; duplicate coefficients are summed and exact zeros are
+///          omitted. Storage ordinals and placement are resolved only during
+///          backend preparation. The plan contains no left-first, right-first,
+///          placement, or communication decisions. Binding a plan to operands
+///          with different symmetry or boundary semantics violates the
+///          contraction precondition; the plan deliberately does not retain or
+///          compare that metadata at runtime.
 /// \tparam Scalar Scalar coefficient type.
 /// \tparam RKey Output logical block-key type.
 /// \tparam AKey Left-environment logical block-key type.

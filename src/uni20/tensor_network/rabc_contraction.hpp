@@ -77,6 +77,8 @@ template <class Output, class B> [[nodiscard]] constexpr bool is_obvious_rabc_al
 /// \param a Prototype left block family.
 /// \param b Prototype center block family.
 /// \param c Prototype right block family.
+/// \pre The plan's coordinate keys were constructed for the symmetry, domain,
+///      and codomain semantics of these four operand families.
 /// \return Prepared host executor owning the plan, schedule, and workspace.
 template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
           detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
@@ -95,6 +97,8 @@ template <class ContractionSelector, detail::HostWritableRabcTensor Output, Rabc
 /// \param a Prototype left block family.
 /// \param b Prototype center block family.
 /// \param c Prototype right block family.
+/// \pre The plan's coordinate keys were constructed for the symmetry, domain,
+///      and codomain semantics of these four operand families.
 /// \return Prepared executor selected from the output storage policy.
 template <detail::HostWritableRabcTensor Output, RabcPlan Plan, detail::HostReadableRabcTensor A,
           detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
@@ -113,6 +117,8 @@ template <detail::HostWritableRabcTensor Output, RabcPlan Plan, detail::HostRead
 ///          communication. Stored output blocks with no contributing term are
 ///          overwritten with zero.
 /// \pre Output numerical storage does not overlap any input family.
+/// \pre The plan's coordinate keys were constructed for the symmetry, domain,
+///      and codomain semantics of the supplied operand families.
 /// \tparam BackendSelector Explicit R/A/B/C backend selector.
 /// \param selector Ordered backend selector.
 /// \param output Existing fixed-structure R block family.
@@ -133,6 +139,8 @@ void rabc_contract(BackendSelector&& selector, Output& output, Plan const& plan,
 /// \details Backend selection occurs while output storage and execution policy
 ///          remain available. Input placement remains visible to the selected
 ///          backend through the fixed block-tensor views.
+/// \pre The plan's coordinate keys were constructed for the symmetry, domain,
+///      and codomain semantics of the supplied operand families.
 template <MutableBlockTensorView Output, RabcPlan Plan, BlockTensorView A, BlockTensorView B, BlockTensorView C>
 void rabc_contract(Output& output, Plan const& plan, A const& a, B const& b, C const& c)
 {

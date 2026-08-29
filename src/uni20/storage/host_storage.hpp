@@ -116,11 +116,6 @@ template <typename ElementType> class HostBuffer {
     [[nodiscard]] auto operator[](size_type index) noexcept -> value_type& { return data_[index]; }
     [[nodiscard]] auto operator[](size_type index) const noexcept -> value_type const& { return data_[index]; }
 
-    friend bool operator==(HostBuffer const& lhs, HostBuffer const& rhs)
-    {
-      return lhs.size_ == rhs.size_ && std::equal(lhs.begin(), lhs.end(), rhs.begin());
-    }
-
   private:
     static auto allocate(size_type size) -> value_type*
     {

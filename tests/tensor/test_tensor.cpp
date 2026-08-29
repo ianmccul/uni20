@@ -27,6 +27,7 @@ using scalar_tensor_type = ScalarTensor<double>;
 
 static_assert(!HostStorage::storage_t<double>::initializes_elements);
 static_assert(!HostStorage::storage_t<uni20::complex<double>>::initializes_elements);
+static_assert(!std::equality_comparable<HostBuffer<int>>);
 
 struct ImmediateAndDescriptorStorage
 {

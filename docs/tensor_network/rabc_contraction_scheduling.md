@@ -19,8 +19,12 @@ f_t = (r_key_index, a_key_index, b_key_index, c_key_index, coefficient)
 
 Duplicate `(r,a,b,c)` entries are summed and exact-zero coefficients are
 removed. The sorted key tables retain logical block identity independently of
-the operands' physical storage order. The selected backend resolves those keys
-to storage ordinals and placement during preparation. The logical plan is an
+the operands' physical storage order, but their coordinate values are
+interpreted relative to the symmetry and boundaries for which the plan was
+constructed. Binding a plan to operands with different symmetry or boundary
+semantics is a program error. The plan does not retain or compare that metadata
+on the normal execution path. The selected backend resolves valid keys to
+storage ordinals and placement during preparation. The logical plan is an
 execution-order-neutral hypergraph: it contains no left-first, right-first,
 placement, or communication choice.
 
