@@ -252,7 +252,9 @@ measured form attributes the per-sector scheduler batch to its caller-supplied
 event. Repartitioned centers obtain device placement from their retained block
 descriptors rather than requiring access to an owning storage object. The
 current bridge requires one dense axis on each side of the SVD boundary and one
-CUDA device across all blocks.
+CUDA device across all blocks. A full-vector sector whose charge occurs on only
+one boundary has no provider factorization to perform; the bridge constructs
+its side-specific identity null-space factor directly on CUDA.
 
 ## Scheduler Boundary
 

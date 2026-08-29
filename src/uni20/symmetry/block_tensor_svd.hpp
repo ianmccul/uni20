@@ -772,6 +772,20 @@ void copy_transposed_cuda_matrix(Output& output, Input const& input)
   uni20::copy(output, transposed);
 }
 
+template <class Scalar> void set_cuda_identity(CudaMatrix<Scalar>& matrix)
+{
+  uni20::fill(matrix, Scalar{});
+  std::size_t const diagonal_extent =
+      std::min(static_cast<std::size_t>(matrix.extent(0)), static_cast<std::size_t>(matrix.extent(1)));
+  if (diagonal_extent == 0) return;
+
+  auto matrix_spec = mdspec_of(matrix);
+  auto diagonal = make_cuda_strided_view<1>(
+      matrix, {diagonal_extent},
+      {static_cast<std::size_t>(matrix_spec.stride(0)) + static_cast<std::size_t>(matrix_spec.stride(1))}, 0);
+  uni20::fill(diagonal, Scalar{1});
+}
+
 template <BlockTensorView Tensor, class DomainSector, class CodomainSector>
 [[nodiscard]] auto assemble_cuda_svd_sector(cuda::DeviceResources& resources, Tensor const& tensor,
                                             DomainSector const& domain, CodomainSector const& codomain,
@@ -826,6 +840,17 @@ template <class Scalar>
   CudaTensor<Scalar, 1> device_values(resources, rank);
   CudaMatrix<Scalar> device_left(resources, rows, left_columns);
   CudaMatrix<Scalar> device_right(resources, right_rows, columns);
+
+  if (rank == 0)
+  {
+    set_cuda_identity(device_left);
+    set_cuda_identity(device_right);
+    return BlockSvdFactorizationResult<decltype(device_left), decltype(device_values), decltype(device_right)>{
+        .left_singular_vectors = std::move(device_left),
+        .singular_values = std::move(device_values),
+        .host_singular_values = {},
+        .right_singular_vectors_adjoint = std::move(device_right)};
+  }
 
   if (rows >= columns)
   {

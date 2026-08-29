@@ -180,4 +180,72 @@ TEST_F(CusolverSvdTest, ParallelPackedBlockSvdDispatchesIndependentChargeSectors
   EXPECT_NEAR(decomposition.spectrum()[3].singular_value, 2.0, 1.0e-12);
 }
 
+TEST_F(CusolverSvdTest, FullRightNullSpaceRetainsUnmatchedDomainCharge)
+{
+  using storage = uni20::PackedCompleteBlockStorage<uni20::CudaStorage>;
+  using domain_type = uni20::Domain<uni20::BlockSpace>;
+  using codomain_type = uni20::Codomain<uni20::BlockSpace>;
+  using matrix_type = uni20::BlockTensor<double, domain_type, codomain_type, storage>;
+
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const domain_space(symmetry, {{q0, 1}, {q1, 2}}, "domain");
+  uni20::BlockSpace const codomain_space(symmetry, {{q0, 1}}, "codomain");
+  matrix_type matrix(symmetry, domain_type{domain_space}, codomain_type{codomain_space});
+
+  uni20::ColumnMajorTensor<double, 2> host_block(1, 1);
+  host_block[0, 0] = 2.0;
+  uni20::copy(matrix.block(typename matrix_type::key_type{{0, 0}}), host_block);
+
+  auto decomposition =
+      uni20::block_svd(std::as_const(matrix), uni20::linalg::SvdOptions{.right = uni20::linalg::SvdVectorExtent::Full});
+  auto selection = decomposition.right_null_space();
+  ASSERT_EQ(selection.state_ids().size(), 2U);
+  auto null_vectors = uni20::materialize_right_singular_vectors_adjoint(decomposition, selection);
+  using null_key_type = typename decltype(null_vectors)::key_type;
+  auto device_vectors = null_vectors.block(null_key_type{{1, 0}});
+  uni20::ColumnMajorTensor<double, 2> host_vectors(2, 2);
+  uni20::copy(host_vectors, device_vectors);
+
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 2; ++column)
+      EXPECT_DOUBLE_EQ((host_vectors[row, column]), row == column ? 1.0 : 0.0);
+}
+
+TEST_F(CusolverSvdTest, FullLeftNullSpaceRetainsUnmatchedCodomainCharge)
+{
+  using storage = uni20::PackedCompleteBlockStorage<uni20::CudaStorage>;
+  using domain_type = uni20::Domain<uni20::BlockSpace>;
+  using codomain_type = uni20::Codomain<uni20::BlockSpace>;
+  using matrix_type = uni20::BlockTensor<double, domain_type, codomain_type, storage>;
+
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const domain_space(symmetry, {{q0, 1}}, "domain");
+  uni20::BlockSpace const codomain_space(symmetry, {{q0, 1}, {q1, 2}}, "codomain");
+  matrix_type matrix(symmetry, domain_type{domain_space}, codomain_type{codomain_space});
+
+  uni20::ColumnMajorTensor<double, 2> host_block(1, 1);
+  host_block[0, 0] = 2.0;
+  uni20::copy(matrix.block(typename matrix_type::key_type{{0, 0}}), host_block);
+
+  auto decomposition =
+      uni20::block_svd(std::as_const(matrix), uni20::linalg::SvdOptions{.left = uni20::linalg::SvdVectorExtent::Full});
+  auto selection = decomposition.left_null_space();
+  ASSERT_EQ(selection.state_ids().size(), 2U);
+  auto null_vectors = uni20::materialize_left_singular_vectors(decomposition, selection);
+  using null_key_type = typename decltype(null_vectors)::key_type;
+  auto device_vectors = null_vectors.block(null_key_type{{0, 1}});
+  uni20::ColumnMajorTensor<double, 2> host_vectors(2, 2);
+  uni20::copy(host_vectors, device_vectors);
+
+  for (uni20::index_type row = 0; row < 2; ++row)
+    for (uni20::index_type column = 0; column < 2; ++column)
+      EXPECT_DOUBLE_EQ((host_vectors[column, row]), row == column ? 1.0 : 0.0);
+}
+
 } // namespace
