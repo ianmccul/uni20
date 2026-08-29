@@ -121,13 +121,18 @@ template <CusolverSvdScalar Scalar> int query_workspace(cusolver::ExecutionLease
 
 template <class T> class StreamAllocation {
   public:
-    StreamAllocation(cuda::Stream const& stream, std::size_t size) : stream_(&stream)
+    StreamAllocation(cuda::Stream const& stream, std::size_t size, bool memory_pools_supported)
+        : stream_(&stream), stream_ordered_(memory_pools_supported)
     {
       if (size == 0) return;
       CHECK(size <= std::numeric_limits<std::size_t>::max() / sizeof(T), size, sizeof(T));
       cuda::ScopedDevice guard(stream.device());
-      cuda::check(cudaMallocAsync(reinterpret_cast<void**>(&data_), size * sizeof(T), stream.native_handle()),
-                  "cudaMallocAsync cuSOLVER workspace", stream.device());
+      if (stream_ordered_)
+        cuda::check(cudaMallocAsync(reinterpret_cast<void**>(&data_), size * sizeof(T), stream.native_handle()),
+                    "cudaMallocAsync cuSOLVER workspace", stream.device());
+      else
+        cuda::check(cudaMalloc(reinterpret_cast<void**>(&data_), size * sizeof(T)), "cudaMalloc cuSOLVER workspace",
+                    stream.device());
     }
 
     StreamAllocation(StreamAllocation const&) = delete;
@@ -138,7 +143,7 @@ template <class T> class StreamAllocation {
       try
       {
         cuda::ScopedDevice guard(stream_->device());
-        auto const status = cudaFreeAsync(data_, stream_->native_handle());
+        auto const status = stream_ordered_ ? cudaFreeAsync(data_, stream_->native_handle()) : cudaFree(data_);
         if (status != cudaSuccess)
           PANIC("cuSOLVER workspace cleanup failed", stream_->device(), cudaGetErrorName(status),
                 cudaGetErrorString(status));
@@ -154,6 +159,7 @@ template <class T> class StreamAllocation {
   private:
     cuda::Stream const* stream_ = nullptr;
     T* data_ = nullptr;
+    bool stream_ordered_ = false;
 };
 
 template <CusolverSvdScalar Scalar>
@@ -184,10 +190,13 @@ void invoke_gesvd(cusolver::ExecutionLease& execution, SvdPlan<Scalar> const& pl
 
 template <CusolverSvdScalar Scalar> KernelAttempt execute_svd(SvdPlan<Scalar> const& plan)
 {
-  auto execution = cusolver::execution_pool(plan.matrix.data.buffer().resources()).acquire();
+  auto& resources = plan.matrix.data.buffer().resources();
+  auto execution = cusolver::execution_pool(resources).acquire();
   int const workspace_size = query_workspace<Scalar>(execution, plan.matrix.rows, plan.matrix.columns);
-  StreamAllocation<Scalar> workspace(execution.stream(), static_cast<std::size_t>(workspace_size));
-  StreamAllocation<int> device_info(execution.stream(), 1);
+  bool const memory_pools_supported = resources.device().capabilities().memory_pools_supported;
+  StreamAllocation<Scalar> workspace(execution.stream(), static_cast<std::size_t>(workspace_size),
+                                     memory_pools_supported);
+  StreamAllocation<int> device_info(execution.stream(), 1, memory_pools_supported);
 
   auto values_access = plan.singular_values.buffer().write_synchronized_with(execution.stream());
   auto left_access = plan.left.data.buffer().write_synchronized_with(execution.stream());

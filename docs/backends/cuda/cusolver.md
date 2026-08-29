@@ -283,6 +283,12 @@ operation-tag redispatch, and returns after stream synchronization. Future
 coroutine entry points may await resource admission, but the provider call
 itself remains an ordinary non-coroutine leaf.
 
+Temporary cuSOLVER workspace follows the device allocation capability. Devices
+with stream-ordered memory-pool support use `cudaMallocAsync` and
+`cudaFreeAsync` on the leased execution stream. Other devices use the blocking
+`cudaMalloc` and `cudaFree` fallback; the exact SVD boundary already
+synchronizes the execution stream before those allocations are released.
+
 ## Open Questions
 
 - Whether profiling eventually justifies a separate bounded cuSOLVER execution
