@@ -129,7 +129,7 @@ struct BatchMeasurement
     std::size_t started_items = 0;
     /// \brief Number of started item invocations which exited, including by exception.
     std::size_t completed_items = 0;
-    /// \brief Largest number of measured item intervals overlapping in time.
+    /// \brief Largest number of item invocations entered but not yet exited.
     std::size_t peak_concurrency = 0;
     /// \brief Duration from entry to the batch executor until its return or exception.
     Duration wall_duration = Duration::zero();
