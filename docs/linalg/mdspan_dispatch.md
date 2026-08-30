@@ -70,8 +70,8 @@ Uni20 already has the pieces to build on:
 - Checked LAPACK wrappers in `src/uni20/backend/lapack/lapack.hpp`.
 - Provider-specific unchecked wrappers under `src/uni20/backend/lapack/reference`
   and `src/uni20/backend/lapack/mplapack`.
-- Prototype dense local matrices in
-  `src/uni20/linalg/backends/cpu/dense_matrix.hpp`.
+- The owning `uni20::DenseMatrix<T, LayoutPolicy>` Tensor alias in
+  `src/uni20/tensor/tensor.hpp`.
 - Krylov dense subspace helpers in `src/uni20/krylov/dense_subspace.hpp`.
 
 The abandoned `../cytnx-mdspan` prototype is useful for operation-tag examples

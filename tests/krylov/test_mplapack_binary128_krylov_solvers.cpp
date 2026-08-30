@@ -4,6 +4,7 @@
 #include <uni20/krylov/krylov_exponential.hpp>
 #include <uni20/krylov/nonsymmetric_arnoldi.hpp>
 #include <uni20/krylov/symmetric_lanczos.hpp>
+#include <uni20/linalg/ops/matrix_set.hpp>
 
 #include <gtest/gtest.h>
 
@@ -165,6 +166,7 @@ TEST(MplapackBinary128KrylovSolversTest, RealSchurAndReorderUseBinary128Projecte
   expect_gap_is_binary128_only(delta);
 
   uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::linalg::set_matrix(matrix, Binary128{}, Binary128{});
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{3};
@@ -186,6 +188,7 @@ TEST(MplapackBinary128KrylovSolversTest, RealHessenbergSchurUsesBinary128Project
   expect_gap_is_binary128_only(delta);
 
   uni20::krylov::Matrix<Binary128> hessenberg(3, 3);
+  uni20::linalg::set_matrix(hessenberg, Binary128{}, Binary128{});
   hessenberg[0, 0] = Binary128{1};
   hessenberg[1, 1] = Binary128{1} + delta;
   hessenberg[2, 2] = Binary128{2};
@@ -243,6 +246,7 @@ TEST(MplapackBinary128KrylovSolversTest, ComplexSchurAndReorderUseBinary128Proje
   expect_gap_is_binary128_only(delta);
 
   uni20::krylov::Matrix<ComplexBinary128> matrix(3, 3);
+  uni20::linalg::set_matrix(matrix, ComplexBinary128{}, ComplexBinary128{});
   matrix[0, 0] = ComplexBinary128{Binary128{1}, delta};
   matrix[1, 1] = ComplexBinary128{Binary128{1} + delta, Binary128{2} * delta};
   matrix[2, 2] = ComplexBinary128{Binary128{3}, Binary128{}};

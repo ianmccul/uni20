@@ -14,12 +14,12 @@
 
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
-#include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/tensor/access.hpp>
 #include <uni20/tensor/concepts.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <complex>
 #include <concepts>
@@ -37,7 +37,7 @@ namespace uni20::linalg::backends::cpu
 /// \param t Scalar multiplier applied to \p matrix before exponentiation.
 /// \return The matrix exponential of \f$\exp(t \cdot \text{matrix})\f$.
 template <uni20::RealOrComplex Scalar>
-DenseMatrix<Scalar> matrix_exponential(DenseMatrix<Scalar> const& matrix, uni20::make_real_t<Scalar> t);
+uni20::DenseMatrix<Scalar> matrix_exponential(uni20::DenseMatrix<Scalar> const& matrix, uni20::make_real_t<Scalar> t);
 
 /// \brief Compute a complex-coefficient matrix exponential, promoting real matrices to complex output.
 /// \details This overload evaluates \f$\exp(t A)\f$ for complex \p t. If \p matrix is real, the result
@@ -47,8 +47,8 @@ DenseMatrix<Scalar> matrix_exponential(DenseMatrix<Scalar> const& matrix, uni20:
 /// \param t Complex multiplier applied to \p matrix before exponentiation.
 /// \return The complex matrix exponential of \f$\exp(t \cdot \text{matrix})\f$.
 template <uni20::RealOrComplex Scalar>
-DenseMatrix<uni20::complex<uni20::make_real_t<Scalar>>>
-matrix_exponential(DenseMatrix<Scalar> const& matrix, uni20::complex<uni20::make_real_t<Scalar>> t);
+uni20::DenseMatrix<uni20::complex<uni20::make_real_t<Scalar>>>
+matrix_exponential(uni20::DenseMatrix<Scalar> const& matrix, uni20::complex<uni20::make_real_t<Scalar>> t);
 
 } // namespace uni20::linalg::backends::cpu
 
@@ -62,7 +62,7 @@ template <uni20::MutableRankedMdspanLike<2> OutputMdspan, uni20::RankedMdspanLik
 consteval auto matrix_exponential_acceptance()
 {
   using input_scalar = std::remove_cv_t<typename InputMdspan::element_type>;
-  using input_matrix = backends::cpu::DenseMatrix<input_scalar>;
+  using input_matrix = uni20::DenseMatrix<input_scalar>;
 
   if constexpr (requires(input_matrix const& input, TimeScalar time) {
                   backends::cpu::matrix_exponential(input, time);
@@ -105,7 +105,7 @@ KernelAttempt matrix_exponential(OutputMdspan& output, InputMdspan& input, TimeS
 
   std::size_t const rows = static_cast<std::size_t>(input.extent(0));
   std::size_t const cols = static_cast<std::size_t>(input.extent(1));
-  backends::cpu::DenseMatrix<input_scalar> materialized(rows, cols);
+  uni20::DenseMatrix<input_scalar> materialized(rows, cols);
   for (input_index_type row = 0; row < input.extent(0); ++row)
   {
     for (input_index_type col = 0; col < input.extent(1); ++col)

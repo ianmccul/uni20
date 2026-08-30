@@ -19,7 +19,7 @@ namespace
 {
 
 using Binary128 = mplapack_binary128_t;
-template <typename Scalar> using DenseMatrix = uni20::linalg::backends::cpu::DenseMatrix<Scalar>;
+template <typename Scalar> using DenseMatrix = uni20::DenseMatrix<Scalar>;
 
 Binary128 abs_error(Binary128 actual, Binary128 expected) { return std::abs(actual - expected); }
 
@@ -4367,7 +4367,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SolvesNearlySingularDenseSystemBelowDou
   rhs[0, 0] = Binary128{2};
   rhs[1, 0] = Binary128{2} + delta;
 
-  auto solution = uni20::linalg::backends::cpu::solve_linear_system(std::move(matrix), std::move(rhs));
+  auto solution = uni20::linalg::solve(uni20::linalg::CpuReferenceBackend{}, matrix, rhs);
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 1);

@@ -6,7 +6,6 @@
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_traits.hpp>
 #include <uni20/krylov/detail_math.hpp>
-#include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/linalg/linalg.hpp>
 #include <uni20/mdspan/mdspan.hpp>

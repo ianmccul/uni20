@@ -42,8 +42,7 @@ before they lower to backend wrappers and kernels.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
 - [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense
-  matrix norms and solves, legacy dense matrix helpers, and the current dense
-  matrix exponential implementation.
+  matrix norms and solves, and the dense matrix exponential implementation.
 - [`backends/lapack/`](backends/lapack/): LAPACK-backed linalg entry points.
 - [`backends/cusolver/`](backends/cusolver/): cuSOLVER-backed linalg entry points.
 

@@ -2,6 +2,7 @@
 
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +16,7 @@ namespace
 
 namespace cpu_linalg = uni20::linalg::backends::cpu;
 
-template <typename Scalar> using DenseMatrix = cpu_linalg::DenseMatrix<Scalar>;
+template <typename Scalar> using DenseMatrix = uni20::DenseMatrix<Scalar>;
 
 template <typename Scalar> double DefaultTolerance()
 {
@@ -47,9 +48,9 @@ void ExpectMatrixNear(DenseMatrix<Scalar> const& actual, DenseMatrix<Scalar> con
   ASSERT_EQ(actual.rows(), expected.rows());
   ASSERT_EQ(actual.cols(), expected.cols());
 
-  for (std::size_t i = 0; i < actual.rows(); ++i)
+  for (uni20::index_type i = 0; i < actual.rows(); ++i)
   {
-    for (std::size_t j = 0; j < actual.cols(); ++j)
+    for (uni20::index_type j = 0; j < actual.cols(); ++j)
     {
       double const difference = static_cast<double>(std::abs(actual[i, j] - expected[i, j]));
       double const magnitude = std::max(1.0, static_cast<double>(std::abs(expected[i, j])));
@@ -91,7 +92,7 @@ template <typename Scalar> DenseMatrix<Scalar> MakeIdentity(std::size_t order)
 template <typename Scalar> DenseMatrix<Scalar> MakeZeroMatrix(std::size_t order)
 {
   DenseMatrix<Scalar> result(order, order);
-  std::fill_n(result.data(), result.size(), Scalar{});
+  uni20::fill(result, Scalar{});
   return result;
 }
 
@@ -177,7 +178,7 @@ TYPED_TEST(MatrixExponentialTypedTest, RejectsNaNEntryBeforeZeroNormShortcut)
 {
   using Scalar = TypeParam;
   using Real = uni20::make_real_t<Scalar>;
-  DenseMatrix<Scalar> matrix(2, 2);
+  DenseMatrix<Scalar> matrix = MakeZeroMatrix<Scalar>(2);
   matrix[0, 0] = Scalar(uni20::numeric_limits<Real>::quiet_NaN());
 
   EXPECT_THROW(cpu_linalg::matrix_exponential(matrix, Real{1}), std::overflow_error);
@@ -251,7 +252,7 @@ TYPED_TEST(MatrixExponentialTypedTest, SkewSymmetricGeneratesRotation)
 
 TEST(MatrixExponentialTest, LongDoubleNilpotentUsesExtendedPrecisionScaling)
 {
-  DenseMatrix<long double> matrix(2, 2);
+  DenseMatrix<long double> matrix = MakeZeroMatrix<long double>(2);
   long double const large = std::ldexp(1.0L, uni20::numeric_limits<long double>::max_exponent - 2);
   ASSERT_TRUE(std::isfinite(large));
   matrix[0, 1] = large;
@@ -301,9 +302,9 @@ template <typename Scalar> void RunOverflowedOneNormSkewSymmetricGeneratorStaysF
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
-  for (std::size_t i = 0; i < result.rows(); ++i)
+  for (uni20::index_type i = 0; i < result.rows(); ++i)
   {
-    for (std::size_t j = 0; j < result.cols(); ++j)
+    for (uni20::index_type j = 0; j < result.cols(); ++j)
     {
       ExpectFiniteBounded(result[i, j], 2.0);
     }
@@ -359,9 +360,9 @@ TYPED_TEST(MatrixExponentialTypedTest, NilpotentChainMatchesSeries)
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
   DenseMatrix<Scalar> expected = MakeIdentity<Scalar>(3);
-  DenseMatrix<Scalar> const matrix_squared = cpu_linalg::matrix_power(matrix, 2);
-  DenseMatrix<Scalar> const scaled_matrix = cpu_linalg::add(matrix, cpu_linalg::scale(matrix_squared, Real{0.5}));
-  expected = cpu_linalg::add(expected, scaled_matrix);
+  expected[0, 1] = large;
+  expected[1, 2] = large;
+  expected[0, 2] = Scalar{Real{0.5}} * large * large;
 
   ExpectMatrixNear(result, expected, RelaxedTolerance<Scalar>());
 }

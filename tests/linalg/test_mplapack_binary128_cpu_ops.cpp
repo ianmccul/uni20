@@ -1,12 +1,14 @@
 #include <mplapack_config.h>
 #include <uni20/common/gtest.hpp>
 #include <uni20/core/math.hpp>
-#include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
+#include <uni20/linalg/ops/linear_solve.hpp>
+#include <uni20/linalg/ops/matrix_norm.hpp>
 #include <uni20/linalg/ops/svd.hpp>
 #include <uni20/linalg/ops/truncated_svd.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/tensor.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <gtest/gtest.h>
 
@@ -26,7 +28,7 @@ namespace
 {
 
 using Binary128 = mplapack_binary128_t;
-using matrix_type = uni20::linalg::backends::cpu::DenseMatrix<Binary128>;
+using matrix_type = uni20::DenseMatrix<Binary128>;
 
 Binary128 abs_error(Binary128 actual, Binary128 expected) { return std::abs(actual - expected); }
 
@@ -82,7 +84,8 @@ TEST(MplapackBinary128CpuOpsTest, MatrixOneNormPreservesBinary128Precision)
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{};
 
-  auto const norm = uni20::linalg::backends::cpu::matrix_one_norm(matrix);
+  auto const norm =
+      uni20::linalg::matrix_norm_host(uni20::linalg::CpuReferenceBackend{}, matrix, uni20::linalg::MatrixNorm::One);
   static_assert(std::same_as<decltype(norm), Binary128 const>);
 
   EXPECT_EQ(static_cast<double>(norm), 2.0);
@@ -105,7 +108,7 @@ TEST(MplapackBinary128CpuOpsTest, SolveAcceptsPivotsBelowDoubleMinimum)
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2} * tiny;
 
-  auto solution = uni20::linalg::backends::cpu::solve_linear_system(matrix, rhs);
+  auto solution = uni20::linalg::solve(uni20::linalg::CpuReferenceBackend{}, matrix, rhs);
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 1);
@@ -143,6 +146,7 @@ TEST(MplapackBinary128CpuOpsTest, MatrixExponentialPrescalesWithinBinary128)
   ASSERT_TRUE(uni20::isfinite(large));
 
   matrix_type matrix(2, 2);
+  uni20::fill(matrix, Binary128{});
   matrix[0, 1] = large;
 
   auto const result = uni20::linalg::backends::cpu::matrix_exponential(matrix, Binary128{1});
@@ -159,6 +163,7 @@ TEST(MplapackBinary128CpuOpsTest, ExactSvdPreservesRealAndComplexBinary128Values
   expect_gap_is_binary128_only(delta);
 
   uni20::DenseMatrix<Binary128> real_matrix(2, 2);
+  uni20::fill(real_matrix, Binary128{});
   real_matrix[0, 0] = Binary128{2} + delta;
   real_matrix[1, 1] = Binary128{1};
   auto real_values = uni20::linalg::singular_values(real_matrix);
@@ -174,6 +179,7 @@ TEST(MplapackBinary128CpuOpsTest, ExactSvdPreservesRealAndComplexBinary128Values
 
   using Complex = uni20::complex<Binary128>;
   uni20::DenseMatrix<Complex> complex_matrix(2, 2);
+  uni20::fill(complex_matrix, Complex{});
   complex_matrix[0, 0] = Complex{Binary128{}, Binary128{2} + delta};
   complex_matrix[1, 1] = Complex{Binary128{1}, Binary128{}};
   auto complex_right = uni20::linalg::svd_right(complex_matrix);
@@ -204,6 +210,7 @@ TEST(MplapackBinary128CpuOpsTest, TruncatedSvdUsesBinary128PolicyAndStatistics)
   expect_gap_is_binary128_only(delta);
 
   uni20::DenseMatrix<Binary128> matrix(2, 2);
+  uni20::fill(matrix, Binary128{});
   matrix[0, 0] = Binary128{2} + delta;
   matrix[1, 1] = Binary128{1};
   auto result =
