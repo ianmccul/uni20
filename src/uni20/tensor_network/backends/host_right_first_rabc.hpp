@@ -114,7 +114,7 @@ template <class Function> void execute_rabc_batch(SchedulerBatchBlockExecution, 
   async::execute_batch(size, std::forward<Function>(function));
 }
 
-template <uni20::Scalar Scalar> struct BoundRabcTerm
+template <uni20::RealOrComplex Scalar> struct BoundRabcTerm
 {
     std::size_t r_ordinal;
     std::size_t a_ordinal;
