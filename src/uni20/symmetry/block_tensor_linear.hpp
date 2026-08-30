@@ -289,6 +289,18 @@ void axpy_block(OutputBlock&& output, Scalar const& factor, InputBlock&& input)
   if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)>)
     uni20::transform_inplace(output.backend_selector(), diagonal_components(output_span), linalg::add_scaled{factor},
                              diagonal_components(input_span));
+  else if constexpr (MutableStridedMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)> &&
+                     requires { uni20::isfinite(factor); })
+  {
+    if (!uni20::isfinite(factor))
+    {
+      uni20::transform_inplace(output.backend_selector(), dense_diagonal_components(output_span),
+                               linalg::add_scaled{factor}, diagonal_components(input_span));
+      return;
+    }
+    uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add_scaled{factor},
+                             std::forward<InputBlock>(input));
+  }
   else
     uni20::transform_inplace(std::forward<OutputBlock>(output), linalg::add_scaled{factor},
                              std::forward<InputBlock>(input));

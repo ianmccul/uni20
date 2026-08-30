@@ -241,6 +241,30 @@ TEST(CpuTensorContractionTest, ContractsRankTwoDiagonalComponentsOnEitherSide)
   for (uni20::index_type row = 0; row < 4; ++row)
     for (uni20::index_type column = 0; column < 2; ++column)
       EXPECT_DOUBLE_EQ((left_output[row, column]), (row < 3 ? components[row] * rhs[row, column] : 0.0));
+
+  uni20::Tensor<double, 2> dense_diagonal_product(3, 3);
+  auto dense_diagonal_product_span = dense_diagonal_product.mdspan();
+  auto square_diagonal = uni20::make_diagonal_mdspan(matrix_extents_type{3, 3}, components);
+  auto const diagonal_axes =
+      uni20::linalg::make_contraction_axes<2, 2>(std::array<std::pair<std::size_t, std::size_t>, 1>{{{1, 0}}});
+  uni20::linalg::cpu::contract(dense_diagonal_product_span, std::numeric_limits<double>::infinity(), square_diagonal,
+                               square_diagonal, 0.0, diagonal_axes);
+  for (uni20::index_type row = 0; row < 3; ++row)
+    for (uni20::index_type column = 0; column < 3; ++column)
+      if (row == column)
+        EXPECT_TRUE(std::isinf(dense_diagonal_product[row, column]));
+      else
+        EXPECT_DOUBLE_EQ((dense_diagonal_product[row, column]), 0.0);
+
+  std::array<double, 3> diagonal_output_storage{};
+  stdex::mdspan<double, component_extents_type> diagonal_output_components{diagonal_output_storage.data(), 3};
+  auto diagonal_output = uni20::make_diagonal_mdspan(matrix_extents_type{3, 3}, diagonal_output_components);
+  EXPECT_NO_FATAL_FAILURE({
+    uni20::linalg::cpu::contract(diagonal_output, std::numeric_limits<double>::infinity(), square_diagonal,
+                                 square_diagonal, 0.0, diagonal_axes);
+  });
+  for (double const value : diagonal_output_storage)
+    EXPECT_TRUE(std::isinf(value));
 }
 
 TEST(CpuTensorContractionTest, EmptyContractedExtentProducesScaledZeroProduct)
