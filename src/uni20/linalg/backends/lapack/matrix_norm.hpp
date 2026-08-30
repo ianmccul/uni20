@@ -81,14 +81,19 @@ KernelAttempt try_matrix_norm(matrix_norm_op const& operation, Output& output, M
   }
 
   char const norm = lapack_matrix_norm(operation.kind, stage->unit_stride_axis == 1);
-  std::size_t const work_size = static_cast<std::size_t>(std::max<blas_int>(1, provider.rows));
-  std::vector<result_type> work(work_size, result_type{});
+  result_type work_placeholder{};
+  std::vector<result_type> work;
+  if (norm == 'I')
+  {
+    work.resize(static_cast<std::size_t>(provider.rows));
+  }
+  result_type* work_data = work.empty() ? &work_placeholder : work.data();
 
   // LANGE is read-only although its Fortran ABI predates const-correct C
   // wrappers. Keep the cast at this provider boundary.
   auto* data = const_cast<scalar_type*>(provider.data);
   result_type const result =
-      uni20::lapack::lange(norm, provider.rows, provider.cols, data, provider.leading_dimension, work.data());
+      uni20::lapack::lange(norm, provider.rows, provider.cols, data, provider.leading_dimension, work_data);
   reduction_detail::write_host_output(output, result);
   return KernelAttempt::success;
 }
