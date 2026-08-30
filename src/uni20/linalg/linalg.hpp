@@ -6,7 +6,9 @@
 #include <uni20/linalg/ops/contract.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/linalg/ops/gemv.hpp>
+#include <uni20/linalg/ops/linear_solve.hpp>
 #include <uni20/linalg/ops/matrix_exponential.hpp>
+#include <uni20/linalg/ops/matrix_norm.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
 #include <uni20/linalg/ops/matrix_set.hpp>
 #include <uni20/linalg/ops/nonsymmetric_eigen.hpp>

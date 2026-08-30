@@ -18,8 +18,13 @@ vendor accelerator backend.
 - `gemv.hpp`: reference accessor-respecting GEMV kernel.
 - `reductions.hpp`: shared accessor-respecting reduction traversal, full and
   partial sums, inner products, and scaled sum-of-squares Euclidean norms.
+- `matrix_norm.hpp`: accessor-respecting maximum-entry, induced one/infinity,
+  and Frobenius matrix norms.
+- `linear_solve.hpp`: accessor-respecting Gaussian elimination with partial
+  pivoting over destructive matrix workspaces.
 - `matrix_set.hpp`: accessor-respecting structured matrix initialization.
-- `dense_matrix.hpp`: small dense matrix container used by CPU linalg routines.
+- `dense_matrix.hpp`: legacy small dense matrix container still used by the
+  current matrix exponential implementation.
 - `matrix_exponential.hpp`, `matrix_exponential.cpp`: adaptive dense matrix
   exponential implementation.
 - [`detail/`](detail/): shared same-precision numerical accumulation helpers.

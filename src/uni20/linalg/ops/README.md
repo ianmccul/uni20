@@ -9,7 +9,10 @@ Operation values and diagnostic names are defined centrally in
 - `contract.hpp`: fixed-output pairwise Tensor contraction dispatch.
 - `gemm.hpp`: fixed-output Tensor GEMM front end.
 - `gemv.hpp`: fixed-output Tensor GEMV front end.
+- `linear_solve.hpp`: destructive-workspace and preserving-value dense general
+  linear solves.
 - `matrix_exponential.hpp`: fixed-output matrix exponential dispatch.
+- `matrix_norm.hpp`: dense maximum-entry, one, infinity, and Frobenius norms.
 - `matrix_product.hpp`: fixed-update and resizable-overwrite Tensor matrix
   products over GEMM dispatch.
 - `matrix_set.hpp`: structured matrix initialization over accessor-respecting

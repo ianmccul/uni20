@@ -61,8 +61,8 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | component | `s` | `d` | `c` | `z` | role |
 | --- | --- | --- | --- | --- | --- |
 | Dense vector and matrix primitives | yes | yes | yes | yes | Local BLAS-like operations over Krylov subspace data. |
-| Dense matrix norms | yes | yes | yes | yes | Dense projected full, symmetric/Hermitian, and triangular/trapezoidal norms through LAPACK `lange`, `lansy`/`lanhe`, and `lantr`. |
-| Dense general linear solve | yes | yes | yes | yes | Dense projected utility solve through LAPACK `gesv`. |
+| Dense matrix norms | yes | yes | yes | yes | Active `matrix_norm_op` dispatch covers general maximum-entry, induced one/infinity, and Frobenius norms. LAPACK `lange` handles direct real layouts and complex Frobenius norms; the accessor-respecting CPU backend preserves mathematical complex-magnitude semantics for the remaining complex forms. Quarantined projected helpers additionally survey `lansy`/`lanhe` and `lantr`. |
+| Dense general linear solve | yes | yes | yes | yes | Active destructive `linear_solve_op` dispatch uses LAPACK `gesv` for compatible column-major workspaces and accessor-respecting pivoted Gaussian elimination as the CPU fallback. `solve` preserves its inputs by materializing host work, while `solve_inplace` exposes destructive workspace semantics. |
 | Dense real refined linear solve | yes | yes | n/a | n/a | Dense projected utility solve through LAPACK `getrf`/`getrs` followed by `gerfs`, returning forward/backward error estimates. |
 | Dense real expert linear solve | yes | yes | n/a | n/a | Dense projected utility solve through LAPACK `gesvx`, returning condition estimates, forward/backward error bounds, equilibration, and condition diagnostics. |
 | Dense real equilibration | yes | yes | n/a | n/a | Dense projected row/column scaling diagnostics through LAPACK `geequ`. |
@@ -171,7 +171,7 @@ provider/helper support; algorithm-level binary128 coverage remains in
 | Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
 | MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
 | Checked LAPACK norms, core LU, and SVD wrappers | yes | yes | Provider wrappers cover `lange`, `lansy`/`lanhe`, `lantr`, `gesv`, `getrf`, `getrs`, `getri`, `gecon`, `gesvd`, `gesdd`, and `gesvdx`. |
-| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm evaluation, dense solve, tensor reductions, and matrix-exponential prescaling in binary128. |
+| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm evaluation, dense solve, tensor reductions, and matrix-exponential prescaling in binary128. Matrix norm and general solve now have operation-tag front ends suitable for migrating those probes from the legacy CPU dense container. |
 | Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | Uses MPLAPACK `Rsterf`/`Rsteqr`; this is the projected problem behind real and complex Hermitian Lanczos. |
