@@ -65,4 +65,31 @@ TEST(DiagonalMdspecTest, RejectsTheWrongNumberOfComponents)
                std::invalid_argument);
 }
 
+TEST(DiagonalMdspecTest, ExposesAlignedOffsetAndSteppedComponents)
+{
+  using original_extents_type = stdex::dextents<index_type, 2>;
+  using view_extents_type = stdex::dextents<index_type, 2>;
+  using mapping_type = stdex::layout_stride::mapping<view_extents_type>;
+  using accessor_type = diagonal_accessor<double, original_extents_type>;
+  using view_type = stdex::mdspan<double, view_extents_type, stdex::layout_stride, accessor_type>;
+
+  std::array<double, 5> storage{2.0, 3.0, 5.0, 7.0, 11.0};
+  auto const mapping = mapping_type{view_extents_type{2, 2}, std::array<index_type, 2>{10, 2}};
+  view_type aligned{diagonal_data_handle<double>{storage.data(), 6}, mapping,
+                    accessor_type{original_extents_type{5, 5}}};
+
+  EXPECT_DOUBLE_EQ((aligned[0, 0]), 3.0);
+  EXPECT_DOUBLE_EQ((aligned[1, 1]), 7.0);
+  auto components = diagonal_components(aligned);
+  EXPECT_EQ(components.extent(0), 2);
+  EXPECT_EQ(components.stride(0), 2);
+  EXPECT_EQ(components.data_handle(), storage.data() + 1);
+  EXPECT_DOUBLE_EQ(components[0], 3.0);
+  EXPECT_DOUBLE_EQ(components[1], 7.0);
+
+  view_type misaligned{diagonal_data_handle<double>{storage.data(), 1}, mapping,
+                       accessor_type{original_extents_type{5, 5}}};
+  EXPECT_THROW(static_cast<void>(diagonal_components(misaligned)), std::invalid_argument);
+}
+
 } // namespace
