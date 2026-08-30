@@ -172,6 +172,9 @@ kernels operate on resolved mdspans.
   structural alias on the parent's exact epoch queue. It may be formed before
   the parent value is constructed and resolves its mdspan only after the shared
   epoch is readable.
+- Owning Async `reshape` has preserving and consuming forms, while Async
+  `reshape_inplace` publishes a same-rank mapping change through one writer
+  epoch without reallocating the tensor.
 
 ## Related Documentation
 

@@ -1,6 +1,6 @@
 # Uni20 Roadmap
 
-**Status:** current planning baseline, updated 2026-07.
+**Status:** current planning baseline, updated 2026-08.
 
 This document describes what remains after the dense Tensor, kernel-dispatch,
 Krylov, and first async Tensor vertical slices came together. For a description
@@ -35,10 +35,13 @@ The following foundations are implemented and tested.
 - All-async elementwise overwrite and update wrappers retain callable state,
   construct overwrite outputs when possible, and preserve one-writer update
   semantics.
-- All-async sums support storage-preserving and host-scalar results, deferred
-  output construction, and fixed-shape mutable alias outputs.
+- All-async sums, inner products, and norms support storage-preserving,
+  host-scalar, and explicit-output forms with deferred output construction.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
+- Async owning reshape supports preserving, consuming, and in-place mapping
+  changes. Copy, `make_tensor`, `to_host`, and `to_device` cover explicit host
+  and CUDA materialization while preserving accessor semantics.
 - Canonical contiguous Tensors transfer between pageable host storage and CUDA
   storage through explicit blocking `to_host`/`to_device` boundaries. Device
   and peer copies retain CUDA completion in the buffer ledger, with a dedicated
@@ -91,10 +94,10 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
   can publish independent results or the same failure.
 - Task-registry snapshots, presentation reports, optional stacktraces, signal
   triggers, watchdog controls, and Graphviz output support diagnosis.
-- Async fixed-output GEMM and matrix-product overwrite/update,
-  preserving/consuming self-adjoint
-  `eigh`, exact and truncating SVD wrappers, plus full and axis-selective sums,
-  schedule the existing synchronous Tensor operations.
+- Async fixed-output contraction, GEMM, GEMV, matrix initialization and
+  exponential, dense solve, matrix-product overwrite/update, preserving or
+  consuming QR/LQ/self-adjoint `eigh`/exact and truncating SVD, and general
+  reductions schedule the existing synchronous Tensor operations.
 
 See the [Async Documentation Index](async/) and
 [Async Tensor Kernel Authoring](async/kernel_authoring.md).

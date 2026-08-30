@@ -327,21 +327,22 @@ contracts described later in this guide.
 | `conj(x)` | Read-only lazy semantic view. | Aliases the source; no copy. | `async::conj(x)` returns an owner-retaining alias on the same epoch queue. |
 | `reshape_view(x, ...)` | No-copy reshape of a static `layout_left` or `layout_right` source. | Aliases an lvalue source and preserves its canonical layout type and accessor. | `async::reshape_view(x, ...)` returns an owner-retaining alias on the same epoch queue. |
 | `reshape_view_left`, `reshape_view_right` | Explicitly ordered no-copy reshape of a general strided source. | Requires a unique, exhaustive canonical mapping in the selected order. | Matching async overloads retain the parent and queue. |
-| `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
-| `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Not implemented. |
-| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings with compact rank through eight use 32- or 64-bit logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports jointly compacted differing layouts, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
+| `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Implemented; publishes the mapping change through one writer epoch. |
+| `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Preserving and consuming forms return an independent Async owner; the consuming form may transfer the input allocation. |
+| `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings with compact rank through eight use 32- or 64-bit logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports jointly compacted differing layouts, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for host and CUDA Tensor operands. CUDA-to-CUDA submission is nonblocking; pageable host transfers execute their blocking CUDA call in the scheduled task. An empty context-bound output still needs input placement or prior construction. |
 | `assign_transform(out, function, inputs...)` | Nullary or variadic elementwise overwrite through backend dispatch. With no input, the callable generates every output value. The CUDA reference backend registers same-element-type unary and binary arithmetic function objects plus stateful `linalg::scale<Factor>` for positive-strided raw CUDA operands. | A nullary overwrite requires fixed output shape. Other forms resize a resizable output to the first input or validate a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
 | `fill(out, value)` | Constant nullary overwrite; the old output value is never read. | Requires fixed output shape and preserves storage. | Implemented for synchronous and Async host tensors. Async fill takes one write epoch. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
-| `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
-| `conjugate_inplace(x)` | Eager element mutation. CPU accessors are evaluated directly; positive-strided CUDA `cfloat` and `cdouble` storage uses the CUDA reference elementwise executor. Real and integer values return as a no-op. | Reuses existing storage and takes one exclusive execution-domain access when work is required. | Not implemented. |
+| `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Implemented for `Async<TensorView>`; returns an independent async host owner. |
+| `to_host`, `to_device` | Materialize at an explicit pageable-host or CUDA placement boundary. | Returns an owning canonical-layout Tensor in the requested domain. | Implemented for Async input. `to_device` requires explicit device resources or an enrolled device; pageable transfer blocks only its scheduled task. |
+| `conjugate_inplace(x)` | Eager element mutation. CPU accessors are evaluated directly; positive-strided CUDA `cfloat` and `cdouble` storage uses the CUDA reference elementwise executor. Real and integer values return as a no-op. | Reuses existing storage and takes one exclusive execution-domain access when work is required. | Implemented through one writer epoch. |
 | `sum(input)` | Full reduction returning a same-element-type `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Implemented; returns `Async<ScalarTensor>` or writes an explicit async scalar output. |
 | `sum(input, axes...)` | Remove one or more runtime-selected axes; negative axes are accepted. | Allocates rank `R - sizeof...(axes)`, preserves canonical input layout, and retains surviving-axis order. Explicit outputs may resize. | Implemented; returns an async storage-preserving result or writes an explicit async output. |
 | `sum_host(input)` | Full sum returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Implemented; returns `Async<Element>` without blocking submission. |
-| `inner_product(lhs, rhs)` | Conjugate-linear-left full reduction returning a `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Not implemented. |
-| `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
-| `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
-| `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Not implemented. |
+| `inner_product(lhs, rhs)` | Conjugate-linear-left full reduction returning a `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Implemented; returns an Async scalar Tensor or writes an explicit async scalar output. |
+| `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Implemented; returns `Async<Element>`. |
+| `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Implemented; returns an Async real scalar Tensor or writes an explicit async scalar output. |
+| `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Implemented; returns `Async<Real>`. |
 | `require_output`, `prepare_output` | Output-policy helpers for operation authors. | Validate only, or construct/resize/replace when the output type permits it. | Replaceable-output preparation may be provisional across backend decline; fixed and update outputs remain unchanged. |
 
 For a rank-`R` result, generalized `eye<T>(n0, ..., n{R-1})` returns
@@ -405,33 +406,33 @@ mdspans or spans.
 
 | Operation | Synchronous contract | Output/storage behavior | Async support |
 |---|---|---|---|
-| `contract` | Fixed-output pairwise contraction `C = alpha * contract(A, B) + beta * C` over explicit normalized axis pairs. | Caller supplies a shape-compatible output; no resize. Surviving left axes precede surviving right axes. | Not implemented. |
+| `contract` | Fixed-output pairwise contraction `C = alpha * contract(A, B) + beta * C` over explicit normalized axis pairs. | Caller supplies a shape-compatible output; no resize. Surviving left axes precede surviving right axes. | Implemented for all-Async Tensor operands; `alpha` and `beta` may be immediate or Async. |
 | `gemm` | Fixed-output `C = alpha * A * B + beta * C`. | Caller supplies compatible output; no resize. | Implemented for all-Async tensor operands; `alpha` and `beta` may be immediate or Async. |
-| `gemv` | Fixed-output `y = alpha * A * x + beta * y`. | Caller supplies compatible output; no resize. | Not implemented. |
+| `gemv` | Fixed-output `y = alpha * A * x + beta * y`. | Caller supplies compatible output; no resize. | Implemented for all-Async Tensor operands; `alpha` and `beta` may be immediate or Async. |
 | `assign_product` | Overwrite matrix product. | Output may resize; old values are ignored. | Implemented for all-Async tensor operands; `alpha` may be immediate or Async. |
 | `add_product` | Accumulate `output += alpha * lhs * rhs`. | Output must exist and have the required shape. | Implemented as the `beta = 1` forwarding form of async `gemm`; `alpha` may be immediate or Async. |
-| `set_matrix` | Set diagonal/off-diagonal values in a selected matrix region. | In-place mutation. | Not implemented. |
-| `matrix_norm`, `matrix_norm_host` | Maximum-entry, induced one/infinity, or Frobenius matrix norm selected by `MatrixNorm`. | Returns a storage-preserving real rank-zero Tensor or a host scalar. Complex norms use mathematical magnitude. | Not implemented. |
-| `solve_inplace` | Solve `A * X = B` using destructive coefficient and RHS workspaces. | `B` contains `X` on return; `A` contains backend factorization data. An `N x 0` right-hand side is a vacuous no-op that preserves both workspaces without testing singularity. Other singular provider results are terminal errors. | Not implemented. |
-| `solve` | Preserve `A` and `B` and return `X`. | Materializes owning column-major host work matrices before destructive dispatch. | Not implemented. |
-| `qr_factorization`, `lq_factorization` | Reduced real QR or LQ using a destructive matrix workspace. | Factor outputs may resize; the matrix workspace is overwritten. | Not implemented. |
+| `set_matrix` | Set diagonal/off-diagonal values in a selected matrix region. | In-place mutation. | Implemented; diagonal and off-diagonal values may be immediate or Async. |
+| `matrix_norm`, `matrix_norm_host` | Maximum-entry, induced one/infinity, or Frobenius matrix norm selected by `MatrixNorm`. | Returns a storage-preserving real rank-zero Tensor or a host scalar. Complex norms use mathematical magnitude. | Implemented; the Tensor form may also write an explicit async scalar output. |
+| `solve_inplace` | Solve `A * X = B` using destructive coefficient and RHS workspaces. | `B` contains `X` on return; `A` contains backend factorization data. An `N x 0` right-hand side is a vacuous no-op that preserves both workspaces without testing singularity. Other singular provider results are terminal errors. | Implemented; both writer epochs receive any failure. |
+| `solve` | Preserve `A` and `B` and return `X`. | Materializes owning column-major host work matrices before destructive dispatch. | Implemented; returns an independent async solution. |
+| `qr_factorization`, `lq_factorization` | Reduced real QR or LQ using a destructive matrix workspace. | Factor outputs may resize; the matrix workspace is overwritten. | No direct wrapper; use async `qr` or `lq`. |
 | `qr(matrix)`, `lq(matrix)` | Preserve or consume a real matrix and return owning reduced factors. | Preserving calls materialize column-major host work. Consuming calls use an exact column-major host tensor directly as destructive workspace and otherwise materialize. QR returns `Q: m x k`, `R: k x n`; LQ returns `L: m x k`, `Q: k x n`, where `k = min(m,n)`. | Preserving and consuming forms return two independent Async outputs. |
-| `matrix_exponential` | Compute into a fixed rank-two output. | Caller supplies compatible output. | Not implemented. |
+| `matrix_exponential` | Compute into a fixed rank-two output. | Caller supplies compatible output. | Implemented for Async input and output; `time` may be immediate or Async. |
 | `self_adjoint_eigh` | Destructive LAPACK-style workspace operation. | Matrix workspace is overwritten; eigenvalue output may resize. | No direct wrapper. |
 | `eigh(matrix)` | Preserving value operation returning eigenvalues and eigenvectors. | Materializes work storage and returns two owners. | Implemented; returns two independent Async outputs. |
 | `eigh(std::move(matrix))` | Consuming value operation. | May transfer a compatible owning allocation to eigenvectors. | Implemented for `Async<OwningTensor>&&`; consumes the stored value on success. |
-| `singular_value_decomposition` | Destructive exact SVD workspace operation. | Matrix workspace is overwritten; `U`, `s`, and `Vh` outputs may resize. | Not implemented. |
+| `singular_value_decomposition` | Destructive exact SVD workspace operation. | Matrix workspace is overwritten; `U`, `s`, and `Vh` outputs may resize. | No direct wrapper; use async `singular_values` or `svd`. |
 | `singular_values(matrix)` | Exact singular values only. | Preserving form materializes work storage; consuming form may destroy a compatible owning input in place. | Preserving and consuming forms return one independent Async output. |
 | `svd_left(matrix)` | Exact left singular vectors and singular values. | Reduced by default; full left extent is optional. A consuming reduced call may adopt the input allocation through `JOBU='O'`. | Preserving and consuming forms return two independent Async outputs. |
 | `svd_right(matrix)` | Exact singular values and `Vh`. | Reduced by default; full right extent is optional. A consuming reduced call may adopt the input allocation through `JOBVT='O'`. | Preserving and consuming forms return two independent Async outputs. |
 | `svd(matrix)` | Exact `U`, `s`, and `Vh`. | Preserving form materializes work storage. Consuming form may adopt one reduced factor, preserving a padded leading dimension; left/right full extents remain independent. | Preserving and consuming forms return three independent Async outputs. |
 | `truncated_svd(matrix, policy)` | Truncated reduced `U`, `s`, and `Vh` plus `SvdTruncationInfo`. | Applies minimum/maximum rank, absolute singular-value, normalized squared singular-value, and discarded-weight criteria. Rank zero is valid. Consuming exact-SVD workspace reuse is permitted, but returned factors are right-sized owners. | Preserving and consuming forms return four independent Async outputs. |
-| `nonsymmetric_eigen` | LAPACK-style nonsymmetric eigensystem. | Destructive matrix workspace and caller-provided outputs. | Not implemented. |
-| `schur`, `hessenberg_schur` | LAPACK-style decomposition. | Destructive matrix workspace and caller-provided outputs. | Not implemented. |
-| `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | Not implemented. |
-| `symmetric_tridiagonal_eigen` | Tridiagonal eigensystem over caller-provided spans and tensor output. | LAPACK-style mutable work/output buffers. | Not implemented. |
+| `nonsymmetric_eigen` | LAPACK-style nonsymmetric eigensystem. | Destructive matrix workspace and caller-provided outputs. | No value API yet; no application-level async wrapper. |
+| `schur`, `hessenberg_schur` | LAPACK-style decomposition. | Destructive matrix workspace and caller-provided outputs. | No value API yet; no application-level async wrapper. |
+| `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | No value API yet; no application-level async wrapper. |
+| `symmetric_tridiagonal_eigen` | Tridiagonal eigensystem over caller-provided spans and tensor output. | LAPACK-style mutable work/output buffers. | No value API yet; no application-level async wrapper. |
 
-Preserving Async `qr`, `lq`, `eigh`, exact SVD, and truncated SVD overloads
+Preserving Async `solve`, `qr`, `lq`, `eigh`, exact SVD, and truncated SVD overloads
 accept `Async<Tensor>` whenever `Tensor` models the appropriate ranked
 `TensorView`. This includes deferred views: the preserving synchronous
 operation materializes its work tensor through ordinary backend-dispatched
@@ -448,7 +449,7 @@ dispatch and the selected backend acquires the execution-domain leases.
 Whether a backend implementation exists for a particular storage domain is a
 separate kernel-acceptance question.
 
-The fixed-output `gemm` and `gemv` forms are low-level tensor front ends. New
+The fixed-output `contract`, `gemm`, and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
@@ -663,10 +664,10 @@ a genuinely reusable output and lifetime pattern.
 
 The following are intentionally not implied by the current API:
 
-- no Async `copy` or `make_tensor`
 - no Async general slice alias
-- no Async `gemv`, matrix exponential, or general LAPACK workspace operation
-- no allocating value API for most destructive LAPACK front ends
+- no direct Async wrapper for low-level LAPACK workspace operations
+- no allocating value API, and therefore no application-level Async wrapper,
+  for the nonsymmetric eigen, Schur, or tridiagonal workspace fronts
 - no general concrete synchronous `TensorRef` slice proxy
 - no subrange epoch tracking; async aliases conservatively share a whole parent
   queue

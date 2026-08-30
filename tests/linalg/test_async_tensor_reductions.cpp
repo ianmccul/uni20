@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <concepts>
 #include <stdexcept>
 #include <type_traits>
@@ -93,6 +94,83 @@ TEST(AsyncTensorReductionTest, FullSumAndHostSumAwaitPendingInput)
   static_assert(std::same_as<decltype(host_result), uni20::async::Async<double>>);
   EXPECT_DOUBLE_EQ(tensor_result.get_wait(scheduler)[], 1476.0);
   EXPECT_DOUBLE_EQ(host_result.get_wait(scheduler), 1476.0);
+}
+
+TEST(AsyncTensorReductionTest, InnerProductAndNormReturnTensorAndHostResults)
+{
+  using vector_type = uni20::Tensor<double, 1>;
+  vector_type lhs_value(2);
+  lhs_value[0] = 3.0;
+  lhs_value[1] = 4.0;
+  vector_type rhs_value(2);
+  rhs_value[0] = 2.0;
+  rhs_value[1] = -1.0;
+
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<vector_type> lhs = std::move(lhs_value);
+  uni20::async::Async<vector_type> rhs = std::move(rhs_value);
+
+  auto inner = uni20::inner_product(lhs, rhs);
+  auto inner_host = uni20::inner_product_host(lhs, rhs);
+  auto magnitude = uni20::norm(lhs);
+  auto magnitude_host = uni20::norm_host(lhs);
+
+  static_assert(std::same_as<decltype(inner), async_scalar_tensor_type>);
+  static_assert(std::same_as<decltype(inner_host), uni20::async::Async<double>>);
+  static_assert(std::same_as<decltype(magnitude), async_scalar_tensor_type>);
+  static_assert(std::same_as<decltype(magnitude_host), uni20::async::Async<double>>);
+  EXPECT_DOUBLE_EQ(inner.get_wait(scheduler)[], 2.0);
+  EXPECT_DOUBLE_EQ(inner_host.get_wait(scheduler), 2.0);
+  EXPECT_DOUBLE_EQ(magnitude.get_wait(scheduler)[], 5.0);
+  EXPECT_DOUBLE_EQ(magnitude_host.get_wait(scheduler), 5.0);
+}
+
+TEST(AsyncTensorReductionTest, InnerProductAndNormConstructExplicitScalarOutputs)
+{
+  using vector_type = uni20::Tensor<double, 1>;
+  vector_type lhs_value(3);
+  lhs_value[0] = 1.0;
+  lhs_value[1] = 2.0;
+  lhs_value[2] = 3.0;
+  vector_type rhs_value(3);
+  rhs_value[0] = 4.0;
+  rhs_value[1] = 5.0;
+  rhs_value[2] = 6.0;
+
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<vector_type> lhs = std::move(lhs_value);
+  uni20::async::Async<vector_type> rhs = std::move(rhs_value);
+  async_scalar_tensor_type inner_output;
+  async_scalar_tensor_type norm_output;
+
+  uni20::inner_product(inner_output, lhs, rhs);
+  uni20::norm(norm_output, lhs);
+
+  EXPECT_DOUBLE_EQ(inner_output.get_wait(scheduler)[], 32.0);
+  EXPECT_NEAR(norm_output.get_wait(scheduler)[], std::sqrt(14.0), 1.0e-14);
+}
+
+TEST(AsyncTensorReductionTest, ComplexInnerProductRetainsConjugateLinearLeftSemantics)
+{
+  using scalar_type = uni20::complex<double>;
+  using vector_type = uni20::Tensor<scalar_type, 1>;
+  vector_type lhs_value(2);
+  lhs_value[0] = scalar_type{1.0, 2.0};
+  lhs_value[1] = scalar_type{-1.0, 1.0};
+  vector_type rhs_value(2);
+  rhs_value[0] = scalar_type{3.0, -1.0};
+  rhs_value[1] = scalar_type{2.0, 4.0};
+
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<vector_type> lhs = std::move(lhs_value);
+  uni20::async::Async<vector_type> rhs = std::move(rhs_value);
+
+  auto result = uni20::inner_product_host(lhs, rhs);
+
+  EXPECT_FLOATING_EQ(result.get_wait(scheduler), (scalar_type{3.0, -13.0}));
 }
 
 TEST(AsyncTensorReductionTest, PartialSumPreservesLayoutAndNegativeAxisSemantics)

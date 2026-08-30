@@ -791,6 +791,19 @@ TEST_F(CudaCopyTest, AsyncConjugatingCopyRunsElementwiseKernel)
   EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
 }
 
+TEST_F(CudaCopyTest, AsyncPageableCopiesAndMaterializationUseBlockingCudaBoundary)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<host_matrix_type> host_input = make_matrix();
+
+  auto device_output = uni20::to_device(host_input, runtime.device_resources(0));
+  auto host_output = uni20::to_host(device_output);
+
+  expect_matrix(host_output.get_wait(scheduler));
+}
+
 TEST_F(CudaCopyTest, AsyncPeerCopyRunsOnDestinationDevice)
 {
   if (device_count_ < 2) GTEST_SKIP() << "async peer-copy test requires two CUDA devices";
@@ -801,6 +814,21 @@ TEST_F(CudaCopyTest, AsyncPeerCopyRunsOnDestinationDevice)
   uni20::async::Async<cuda_matrix_type> output = cuda_matrix_type(runtime.device_resources(1), 2, 3);
 
   uni20::copy(output, input);
+
+  auto const& device_result = output.get_wait(scheduler);
+  EXPECT_EQ(device_result.storage().device().ordinal(), 1);
+  expect_matrix(uni20::to_host(device_result));
+}
+
+TEST_F(CudaCopyTest, AsyncPeerMaterializationCarriesCompletionIntoOwnedResult)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "async peer-copy test requires two CUDA devices";
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .streams_per_device = 2});
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<cuda_matrix_type> input = uni20::to_device(make_matrix(), 0);
+
+  auto output = uni20::to_device(input, runtime.device_resources(1));
 
   auto const& device_result = output.get_wait(scheduler);
   EXPECT_EQ(device_result.storage().device().ordinal(), 1);

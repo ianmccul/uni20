@@ -120,6 +120,11 @@ aliases of a const parent are read-only. The async API also provides
 `reshape_view_left` and `reshape_view_right` for strided parents whose order
 must be selected explicitly.
 
+The owning Async forms use independent result epochs. `reshape(async_input,
+...)` preserves the stored value, while `reshape(std::move(async_input), ...)`
+consumes it and may transfer a compatible allocation. `reshape_inplace` enrolls
+one writer and publishes the mapping change on the original timeline.
+
 ### `reshape_inplace`
 
 `reshape_inplace` replaces a canonically laid-out owning tensor mapping without

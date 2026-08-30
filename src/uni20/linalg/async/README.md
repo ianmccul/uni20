@@ -5,6 +5,15 @@ linear-algebra operations over `Async<Tensor>` values.
 
 ## Contents
 
+- `conjugate_inplace.hpp`: fixed-storage eager conjugation through one writer epoch.
+- `concepts.hpp`: shared async Tensor-output and immediate-or-Async scalar capabilities.
+- `contract.hpp`: fixed-output pairwise contraction with immediate or Async scale values.
+- `copy.hpp`: host and CUDA Tensor copy plus async host/device materialization.
+- `gemv.hpp`: fixed-output matrix-vector multiplication.
+- `linear_solve.hpp`: preserving and destructive dense general solve wrappers.
+- `matrix_exponential.hpp`: fixed-output dense matrix exponentiation.
+- `matrix_norm.hpp`: storage-preserving, explicit-output, and host-scalar matrix norms.
+- `matrix_set.hpp`: structured matrix initialization with immediate or Async values.
 - `matrix_product.hpp`: all-async fixed-output `gemm`, resizing
   `assign_product`, and fixed-output `add_product` wrappers.
 - `dispatch.hpp`: coroutine-aware kernel dispatch; ordinary backends run their
@@ -14,8 +23,8 @@ linear-algebra operations over `Async<Tensor>` values.
   returned by an optional coroutine backend implementation.
 - `lq.hpp`: preserving and consuming reduced real LQ wrappers with independent
   async factor outputs.
-- `reductions.hpp`: full and axis-selective async sums with storage-preserving
-  or host-scalar results.
+- `reductions.hpp`: sums, inner products, and norms with storage-preserving,
+  explicit-output, or host-scalar results.
 - `qr.hpp`: preserving and consuming reduced real QR wrappers with independent
   async factor outputs.
 - `self_adjoint_eigh.hpp`: preserving and consuming `eigh` wrappers with
@@ -64,6 +73,12 @@ linear-algebra operations over `Async<Tensor>` values.
 - Sum axes are normalized before submission. Owning output shape preparation
   and backend dispatch occur after the input is readable; mutable alias outputs
   follow the same fixed-descriptor rule as transforms.
+- Preserving value operations publish independent result epochs. Consuming
+  overloads take an rvalue `Async<OwningTensor>`, retain its writer through the
+  operation, and may transfer compatible storage.
+- Raw provider workspaces are not wrapped mechanically. A destructive LAPACK
+  front first needs a value-oriented synchronous operation unless mutation of
+  those workspaces is itself the intended public contract.
 
 See [Async Tensor Kernel Authoring](../../../../docs/async/kernel_authoring.md)
 for the complete authoring contract and [Tensor Operations](../../../../docs/tensor/operations.md)

@@ -10,6 +10,7 @@
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/common/trace.hpp>
+#include <uni20/linalg/async/concepts.hpp>
 #include <uni20/linalg/async/dispatch.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
 #include <uni20/tensor/output.hpp>
@@ -28,15 +29,6 @@ namespace uni20::linalg
 {
 namespace detail
 {
-template <class Scalar>
-using matrix_product_scalar_awaiter_t = std::remove_cvref_t<decltype(async::read(std::declval<Scalar>()))>;
-
-template <class Value, class Scalar>
-concept MatrixProductScalar = async::TaskAwaitable<matrix_product_scalar_awaiter_t<Value>> &&
-                              requires(matrix_product_scalar_awaiter_t<Value>& awaiter) {
-                                { awaiter.await_resume() } -> std::convertible_to<Scalar>;
-                              };
-
 template <class OutputTensor, class LhsTensor, class RhsTensor>
 void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& output,
                                             async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs)
@@ -128,8 +120,8 @@ void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& o
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
-           detail::MatrixProductScalar<Beta, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
+           AsyncOperationScalar<Beta, uni20::tensor_element_t<OutputTensor>>
 void gemm(BackendSelector selector, async::Async<OutputTensor>& output, Alpha&& alpha,
           async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs, Beta&& beta)
 {
@@ -141,8 +133,8 @@ void gemm(BackendSelector selector, async::Async<OutputTensor>& output, Alpha&& 
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
-           detail::MatrixProductScalar<Beta, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
+           AsyncOperationScalar<Beta, uni20::tensor_element_t<OutputTensor>>
 void gemm(async::Async<OutputTensor>& output, Alpha&& alpha, async::Async<LhsTensor> const& lhs,
           async::Async<RhsTensor> const& rhs, Beta&& beta)
 {
@@ -160,7 +152,7 @@ void gemm(async::Async<OutputTensor>& output, Alpha&& alpha, async::Async<LhsTen
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
@@ -175,7 +167,7 @@ void assign_product(BackendSelector selector, async::Async<OutputTensor>& output
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
@@ -192,7 +184,7 @@ void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> 
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
@@ -207,7 +199,7 @@ void add_product(BackendSelector selector, async::Async<OutputTensor>& output, a
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
+           AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {

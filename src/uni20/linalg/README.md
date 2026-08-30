@@ -27,8 +27,8 @@ before they lower to backend wrappers and kernels.
 - `kernel_attempt.hpp`, `dispatch_error.hpp`,
   `dispatch_error_presentation.hpp`: clean backend-decline results and terminal
   dispatch-failure diagnostics.
-- `async.hpp`: opt-in include point for scheduled `Async<Tensor>` transforms,
-  reductions, matrix products, eigensystems, and exact or truncating SVD.
+- `async.hpp`: opt-in include point for scheduled `Async<Tensor>` copies,
+  transforms, reductions, contractions, dense solves and factorizations.
 - [`async/`](async/): all-async Tensor wrappers over the synchronous operation layer.
 - [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - [`cublas/`](cublas/): provider-ready cuBLAS operations over staged CUDA
@@ -58,12 +58,13 @@ before they lower to backend wrappers and kernels.
   fixed-output `gemm` or `gemv` front end so it can derive their common storage
   selector, or they may supply an explicit selector override.
 - Async Tensor operations live in the opt-in `async/` layer. They resolve the
-  static storage selector before scheduling, await Tensor values, and then call
-  these same synchronous Tensor front ends with that selector; backends do not
-  depend on the async runtime.
-- Async sum wrappers validate axes before submission, defer shape preparation
-  and dispatch until the input is readable, and return either a
-  storage-preserving async Tensor or a nonblocking `Async<Element>` host result.
+  static storage selector before scheduling and await Tensor values. Fixed
+  operands then lower to mdspecs for coroutine-aware operation dispatch;
+  value-oriented wrappers may call the corresponding synchronous Tensor front
+  end. Ordinary backends do not depend on the async runtime.
+- Async reductions validate axes where applicable, defer output preparation
+  and dispatch until inputs are readable, and return either a storage-preserving
+  async Tensor, an explicit output epoch, or a nonblocking host scalar result.
 - `copy_op` is the semantic element-copy operation used by Tensor `copy` and
   `make_tensor`. Its CPU backend respects accessors. `CudaReferenceBackend`
   handles canonical contiguous host/device and device/device transfers plus

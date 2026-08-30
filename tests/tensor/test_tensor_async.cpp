@@ -408,3 +408,50 @@ TEST(TensorAsyncTest, RealConjugationProducesReadOnlyIdentityAlias)
 
   sched.run_all();
 }
+
+TEST(TensorAsyncTest, PreservingOwningReshapeReturnsIndependentAsyncValue)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<matrix_type> matrix(make_matrix());
+
+  auto reshaped = uni20::reshape(matrix, 1, 4);
+
+  auto const& values = reshaped.get_wait(scheduler);
+  static_assert(std::same_as<typename decltype(reshaped)::value_type, uni20::Tensor<uni20::complex<double>, 2>>);
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, 2.0));
+  EXPECT_EQ((values[0, 1]), uni20::complex<double>(-5.0, 6.0));
+  EXPECT_EQ((values[0, 2]), uni20::complex<double>(3.0, -4.0));
+  EXPECT_EQ((values[0, 3]), uni20::complex<double>(7.0, 8.0));
+  EXPECT_EQ((matrix.get_wait(scheduler)[1, 1]), uni20::complex<double>(7.0, 8.0));
+}
+
+TEST(TensorAsyncTest, ConsumingOwningReshapeTransfersAllocation)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  matrix_type matrix_value = make_matrix();
+  auto* const original_handle = matrix_value.mutable_handle();
+  uni20::async::Async<matrix_type> matrix(std::move(matrix_value));
+
+  auto reshaped = uni20::reshape(std::move(matrix), 4, 1);
+
+  EXPECT_EQ(reshaped.get_wait(scheduler).handle(), original_handle);
+  EXPECT_THROW((void)matrix.get_wait(scheduler), uni20::async::buffer_read_uninitialized);
+}
+
+TEST(TensorAsyncTest, ReshapeInplacePublishesMappingChangeThroughWriterEpoch)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  matrix_type matrix_value = make_matrix();
+  auto* const original_handle = matrix_value.mutable_handle();
+  uni20::async::Async<matrix_type> matrix(std::move(matrix_value));
+
+  uni20::reshape_inplace(matrix, 1, 4);
+
+  auto const& reshaped = matrix.get_wait(scheduler);
+  EXPECT_EQ(reshaped.handle(), original_handle);
+  EXPECT_EQ(reshaped.extent(0), 1);
+  EXPECT_EQ(reshaped.extent(1), 4);
+}

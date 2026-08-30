@@ -1,6 +1,6 @@
 # About Uni20
 
-**Status:** current capabilities overview, updated 2026-07.
+**Status:** current capabilities overview, updated 2026-08.
 
 Uni20 is a C++23 tensor-network research library built around three ideas:
 
@@ -28,7 +28,7 @@ guides define the exact contracts.
 | Dense backend dispatch | Implemented operation-value dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, callable-carrying elementwise operations, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
 | Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, exact and truncating SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
 | Async runtime | Implemented `Async<T>`, epoch-ordered read/write buffers, exception and cancellation propagation, host `DebugScheduler`/`TbbScheduler`/`TbbNumaScheduler`, unified host/multi-device `DebugCudaScheduler` and `TbbCudaScheduler`, scheduler-aware waits, task-registry diagnostics, stacktraces where available, and Graphviz DAG snapshots. |
-| Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, variadic elementwise overwrite/update operations, full and axis-selective sums, matrix products with immediate or async scalar parameters, preserving or storage-consuming self-adjoint `eigh`, and preserving or storage-consuming exact and truncating SVD operations with independent async outputs. |
+| Async tensor operations | Implemented lifetime-safe aliases; preserving and consuming reshape/materialization; copy, transform, contraction, reduction, matrix product, matrix initialization, matrix exponential, matrix norm, and dense solve wrappers; and preserving or storage-consuming QR, LQ, self-adjoint `eigh`, exact SVD, and truncating SVD with independent async outputs. |
 | Krylov algorithms | Implemented matrix-free symmetric/Hermitian Lanczos, nonsymmetric Arnoldi, generalized problems, Krylov exponential action, and an independent Taylor exponential-action reference. Projected dense work lowers through Uni20 linalg dispatch. |
 | Scalar support | `float32`, `float64`, real and complex paths are first-class. Configured MPLAPACK builds add binary128 probes and selected dense/Krylov paths. |
 | Presentation and diagnostics | Implemented semantic reports, terminal/plain/ASCII rendering, width-aware tables, mdspan previews, structured kernel errors, source locations, and optional stacktrace formatting. |

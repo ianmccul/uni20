@@ -1,4 +1,6 @@
+#include <uni20/async/debug_cuda_scheduler.hpp>
 #include <uni20/backend/cuda/runtime.hpp>
+#include <uni20/linalg/async.hpp>
 #include <uni20/linalg/backends/cuda/conjugate_inplace.hpp>
 #include <uni20/tensor/conjugate_inplace.hpp>
 #include <uni20/tensor/copy.hpp>
@@ -197,6 +199,23 @@ TEST_F(CudaConjugateInplaceTest, EmptyAndRealOperandsSucceedWithoutElementwiseWo
   EXPECT_EQ(real_plan.attempt, uni20::linalg::KernelAttempt::success);
   EXPECT_FALSE(real_plan.has_work);
   uni20::conjugate_inplace(real);
+}
+
+TEST_F(CudaConjugateInplaceTest, AsyncWrapperPublishesConjugatedDeviceStorage)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::Tensor<complex_type, 1> source(2);
+  source[0] = {1.0, 2.0};
+  source[1] = {-3.0, 4.0};
+  uni20::async::Async<uni20::CudaTensor<complex_type, 1>> device = uni20::to_device(source, 0);
+
+  uni20::conjugate_inplace(device);
+
+  auto result = uni20::to_host(device.get_wait(scheduler));
+  EXPECT_EQ(result[0], (complex_type{1.0, -2.0}));
+  EXPECT_EQ(result[1], (complex_type{-3.0, -4.0}));
 }
 
 } // namespace

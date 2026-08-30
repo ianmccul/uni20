@@ -98,6 +98,108 @@ async::AsyncTask co_sum_host(BackendSelector const selector, async::WriteBuffer<
   co_return;
 }
 
+template <class BackendSelector, class ResultTensor, TensorView LhsTensor, TensorView RhsTensor>
+async::AsyncTask co_inner_product(BackendSelector const selector, async::WriteBuffer<ResultTensor> output,
+                                  async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs)
+{
+  auto output_storage = output.storage();
+  auto awaited = co_await async::all(output_storage, lhs, rhs);
+  auto& storage = std::get<0>(awaited);
+  auto const& lhs_value = std::get<1>(awaited);
+  auto const& rhs_value = std::get<2>(awaited);
+
+  auto result = uni20::inner_product(selector, lhs_value, rhs_value);
+  storage.emplace(std::move(result));
+  co_return;
+}
+
+template <class BackendSelector, TensorView LhsTensor, TensorView RhsTensor>
+async::AsyncTask co_inner_product_host(BackendSelector const selector,
+                                       async::WriteBuffer<tensor_element_t<LhsTensor>> output,
+                                       async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs)
+{
+  auto output_storage = output.storage();
+  auto awaited = co_await async::all(output_storage, lhs, rhs);
+  auto& storage = std::get<0>(awaited);
+  auto const& lhs_value = std::get<1>(awaited);
+  auto const& rhs_value = std::get<2>(awaited);
+
+  auto result = uni20::inner_product_host(selector, lhs_value, rhs_value);
+  storage.emplace(std::move(result));
+  co_return;
+}
+
+template <class BackendSelector, class ResultTensor, TensorView InputTensor>
+async::AsyncTask co_norm(BackendSelector const selector, async::WriteBuffer<ResultTensor> output,
+                         async::ReadBuffer<InputTensor> input)
+{
+  auto output_storage = output.storage();
+  auto awaited = co_await async::all(output_storage, input);
+  auto& storage = std::get<0>(awaited);
+  auto const& input_value = std::get<1>(awaited);
+
+  auto result = uni20::norm(selector, input_value);
+  storage.emplace(std::move(result));
+  co_return;
+}
+
+template <class BackendSelector, TensorView InputTensor>
+async::AsyncTask co_norm_host(BackendSelector const selector,
+                              async::WriteBuffer<make_real_t<tensor_element_t<InputTensor>>> output,
+                              async::ReadBuffer<InputTensor> input)
+{
+  auto output_storage = output.storage();
+  auto awaited = co_await async::all(output_storage, input);
+  auto& storage = std::get<0>(awaited);
+  auto const& input_value = std::get<1>(awaited);
+
+  auto result = uni20::norm_host(selector, input_value);
+  storage.emplace(std::move(result));
+  co_return;
+}
+
+template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView LhsTensor, TensorView RhsTensor>
+async::AsyncTask co_inner_product_output(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                         async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs)
+{
+  if constexpr (async::is_async_alias_v<OutputTensor>)
+  {
+    AsyncAliasWriteDescriptorAwaiter output_descriptor_awaiter(output);
+    auto awaited = co_await async::all(output_descriptor_awaiter, lhs, rhs);
+    auto output_value = std::get<0>(awaited);
+    uni20::inner_product(selector, output_value, std::get<1>(awaited), std::get<2>(awaited));
+  }
+  else
+  {
+    auto output_storage = output.storage();
+    auto awaited = co_await async::all(output_storage, lhs, rhs);
+    auto& output_value = prepare_async_scalar_output<OutputTensor>(std::get<0>(awaited));
+    uni20::inner_product(selector, output_value, std::get<1>(awaited), std::get<2>(awaited));
+  }
+  co_return;
+}
+
+template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor>
+async::AsyncTask co_norm_output(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                async::ReadBuffer<InputTensor> input)
+{
+  if constexpr (async::is_async_alias_v<OutputTensor>)
+  {
+    AsyncAliasWriteDescriptorAwaiter output_descriptor_awaiter(output);
+    auto awaited = co_await async::all(output_descriptor_awaiter, input);
+    auto output_value = std::get<0>(awaited);
+    uni20::norm(selector, output_value, std::get<1>(awaited));
+  }
+  else
+  {
+    auto output_storage = output.storage();
+    auto awaited = co_await async::all(output_storage, input);
+    auto& output_value = prepare_async_scalar_output<OutputTensor>(std::get<0>(awaited));
+    uni20::norm(selector, output_value, std::get<1>(awaited));
+  }
+  co_return;
+}
+
 template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor, std::size_t InputRank,
           std::size_t ReducedRank>
 void schedule_async_sum(BackendSelector selector, async::Async<OutputTensor>& output,
@@ -120,13 +222,85 @@ template <class BackendSelector, TensorView InputTensor>
   return output;
 }
 
+template <class BackendSelector, TensorView LhsTensor, TensorView RhsTensor>
+[[nodiscard]] auto schedule_async_inner_product(BackendSelector selector, async::Async<LhsTensor> const& lhs,
+                                                async::Async<RhsTensor> const& rhs)
+{
+  using result_type = std::remove_cvref_t<decltype(uni20::inner_product(std::declval<LhsTensor const&>(),
+                                                                        std::declval<RhsTensor const&>()))>;
+  async::Async<result_type> output;
+  output.debug_name("inner_product.result");
+  auto task = co_inner_product(std::move(selector), output.write(), lhs.read(), rhs.read());
+  task.debug_name("inner_product");
+  async::schedule(std::move(task));
+  return output;
+}
+
+template <class BackendSelector, TensorView LhsTensor, TensorView RhsTensor>
+[[nodiscard]] auto schedule_async_inner_product_host(BackendSelector selector, async::Async<LhsTensor> const& lhs,
+                                                     async::Async<RhsTensor> const& rhs)
+{
+  async::Async<tensor_element_t<LhsTensor>> output;
+  output.debug_name("inner_product_host.result");
+  auto task = co_inner_product_host(std::move(selector), output.write(), lhs.read(), rhs.read());
+  task.debug_name("inner_product_host");
+  async::schedule(std::move(task));
+  return output;
+}
+
+template <class BackendSelector, TensorView InputTensor>
+[[nodiscard]] auto schedule_async_norm(BackendSelector selector, async::Async<InputTensor> const& input)
+{
+  using result_type = std::remove_cvref_t<decltype(uni20::norm(std::declval<InputTensor const&>()))>;
+  async::Async<result_type> output;
+  output.debug_name("norm.result");
+  auto task = co_norm(std::move(selector), output.write(), input.read());
+  task.debug_name("norm");
+  async::schedule(std::move(task));
+  return output;
+}
+
+template <class BackendSelector, TensorView InputTensor>
+[[nodiscard]] auto schedule_async_norm_host(BackendSelector selector, async::Async<InputTensor> const& input)
+{
+  using result_type = make_real_t<tensor_element_t<InputTensor>>;
+  async::Async<result_type> output;
+  output.debug_name("norm_host.result");
+  auto task = co_norm_host(std::move(selector), output.write(), input.read());
+  task.debug_name("norm_host");
+  async::schedule(std::move(task));
+  return output;
+}
+
+template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView LhsTensor, TensorView RhsTensor>
+void schedule_async_inner_product_output(BackendSelector selector, async::Async<OutputTensor>& output,
+                                         async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs)
+{
+  auto const* const output_queue = std::addressof(output.queue());
+  ERROR_IF(output_queue == std::addressof(lhs.queue()) || output_queue == std::addressof(rhs.queue()),
+           "async inner-product output must not share an epoch queue with an input");
+  auto task = co_inner_product_output(std::move(selector), output.write(), lhs.read(), rhs.read());
+  task.debug_name("inner_product");
+  async::schedule(std::move(task));
+}
+
+template <class BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor>
+void schedule_async_norm_output(BackendSelector selector, async::Async<OutputTensor>& output,
+                                async::Async<InputTensor> const& input)
+{
+  validate_async_reduction_aliasing(output, input);
+  auto task = co_norm_output(std::move(selector), output.write(), input.read());
+  task.debug_name("norm");
+  async::schedule(std::move(task));
+}
+
 } // namespace detail
 
 /// \brief Schedule a full sum into an explicit async scalar tensor.
 /// \details Axis normalization is compile-time for the full reduction. Shape
 ///          preparation and backend dispatch occur after the input is readable.
 /// \pre The output must not share an epoch queue with the input.
-template <linalg::KernelBackendSelector BackendSelector, detail::AsyncTensorOutput OutputTensor, TensorView InputTensor>
+template <linalg::KernelBackendSelector BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor>
   requires MutableScalarTensorView<OutputTensor> && RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
 void sum(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
@@ -137,7 +311,7 @@ void sum(BackendSelector selector, async::Async<OutputTensor>& output, async::As
 
 /// \brief Schedule a full sum into an explicit async scalar tensor using storage policy.
 /// \pre The output must not share an epoch queue with the input.
-template <detail::AsyncTensorOutput OutputTensor, TensorView InputTensor>
+template <AsyncTensorOutput OutputTensor, TensorView InputTensor>
   requires MutableScalarTensorView<OutputTensor> && RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
 void sum(async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
@@ -153,7 +327,7 @@ void sum(async::Async<OutputTensor>& output, async::Async<InputTensor> const& in
 /// \details Negative axes are accepted. Axis errors are reported before task
 ///          submission; output shape validation or resizing occurs in the task.
 /// \pre The output must not share an epoch queue with the input.
-template <linalg::KernelBackendSelector BackendSelector, detail::AsyncTensorOutput OutputTensor, TensorView InputTensor,
+template <linalg::KernelBackendSelector BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor,
           linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
@@ -170,7 +344,7 @@ void sum(BackendSelector selector, async::Async<OutputTensor>& output, async::As
 
 /// \brief Schedule an axis-selective sum into an explicit async output using storage policy.
 /// \pre The output must not share an epoch queue with the input.
-template <detail::AsyncTensorOutput OutputTensor, TensorView InputTensor, linalg::ReductionAxis FirstAxis,
+template <AsyncTensorOutput OutputTensor, TensorView InputTensor, linalg::ReductionAxis FirstAxis,
           linalg::ReductionAxis... RestAxes>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
            std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
@@ -267,6 +441,125 @@ template <TensorView InputTensor>
   auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
   auto selector = linalg::select_backend_for<InputTensor>(operation);
   return detail::schedule_async_sum_host(std::move(selector), input);
+}
+
+/// \brief Schedule an inner product into an explicit async scalar Tensor.
+/// \pre The output must not share an epoch queue with either input.
+template <linalg::KernelBackendSelector BackendSelector, AsyncTensorOutput OutputTensor, TensorView LhsTensor,
+          TensorView RhsTensor>
+  requires MutableScalarTensorView<OutputTensor> && detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<LhsTensor>>
+void inner_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
+                   async::Async<RhsTensor> const& rhs)
+{
+  detail::schedule_async_inner_product_output(std::move(selector), output, lhs, rhs);
+}
+
+/// \brief Schedule an inner product into an explicit async scalar Tensor using storage policy.
+/// \pre The output must not share an epoch queue with either input.
+template <AsyncTensorOutput OutputTensor, TensorView LhsTensor, TensorView RhsTensor>
+  requires MutableScalarTensorView<OutputTensor> && detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<LhsTensor>>
+void inner_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
+                   async::Async<RhsTensor> const& rhs)
+{
+  auto selector = linalg::select_backend_for<OutputTensor, LhsTensor, RhsTensor>(linalg::inner_product_op{});
+  detail::schedule_async_inner_product_output(std::move(selector), output, lhs, rhs);
+}
+
+/// \brief Return an async storage-preserving Tensor inner product through an explicit selector.
+template <linalg::KernelBackendSelector BackendSelector, TensorView LhsTensor, TensorView RhsTensor>
+  requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
+           detail::ReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
+[[nodiscard]] auto inner_product(BackendSelector selector, async::Async<LhsTensor> const& lhs,
+                                 async::Async<RhsTensor> const& rhs)
+{
+  return detail::schedule_async_inner_product(std::move(selector), lhs, rhs);
+}
+
+/// \brief Return an async storage-preserving Tensor inner product using static Tensor policy.
+template <TensorView LhsTensor, TensorView RhsTensor>
+  requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
+           detail::ReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
+[[nodiscard]] auto inner_product(async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs)
+{
+  auto selector = linalg::select_backend_for<LhsTensor, RhsTensor>(linalg::inner_product_op{});
+  return detail::schedule_async_inner_product(std::move(selector), lhs, rhs);
+}
+
+/// \brief Return a nonblocking async host C++ scalar inner product through an explicit selector.
+template <linalg::KernelBackendSelector BackendSelector, TensorView LhsTensor, TensorView RhsTensor>
+  requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor>
+[[nodiscard]] auto inner_product_host(BackendSelector selector, async::Async<LhsTensor> const& lhs,
+                                      async::Async<RhsTensor> const& rhs)
+{
+  return detail::schedule_async_inner_product_host(std::move(selector), lhs, rhs);
+}
+
+/// \brief Return a nonblocking async host C++ scalar inner product using static Tensor policy.
+template <TensorView LhsTensor, TensorView RhsTensor>
+  requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor>
+[[nodiscard]] auto inner_product_host(async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs)
+{
+  auto selector = linalg::select_backend_for<LhsTensor, RhsTensor>(linalg::inner_product_op{});
+  return detail::schedule_async_inner_product_host(std::move(selector), lhs, rhs);
+}
+
+/// \brief Schedule a Euclidean norm into an explicit async scalar Tensor.
+/// \pre The output must not share an epoch queue with the input.
+template <linalg::KernelBackendSelector BackendSelector, AsyncTensorOutput OutputTensor, TensorView InputTensor>
+  requires MutableScalarTensorView<OutputTensor> && RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, make_real_t<tensor_element_t<InputTensor>>>
+void norm(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
+{
+  detail::schedule_async_norm_output(std::move(selector), output, input);
+}
+
+/// \brief Schedule a Euclidean norm into an explicit async scalar Tensor using storage policy.
+/// \pre The output must not share an epoch queue with the input.
+template <AsyncTensorOutput OutputTensor, TensorView InputTensor>
+  requires MutableScalarTensorView<OutputTensor> && RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, make_real_t<tensor_element_t<InputTensor>>>
+void norm(async::Async<OutputTensor>& output, async::Async<InputTensor> const& input)
+{
+  auto selector = linalg::select_backend_for<OutputTensor, InputTensor>(linalg::norm_op{});
+  detail::schedule_async_norm_output(std::move(selector), output, input);
+}
+
+/// \brief Return an async storage-preserving real Tensor norm through an explicit selector.
+template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           detail::ReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
+[[nodiscard]] auto norm(BackendSelector selector, async::Async<InputTensor> const& input)
+{
+  return detail::schedule_async_norm(std::move(selector), input);
+}
+
+/// \brief Return an async storage-preserving real Tensor norm using static Tensor policy.
+template <TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           detail::ReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
+[[nodiscard]] auto norm(async::Async<InputTensor> const& input)
+{
+  auto selector = linalg::select_backend_for<InputTensor>(linalg::norm_op{});
+  return detail::schedule_async_norm(std::move(selector), input);
+}
+
+/// \brief Return a nonblocking async host C++ scalar norm through an explicit selector.
+template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>>
+[[nodiscard]] auto norm_host(BackendSelector selector, async::Async<InputTensor> const& input)
+{
+  return detail::schedule_async_norm_host(std::move(selector), input);
+}
+
+/// \brief Return a nonblocking async host C++ scalar norm using static Tensor policy.
+template <TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>>
+[[nodiscard]] auto norm_host(async::Async<InputTensor> const& input)
+{
+  auto selector = linalg::select_backend_for<InputTensor>(linalg::norm_op{});
+  return detail::schedule_async_norm_host(std::move(selector), input);
 }
 
 } // namespace uni20

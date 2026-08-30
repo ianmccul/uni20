@@ -46,8 +46,11 @@ auto try_make_copy_task(OutputMdspan& output, InputMdspan& input) -> KernelTaskA
 
 /// \brief Create a CUDA copy task from normalized mdspecs.
 template <uni20::MutableMdspecLike OutputMdspan, uni20::MdspecLike InputMdspan>
-auto try_make_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output, InputMdspan& input)
-    -> KernelTaskAttempt<async::CudaTask>
+  requires(detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan> &&
+           detail::cuda_reference::is_raw_cuda_mdspec<OutputMdspan> &&
+           detail::cuda_reference::is_supported_cuda_mdspan<InputMdspan>)
+auto try_make_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output,
+                          InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {
   return detail::cuda_reference::try_make_copy_task(output, input);
 }
