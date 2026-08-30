@@ -539,10 +539,12 @@ generalized diagonals. A diagonal fixed or selected output accepts only
 diagonal inputs; dense outputs may consume diagonal inputs. Accepted diagonal
 updates operate on `diagonal_components(...)` directly rather than iterating
 or assigning structural off-diagonal zeros. Norms likewise reduce only the
-stored components. When a dense output consumes a diagonal input, non-finite
-scaling preserves exact structural off-diagonal zeros through a component-only
-slow path; non-finite diagonal AXPY likewise updates only the output diagonal.
-Ordinary finite scaling and AXPY retain their single-kernel dense paths.
+stored components. Inner products project any strided dense counterpart onto
+its diagonal, preserving the compressed operand's structural zeros. When a
+dense output consumes a diagonal input, non-finite scaling preserves exact
+structural off-diagonal zeros through a component-only slow path; non-finite
+diagonal AXPY likewise updates only the output diagonal. Ordinary finite
+scaling and AXPY retain their single-kernel dense paths.
 
 Fixed-output structural requirements are checked before any numerical block is
 modified. Block structure remains immutable. An unrestricted elementwise
