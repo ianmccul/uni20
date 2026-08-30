@@ -13,6 +13,7 @@
 #include <uni20/mdspan/diagonal_accessor.hpp>
 #include <uni20/tensor/output.hpp>
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -172,10 +173,68 @@ void contract_matrix_elements(OutputMdspan& output, Scalar alpha, Scalar beta, P
 }
 
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+void contract_two_diagonal_matrices(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta)
+{
+  auto const lhs_components = diagonal_components(lhs);
+  auto const rhs_components = diagonal_components(rhs);
+  auto update_components = [&](auto output_components) {
+    auto const extent = std::min({static_cast<uni20::index_type>(output_components.extent(0)),
+                                  static_cast<uni20::index_type>(lhs_components.extent(0)),
+                                  static_cast<uni20::index_type>(rhs_components.extent(0))});
+    for (uni20::index_type index = 0; index < static_cast<uni20::index_type>(output_components.extent(0)); ++index)
+    {
+      auto&& output_value = output_components[index];
+      if (beta == Scalar{})
+        output_value = Scalar{};
+      else
+        output_value = beta * static_cast<Scalar>(output_value);
+    }
+    if (alpha == Scalar{}) return;
+    for (uni20::index_type index = 0; index < extent; ++index)
+      output_components[index] =
+          static_cast<Scalar>(output_components[index]) +
+          alpha * static_cast<Scalar>(lhs_components[index]) * static_cast<Scalar>(rhs_components[index]);
+  };
+
+  if constexpr (uni20::MutableDiagonalMdspecLike<OutputMdspan>)
+  {
+    update_components(diagonal_components(output));
+  }
+  else
+  {
+    for (uni20::index_type row = 0; row < static_cast<uni20::index_type>(output.extent(0)); ++row)
+    {
+      for (uni20::index_type column = 0; column < static_cast<uni20::index_type>(output.extent(1)); ++column)
+      {
+        std::array<uni20::index_type, 2> const indices{row, column};
+        auto&& output_value = element_at(output, indices, std::make_index_sequence<2>{});
+        if (beta == Scalar{})
+          output_value = Scalar{};
+        else
+          output_value = beta * static_cast<Scalar>(output_value);
+      }
+    }
+    auto const extent =
+        std::min({static_cast<uni20::index_type>(output.extent(0)), static_cast<uni20::index_type>(output.extent(1)),
+                  static_cast<uni20::index_type>(lhs_components.extent(0)),
+                  static_cast<uni20::index_type>(rhs_components.extent(0))});
+    if (alpha == Scalar{}) return;
+    for (uni20::index_type index = 0; index < extent; ++index)
+      output[index, index] =
+          static_cast<Scalar>(output[index, index]) +
+          alpha * static_cast<Scalar>(lhs_components[index]) * static_cast<Scalar>(rhs_components[index]);
+  }
+}
+
+template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
 void contract_diagonal_matrices(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta,
                                 ContractionAxes<2, 2, 1> const& axes)
 {
-  if constexpr (ReadableDiagonalComponents<LhsMdspan, Scalar>)
+  if constexpr (ReadableDiagonalComponents<LhsMdspan, Scalar> && ReadableDiagonalComponents<RhsMdspan, Scalar>)
+  {
+    contract_two_diagonal_matrices(output, alpha, lhs, rhs, beta);
+  }
+  else if constexpr (ReadableDiagonalComponents<LhsMdspan, Scalar>)
   {
     auto const components = diagonal_components(lhs);
     contract_matrix_elements(output, alpha, beta, [&](uni20::index_type row, uni20::index_type column) -> Scalar {

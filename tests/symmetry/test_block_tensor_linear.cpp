@@ -166,6 +166,16 @@ TEST(BlockTensorLinearTest, PreservesGeneralizedDiagonalOutputRepresentation)
   EXPECT_DOUBLE_EQ((dense.block(key)[1, 0]), 0.0);
   EXPECT_TRUE(std::isinf(dense.block(key)[1, 1]));
 
+  dense.block(key)[0, 0] = 5.0;
+  dense.block(key)[0, 1] = 7.0;
+  dense.block(key)[1, 0] = 11.0;
+  dense.block(key)[1, 1] = 13.0;
+  axpy(dense, std::numeric_limits<double>::infinity(), diagonal);
+  EXPECT_TRUE(std::isinf(dense.block(key)[0, 0]));
+  EXPECT_DOUBLE_EQ((dense.block(key)[0, 1]), 7.0);
+  EXPECT_DOUBLE_EQ((dense.block(key)[1, 0]), 11.0);
+  EXPECT_TRUE(std::isinf(dense.block(key)[1, 1]));
+
   EXPECT_DOUBLE_EQ(norm_host(diagonal), std::sqrt(13.0));
 }
 
