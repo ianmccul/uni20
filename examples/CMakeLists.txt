@@ -27,6 +27,16 @@ uni20_add_example(spin_half_heisenberg_dmrg_example models/spin_half_heisenberg_
 add_test(NAME SpinHalfHeisenbergDmrgExample COMMAND spin_half_heisenberg_dmrg_example --check)
 add_test(NAME SpinHalfHeisenbergDmrgComplexExample
          COMMAND spin_half_heisenberg_dmrg_example --scalar=complex --check)
+add_test(NAME SpinHalfHeisenbergDmrgFloat32Example
+         COMMAND spin_half_heisenberg_dmrg_example --precision=fp32 --check)
+add_test(NAME SpinHalfHeisenbergDmrgComplexFloat32Example
+         COMMAND spin_half_heisenberg_dmrg_example --precision=fp32 --scalar=complex --check)
+if(UNI20_HAS_FLOAT128)
+  add_test(NAME SpinHalfHeisenbergDmrgFloat128Example
+           COMMAND spin_half_heisenberg_dmrg_example --precision=fp128 --check)
+  add_test(NAME SpinHalfHeisenbergDmrgComplexFloat128Example
+           COMMAND spin_half_heisenberg_dmrg_example --precision=fp128 --scalar=complex --check)
+endif()
 
 if(TARGET uni20_backend_cuda)
   uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common

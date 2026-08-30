@@ -16,13 +16,13 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | `f128` | optional `uni20::float128` |
 | `cf128` | optional `uni20::complex<uni20::float128>` |
 
-With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables optional experimental binary128
-probes for maintained matrix-free eigensolvers and exponential actions.
-MPLAPACK is an external package dependency; Uni20 does not download or build
-it. Ordinary typed tests focus on the stable `s`, `d`, `c`, and `z` paths,
-while maintained `MplapackBinary128*` targets cover selected binary128 stress
-cases. See [Krylov Precision Validation](precision_validation.md) for the
-test-level `f128` and `cf128` validation matrix.
+With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables the optional MPLAPACK binary128
+backend for maintained matrix-free eigensolvers and exponential actions. CMake
+prefers a compatible installed MPLAPACK package and otherwise fetches the pinned
+3.0.0 release. Ordinary typed tests focus on the stable `s`, `d`, `c`, and `z`
+paths, while maintained `MplapackBinary128*` targets cover selected binary128
+stress cases. See [Krylov Precision Validation](precision_validation.md) for
+the test-level `f128` and `cf128` validation matrix.
 
 Dense provider and quarantined helper coverage is tracked separately in
 [Dense BLAS/LAPACK Wrapper Coverage](../linalg/dense_blas_lapack_coverage.md).
