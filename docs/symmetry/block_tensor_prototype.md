@@ -40,6 +40,10 @@ operations:
   synchronous scheduler-batch execution across independent output blocks;
 - `PackedSparseBlockStorage`, with canonical offsets into one contiguous host
   buffer;
+- `ParallelPackedSparseBlockStorage`, with the same packed representation and
+  synchronous scheduler-batch execution across disjoint output blocks;
+- `PackedDiagonalBlockStorage`, with one contiguous host buffer containing only
+  the generalized diagonal of each explicitly stored logical block;
 - `AsyncSeparateSparseBlockStorage`, with one independently scheduled
   `Async<Tensor>` per stored block;
 - mutable and const `TensorView` access to stored blocks, using mdspan for
@@ -51,8 +55,11 @@ operations:
   keys and strided dense-block axis permutations; and
 - synchronous adjacent pairwise contraction through ordinary tensor-level
   kernel dispatch into selectable immediate-host sparse output storage;
+- synchronous adjacent grouped contraction over one or more paired boundary
+  factors, including simultaneous dense-axis lowering;
 - scheduler-batch contraction grouped by independently writable output block;
-  and
+- structure-preserving copy, zero, scaling, addition, AXPY, inner-product, and
+  norm operations over immediate, mapped, and per-block async values; and
 - the first storage-selected async lowering for rank-two dense block GEMMs.
 
 This slice is host-resident. Mapped permutation and repartition views retain an
@@ -61,7 +68,7 @@ preserve immediate data handles or async block epoch identity while changing
 only logical and mapping metadata. Payload element writes remain valid, but
 assigning or structurally modifying a source invalidates every view transitively
 built from it. The slice does not yet provide complete storage, builders, the
-general numerical block-operation surface, packed async hazards, or the
+full numerical block-operation surface, packed async hazards, or the
 remaining space kinds described below.
 
 ## 2. Initial Type Shape
@@ -149,16 +156,21 @@ occurrence order and dimensions; operations which observe a charge obtain
 
 `repartition<Side, End>(tensor)` bends one leftmost or rightmost factor across
 the morphism boundary and toggles its explicit duality. The current bosonic
-operation returns an lvalue view: it does not copy, reorder, or rewrite
+operation returns a borrowed view: it does not copy, reorder, or rewrite
 numerical payload. It may sort a transformed logical key index and may expose a
-moved dense axis through `layout_stride`. Rvalues are rejected so the view
-cannot retain a dangling storage reference.
+moved dense axis through `layout_stride`. A mapped view owns its boundary, key,
+and dense-block descriptor metadata, so temporary mapped views can be composed
+without retaining intermediate view objects. Owning tensor rvalues remain
+rejected because destroying the owner would invalidate the numerical payload.
 
 `permute<Axis...>(tensor)` uses flattened domain-then-codomain positions and
 gives the source factor at every output position. The first bosonic operation
 permutes within domain and codomain only. Moving a factor across the boundary
 is not a permutation: use `repartition`. A non-edge factor can therefore be
 moved to an edge with `permute` and then bent explicitly with `repartition`.
+`as_block_tensor_view(tensor)` is the identity form: it copies the source
+boundary, key, and block-descriptor metadata into a value-retained borrowed
+view without changing axis order or copying numerical payload.
 
 For bosonic U(1), the per-block bend factor is one. Non-abelian, fermionic, or
 braided extensions may add pivotal, `1j`, recoupling, or exchange factors to
@@ -321,7 +333,7 @@ Completeness may enable one packed allocation; it does not require one.
 
 ## 8. Initial Host Storage
 
-The implemented slice provides four sparse host policies. All use:
+The implemented slice provides six sparse host policies. All use:
 
 - canonical block-key ordering;
 - zero initialization for newly allocated numerical values;
@@ -335,6 +347,22 @@ The packed policy is the likely default for sparse scalar-block MPO sites; the
 separate policy is the simplest baseline for early block operations and
 comparison tests.
 
+`PackedDiagonalBlockStorage` also accepts an explicit sparse key set, but it
+stores only entries for which every dense index within a block is equal. A
+rank-N block with extents `(d0, ..., dN-1)` therefore owns
+`min(d0, ..., dN-1)` values; rank-zero blocks own one value. The accessor
+presents the full logical block, returning exact zero for structural
+off-diagonal entries. This representation covers ordinary rectangular
+diagonal morphisms and higher-rank copy tensors without allocating structural
+zeros. It does not infer which logical blocks exist: the BlockTensor key set
+continues to carry that symmetry structure explicitly. `diagonal_values(key)`
+provides direct access to the compressed values. Each full block view models
+`DiagonalMdspecLike`: it remains an ordinary logical rank-N `MdspecLike`, while
+`diagonal_components(block.mdspec())` exposes the rank-one strided physical
+values to specialized dense kernels. Through the full mutable block view,
+assigning zero to an off-diagonal element is permitted, while assigning a
+nonzero value violates the storage precondition.
+
 `ParallelSeparateSparseBlockStorage` uses the same independently owning block
 representation as `SeparateSparseBlockStorage`, but selects synchronous
 scheduler-batch execution for block operations. Pairwise contraction groups
@@ -343,6 +371,12 @@ Every contribution to that block stays in the same item and retains canonical
 accumulation order, so no two items write the same dense block. The active
 scheduler controls serial debug ordering or TBB parallelism, and the result is
 fully computed when `contract` returns.
+
+`ParallelPackedSparseBlockStorage` applies the same synchronous execution
+contract to `PackedSparseBlockStorage`. The packed buffer and its offsets remain
+fixed during a batch, and distinct output-block items write disjoint element
+ranges. It is useful for temporary vectors that need both canonical packed
+allocation and block-level CPU scheduling.
 
 `AsyncSeparateSparseBlockStorage` owns one `Async<ColumnMajorTensor<...>>` per
 stored key. Its `block(key)` result is a TensorView whose borrowed data
@@ -357,6 +391,13 @@ The next storage step is a distinct complete host policy which enumerates every
 legal key and models `CompleteBlockStorage`. A sparse value may happen to store
 all legal keys, but that runtime fact does not give its policy the compile-time
 complete-storage guarantee.
+
+`legal_block_keys()` returns those keys in canonical order for structural
+planning or explicit complete sparse materialization. Like
+`legal_block_count()`, it scans the full Cartesian product of key-bearing
+boundary factors and is not intended as a repeated hot-path query. A
+charge-indexed implementation may replace this scan without changing the
+observable key order.
 
 A zero extent does not remove a structurally legal key. For example,
 `DenseSpace(0)` contributes no key coordinate but produces a zero-element
@@ -430,6 +471,15 @@ tensor.async_block(key); // only AsyncLocalBlockStorageFor
 tensor.async_block_by_ordinal(ordinal);
 ```
 
+`BlockTensorView` is the common algorithm contract for this structure. It
+requires immutable boundary metadata, a canonical sorted stored-key sequence,
+stable ordinal lookup, and a dense `TensorView` for each stored block. Owning
+`BlockTensor` and mapped permutation or repartition views model the same
+concept; mutability, immediate access, and per-block async access are separate
+refinements. `BorrowedBlockTensorView` separately states that block descriptors
+materialized from a temporary view remain valid after that view is destroyed;
+the ultimate numerical payload owner must still outlive them.
+
 Const access yields read-only block value semantics. Mutable access is
 available only from a mutable tensor.
 
@@ -447,12 +497,84 @@ Generic algorithms iterate stored blocks or use `find_block`. Algorithms
 constrained to `CompleteBlockStorage` may use legal-key iteration and direct
 block access without presence probes.
 
+### Implemented linear operations
+
+The first structure-preserving numerical surface is:
+
+```cpp
+set_zero(tensor);
+scale(tensor, factor);
+
+copy(output, input);
+assign_scale(output, factor, input);
+add(output, lhs, rhs);
+add_inplace(output, input);
+axpy(output, factor, input);
+
+auto sum = add(lhs, rhs);
+auto value = inner_product(lhs, rhs);
+auto magnitude = norm(tensor);
+```
+
+These operations accept the `BlockTensorView` concept and refine it only for
+the access they perform: immediate host blocks, mutable blocks, or independent
+per-block async timelines. Owning `BlockTensor` values and zero-copy mapped
+views therefore use the same numerical surface. Operations which allocate a
+new tensor retain an explicit storage-policy choice for the owning result.
+
+All operands must have exactly equal symmetry, domain, and codomain values.
+Boundary labels and explicit duality therefore participate in compatibility.
+Legal but unstored blocks represent exact zero, which fixes the structural
+rules:
+
+- zero and in-place scaling retain the existing stored-key pattern;
+- a returned sum stores the union of the input key sets;
+- a fixed output must already contain every key needed by the operation;
+- extra blocks in an overwritten fixed output are set to zero;
+- in-place addition and AXPY leave output-only blocks unchanged; and
+- inner products use the intersection of the two stored-key sets.
+
+`DiagonalBlockTensorView` identifies values whose stored numerical blocks are
+generalized diagonals. A diagonal fixed or selected output accepts only
+diagonal inputs; dense outputs may consume diagonal inputs. Accepted diagonal
+updates operate on `diagonal_components(...)` directly rather than iterating
+or assigning structural off-diagonal zeros. Norms likewise reduce only the
+stored components. Inner products project any strided dense counterpart onto
+its diagonal, preserving the compressed operand's structural zeros. When a
+dense output consumes a diagonal input, non-finite scaling preserves exact
+structural off-diagonal zeros through a component-only slow path; non-finite
+diagonal AXPY likewise updates only the output diagonal. Ordinary finite
+scaling and AXPY retain their single-kernel dense paths.
+
+Fixed-output structural requirements are checked before any numerical block is
+modified. Block structure remains immutable. An unrestricted elementwise
+transform is intentionally absent because a function for which `f(0) != 0`
+would require materializing every legal but unstored block.
+
+Immediate parallel storage executes independent block operations through the
+scheduler batch interface. Per-block async storage schedules mutations on the
+corresponding block epoch. The current `inner_product_host` and `norm_host`
+reductions are explicitly blocking synchronization points; their rank-zero
+Tensor wrappers are `inner_product` and `norm`.
+
+`krylov::BlockTensorVectorOps<Tensor>` uses this surface to define a Krylov
+vector space from one owning prototype. Membership requires the exact frozen
+symmetry, boundary values, and stored-key pattern. Consequently,
+`allocate_like` preserves block metadata and a matrix-free `matvec` cannot
+silently widen the vector space or flatten it into a dense tensor.
+`krylov::BlockTensorMatrixFreeOps<Tensor, Operator>` adds an owned output-first
+operation callable. It validates input and output membership before every
+apply, while the callable supplies the actual Hamiltonian or environment
+contraction.
+
 ### Implemented morphism operations
 
 The first `permute<Axis...>` and `repartition<Side, End>` operations return
-zero-copy lvalue views. Both transform boundary values, canonical logical keys,
-and dense mdspec axis order while retaining every immediate payload address or
-async block epoch identity.
+zero-copy borrowed views. Both transform boundary values, canonical logical
+keys, and dense mdspec axis order while retaining every immediate payload
+address or async block epoch identity. Their owned descriptor metadata permits
+direct composition through temporary mapped views; the ultimate tensor owner
+must still outlive the result.
 Permutation is currently the bosonic symmetric-category operation with unit
 exchange factor. Non-bosonic exchange remains an explicit future braid.
 
@@ -460,6 +582,7 @@ The first pairwise contraction is:
 
 ```cpp
 auto result = contract<left_axis, right_axis>(left, right);
+contract<left_axis, right_axis>(output, left, right);
 ```
 
 It contracts only the rightmost codomain factor of `left` with the leftmost
@@ -485,6 +608,29 @@ current `SeparateSparseBlockStorage` and `PackedSparseBlockStorage` policies
 satisfy this contract. `ParallelSeparateSparseBlockStorage` also satisfies it;
 that policy groups all contributions to one output block into one synchronous
 batch item and returns only after every output block is complete.
+
+The fixed-output form preserves the output's existing structure, which is the
+required convention for Krylov `matvec`. It validates the exact result symmetry
+and boundaries and verifies that the output stores every worklist result key
+before modifying numerical data. The first contribution overwrites each
+produced block, later contributions accumulate, and output-only blocks become
+zero. Therefore an exact-pattern output incurs no preliminary whole-vector
+zero pass. Output storage must not overlap either input; direct same-object
+aliases are rejected.
+
+An immediate-host grouped form contracts a planar adjacent factor group:
+
+```cpp
+auto result = contract_adjacent<count>(left, right);
+contract_adjacent<count>(output, left, right);
+```
+
+It contracts the last `count` codomain factors of `left` with the first
+`count` domain factors of `right`. Every paired space value must be exactly
+equal. All paired block coordinates are matched together and all paired dense
+degeneracy axes are passed to one ordinary dense tensor contraction. The
+single-factor `contract<left_axis, right_axis>` interface remains the explicit
+axis form and has the same sparse semantics.
 
 When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
 front end retains the left input's async storage policy by default and returns
@@ -554,22 +700,17 @@ submitting any numerical work.
 
 ## 12. Initial Tensor-Network Aliases
 
-The intended aliases are conceptually:
+The implemented aliases in `src/uni20/tensor_network/site_types.hpp` are:
 
 ```cpp
-template<class T, CompleteBlockStorage Storage = /* packed host complete */>
-using AMatrix = BlockTensor<
-    T,
-    Domain<BlockSpace, LocalSpace>,
-    Codomain<BlockSpace>,
-    Storage>;
-
-template<class T, SparseBlockStorage Storage = /* packed host sparse */>
-using MpoSite = BlockTensor<
-    T,
-    Domain<LocalSpace, LocalSpace>,
-    Codomain<LocalSpace, LocalSpace>,
-    Storage>;
+MpsSite<Scalar, LeftBond, Physical, RightBond, Storage>
+MpoSite<Scalar, LeftAuxiliary, InputPhysical,
+        RightAuxiliary, OutputPhysical, Storage>
+MpoEnvironment<Scalar, BraBond, Auxiliary, KetBond, Storage>
+TwoSiteCenter<Scalar, LeftBond, LeftPhysical,
+              RightPhysical, RightBond, Storage>
+TwoSiteLocalOperator<Scalar, LeftPhysical, RightPhysical, Storage>
+ScalarEnvironment<Scalar, Storage>
 ```
 
 The `MpoSite` domain order is `(left auxiliary, ket)` and its codomain order is
@@ -580,8 +721,22 @@ An `MPO` is a chain of `MpoSite` values. It validates exact equality of each
 site's right auxiliary space with the next site's left auxiliary space. The
 chain is a separate owner and is not another spelling of one `BlockTensor`.
 
-Environment aliases use the same three-factor kinds as an A-matrix but select
-a storage implementation which permits missing legal blocks.
+The first `LocalTwoSiteEffectiveHamiltonian` applies a local operator to a fixed
+`TwoSiteCenter` through mapped physical-leg bends and
+`contract_adjacent<2>`. It supplies the output-first callable required by
+`krylov::BlockTensorMatrixFreeOps`. The general `TwoSiteEffectiveHamiltonian`
+joins two `MpoSite` values and two `MpoEnvironment` values into a fixed-center
+R/A/B/C term plan. The current immediate-host executor evaluates each term
+left-first through dispatched dense contractions; it neither flattens the
+center nor constructs a high-rank BlockTensor intermediate.
+
+`make_identity_mpo_environment`, `extend_left_environment`, and
+`extend_right_environment` provide the first environment-construction
+primitives. They join only stored environment, MPS, and MPO keys, allocate the
+reachable output pattern, and lower each dense contribution through ordinary
+tensor contraction dispatch. The bra MPS site is conjugated lazily. Primary
+overloads permit distinct bra and ket sites; convenience overloads use one MPS
+site for both.
 
 ## 13. Deferred Extensions
 
@@ -593,20 +748,27 @@ The first prototype deliberately defers:
 - CUDA, mixed CPU/GPU, packed async, and MPI storage;
 - replicated immutable block tensors;
 - coalescing and placement policies beyond canonical packed host storage;
-- block SVD, sector-aware singular-value selection, and factor materialization;
+- asynchronous, CUDA, and distributed block-SVD factorization and
+  materialization;
 - runtime-order Python-facing tensors.
 
 The opaque block key, explicit boundary orientation, storage concepts, and
 mdspec block interface are required now specifically so these features remain
 additive.
 
-Although SVD is deferred, its structural contract is already fixed. It follows
-the staged design in
+The initial immediate-host block SVD accepts any `ImmediateBlockTensorView` and
+follows the staged design in
 [Block SVD: decomposition, selection, and materialization](block_tensor.md#9-block-svd-decomposition-selection-and-materialization):
-factorize the required logical blocks, select metadata-bearing singular
-triplets, and only then allocate the final output tensors. Convenience helpers
-may compose those stages, but must not construct a full `BlockTensor` and
-subsequently mutate its block structure to truncate it.
+assemble and factorize one matrix per conserved charge, select
+metadata-bearing singular triplets, and only then allocate the final output
+tensors. One decomposition can independently materialize kept, discarded, or
+paired-null triplets, together with side-specific full null spaces. Missing
+stored blocks remain explicit zero submatrices in the sector assembly metadata.
+Convenience helpers may compose those stages, but must not construct a full
+`BlockTensor` and subsequently mutate its block structure to truncate it.
+In particular, a two-site tensor whose natural contraction result has a 3/1
+boundary may be zero-copy repartitioned to 2/2 and passed directly to
+`block_svd`; the fallback does not require a new owning intermediate.
 
 ## 14. Required Prototype Tests
 
@@ -623,10 +785,37 @@ permutations, const propagation, and left/right bend involution. Permutation
 tests cover boundary types and labels, key resorting, dense strides, inverse
 permutations, and the tensor unit. Pairwise contraction tests cover both input
 storage policies, packed and separate output, dense matrix multiplication,
+adjacent two-factor contraction with two dense degeneracy axes,
 cross-sector sparsity, repeated local-state accumulation into a rank-zero
 result, exact-space rejection, planar external-boundary order, and synchronous
 scheduler batching grouped by output block under both a recording debug
 scheduler and a TBB scheduler.
+Linear-operation tests cover sparse zero semantics, union-pattern result
+construction, fixed-output containment checks before mutation, exact boundary
+compatibility, complex conjugate-linear inner products, stable multi-block
+norms, mapped views, all immediate storage policies, and per-block async
+updates and reductions.
+Block-SVD tests cover global selection across charge sectors, repeatable kept
+and complement materialization, paired and side-specific null spaces,
+reconstruction for real and complex scalars, repeated-charge boundary
+fragments, implicit zero blocks, and empty selections.
+The Krylov adapter tests freeze a two-sector U(1) vector structure, reject
+boundary or stored-pattern changes, and run that BlockTensor through the native
+symmetric Lanczos solver without dense projection. Its matrix-free operation
+uses fixed-output BlockTensor contraction with a block-diagonal U(1) operator.
+The first DMRG-shaped integration test applies a U(1) two-site Heisenberg
+operator, obtains the singlet through native BlockTensor Lanczos, repartitions
+the center to 2/2, materializes its staged block SVD, and reconstructs the
+center without losing either charge sector.
+The general effective-Hamiltonian test factors the same interaction into
+neutral and charge-changing MPO channels, compiles environment/MPO paths into
+the fixed center pattern, rejects a non-closed pattern, and verifies
+nontrivial dense environment multiplication with scheduler-batched output.
+Environment tests construct multi-sector identity boundaries, update a U(1)
+Heisenberg product state from both directions, verify complex bra conjugation,
+accumulate repeated physical paths, and exercise nontrivial dense bond sizes.
+Contraction tests also cover fixed-output structure preflight, output-only zero
+blocks, direct alias rejection, and async output epoch ordering.
 Async-storage tests additionally cover mdspec const/mutable semantics, stable
 epoch identity through permutation, numerical block GEMM, one blocked sector
 not preventing an independent sector from completing, and failure propagation

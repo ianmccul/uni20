@@ -5,8 +5,12 @@
 
 #include <concepts>
 #include <type_traits>
+#include <utility>
 
 using namespace uni20;
+
+template <class Tensor>
+concept CanSwapTwoAxesAsRvalue = requires(Tensor&& tensor) { permute<1, 0>(std::forward<Tensor>(tensor)); };
 
 template <class Storage> class BlockTensorPermutationTest : public ::testing::Test {};
 
@@ -32,6 +36,7 @@ TYPED_TEST(BlockTensorPermutationTest, PermutesBoundaryTypesLabelsAndDenseAxesWi
 
   auto view = permute<1, 0, 3, 2>(tensor);
   using View = decltype(view);
+  static_assert(BorrowedBlockTensorView<View>);
   static_assert(std::same_as<typename View::domain_type, Domain<BlockSpace, BlockSpace>>);
   static_assert(std::same_as<typename View::codomain_type, Codomain<QNumSpace, QNumSpace>>);
   static_assert(!requires(Tensor& candidate) { permute<2, 1, 0, 3>(candidate); });
@@ -106,6 +111,32 @@ TYPED_TEST(BlockTensorPermutationTest, TensorUnitPermutationIsIdentityView)
   EXPECT_DOUBLE_EQ(view.block(Key{})[], 3.0);
 }
 
+TYPED_TEST(BlockTensorPermutationTest, MaterializesBorrowedIdentityMetadataWithoutCopyingPayload)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const columns(sym, {{q0, 3}}, "columns");
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, TypeParam>;
+  using Key = typename Tensor::key_type;
+  Key const key{{0, 0}};
+  Tensor tensor(sym, Domain{rows}, Codomain{columns}, {key});
+  tensor.block(key)[1, 2] = 7.0;
+
+  auto view = as_block_tensor_view(std::as_const(tensor));
+  static_assert(BorrowedBlockTensorView<decltype(view)>);
+  static_assert(!MutableBlockTensorView<decltype(view)>);
+  EXPECT_EQ(view.domain(), tensor.domain());
+  EXPECT_EQ(view.codomain(), tensor.codomain());
+  ASSERT_EQ(view.stored_keys().size(), tensor.stored_keys().size());
+  EXPECT_EQ(view.stored_keys()[0], tensor.stored_keys()[0]);
+  EXPECT_EQ(view.block(key).mdspan().data_handle(), tensor.block(key).mdspan().data_handle());
+  EXPECT_DOUBLE_EQ((view.block(key)[1, 2]), 7.0);
+
+  tensor.block(key)[1, 2] = 11.0;
+  EXPECT_DOUBLE_EQ((view.block(key)[1, 2]), 11.0);
+}
+
 TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFactorExplicitly)
 {
   Symmetry const sym{"N:U(1)"};
@@ -122,9 +153,9 @@ TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFa
   tensor.block(source_key)[] = 6.0;
   auto* const address = tensor.block(source_key).mdspan().data_handle();
 
-  auto edge = permute<0, 2, 1, 3>(tensor);
-  auto bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(edge);
+  auto bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(permute<0, 2, 1, 3>(tensor));
   using Bent = decltype(bent);
+  static_assert(BorrowedBlockTensorView<Bent>);
   static_assert(std::same_as<typename Bent::domain_type, Domain<LocalSpace, LocalSpace>>);
   static_assert(std::same_as<typename Bent::codomain_type, Codomain<LocalSpace, Dual<LocalSpace>>>);
   Key const bent_key{{0, 0, 0, 1}};
@@ -133,12 +164,14 @@ TYPED_TEST(BlockTensorPermutationTest, PermutationAndRepartitionBendAnInteriorFa
   EXPECT_EQ(bent.codomain().template space<0>().label(), "output");
   EXPECT_EQ(bent.codomain().template space<1>().label(), "moved");
   EXPECT_EQ(bent.block(bent_key).mdspan().data_handle(), address);
+  bent.block(bent_key)[] = 7.0;
+  EXPECT_DOUBLE_EQ(tensor.block(source_key)[], 7.0);
 
-  auto unbent = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent);
-  auto restored = permute<0, 2, 1, 3>(unbent);
+  auto restored = permute<0, 2, 1, 3>(repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent));
   EXPECT_EQ(restored.domain(), tensor.domain());
   EXPECT_EQ(restored.codomain(), tensor.codomain());
   EXPECT_EQ(restored.block(source_key).mdspan().data_handle(), address);
+  EXPECT_DOUBLE_EQ(restored.block(source_key)[], 7.0);
 }
 
 TEST(BlockTensorPermutationTest, AsyncMdspecPermutationPreservesEpochIdentityAndPermutesMapping)
@@ -149,11 +182,12 @@ TEST(BlockTensorPermutationTest, AsyncMdspecPermutationPreservesEpochIdentityAnd
   BlockSpace const second(sym, {{q0, 3}}, "second");
   using Tensor = BlockTensor<double, Domain<BlockSpace, BlockSpace>, Codomain<>, AsyncSeparateSparseBlockStorage<>>;
   using Key = typename Tensor::key_type;
+  static_assert(!CanSwapTwoAxesAsRvalue<Tensor>);
   Key const key{{0, 0}};
   Tensor tensor(sym, Domain{first, second}, Codomain<>{}, {key});
   auto source = tensor.block(key);
 
-  auto view = permute<1, 0>(tensor);
+  auto view = permute<1, 0>(permute<1, 0>(permute<1, 0>(tensor)));
   auto block = view.block(key);
   static_assert(MutableRankedTensorView<decltype(block), 2>);
   static_assert(!ImmediateTensorView<decltype(block)>);

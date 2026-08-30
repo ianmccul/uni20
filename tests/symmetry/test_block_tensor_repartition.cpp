@@ -35,6 +35,11 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendResortsLogicalKeysWithoutMovingS
 
   auto bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(tensor);
   using Bent = decltype(bent);
+  static_assert(BlockTensorView<Bent>);
+  static_assert(MutableBlockTensorView<Bent>);
+  static_assert(ImmediateBlockTensorView<Bent>);
+  static_assert(MutableImmediateBlockTensorView<Bent>);
+  static_assert(BorrowedBlockTensorView<Bent>);
   using BentMovedSpace = typename Bent::codomain_type::template space_type<2>;
   static_assert(Bent::domain_type::size() == 1);
   static_assert(Bent::codomain_type::size() == 3);
@@ -55,7 +60,9 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendResortsLogicalKeysWithoutMovingS
   bent.block(first_bent_key)[] = 21.0;
   EXPECT_DOUBLE_EQ(tensor.block(second_source_key)[], 21.0);
 
-  auto restored = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent);
+  auto restored = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(
+      repartition<MorphismSide::Domain, BoundaryEnd::Right>(
+          repartition<MorphismSide::Codomain, BoundaryEnd::Right>(bent)));
   static_assert(std::same_as<typename decltype(restored)::domain_type, typename Tensor::domain_type>);
   static_assert(std::same_as<typename decltype(restored)::codomain_type, typename Tensor::codomain_type>);
   EXPECT_EQ(restored.domain(), tensor.domain());
@@ -122,6 +129,9 @@ TYPED_TEST(BlockTensorRepartitionTest, RightBendPermutesDenseAxesThroughStridedV
 
   auto const_bent = repartition<MorphismSide::Domain, BoundaryEnd::Right>(std::as_const(tensor));
   auto const const_block = const_bent.block(bent_key);
+  static_assert(BlockTensorView<decltype(const_bent)>);
+  static_assert(ImmediateBlockTensorView<decltype(const_bent)>);
+  static_assert(!MutableBlockTensorView<decltype(const_bent)>);
   static_assert(std::same_as<typename decltype(const_block)::element_type, double const>);
   static_assert(!std::is_copy_assignable_v<decltype(const_bent)>);
   static_assert(!std::is_move_assignable_v<decltype(const_bent)>);

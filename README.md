@@ -11,9 +11,10 @@ the same dispatch layer, oneTBB executes independent work, and the presentation
 and diagnostic layers report results, backend decisions, stacktraces, and async
 DAG state.
 
-Current limitations are explicit. A complete symmetry-aware `BlockTensor`,
-CUDA/MPI execution, tensor-level automatic differentiation, and useful Python
-tensor bindings remain future work.
+Current limitations are explicit. The implemented bosonic U(1) `BlockTensor`
+host slice does not yet provide CUDA/MPI storage or a complete finite DMRG
+sweep; tensor-level automatic differentiation and useful Python tensor
+bindings also remain future work.
 
 Start with:
 

@@ -109,6 +109,90 @@ TYPED_TEST(BlockTensorContractionTest, ContractsDenseBlockAxisAsMatrixMultiplica
   EXPECT_DOUBLE_EQ((separate_result.block(result_key)[1, 1]), 154.0);
 }
 
+TYPED_TEST(BlockTensorContractionTest, ContractsAdjacentFactorGroupWithMultipleDenseAxes)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const first_bond(sym, {{q0, 2}}, "first-bond");
+  BlockSpace const second_bond(sym, {{q0, 3}}, "second-bond");
+  BlockSpace const columns(sym, {{q0, 2}}, "columns");
+
+  using Left =
+      BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace, BlockSpace>, typename TypeParam::left_storage>;
+  using Right =
+      BlockTensor<double, Domain<BlockSpace, BlockSpace>, Codomain<BlockSpace>, typename TypeParam::right_storage>;
+  typename Left::key_type const left_key{{0, 0, 0}};
+  typename Right::key_type const right_key{{0, 0, 0}};
+  Left left(sym, Domain{rows}, Codomain{first_bond, second_bond}, {left_key});
+  Right right(sym, Domain{first_bond, second_bond}, Codomain{columns}, {right_key});
+
+  auto left_block = left.block(left_key);
+  auto right_block = right.block(right_key);
+  for (std::size_t row = 0; row < 2; ++row)
+    for (std::size_t first = 0; first < 2; ++first)
+      for (std::size_t second = 0; second < 3; ++second)
+      {
+        left_block[row, first, second] = static_cast<double>(20 * row + 4 * first + second + 1);
+        for (std::size_t column = 0; column < 2; ++column)
+          right_block[first, second, column] = static_cast<double>(10 * first + 3 * second + column + 1);
+      }
+
+  auto result = contract_adjacent<2>(left, right);
+  using Result = decltype(result);
+  static_assert(std::same_as<typename Result::domain_type, Domain<BlockSpace>>);
+  static_assert(std::same_as<typename Result::codomain_type, Codomain<BlockSpace>>);
+  typename Result::key_type const result_key{{0, 0}};
+  auto result_block = result.block(result_key);
+  for (std::size_t row = 0; row < 2; ++row)
+    for (std::size_t column = 0; column < 2; ++column)
+    {
+      double expected = 0.0;
+      for (std::size_t first = 0; first < 2; ++first)
+        for (std::size_t second = 0; second < 3; ++second)
+          expected += left_block[row, first, second] * right_block[first, second, column];
+      EXPECT_DOUBLE_EQ((result_block[row, column]), expected);
+    }
+
+  Result fixed(sym, Domain{rows}, Codomain{columns}, {result_key});
+  fixed.block(result_key)[0, 0] = -1.0;
+  contract_adjacent<2>(fixed, left, right);
+  EXPECT_DOUBLE_EQ((fixed.block(result_key)[0, 0]), (result_block[0, 0]));
+}
+
+TEST(BlockTensorContractionTest, ContractsRealDiagonalBlocksWithComplexDenseBlocks)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 2}}, "rows");
+  BlockSpace const bond(sym, {{q0, 2}}, "bond");
+  BlockSpace const columns(sym, {{q0, 2}}, "columns");
+  using Diagonal = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedDiagonalBlockStorage<>>;
+  using Scalar = uni20::complex<double>;
+  using Dense = BlockTensor<Scalar, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  typename Diagonal::key_type const diagonal_key{{0, 0}};
+  typename Dense::key_type const dense_key{{0, 0}};
+  Diagonal diagonal(sym, Domain{rows}, Codomain{bond}, {diagonal_key});
+  Dense dense(sym, Domain{bond}, Codomain{columns}, {dense_key});
+  auto diagonal_values = diagonal.diagonal_values(diagonal_key);
+  diagonal_values[0] = 2.0;
+  diagonal_values[1] = 3.0;
+  auto dense_block = dense.block(dense_key);
+  dense_block[0, 0] = Scalar{1.0, 1.0};
+  dense_block[0, 1] = Scalar{2.0, -1.0};
+  dense_block[1, 0] = Scalar{-1.0, 0.5};
+  dense_block[1, 1] = Scalar{4.0, 2.0};
+
+  auto result = contract<1, 0>(diagonal, dense);
+  static_assert(std::same_as<typename decltype(result)::value_type, Scalar>);
+  typename decltype(result)::key_type const result_key{{0, 0}};
+  auto block = result.block(result_key);
+  EXPECT_EQ((block[0, 0]), Scalar(2.0, 2.0));
+  EXPECT_EQ((block[0, 1]), Scalar(4.0, -2.0));
+  EXPECT_EQ((block[1, 0]), Scalar(-3.0, 1.5));
+  EXPECT_EQ((block[1, 1]), Scalar(12.0, 6.0));
+}
+
 TYPED_TEST(BlockTensorContractionTest, DoesNotCreateBlocksFromMismatchedSectors)
 {
   Symmetry const sym{"N:U(1)"};
@@ -339,6 +423,49 @@ TEST(BlockTensorContractionTest, ParallelSeparateStorageBatchesByOutputBlock)
   EXPECT_DOUBLE_EQ((result.block(typename decltype(result)::key_type{{1, 1}})[0, 0]), 218.0);
 }
 
+TEST(BlockTensorContractionTest, OverwritesFixedOutputAndPreflightsItsSparseStructure)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  BlockSpace const bond(sym, {{q0, 1}, {q1, 1}}, "bond");
+  using Input = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
+  using Output = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, ParallelSeparateSparseBlockStorage<>>;
+  typename Input::key_type const key0{{0, 0}};
+  typename Input::key_type const key1{{1, 1}};
+  Input left(sym, Domain{external}, Codomain{bond}, {key0});
+  Input right(sym, Domain{bond}, Codomain{external}, {key0});
+  Output output(sym, Domain{external}, Codomain{external}, {key0, key1});
+  left.block(key0)[0, 0] = 2.0;
+  right.block(key0)[0, 0] = 3.0;
+  output.block(key0)[0, 0] = 17.0;
+  output.block(key1)[0, 0] = 19.0;
+
+  RecordingBatchScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  contract<1, 0>(output, left, right);
+
+  EXPECT_DOUBLE_EQ((output.block(key0)[0, 0]), 6.0);
+  EXPECT_DOUBLE_EQ((output.block(key1)[0, 0]), 0.0);
+  EXPECT_EQ(scheduler.batch_calls, 2);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{1, 1}));
+
+  Output exact(sym, Domain{external}, Codomain{external}, {key0});
+  exact.block(key0)[0, 0] = 29.0;
+  contract<1, 0>(exact, left, right);
+  EXPECT_DOUBLE_EQ((exact.block(key0)[0, 0]), 6.0);
+  EXPECT_EQ(scheduler.batch_calls, 3);
+  EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{1, 1, 1}));
+
+  Output incomplete(sym, Domain{external}, Codomain{external}, {key1});
+  incomplete.block(key1)[0, 0] = 23.0;
+  EXPECT_THROW((contract<1, 0>(incomplete, left, right)), std::invalid_argument);
+  EXPECT_DOUBLE_EQ((incomplete.block(key1)[0, 0]), 23.0);
+  EXPECT_THROW((contract<1, 0>(left, left, right)), std::invalid_argument);
+  EXPECT_DOUBLE_EQ((left.block(key0)[0, 0]), 2.0);
+}
+
 TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBlock)
 {
   Symmetry const sym{"N:U(1)"};
@@ -376,6 +503,29 @@ TEST(BlockTensorContractionTest, AsyncStorageSchedulesOneMatrixProductPerDenseBl
   EXPECT_DOUBLE_EQ((block[0, 1]), 64.0);
   EXPECT_DOUBLE_EQ((block[1, 0]), 139.0);
   EXPECT_DOUBLE_EQ((block[1, 1]), 154.0);
+}
+
+TEST(BlockTensorContractionTest, AsyncStorageOverwritesFixedOutputInEpochOrder)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  BlockSpace const rows(sym, {{q0, 1}}, "rows");
+  BlockSpace const bond(sym, {{q0, 1}}, "bond");
+  using Storage = AsyncSeparateSparseBlockStorage<>;
+  using Tensor = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, Storage>;
+  typename Tensor::key_type const key{{0, 0}};
+  Tensor left(sym, Domain{rows}, Codomain{bond}, {key});
+  Tensor right(sym, Domain{bond}, Codomain{rows}, {key});
+  Tensor output(sym, Domain{rows}, Codomain{rows}, {key});
+  left.async_block(key).unsafe_value_ref()[0, 0] = 5.0;
+  right.async_block(key).unsafe_value_ref()[0, 0] = 7.0;
+  output.async_block(key).unsafe_value_ref()[0, 0] = 11.0;
+
+  async::DebugScheduler scheduler;
+  async::ScopedScheduler scoped(&scheduler);
+  contract<1, 0>(output, left, right);
+
+  EXPECT_DOUBLE_EQ((output.async_block(key).get_wait(scheduler)[0, 0]), 35.0);
 }
 
 TEST(BlockTensorContractionTest, AsyncBlocksProgressIndependentlyAcrossOutputSectors)

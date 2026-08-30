@@ -35,6 +35,18 @@ does not inspect vector storage and assumes only vector allocation, copy,
 problem dimension comes from the operation object and is checked against the
 prototype or initial vector.
 
+`BlockTensorVectorOps<Tensor>` adapts one owning sparse `BlockTensor` structure
+to this vector boundary. Its constructor freezes the exact symmetry, domain,
+codomain, stored-key pattern, scalar type, and storage policy. `allocate_like`
+reproduces that block structure, while vector operations remain blockwise and
+never form a symmetry-erasing dense projection. An application-specific
+operator may compose or derive from this adapter and supply `matvec`.
+`BlockTensorMatrixFreeOps<Tensor, Operator>` is the direct composition: it owns
+an output-first callable, validates both vectors against the frozen structure,
+and then invokes `operation(output, input)`. The callable may retain immutable
+Hamiltonian and environment state. Its application must overwrite the existing
+output value rather than replace the output's fixed block structure.
+
 Generalized symmetric paths may additionally use `metric_inner_product(x, y)`.
 When it is absent, the current wrapper applies `B*y` into backend-owned scratch
 and then calls the ordinary inner product.
@@ -64,6 +76,36 @@ spectral-transform metadata use the corresponding real scalar.
 | `symmetric_lanczos_restarted_standard` | yes | yes | yes | yes | Restarted Lanczos in regular standard mode. |
 | `symmetric_lanczos_restarted_transformed` | yes | yes | yes | yes | Restarted Lanczos on caller-supplied transformed operator. |
 | `symmetric_lanczos_restarted_generalized_transformed` | yes | yes | yes | yes | Restarted generalized path using a `B` metric. |
+
+### DMRG Fixed-Step Lanczos
+
+`tensor_network::dmrg_lanczos_ground_state` is deliberately separate from the
+generic convergence-seeking solvers above. A finite-DMRG local problem is an
+intermediate optimization problem defined by the current environments. Solving
+that local problem to a tight residual while its environments are still poor
+wastes work that is better spent advancing the sweep and refreshing those
+environments.
+
+The DMRG solver therefore:
+
+- performs at most `DmrgLanczosOptions::matvec_iterations` Hamiltonian
+  applications, with a default of four;
+- uses the Hermitian three-term recurrence without full reorthogonalization;
+- stops early only on invariant-subspace breakdown or when the local problem
+  dimension is smaller than the requested work;
+- solves the resulting small real tridiagonal problem and returns its smallest
+  Ritz vector unconditionally;
+- reports a residual estimate for diagnostics, not as an acceptance criterion;
+- never restarts and does not accept a local convergence tolerance.
+
+It supports `float`, `double`, `uni20::complex<float>`, and
+`uni20::complex<double>` vector spaces through the same matrix-free operation
+boundary. The projected tridiagonal problem uses the real component type.
+
+This is a fixed-work DMRG policy, not a cheaper general eigensolver. Adaptive
+DMRG work schedules may be added later, but they must respond to sweep and
+environment progress rather than simply importing the generic Ritz-convergence
+contract.
 
 The transformed path supports the following eigenvalue maps:
 
@@ -213,6 +255,16 @@ benchmarking repository rather than in core Uni20.
 
 Supported symmetric selectors are `LargestMagnitude`, `SmallestMagnitude`,
 `LargestAlgebraic`, `SmallestAlgebraic`, and `BothEnds`.
+
+### DmrgLanczosOptions<Real>
+
+| parameter | default | meaning |
+| --- | --- | --- |
+| `matvec_iterations` | `4` | Maximum effective-Hamiltonian applications in one DMRG local update. |
+
+This policy is declared in the tensor-network module because its fixed-work
+semantics depend on the surrounding DMRG sweep. It is not part of
+`SymmetricEigenParams`.
 
 ### SymmetricTransformOptions<Scalar>
 

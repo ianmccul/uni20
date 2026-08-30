@@ -286,9 +286,18 @@ auto try_lapack_writable_matrix(Mdspan const& span) -> std::optional<
     BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
 {
   auto stage = try_mdspan_matrix_stage(span);
-  if (!stage || stage->unit_stride_axis != 0 || stage->needs_conjugation)
+  if (!stage || stage->needs_conjugation)
   {
     return std::nullopt;
+  }
+  // A 1 x N matrix with unit stride between columns is both row- and
+  // column-major. Generic BLAS staging prefers its non-singleton axis, but
+  // LAPACK may use the equivalent logical column-major representation.
+  if (stage->unit_stride_axis != 0)
+  {
+    if (stage->extent0 > 1) return std::nullopt;
+    stage->unit_stride_axis = 0;
+    stage->nonunit_stride = detail::minimum_leading_dimension(stage->extent0);
   }
   return blas_writable_matrix(*stage);
 }

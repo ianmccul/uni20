@@ -32,6 +32,7 @@ also registered with CTest as executable documentation.
 - [Linear algebra](linalg/): provider reporting, kernel dispatch, and
   Tensor GEMM.
 - [Mdspan](mdspan/): configured mdspan and formatting basics.
+- [Models](models/): symmetry-aware finite-chain model construction and DMRG.
 - [Presentation](presentation/): reports, tables, glyph policies,
   text art, diagnostics, and mdspan previews.
 - [Python](python/): Python build-information smoke example.

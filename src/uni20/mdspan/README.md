@@ -15,6 +15,8 @@ small helpers used by dense kernels and layout-aware algorithms.
   properties.
 - `conjugate_accessor.hpp`: read-only mdspan accessor adaptor and `conj(...)`
   view helper for lazy complex conjugation.
+- `diagonal_accessor.hpp`: generalized-diagonal logical mdspans backed by an
+  explicit rank-one strided component view.
 - `generated_accessor.hpp` and `generated_layout.hpp`: read-only generated
   values with synthetic, non-strided logical offset mapping.
 - `strides.hpp`: stride inspection and stride utility helpers.
@@ -52,6 +54,15 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `StridedMdspanLike` refines `MdspanLike` by requiring an always-strided
   mapping and both mdspan and mapping stride observers. It includes
   `layout_left`, `layout_right`, and `layout_stride` mappings.
+- `DiagonalMdspecLike` refines `MdspecLike` without weakening its full logical
+  rank-N interface. Off-diagonal access observes structural zero, while
+  `diagonal_components(span)` exposes the physically stored rank-one values for
+  specialized kernels. The component view preserves its signed stride, so a
+  diagonal borrowed from another tensor need not be contiguous or forward
+  ordered. The initial `make_diagonal_mdspan` factory accepts a default-accessor
+  component mdspan and therefore produces a host-domain accessor. A future CUDA
+  form must retain and propagate the CUDA component accessor rather than
+  reclassifying a raw pointer-shaped handle.
 - An extent-one axis has no observable stride. Stride coalescing treats it as
   an identity: it never blocks a merge, and the merged descriptor retains the
   non-singleton axis's stride. Generic iteration plans remove singleton axes

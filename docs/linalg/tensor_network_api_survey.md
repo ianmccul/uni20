@@ -73,7 +73,7 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 | Complex expert and refined dense solves | checked `gesv`, `getrf`/`getrs`, `getri`, and `gecon`; future `gesvx`, `gerfs`, and triangular solves | Core LU operations are implemented. Add expert/refinement data and specialized solve families when tensor-network workflows require them. |
 | Complex positive-definite and Hermitian-indefinite solves | `potrf`/`potrs`/`pocon`; `hetrf`/`hetrs`/`hecon` | Needed once metric problems, normal equations, generalized Hermitian paths, or tangent-space methods need robust complex solves. |
 | Complex equilibration | checked `lange`, `lanhe`, and `lantr`; future `geequ` family where available | Core norms are implemented. Equilibration remains useful for scaling and condition-aware solve paths. |
-| BlockTensor truncation policy layer | per-sector limits, global discarded weight, multiplet-aware hooks | Dense SVD truncation is implemented. Symmetry-aware policy must sit above per-block SVD/eigh calls so global and multiplet constraints do not leak into raw LAPACK choices. |
+| BlockTensor truncation extensions | per-sector limits, multiplet-aware hooks, async/device execution | Immediate host block SVD now assembles and factorizes each charge independently, then applies the global dense rank/cutoff/discarded-weight policy to metadata-bearing states before materialization. Per-sector and non-abelian multiplet constraints remain above raw LAPACK choices. |
 
 ### Tensor-Facing SVD Semantics
 

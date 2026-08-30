@@ -8,6 +8,7 @@ documentation tooling guides.
 - [Agent-Assisted Development](agent_assisted_development.md)
 - [Doxygen](doxygen.md)
 - [Build Information](build_information.md)
+- [Performance Measurements](performance_measurements.md)
 - [Using Git and VS Code (Traditional Chinese)](git_and_vscode_zh_tw.md)
 
 Run `scripts/check-docs.py` after adding, moving, or renaming documentation. It

@@ -220,22 +220,30 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
 - Integrate future CUDA/MPI external waits with watchdog state so a legitimate
   device or communication wait is not diagnosed as stalled CPU dataflow.
 
-### 4. Implement the symmetry-aware block tensor
+### 4. Extend the symmetry-aware block tensor
 
-The symmetry layer has quantum-number and block-space foundations but no
-complete block-sparse Tensor execution path.
+The first bosonic U(1) immediate-host BlockTensor path is implemented, including
+sparse storage, mapped views, linear operations, adjacent contraction, staged
+block SVD, and matrix-free Krylov vector algebra. Remaining work is to extend
+that path without weakening its symmetry metadata contract.
 
-- Implement the `BlockTensor` data model with typed legs, explicit legal block
-  keys, placement metadata, and one layout/memory plan.
-- Generate dense block work only after applying the applicable selection rules.
-- Lower legal block operations into the existing raw dense operation and kernel
-  dispatch layers.
+- Add complete storage, the remaining planned space kinds, and broader
+  operation coverage.
+- Extend block worklists and placement records to CUDA and MPI storage.
 - Preserve quantum numbers, local spaces, orientations, and logical block keys
-  through worklists and backend lowering.
+  through every new backend lowering.
 - Keep any dense projection explicitly diagnostic and prevent it from feeding
   back into the symmetry-aware calculation.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
   reference path.
+- Extend the implemented immediate-host staged block SVD while preserving its
+  one-matrix-per-charge factorization, stable metadata-bearing singular-state
+  selections, exact selected bond spaces, and independent kept, discarded, and
+  null-space materializations.
+- The implemented block SVD parallelizes independent charge sectors with
+  descending estimated-cost scheduling and single-threaded LAPACK inside each
+  task. Next, parallelize selected-factor population over disjoint output
+  blocks after the output structure and packed allocation have been established.
 
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
@@ -250,9 +258,16 @@ resident CUDA execution, and MPI-aware block placement. The goal is behavioral
 and performance parity through Uni20's current architecture without retaining
 the external TensorContraction implementation.
 
-- Establish a dense CPU two-site DMRG path first, using `Tensor`,
-  `Async<Tensor>`, dispatched dense kernels, matrix-free Krylov, and
-  `truncated_svd`.
+- Extend the implemented immediate-host left-environment/MPO-pair/right-
+  environment term plan with reusable intermediates and backend-aware
+  left-first/right-first selection.
+- Extend the implemented finite-chain owners, revision-aware directional
+  environment caches, selected-SVD factor absorption, and directional sweep
+  traversal with post-truncation measurement and general initial-state
+  canonicalization.
+- Extend the implemented U(1) spin-half local-space, Néel product-MPS, and
+  reduced-boundary Heisenberg-MPO builders and converged alternating sweep
+  driver into later model families.
 - Rebuild MPS, MPO, environment, model, and sweep operations over explicit
   Uni20 ownership, tensor-view, and async contracts.
 - Replace branch-specific block containers with the symmetry-aware

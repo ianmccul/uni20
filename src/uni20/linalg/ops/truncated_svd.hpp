@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -104,29 +105,27 @@ template <uni20::Real Real> void validate_svd_truncation_policy(SvdTruncationPol
            "SVD maximum discarded weight exceeds one", *policy.maximum_discarded_weight);
 }
 
-template <uni20::RankedImmediateTensorView<1> SingularValueTensor>
-[[nodiscard]] auto
-select_svd_truncation(SingularValueTensor const& singular_values,
-                      SvdTruncationPolicy<uni20::tensor_element_t<SingularValueTensor>> const& policy)
+template <uni20::Real Real, class ValueAt>
+[[nodiscard]] auto select_svd_truncation_values(std::size_t available_rank, ValueAt&& value_at,
+                                                SvdTruncationPolicy<Real> const& policy)
 {
-  using real_type = uni20::tensor_element_t<SingularValueTensor>;
+  using real_type = Real;
   validate_svd_truncation_policy(policy);
 
-  std::size_t const available_rank = static_cast<std::size_t>(singular_values.extent(0));
   std::vector<real_type> scaled_squares(available_rank);
   std::vector<real_type> discarded_scaled_squares(available_rank + 1, real_type{});
 
   real_type scale{};
   if (available_rank > 0)
   {
-    scale = singular_values[0];
+    scale = value_at(std::size_t{0});
     CHECK(uni20::isfinite(scale), scale);
     CHECK(scale >= real_type{}, scale);
 
     for (std::size_t index = 1; index < available_rank; ++index)
     {
-      real_type const previous = singular_values[static_cast<uni20::index_type>(index - 1)];
-      real_type const value = singular_values[static_cast<uni20::index_type>(index)];
+      real_type const previous = value_at(index - 1);
+      real_type const value = value_at(index);
       CHECK(uni20::isfinite(value), value);
       CHECK(value >= real_type{}, value);
       CHECK(previous >= value, previous, value);
@@ -139,7 +138,7 @@ select_svd_truncation(SingularValueTensor const& singular_values,
     for (std::size_t index = available_rank; index > 0; --index)
     {
       std::size_t const value_index = index - 1;
-      real_type const ratio = singular_values[static_cast<uni20::index_type>(value_index)] / scale;
+      real_type const ratio = value_at(value_index) / scale;
       real_type const square = ratio * ratio;
       scaled_squares[value_index] = square;
       sum.add(square);
@@ -155,8 +154,7 @@ select_svd_truncation(SingularValueTensor const& singular_values,
   if (policy.singular_value_cutoff)
   {
     std::size_t cutoff_rank = 0;
-    while (cutoff_rank < available_rank &&
-           singular_values[static_cast<uni20::index_type>(cutoff_rank)] >= *policy.singular_value_cutoff)
+    while (cutoff_rank < available_rank && value_at(cutoff_rank) >= *policy.singular_value_cutoff)
       ++cutoff_rank;
     retained_rank = std::max(retained_rank, cutoff_rank);
   }
@@ -206,13 +204,20 @@ select_svd_truncation(SingularValueTensor const& singular_values,
       .original_squared_norm = original_squared_norm,
       .discarded_weight = discarded_weight,
       .smallest_retained_singular_value =
-          retained_rank == 0
-              ? std::nullopt
-              : std::optional<real_type>{singular_values[static_cast<uni20::index_type>(retained_rank - 1)]},
+          retained_rank == 0 ? std::nullopt : std::optional<real_type>{value_at(retained_rank - 1)},
       .largest_discarded_singular_value =
-          retained_rank == available_rank
-              ? std::nullopt
-              : std::optional<real_type>{singular_values[static_cast<uni20::index_type>(retained_rank)]}};
+          retained_rank == available_rank ? std::nullopt : std::optional<real_type>{value_at(retained_rank)}};
+}
+
+template <uni20::RankedImmediateTensorView<1> SingularValueTensor>
+[[nodiscard]] auto
+select_svd_truncation(SingularValueTensor const& singular_values,
+                      SvdTruncationPolicy<uni20::tensor_element_t<SingularValueTensor>> const& policy)
+{
+  using real_type = uni20::tensor_element_t<SingularValueTensor>;
+  return select_svd_truncation_values<real_type>(
+      static_cast<std::size_t>(singular_values.extent(0)),
+      [&](std::size_t index) { return singular_values[static_cast<uni20::index_type>(index)]; }, policy);
 }
 
 template <class ExactResult>
@@ -252,6 +257,21 @@ template <class ExactResult>
       .truncation = std::move(truncation)};
 }
 } // namespace detail
+
+/// \brief Select a retained prefix from descending singular values.
+/// \details This is the common numerical policy layer used by dense and
+///          symmetry-sector SVD. The input must contain finite, nonnegative
+///          singular values in descending order.
+/// \param singular_values Singular values in descending order.
+/// \param policy Rank, cutoff, and discarded-weight criteria.
+/// \return Truncation statistics including the selected prefix extent.
+template <uni20::Real Real>
+[[nodiscard]] auto select_svd_truncation(std::span<Real const> singular_values,
+                                         SvdTruncationPolicy<Real> const& policy = {}) -> SvdTruncationInfo<Real>
+{
+  return detail::select_svd_truncation_values<Real>(
+      singular_values.size(), [&](std::size_t index) { return singular_values[index]; }, policy);
+}
 
 /// \brief Preserve a matrix and return a truncated reduced SVD through an explicit selector.
 template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>

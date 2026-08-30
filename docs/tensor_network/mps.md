@@ -1,12 +1,13 @@
 # TensorContraction Integration Finite-MPS and DMRG
 
 **Status:** functional reference implementation on the
-`tensorcontraction-integration` branch. None of the MPS, MPO, environment,
-TensorContraction, CUDA/MPI DMRG classes, or executables named below are present
-on `main`. Uni20 intends to reproduce this capability set in pure Uni20. The
-first dense CPU path should use the current `Tensor`, kernel-dispatch, Async,
-Krylov, and truncating-SVD layers; the later symmetry-aware path must recover
-the integration branch's U(1), resident CUDA, MPI placement, and block-sparse
+`tensorcontraction-integration` branch. The legacy finite-chain,
+TensorContraction, CUDA/MPI DMRG classes, and executables described below are
+not present on `main`. Current pure-Uni20 BlockTensor site types, environment
+updates, effective-Hamiltonian apply, Krylov integration, and staged block SVD
+are documented in [First Pure-Uni20 Two-Site DMRG Slice](two_site_dmrg_vertical_slice.md)
+and [MPO Environment Updates](environment_updates.md). The remaining work must
+recover the integration branch's resident CUDA, MPI placement, and full sweep
 behavior without mechanically copying its external bridge architecture.
 
 ## Scope
@@ -153,10 +154,12 @@ The recorded selection-rule conventions are:
 When comparing the length-20 open spin-1/2 Heisenberg example against an
 already-converged MPTK two-site DMRG run at bond dimension 16, the lowest local
 energy observed partway through a uni20 sweep can be slightly below the final
-converged sweep energy before the state has settled.  This is not a violation
-of the variational principle: each two-site local solve is variational in the
-current mixed-canonical environment, while the subsequent SVD truncation and
-canonical-center shift changes the state used by the next local problem.
+converged sweep energy before the state has settled. This is not a violation
+of the variational principle: each two-site Ritz vector has a variational
+Rayleigh quotient in the current mixed-canonical environment, while the
+subsequent SVD truncation and canonical-center shift changes the state used by
+the next local problem. The current fixed-step local solve is not intended to
+converge each intermediate local eigenproblem.
 
 In the observed length-20, bond-dimension-16 run, continuing for a few more
 sweeps brought the reported edge/global energy back into agreement with the MPTK

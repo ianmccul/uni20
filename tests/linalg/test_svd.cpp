@@ -276,6 +276,32 @@ TEST(SvdTest, FullLeftAndRightExtentsAreIndependent)
   expect_orthonormal_rows(full_right.right_singular_vectors_adjoint, 1.0e-12);
 }
 
+TEST(SvdTest, AcceptsSingletonRowColumnMajorMatrix)
+{
+  uni20::DenseMatrix<double> matrix(1, 2);
+  matrix[0, 0] = 3.0;
+  matrix[0, 1] = 4.0;
+  ASSERT_DOUBLE_EQ((matrix[0, 0]), 3.0);
+  ASSERT_DOUBLE_EQ((matrix[0, 1]), 4.0);
+
+  auto copy = uni20::make_tensor<uni20::ColumnMajor>(matrix);
+  ASSERT_DOUBLE_EQ((copy[0, 0]), 3.0);
+  ASSERT_DOUBLE_EQ((copy[0, 1]), 4.0);
+  auto provider = uni20::linalg::blas::try_lapack_writable_matrix(copy.mdspan());
+  ASSERT_TRUE(provider);
+  EXPECT_EQ(provider->rows, 1);
+  EXPECT_EQ(provider->cols, 2);
+  EXPECT_EQ(provider->leading_dimension, 1);
+  EXPECT_DOUBLE_EQ(provider->data[0], 3.0);
+  EXPECT_DOUBLE_EQ(provider->data[1], 4.0);
+
+  auto result = uni20::linalg::svd(matrix);
+
+  ASSERT_EQ(result.singular_values.extent(0), 1);
+  EXPECT_DOUBLE_EQ(result.singular_values[0], 5.0);
+  expect_svd_reconstruction(matrix, result, 1.0e-12);
+}
+
 TEST(SvdTest, ValuesOnlyAndOneSidedApisComputeOnlyRequestedFactors)
 {
   using scalar_type = uni20::complex<double>;

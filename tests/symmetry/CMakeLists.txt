@@ -3,6 +3,8 @@
 add_test_module(symmetry
   SOURCES test_qnum.cpp test_u1.cpp test_block_space.cpp test_space.cpp test_morphism_boundary.cpp
           test_block_tensor.cpp
+          test_block_tensor_linear.cpp
+          test_block_tensor_svd.cpp
           test_block_tensor_contract.cpp
           test_block_tensor_permute.cpp
           test_block_tensor_repartition.cpp

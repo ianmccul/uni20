@@ -10,8 +10,10 @@
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/contraction_axes.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/diagonal_accessor.hpp>
 #include <uni20/tensor/output.hpp>
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -40,6 +42,28 @@ consteval bool contraction_output_expressions(std::index_sequence<Axis...>)
     static_cast<Scalar>(span.operator[](((void)Axis, index)...));
     span.operator[](((void)Axis, index)...) = value;
   };
+}
+
+template <class Span, class Scalar>
+concept ReadableDiagonalComponents =
+    uni20::DiagonalMdspecLike<Span> &&
+    uni20::RankedMdspanLike<decltype(diagonal_components(std::declval<std::remove_cvref_t<Span> const&>())), 1> &&
+    contraction_input_expressions<decltype(diagonal_components(std::declval<std::remove_cvref_t<Span> const&>())),
+                                  Scalar>(std::make_index_sequence<1>{});
+
+template <class OutputMdspan, class LhsMdspan, class RhsMdspan, std::size_t LhsRank, std::size_t RhsRank,
+          std::size_t ContractedRank>
+consteval bool contraction_preserves_output_structure()
+{
+  constexpr std::size_t output_rank = ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank;
+  if constexpr (!uni20::DiagonalMdspecLike<OutputMdspan> || output_rank <= 1)
+    return true;
+  else if constexpr (LhsRank == 0)
+    return uni20::DiagonalMdspecLike<RhsMdspan>;
+  else if constexpr (RhsRank == 0)
+    return uni20::DiagonalMdspecLike<LhsMdspan>;
+  else
+    return ContractedRank > 0 && uni20::DiagonalMdspecLike<LhsMdspan> && uni20::DiagonalMdspecLike<RhsMdspan>;
 }
 
 template <class Span, std::size_t Rank, std::size_t... Axis>
@@ -128,6 +152,114 @@ class ContractionLoop {
     std::array<uni20::index_type, RhsRank> rhs_indices_{};
 };
 
+template <class OutputMdspan, class Scalar, class Product>
+void contract_matrix_elements(OutputMdspan& output, Scalar alpha, Scalar beta, Product&& product_at)
+{
+  for (uni20::index_type row = 0; row < static_cast<uni20::index_type>(output.extent(0)); ++row)
+  {
+    for (uni20::index_type column = 0; column < static_cast<uni20::index_type>(output.extent(1)); ++column)
+    {
+      Scalar product{};
+      if (alpha != Scalar{}) product = product_at(row, column);
+
+      std::array<uni20::index_type, 2> const output_indices{row, column};
+      auto&& output_value = element_at(output, output_indices, std::make_index_sequence<2>{});
+      if (beta == Scalar{})
+        output_value = alpha * product;
+      else
+        output_value = beta * static_cast<Scalar>(output_value) + alpha * product;
+    }
+  }
+}
+
+template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+void contract_two_diagonal_matrices(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta)
+{
+  auto const lhs_components = diagonal_components(lhs);
+  auto const rhs_components = diagonal_components(rhs);
+  auto update_components = [&](auto output_components) {
+    auto const extent = std::min({static_cast<uni20::index_type>(output_components.extent(0)),
+                                  static_cast<uni20::index_type>(lhs_components.extent(0)),
+                                  static_cast<uni20::index_type>(rhs_components.extent(0))});
+    for (uni20::index_type index = 0; index < static_cast<uni20::index_type>(output_components.extent(0)); ++index)
+    {
+      auto&& output_value = output_components[index];
+      if (beta == Scalar{})
+        output_value = Scalar{};
+      else
+        output_value = beta * static_cast<Scalar>(output_value);
+    }
+    if (alpha == Scalar{}) return;
+    for (uni20::index_type index = 0; index < extent; ++index)
+      output_components[index] =
+          static_cast<Scalar>(output_components[index]) +
+          alpha * static_cast<Scalar>(lhs_components[index]) * static_cast<Scalar>(rhs_components[index]);
+  };
+
+  if constexpr (uni20::MutableDiagonalMdspecLike<OutputMdspan>)
+  {
+    update_components(diagonal_components(output));
+  }
+  else
+  {
+    for (uni20::index_type row = 0; row < static_cast<uni20::index_type>(output.extent(0)); ++row)
+    {
+      for (uni20::index_type column = 0; column < static_cast<uni20::index_type>(output.extent(1)); ++column)
+      {
+        std::array<uni20::index_type, 2> const indices{row, column};
+        auto&& output_value = element_at(output, indices, std::make_index_sequence<2>{});
+        if (beta == Scalar{})
+          output_value = Scalar{};
+        else
+          output_value = beta * static_cast<Scalar>(output_value);
+      }
+    }
+    auto const extent =
+        std::min({static_cast<uni20::index_type>(output.extent(0)), static_cast<uni20::index_type>(output.extent(1)),
+                  static_cast<uni20::index_type>(lhs_components.extent(0)),
+                  static_cast<uni20::index_type>(rhs_components.extent(0))});
+    if (alpha == Scalar{}) return;
+    for (uni20::index_type index = 0; index < extent; ++index)
+      output[index, index] =
+          static_cast<Scalar>(output[index, index]) +
+          alpha * static_cast<Scalar>(lhs_components[index]) * static_cast<Scalar>(rhs_components[index]);
+  }
+}
+
+template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+void contract_diagonal_matrices(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta,
+                                ContractionAxes<2, 2, 1> const& axes)
+{
+  if constexpr (ReadableDiagonalComponents<LhsMdspan, Scalar> && ReadableDiagonalComponents<RhsMdspan, Scalar>)
+  {
+    contract_two_diagonal_matrices(output, alpha, lhs, rhs, beta);
+  }
+  else if constexpr (ReadableDiagonalComponents<LhsMdspan, Scalar>)
+  {
+    auto const components = diagonal_components(lhs);
+    contract_matrix_elements(output, alpha, beta, [&](uni20::index_type row, uni20::index_type column) -> Scalar {
+      if (row >= static_cast<uni20::index_type>(components.extent(0))) return {};
+      std::array<uni20::index_type, 2> rhs_indices{};
+      rhs_indices[axes.rhs_contracted[0]] = row;
+      rhs_indices[axes.rhs_surviving[0]] = column;
+      return static_cast<Scalar>(components[static_cast<typename decltype(components)::index_type>(row)]) *
+             static_cast<Scalar>(element_at(rhs, rhs_indices, std::make_index_sequence<2>{}));
+    });
+  }
+  else
+  {
+    auto const components = diagonal_components(rhs);
+    contract_matrix_elements(output, alpha, beta, [&](uni20::index_type row, uni20::index_type column) -> Scalar {
+      if (column >= static_cast<uni20::index_type>(components.extent(0))) return {};
+      std::array<uni20::index_type, 2> lhs_indices{};
+      lhs_indices[axes.lhs_surviving[0]] = row;
+      lhs_indices[axes.lhs_contracted[0]] = column;
+      return static_cast<Scalar>(element_at(lhs, lhs_indices, std::make_index_sequence<2>{})) *
+             static_cast<Scalar>(components[static_cast<typename decltype(components)::index_type>(column)]);
+    });
+  }
+}
+
 } // namespace detail
 
 /// \brief Report whether resolved mdspans support reference contraction expressions.
@@ -138,12 +270,12 @@ concept ContractionCompatible =
     uni20::Scalar<Scalar> && uni20::RankedMdspanLike<LhsMdspan, LhsRank> &&
     uni20::RankedMdspanLike<RhsMdspan, RhsRank> &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>, Scalar> &&
-    std::same_as<std::remove_cv_t<typename std::remove_cvref_t<LhsMdspan>::element_type>, Scalar> &&
-    std::same_as<std::remove_cv_t<typename std::remove_cvref_t<RhsMdspan>::element_type>, Scalar> &&
     detail::contraction_output_expressions<OutputMdspan, Scalar>(
         std::make_index_sequence<ContractionAxes<LhsRank, RhsRank, ContractedRank>::output_rank>{}) &&
     detail::contraction_input_expressions<LhsMdspan, Scalar>(std::make_index_sequence<LhsRank>{}) &&
     detail::contraction_input_expressions<RhsMdspan, Scalar>(std::make_index_sequence<RhsRank>{}) &&
+    detail::contraction_preserves_output_structure<OutputMdspan, LhsMdspan, RhsMdspan, LhsRank, RhsRank,
+                                                   ContractedRank>() &&
     requires(Scalar value) {
       value += value * value;
       { value == Scalar{} } -> std::convertible_to<bool>;
@@ -151,9 +283,11 @@ concept ContractionCompatible =
     };
 
 /// \brief Execute a fixed-output pairwise contraction over resolved host mdspans.
-/// \details This correctness implementation evaluates every operand through
-///          its accessor. It supports rank-zero operands, outer products, empty
-///          contracted extents, and arbitrary mdspan mappings.
+/// \details Rank-two contractions with a generalized-diagonal operand read its
+///          rank-one stored components directly. The general correctness path
+///          evaluates every operand through its accessor and supports rank-zero
+///          operands, outer products, empty contracted extents, and arbitrary
+///          mdspan mappings.
 template <class OutputMdspan, uni20::Scalar Scalar, class LhsMdspan, class RhsMdspan, std::size_t LhsRank,
           std::size_t RhsRank, std::size_t ContractedRank>
   requires ContractionCompatible<OutputMdspan, Scalar, LhsMdspan, RhsMdspan, LhsRank, RhsRank, ContractedRank>
@@ -165,9 +299,18 @@ void contract(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs
   CHECK(uni20::tensor_extents_equal(output.extents(), required_extents),
         "contraction output extents do not match the surviving input axes");
 
-  detail::ContractionLoop<OutputMdspan, Scalar, LhsMdspan, RhsMdspan, LhsRank, RhsRank, ContractedRank> loop{
-      output, alpha, lhs, rhs, beta, axes};
-  loop.run();
+  if constexpr (LhsRank == 2 && RhsRank == 2 && ContractedRank == 1 &&
+                (detail::ReadableDiagonalComponents<LhsMdspan, Scalar> ||
+                 detail::ReadableDiagonalComponents<RhsMdspan, Scalar>))
+  {
+    detail::contract_diagonal_matrices(output, alpha, lhs, rhs, beta, axes);
+  }
+  else
+  {
+    detail::ContractionLoop<OutputMdspan, Scalar, LhsMdspan, RhsMdspan, LhsRank, RhsRank, ContractedRank> loop{
+        output, alpha, lhs, rhs, beta, axes};
+    loop.run();
+  }
 }
 
 } // namespace uni20::linalg::cpu

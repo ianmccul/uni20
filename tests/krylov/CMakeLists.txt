@@ -18,6 +18,21 @@ add_test_module(krylov
 target_compile_definitions(uni20_krylov_tests PRIVATE
     UNI20_KRYLOV_MATRIX_MARKET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/matrix_market")
 
+add_test_module(krylov_block_tensor
+  SOURCES
+    test_block_tensor_vector.cpp
+    test_dmrg_lanczos.cpp
+    test_finite_environment_cache.cpp
+    test_mpo_environment.cpp
+    test_two_site_dmrg_slice.cpp
+    test_two_site_dmrg_sweep.cpp
+    test_two_site_split.cpp
+  LIBS
+    uni20_krylov
+    uni20_symmetry
+    uni20_tensor_network
+)
+
 if(UNI20_ENABLE_MPLAPACK)
   add_executable(uni20_krylov_mplapack_binary128_tests
     test_mplapack_binary128_krylov_solvers.cpp

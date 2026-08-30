@@ -1,8 +1,28 @@
 # R/A/B/C Contraction Scheduling
 
 **Status:** active architecture informed by the separate TensorContraction
-prototype. The described R/A/B/C execution path is not a runnable target on the
-current main branch.
+prototype. The first pure-Uni20 immediate-host fixed-center term compiler and
+left-first executor are implemented. Reuse-aware planning, CUDA/MPI placement,
+and the cost model described below remain future work.
+
+## Current Pure-Uni20 Reference Path
+
+`tensor_network::TwoSiteEffectiveHamiltonian` joins stored logical keys from a
+left environment, two MPO sites, and a right environment. Construction binds
+each valid path to fixed input/output center block ordinals and rejects a center
+pattern that omits a reachable output. Application groups terms by output block
+and currently evaluates:
+
+```text
+X = A * B
+R += alpha * X * transpose(C)
+```
+
+Both dense contractions use ordinary Uni20 linalg dispatch. Parallel-separate
+output storage runs distinct output groups as synchronous scheduler batch
+items. This is the correctness reference for later planner work, not yet an
+optimized R/A/B/C executor: it allocates a temporary per term and does not
+reuse common `(A,B)` or `(B,C)` products.
 
 This note records the intended Uni20 replacement for the temporary
 TensorContraction `Arranger`/`Swapper` scheduling model.
