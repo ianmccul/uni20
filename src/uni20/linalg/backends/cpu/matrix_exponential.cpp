@@ -157,7 +157,7 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> pade3(uni20::DenseMatrix<S
 {
   std::array<Scalar, 4> const b{exact_integer<Scalar>(120), exact_integer<Scalar>(60), exact_integer<Scalar>(12),
                                 exact_integer<Scalar>(1)};
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   uni20::DenseMatrix<Scalar> const identity = make_identity<Scalar>(n);
   uni20::DenseMatrix<Scalar> const A2 = multiply(A, A);
 
@@ -173,7 +173,7 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> pade5(uni20::DenseMatrix<S
 {
   std::array<Scalar, 6> const b{exact_integer<Scalar>(30240), exact_integer<Scalar>(15120), exact_integer<Scalar>(3360),
                                 exact_integer<Scalar>(420),   exact_integer<Scalar>(30),    exact_integer<Scalar>(1)};
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   uni20::DenseMatrix<Scalar> const identity = make_identity<Scalar>(n);
   uni20::DenseMatrix<Scalar> const A2 = multiply(A, A);
   uni20::DenseMatrix<Scalar> const A4 = multiply(A2, A2);
@@ -193,7 +193,7 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> pade7(uni20::DenseMatrix<S
                                 exact_integer<Scalar>(1995840),  exact_integer<Scalar>(277200),
                                 exact_integer<Scalar>(25200),    exact_integer<Scalar>(1512),
                                 exact_integer<Scalar>(56),       exact_integer<Scalar>(1)};
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   uni20::DenseMatrix<Scalar> const identity = make_identity<Scalar>(n);
   uni20::DenseMatrix<Scalar> const A2 = multiply(A, A);
   uni20::DenseMatrix<Scalar> const A4 = multiply(A2, A2);
@@ -221,7 +221,7 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> pade9(uni20::DenseMatrix<S
                                  exact_integer<Scalar>(3960),
                                  exact_integer<Scalar>(90),
                                  exact_integer<Scalar>(1)};
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   uni20::DenseMatrix<Scalar> const identity = make_identity<Scalar>(n);
   uni20::DenseMatrix<Scalar> const A2 = multiply(A, A);
   uni20::DenseMatrix<Scalar> const A4 = multiply(A2, A2);
@@ -257,7 +257,7 @@ uni20::DenseMatrix<Scalar> pade13(uni20::DenseMatrix<Scalar> const& A, uni20::De
                                  exact_integer<Scalar>(182),
                                  exact_integer<Scalar>(1)};
 
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   uni20::DenseMatrix<Scalar> const identity = make_identity<Scalar>(n);
 
   uni20::DenseMatrix<Scalar> const first = linear_combination<Scalar>(n, n, {{&A6, b[13]}, {&A4, b[11]}, {&A2, b[9]}});
@@ -431,9 +431,9 @@ template <typename Scalar> uni20::make_real_t<Scalar> real_value(Scalar const& v
 
 template <typename Scalar> void validate_finite_entries(uni20::DenseMatrix<Scalar> const& A)
 {
-  for (uni20::index_type row = 0; row < A.rows(); ++row)
+  for (uni20::index_type col = 0; col < A.cols(); ++col)
   {
-    for (uni20::index_type col = 0; col < A.cols(); ++col)
+    for (uni20::index_type row = 0; row < A.rows(); ++row)
     {
       if constexpr (uni20::Complex<Scalar>)
       {
@@ -525,7 +525,7 @@ uni20::DenseMatrix<Scalar> matrix_exponential_scaled(uni20::DenseMatrix<Scalar> 
     return uni20::DenseMatrix<Scalar>();
   }
 
-  std::size_t const n = A.rows();
+  std::size_t const n = static_cast<std::size_t>(A.rows());
   detail::validate_finite_entries(A);
 
   uni20::DenseMatrix<Scalar> skew_symmetric_3x3_result;
