@@ -355,8 +355,8 @@ uni20::make_real_t<Scalar> matrix_max_abs_log2_upper_bound(uni20::DenseMatrix<Sc
   using Real = uni20::make_real_t<Scalar>;
 
   Real result = -uni20::numeric_limits<Real>::infinity();
-  for (uni20::index_type row = 0; row < mat.rows(); ++row)
-    for (uni20::index_type col = 0; col < mat.cols(); ++col)
+  for (uni20::index_type col = 0; col < mat.cols(); ++col)
+    for (uni20::index_type row = 0; row < mat.rows(); ++row)
       result = std::max(result, entry_abs_log2_upper_bound(mat[row, col]));
   return result;
 }
@@ -391,8 +391,8 @@ template <typename Scalar> bool has_real_entries(uni20::DenseMatrix<Scalar> cons
   else
   {
     using Real = uni20::make_real_t<Scalar>;
-    for (uni20::index_type row = 0; row < A.rows(); ++row)
-      for (uni20::index_type col = 0; col < A.cols(); ++col)
+    for (uni20::index_type col = 0; col < A.cols(); ++col)
+      for (uni20::index_type row = 0; row < A.rows(); ++row)
         if (A[row, col].imag() != Real{}) return false;
     return true;
   }
