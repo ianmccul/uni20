@@ -69,6 +69,49 @@ TEST(DmrgLanczosTest, KeepsTheFixedBudgetForAUniformlySmallHamiltonian)
   EXPECT_LT(result.energy, 1.1e-20);
 }
 
+TEST(DmrgLanczosTest, NormalizesUniformlyTinyInitialAndResidualVectors)
+{
+  using Vector = uni20::krylov::DenseHostVector<double>;
+  uni20::krylov::DenseHostVectorOps<double> ops(2, {0.0, 1.0e-310, 1.0e-310, 0.0});
+  Vector const initial{{1.0e-310, 0.0}};
+
+  auto const result = uni20::tensor_network::dmrg_lanczos_ground_state<double>(ops, initial, {.matvec_iterations = 2});
+
+  EXPECT_EQ(result.matvec_count, 2);
+  EXPECT_TRUE(std::isfinite(result.energy));
+  ASSERT_EQ(result.vector.values.size(), 2U);
+  EXPECT_TRUE(std::isfinite(result.vector.values[0]));
+  EXPECT_TRUE(std::isfinite(result.vector.values[1]));
+  EXPECT_NEAR(std::hypot(result.vector.values[0], result.vector.values[1]), 1.0, 1.0e-14);
+}
+
+TEST(DmrgLanczosTest, NormalizesAtTheReciprocalOverflowBoundary)
+{
+  using Vector = uni20::krylov::DenseHostVector<double>;
+  uni20::krylov::DenseHostVectorOps<double> ops(1, {1.0});
+  double const boundary = 1.0 / uni20::numeric_limits<double>::max();
+  ASSERT_TRUE(std::isinf(1.0 / boundary));
+  Vector const initial{{boundary}};
+
+  auto const result = uni20::tensor_network::dmrg_lanczos_ground_state<double>(ops, initial);
+
+  ASSERT_EQ(result.vector.values.size(), 1U);
+  EXPECT_TRUE(std::isfinite(result.vector.values[0]));
+  EXPECT_NEAR(std::abs(result.vector.values[0]), 1.0, 1.0e-14);
+}
+
+TEST(DmrgLanczosTest, ProjectionImaginaryToleranceUsesTheLocalActionScale)
+{
+  using Scalar = uni20::complex<double>;
+  Scalar const projected{-5.7e11, 2.8e-2};
+
+  EXPECT_THROW((void)uni20::tensor_network::detail::dmrg_lanczos_projection_scalar(projected), std::runtime_error);
+  EXPECT_NO_THROW({
+    double const real_part = uni20::tensor_network::detail::dmrg_lanczos_projection_scalar(projected, 4.6e14);
+    EXPECT_DOUBLE_EQ(real_part, projected.real());
+  });
+}
+
 TEST(DmrgLanczosTest, SupportsComplexHermitianLocalWavefunctions)
 {
   using Scalar = uni20::complex<double>;

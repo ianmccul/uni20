@@ -55,14 +55,15 @@ namespace detail
 {
 
 template <uni20::LapackRealOrComplex Scalar>
-auto dmrg_lanczos_projection_scalar(Scalar value) -> uni20::make_real_t<Scalar>
+auto dmrg_lanczos_projection_scalar(Scalar value,
+                                    uni20::make_real_t<Scalar> local_scale = {1}) -> uni20::make_real_t<Scalar>
 {
   using Real = uni20::make_real_t<Scalar>;
   using std::abs;
   Real const real_part = static_cast<Real>(uni20::real(value));
   if constexpr (uni20::Complex<Scalar>)
   {
-    Real const scale = std::max(Real{1}, abs(real_part));
+    Real const scale = std::max({Real{1}, local_scale, static_cast<Real>(abs(value))});
     Real const tolerance = Real{100} * uni20::numeric_limits<Real>::epsilon() * scale;
     if (abs(static_cast<Real>(uni20::imag(value))) > tolerance)
       throw std::runtime_error("DMRG Lanczos received a non-real projected diagonal");
@@ -75,6 +76,27 @@ template <uni20::Real Real> auto dmrg_lanczos_breakdown(Real beta, Real alpha, R
   using std::abs;
   Real const scale = std::max(abs(alpha), abs(previous_beta));
   return beta <= Real{10} * uni20::numeric_limits<Real>::epsilon() * scale;
+}
+
+template <uni20::LapackRealOrComplex Scalar, class Vector, class Ops>
+void normalize_dmrg_lanczos_vector(Ops& ops, Vector& vector, uni20::make_real_t<Scalar> norm)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  Real const maximum = uni20::numeric_limits<Real>::max();
+  Real const reciprocal = Real{1} / norm;
+  if (uni20::isfinite(reciprocal))
+  {
+    ops.scal(vector, static_cast<Scalar>(reciprocal));
+    return;
+  }
+
+  // A uniformly tiny vector still has a meaningful direction, but its direct
+  // reciprocal is not representable. Lift it into the normal range first.
+  ops.scal(vector, static_cast<Scalar>(maximum));
+  Real const lifted_norm = krylov::norm_or_inner_product<Scalar>(ops, vector);
+  if (!(lifted_norm > Real{}) || !uni20::isfinite(lifted_norm))
+    throw std::runtime_error("DMRG Lanczos could not normalize a finite nonzero vector");
+  ops.scal(vector, Scalar{1} / static_cast<Scalar>(lifted_norm));
 }
 
 } // namespace detail
@@ -120,7 +142,7 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
   Real const start_norm = krylov::norm_or_inner_product<Scalar>(ops, start);
   if (!(start_norm > Real{}) || !uni20::isfinite(start_norm))
     throw std::invalid_argument("DMRG Lanczos initial vector must have a finite nonzero norm");
-  ops.scal(start, Scalar{1} / static_cast<Scalar>(start_norm));
+  detail::normalize_dmrg_lanczos_vector<Scalar>(ops, start, start_norm);
   basis.push_back(std::move(start));
 
   Real final_residual_norm{};
@@ -134,7 +156,10 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
     Real const previous_beta = step == 0 ? Real{} : subdiagonal[step - 1];
     if (step > 0) ops.axpy(residual, -static_cast<Scalar>(previous_beta), basis[step - 1]);
 
-    Real const alpha = detail::dmrg_lanczos_projection_scalar<Scalar>(ops.inner_product(basis[step], residual));
+    Real projection_scale = Real{1};
+    if constexpr (uni20::Complex<Scalar>) projection_scale = krylov::norm_or_inner_product<Scalar>(ops, residual);
+    Real const alpha =
+        detail::dmrg_lanczos_projection_scalar<Scalar>(ops.inner_product(basis[step], residual), projection_scale);
     diagonal.push_back(alpha);
     ops.axpy(residual, -static_cast<Scalar>(alpha), basis[step]);
 
@@ -143,7 +168,7 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
     final_residual_norm = beta;
     if (step + 1 == basis_limit || detail::dmrg_lanczos_breakdown(beta, alpha, previous_beta)) break;
 
-    ops.scal(residual, Scalar{1} / static_cast<Scalar>(beta));
+    detail::normalize_dmrg_lanczos_vector<Scalar>(ops, residual, beta);
     subdiagonal.push_back(beta);
     basis.push_back(std::move(residual));
   }

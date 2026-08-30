@@ -192,6 +192,43 @@ TEST(BlockTensorSvd, SelectsAcrossSectorsAndMaterializesComplementIndependently)
   EXPECT_NEAR(discarded.truncation().discarded_weight, 25.0 / 26.0, 1.0e-14);
 }
 
+TEST(BlockTensorSvd, MaterializationRecomputesStatisticsForTheTargetDecomposition)
+{
+  Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = QNum::identity(symmetry);
+  BlockSpace const space(symmetry, {{q0, 2}}, "space");
+  using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  using Key = Matrix::key_type;
+  Key const key{{0, 0}};
+
+  Matrix selection_source(symmetry, Domain{space}, Codomain{space}, {key});
+  auto selection_source_block = selection_source.block(key);
+  selection_source_block[0, 0] = 2.0;
+  selection_source_block[0, 1] = 0.0;
+  selection_source_block[1, 0] = 0.0;
+  selection_source_block[1, 1] = 1.0;
+  auto source_decomposition = block_svd(selection_source);
+  auto selection = select_svd_states(source_decomposition.spectrum(),
+                                     linalg::SvdTruncationPolicy<double>{.maximum_retained_extent = 1});
+
+  Matrix target(symmetry, Domain{space}, Codomain{space}, {key});
+  auto target_block = target.block(key);
+  target_block[0, 0] = 4.0;
+  target_block[0, 1] = 0.0;
+  target_block[1, 0] = 0.0;
+  target_block[1, 1] = 3.0;
+  auto target_decomposition = block_svd(target);
+  auto factors = materialize_svd(target_decomposition, selection);
+
+  EXPECT_DOUBLE_EQ(selection.truncation().original_squared_norm, 5.0);
+  EXPECT_DOUBLE_EQ(factors.truncation.original_squared_norm, 25.0);
+  EXPECT_DOUBLE_EQ(factors.truncation.discarded_weight, 9.0 / 25.0);
+  ASSERT_TRUE(factors.truncation.smallest_retained_singular_value.has_value());
+  EXPECT_DOUBLE_EQ(*factors.truncation.smallest_retained_singular_value, 4.0);
+  ASSERT_TRUE(factors.truncation.largest_discarded_singular_value.has_value());
+  EXPECT_DOUBLE_EQ(*factors.truncation.largest_discarded_singular_value, 3.0);
+}
+
 TEST(BlockTensorSvd, FullSelectionReconstructsEveryChargeSector)
 {
   Symmetry const symmetry{"N:U(1)"};
