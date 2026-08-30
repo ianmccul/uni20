@@ -3033,7 +3033,7 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   uni20::krylov::axpy(mutable_span(axpy_destination), Binary128{1}, const_span(axpy_source));
   EXPECT_TRUE(abs_error(axpy_destination[0], one_plus_delta) <= tolerance());
 
-  uni20::krylov::Matrix<Binary128> matrix(1, 2);
+  uni20::DenseMatrix<Binary128> matrix(1, 2);
   matrix[0, 0] = one_plus_delta;
   matrix[0, 1] = Binary128{-1};
   std::vector<Binary128> vector{Binary128{1}, Binary128{1}};
@@ -3041,7 +3041,7 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   uni20::krylov::gemv(mutable_span(output), Binary128{1}, matrix, const_span(vector), Binary128{});
   EXPECT_TRUE(abs_error(output[0], delta) <= tolerance());
 
-  uni20::krylov::Matrix<Binary128> rank_one(1, 1);
+  uni20::DenseMatrix<Binary128> rank_one(1, 1);
   std::vector<Binary128> left{one_plus_delta};
   std::vector<Binary128> right{Binary128{1}};
   uni20::krylov::geru(rank_one, Binary128{1}, const_span(left), const_span(right));
@@ -3213,7 +3213,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedSymmetricTridiagonalResolvesGap
 
 TEST(MplapackBinary128DenseSubspaceTest, ComputesRealSchurDecomposition)
 {
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 0] = Binary128{-2};
   matrix[0, 1] = Binary128{2};
@@ -3237,7 +3237,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergSchurResolvesDiagonalGapBelow
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> hessenberg(3, 3);
+  uni20::DenseMatrix<Binary128> hessenberg(3, 3);
   hessenberg[0, 0] = Binary128{1};
   hessenberg[1, 1] = Binary128{1} + delta;
   hessenberg[2, 2] = Binary128{2};
@@ -3262,7 +3262,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergSchurResolvesDiagonalGapBelow
 
 TEST(MplapackBinary128DenseSubspaceTest, SolvesRealNonsymmetricEigenvalues)
 {
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 1] = Binary128{-1};
   matrix[2, 2] = Binary128{2};
@@ -3285,7 +3285,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesRealNonsymmetricEigenvalueGapBe
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
@@ -3309,7 +3309,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ExpertRealNonsymmetricEigensystemReport
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
@@ -3344,7 +3344,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealNonsymmetricMatrixWithTinyB
   Binary128 const tiny = binary_power_of_two(-8000);
   expect_value_underflows_to_double_zero(tiny);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
   matrix[0, 1] = tiny;
   matrix[1, 0] = Binary128{1};
 
@@ -3359,7 +3359,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealNonsymmetricMatrixWithTinyB
   EXPECT_EQ(static_cast<double>(result.balanced_matrix[0, 1]), 0.0);
   EXPECT_TRUE((result.balanced_matrix[1, 0] > Binary128{}));
 
-  uni20::krylov::Matrix<Binary128> vectors(2, 1);
+  uni20::DenseMatrix<Binary128> vectors(2, 1);
   vectors[0, 0] = Binary128{1};
   auto transformed = uni20::krylov::real_nonsymmetric_balance_backtransform_right_vectors(
       vectors, result, uni20::krylov::RealNonsymmetricBalanceJob::Scale);
@@ -3374,11 +3374,11 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealGeneralizedNonsymmetricPenc
   Binary128 const tiny = binary_power_of_two(-8000);
   expect_value_underflows_to_double_zero(tiny);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
   matrix[0, 1] = tiny;
   matrix[1, 0] = Binary128{1};
 
-  uni20::krylov::Matrix<Binary128> metric(2, 2);
+  uni20::DenseMatrix<Binary128> metric(2, 2);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
 
@@ -3397,7 +3397,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealGeneralizedNonsymmetricPenc
   EXPECT_EQ(static_cast<double>(result.balanced_matrix[0, 1]), 0.0);
   EXPECT_TRUE((result.balanced_matrix[1, 0] > Binary128{}));
 
-  uni20::krylov::Matrix<Binary128> vectors(2, 1);
+  uni20::DenseMatrix<Binary128> vectors(2, 1);
   vectors[0, 0] = Binary128{1};
   auto transformed = uni20::krylov::real_generalized_nonsymmetric_balance_backtransform_right_vectors(
       vectors, result, uni20::krylov::RealNonsymmetricBalanceJob::Scale);
@@ -3528,13 +3528,13 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesRealGeneralizedNonsymmetricEige
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
   metric[2, 2] = Binary128{3};
@@ -3581,13 +3581,13 @@ TEST(MplapackBinary128DenseSubspaceTest, ExpertRealGeneralizedNonsymmetricEigens
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
   metric[2, 2] = Binary128{3};
@@ -3628,12 +3628,12 @@ TEST(MplapackBinary128DenseSubspaceTest, RealGeneralizedSchurResolvesMetricGapBe
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3666,12 +3666,12 @@ TEST(MplapackBinary128DenseSubspaceTest, ReordersGeneralizedSchurBlockSeparatedO
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3704,12 +3704,12 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedGeneralizedSchurSubspaceKeepsBi
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3746,12 +3746,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurRightEigenvectorsUseBin
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3784,12 +3784,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionEstimatesUseBi
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  uni20::DenseMatrix<Binary128> metric(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3822,7 +3822,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionEstimatesUseBi
 
 TEST(MplapackBinary128DenseSubspaceTest, ReordersRealSchurBlocks)
 {
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{3};
   matrix[2, 2] = Binary128{2};
@@ -3849,7 +3849,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ReordersSchurBlockSeparatedOnlyInBinary
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};
@@ -3878,7 +3878,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedSchurSubspaceKeepsBinary128Sepa
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};

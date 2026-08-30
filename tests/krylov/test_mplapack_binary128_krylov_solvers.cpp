@@ -165,7 +165,7 @@ TEST(MplapackBinary128KrylovSolversTest, RealSchurAndReorderUseBinary128Projecte
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  uni20::DenseMatrix<Binary128> matrix(3, 3);
   uni20::linalg::set_matrix(matrix, Binary128{}, Binary128{});
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
@@ -187,7 +187,7 @@ TEST(MplapackBinary128KrylovSolversTest, RealHessenbergSchurUsesBinary128Project
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> hessenberg(3, 3);
+  uni20::DenseMatrix<Binary128> hessenberg(3, 3);
   uni20::linalg::set_matrix(hessenberg, Binary128{}, Binary128{});
   hessenberg[0, 0] = Binary128{1};
   hessenberg[1, 1] = Binary128{1} + delta;
@@ -245,7 +245,7 @@ TEST(MplapackBinary128KrylovSolversTest, ComplexSchurAndReorderUseBinary128Proje
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<ComplexBinary128> matrix(3, 3);
+  uni20::DenseMatrix<ComplexBinary128> matrix(3, 3);
   uni20::linalg::set_matrix(matrix, ComplexBinary128{}, ComplexBinary128{});
   matrix[0, 0] = ComplexBinary128{Binary128{1}, delta};
   matrix[1, 1] = ComplexBinary128{Binary128{1} + delta, Binary128{2} * delta};

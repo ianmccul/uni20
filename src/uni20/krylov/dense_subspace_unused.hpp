@@ -12,7 +12,7 @@ namespace uni20::krylov
 template <uni20::LapackReal Scalar> struct RealSymmetricEigensystem
 {
     std::vector<Scalar> eigenvalues;
-    Matrix<Scalar> eigenvectors;
+    uni20::DenseMatrix<Scalar> eigenvectors;
 };
 
 /// \brief Eigenvalues and optional eigenvectors of a dense complex Hermitian matrix.
@@ -20,7 +20,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricEigensystem
 template <uni20::LapackComplexReal Real> struct ComplexHermitianEigensystem
 {
     std::vector<Real> eigenvalues;
-    Matrix<uni20::complex<Real>> eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> eigenvectors;
 };
 
 /// \brief Singular values and optional singular vectors of a dense real matrix.
@@ -28,15 +28,15 @@ template <uni20::LapackComplexReal Real> struct ComplexHermitianEigensystem
 template <uni20::LapackReal Scalar> struct RealSingularValueDecomposition
 {
     std::vector<Scalar> singular_values;
-    Matrix<Scalar> left_singular_vectors;
-    Matrix<Scalar> right_singular_vectors_transpose;
+    uni20::DenseMatrix<Scalar> left_singular_vectors;
+    uni20::DenseMatrix<Scalar> right_singular_vectors_transpose;
 };
 
 /// \brief LU factorization of a dense real square matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealLuFactorization
 {
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
 };
 
@@ -48,7 +48,7 @@ template <uni20::LapackReal Scalar> struct RealLuFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralBandMatrix
 {
-    Matrix<Scalar> storage;
+    uni20::DenseMatrix<Scalar> storage;
     std::size_t order = 0;
     std::size_t lower_bandwidth = 0;
     std::size_t upper_bandwidth = 0;
@@ -91,7 +91,7 @@ template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     RealGeneralTridiagonalFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -103,7 +103,7 @@ template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalExpertLinearSol
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralBandExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     RealGeneralBandMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
     Scalar reciprocal_condition = Scalar{};
@@ -117,8 +117,8 @@ template <uni20::LapackReal Scalar> struct RealGeneralBandExpertLinearSolve
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -131,7 +131,7 @@ template <uni20::LapackReal Scalar> struct RealExpertLinearSolve
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRefinedLinearSolve
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     std::vector<Scalar> forward_error_bounds;
     std::vector<Scalar> backward_error_bounds;
 };
@@ -151,8 +151,8 @@ template <uni20::LapackReal Scalar> struct RealEquilibration
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> factors;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
     std::vector<Scalar> backward_error_bounds;
@@ -174,7 +174,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteEquilibr
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteFactorization
 {
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> factors;
     MatrixFill triangle = MatrixFill::Upper;
 };
 
@@ -186,7 +186,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteFactoriz
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandMatrix
 {
-    Matrix<Scalar> storage;
+    uni20::DenseMatrix<Scalar> storage;
     std::size_t order = 0;
     std::size_t bandwidth = 0;
     MatrixFill triangle = MatrixFill::Upper;
@@ -203,7 +203,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandFact
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     RealSymmetricPositiveDefiniteBandFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -240,7 +240,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiago
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -252,7 +252,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiago
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealPivotedCholeskyFactorization
 {
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_order;
     std::size_t rank = 0;
     MatrixFill triangle = MatrixFill::Upper;
@@ -263,7 +263,7 @@ template <uni20::LapackReal Scalar> struct RealPivotedCholeskyFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteFactorization
 {
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> factors;
     std::vector<int> pivot_blocks;
     MatrixFill triangle = MatrixFill::Upper;
 };
@@ -272,8 +272,8 @@ template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    uni20::DenseMatrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> factors;
     std::vector<int> pivot_blocks;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -285,7 +285,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteExpertLinearSo
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRankRevealingLeastSquares
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     std::size_t rank = 0;
     std::vector<std::size_t> pivot_columns;
 };
@@ -294,7 +294,7 @@ template <uni20::LapackReal Scalar> struct RealRankRevealingLeastSquares
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSvdLeastSquares
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     std::size_t rank = 0;
     std::vector<Scalar> singular_values;
 };
@@ -303,7 +303,7 @@ template <uni20::LapackReal Scalar> struct RealSvdLeastSquares
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSylvesterSolution
 {
-    Matrix<Scalar> solution;
+    uni20::DenseMatrix<Scalar> solution;
     Scalar scale = Scalar{1};
     bool separation_perturbed = false;
 };
@@ -312,39 +312,39 @@ template <uni20::LapackReal Scalar> struct RealSylvesterSolution
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealQrFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> r;
+    uni20::DenseMatrix<Scalar> q;
+    uni20::DenseMatrix<Scalar> r;
 };
 
 /// \brief Reduced LQ factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealLqFactorization
 {
-    Matrix<Scalar> l;
-    Matrix<Scalar> q;
+    uni20::DenseMatrix<Scalar> l;
+    uni20::DenseMatrix<Scalar> q;
 };
 
 /// \brief Reduced QL factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealQlFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> l;
+    uni20::DenseMatrix<Scalar> q;
+    uni20::DenseMatrix<Scalar> l;
 };
 
 /// \brief Reduced RQ factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRqFactorization
 {
-    Matrix<Scalar> r;
-    Matrix<Scalar> q;
+    uni20::DenseMatrix<Scalar> r;
+    uni20::DenseMatrix<Scalar> q;
 };
 
 /// \brief Compact Householder QR factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactQrFactorization
 {
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -353,7 +353,7 @@ template <uni20::LapackReal Scalar> struct RealCompactQrFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactLqFactorization
 {
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -362,7 +362,7 @@ template <uni20::LapackReal Scalar> struct RealCompactLqFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactQlFactorization
 {
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -371,7 +371,7 @@ template <uni20::LapackReal Scalar> struct RealCompactQlFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactRqFactorization
 {
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -380,8 +380,8 @@ template <uni20::LapackReal Scalar> struct RealCompactRqFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealBidiagonalReduction
 {
-    Matrix<Scalar> bidiagonal;
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> bidiagonal;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> diagonal;
     std::vector<Scalar> offdiagonal;
     std::vector<Scalar> tauq;
@@ -394,16 +394,16 @@ template <uni20::LapackReal Scalar> struct RealBidiagonalReduction
 template <uni20::LapackReal Scalar> struct RealBidiagonalSvd
 {
     std::vector<Scalar> singular_values;
-    Matrix<Scalar> u;
-    Matrix<Scalar> vt;
+    uni20::DenseMatrix<Scalar> u;
+    uni20::DenseMatrix<Scalar> vt;
 };
 
 /// \brief Compact real Hessenberg reduction of a dense square matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealHessenbergReduction
 {
-    Matrix<Scalar> hessenberg;
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> hessenberg;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t first = 0;
     std::size_t last_exclusive = 0;
@@ -413,8 +413,8 @@ template <uni20::LapackReal Scalar> struct RealHessenbergReduction
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricTridiagonalReduction
 {
-    Matrix<Scalar> tridiagonal;
-    Matrix<Scalar> reflectors;
+    uni20::DenseMatrix<Scalar> tridiagonal;
+    uni20::DenseMatrix<Scalar> reflectors;
     std::vector<Scalar> diagonal;
     std::vector<Scalar> offdiagonal;
     std::vector<Scalar> tau;
@@ -425,8 +425,8 @@ template <uni20::LapackReal Scalar> struct RealSymmetricTridiagonalReduction
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealPivotedQrFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> r;
+    uni20::DenseMatrix<Scalar> q;
+    uni20::DenseMatrix<Scalar> r;
     std::vector<std::size_t> pivot_columns;
 };
 
@@ -436,7 +436,7 @@ template <uni20::LapackReal Scalar> struct RealPivotedQrFactorization
 template <uni20::LapackReal Real> struct RealNonsymmetricExpertEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
     std::vector<Real> reciprocal_eigenvalue_condition_numbers;
     std::vector<Real> reciprocal_eigenvector_condition_numbers;
     std::vector<Real> balance_scale;
@@ -458,7 +458,7 @@ enum class RealNonsymmetricBalanceJob
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealNonsymmetricBalance
 {
-    Matrix<Real> balanced_matrix;
+    uni20::DenseMatrix<Real> balanced_matrix;
     std::vector<Real> scale;
     std::size_t balanced_first = 0;
     std::size_t balanced_last_exclusive = 0;
@@ -471,7 +471,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricEigensystem
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
 };
 
 /// \brief Expert eigensystem diagnostics for a dense real nonsymmetric matrix pencil.
@@ -481,7 +481,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricExpertEigens
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
     std::vector<Real> reciprocal_eigenvalue_condition_numbers;
     std::vector<Real> reciprocal_eigenvector_condition_numbers;
     std::vector<Real> left_balance_scale;
@@ -496,8 +496,8 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricExpertEigens
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricBalance
 {
-    Matrix<Real> balanced_matrix;
-    Matrix<Real> balanced_metric;
+    uni20::DenseMatrix<Real> balanced_matrix;
+    uni20::DenseMatrix<Real> balanced_metric;
     std::vector<Real> left_scale;
     std::vector<Real> right_scale;
     std::size_t balanced_first = 0;
@@ -508,10 +508,10 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricBalance
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedHessenbergReduction
 {
-    Matrix<Real> matrix_hessenberg_form;
-    Matrix<Real> metric_triangular_form;
-    Matrix<Real> left_orthogonal_vectors;
-    Matrix<Real> right_orthogonal_vectors;
+    uni20::DenseMatrix<Real> matrix_hessenberg_form;
+    uni20::DenseMatrix<Real> metric_triangular_form;
+    uni20::DenseMatrix<Real> left_orthogonal_vectors;
+    uni20::DenseMatrix<Real> right_orthogonal_vectors;
     std::size_t first = 0;
     std::size_t last_exclusive = 0;
 };
@@ -521,10 +521,10 @@ template <uni20::LapackReal Real> struct RealGeneralizedHessenbergReduction
 
 template <uni20::LapackReal Real> struct RealGeneralizedSchurDecomposition
 {
-    Matrix<Real> matrix_schur_form;
-    Matrix<Real> metric_schur_form;
-    Matrix<Real> left_schur_vectors;
-    Matrix<Real> right_schur_vectors;
+    uni20::DenseMatrix<Real> matrix_schur_form;
+    uni20::DenseMatrix<Real> metric_schur_form;
+    uni20::DenseMatrix<Real> left_schur_vectors;
+    uni20::DenseMatrix<Real> right_schur_vectors;
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
@@ -548,7 +548,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedSchurSelectedSubspace
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedSchurRightEigenvectors
 {
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
     std::size_t computed_vectors = 0;
 };
 
@@ -576,7 +576,7 @@ template <uni20::LapackReal Scalar> struct RealSchurSelectedSubspace
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSchurRightEigenvectors
 {
-    Matrix<uni20::complex<Scalar>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Scalar>> right_eigenvectors;
     std::size_t computed_vectors = 0;
 };
 
@@ -605,7 +605,8 @@ inline char lapack_uplo(MatrixFill fill)
   throw std::invalid_argument("dense symmetric LAPACK operation received an unknown triangle selector");
 }
 
-template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scalar> const& matrix, MatrixFill triangle)
+template <uni20::LapackReal Scalar>
+Scalar symmetric_matrix_one_norm(uni20::DenseMatrix<Scalar> const& matrix, MatrixFill triangle)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -636,7 +637,8 @@ template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scal
   return norm;
 }
 
-template <typename Scalar> void mirror_selected_symmetric_triangle(Matrix<Scalar>& matrix, MatrixFill triangle)
+template <typename Scalar>
+void mirror_selected_symmetric_triangle(uni20::DenseMatrix<Scalar>& matrix, MatrixFill triangle)
 {
   if (triangle == MatrixFill::All)
   {
@@ -721,7 +723,7 @@ inline char lapack_balance_job(RealNonsymmetricBalanceJob job)
 }
 } // namespace detail
 
-template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm)
+template <uni20::LapackReal Scalar> Scalar real_matrix_norm(uni20::DenseMatrix<Scalar> matrix, MatrixNorm norm)
 {
   if (matrix.rows() == 0 || matrix.cols() == 0)
   {
@@ -743,7 +745,8 @@ template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Requested symmetric matrix norm.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, MatrixFill triangle = MatrixFill::Upper)
+Scalar real_symmetric_matrix_norm(uni20::DenseMatrix<Scalar> matrix, MatrixNorm norm,
+                                  MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -772,8 +775,8 @@ Scalar real_symmetric_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matrix
 /// \param unit_diagonal Whether to treat the diagonal as all ones.
 /// \return Requested triangular/trapezoidal matrix norm.
 template <uni20::LapackReal Scalar>
-Scalar real_triangular_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, MatrixFill triangle = MatrixFill::Upper,
-                                   bool unit_diagonal = false)
+Scalar real_triangular_matrix_norm(uni20::DenseMatrix<Scalar> matrix, MatrixNorm norm,
+                                   MatrixFill triangle = MatrixFill::Upper, bool unit_diagonal = false)
 {
   if (matrix.rows() == 0 || matrix.cols() == 0)
   {
@@ -799,8 +802,8 @@ Scalar real_triangular_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matri
 /// \param upper_bandwidth Number of stored superdiagonals.
 /// \return General-band matrix in LAPACK factor-storage layout.
 template <uni20::LapackReal Scalar>
-RealGeneralBandMatrix<Scalar> real_general_band_from_dense(Matrix<Scalar> const& matrix, std::size_t lower_bandwidth,
-                                                           std::size_t upper_bandwidth)
+RealGeneralBandMatrix<Scalar> real_general_band_from_dense(uni20::DenseMatrix<Scalar> const& matrix,
+                                                           std::size_t lower_bandwidth, std::size_t upper_bandwidth)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -812,7 +815,7 @@ RealGeneralBandMatrix<Scalar> real_general_band_from_dense(Matrix<Scalar> const&
   result.order = n;
   result.lower_bandwidth = lower_bandwidth;
   result.upper_bandwidth = upper_bandwidth;
-  result.storage = Matrix<Scalar>(2 * lower_bandwidth + upper_bandwidth + 1, n);
+  result.storage = uni20::DenseMatrix<Scalar>(2 * lower_bandwidth + upper_bandwidth + 1, n);
 
   for (std::size_t col = 0; col < n; ++col)
   {
@@ -865,7 +868,8 @@ Scalar real_general_band_matrix_norm(RealGeneralBandMatrix<Scalar> band_matrix, 
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar> real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficients,
+                                                   uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.storage.cols() != coefficients.order ||
       coefficients.storage.rows() < 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1)
@@ -937,9 +941,9 @@ RealGeneralBandFactorization<Scalar> real_general_band_factorization(RealGeneral
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> const& factorization,
-                                       Matrix<Scalar> right_hand_sides,
-                                       MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> const& factorization,
+                                                   uni20::DenseMatrix<Scalar> right_hand_sides,
+                                                   MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (factorization.factors.storage.cols() != factorization.factors.order ||
       factorization.factors.storage.rows() <
@@ -960,7 +964,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors.storage;
   std::vector<blas_int> pivots(factorization.factors.order);
   for (std::size_t index = 0; index < factorization.factors.order; ++index)
   {
@@ -988,7 +992,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
 /// \param matrix Real square tridiagonal matrix.
 /// \return General tridiagonal matrix storage suitable for LAPACK `gtsv` and `gttrf`.
 template <uni20::LapackReal Scalar>
-RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<Scalar> const& matrix)
+RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(uni20::DenseMatrix<Scalar> const& matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -1021,8 +1025,8 @@ RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                              Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
+                                                          uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.lower_diagonal.size() != (order == 0 ? 0 : order - 1) ||
@@ -1103,9 +1107,10 @@ real_general_tridiagonal_factorization(RealGeneralTridiagonalMatrix<Scalar> matr
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalFactorization<Scalar> const& factorization,
-                                              Matrix<Scalar> right_hand_sides,
-                                              MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar>
+real_general_tridiagonal_solve(RealGeneralTridiagonalFactorization<Scalar> const& factorization,
+                               uni20::DenseMatrix<Scalar> right_hand_sides,
+                               MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = factorization.factors.order();
   if (factorization.factors.lower_diagonal.size() != (order == 0 ? 0 : order - 1) ||
@@ -1267,7 +1272,7 @@ Scalar real_general_tridiagonal_one_norm_reciprocal_condition_number(RealGeneral
 /// \return Solution and error-bound diagnostics.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                                                      Matrix<Scalar> right_hand_sides,
+                                                                      uni20::DenseMatrix<Scalar> right_hand_sides,
                                                                       MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = coefficients.order();
@@ -1344,7 +1349,7 @@ RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGenera
 template <uni20::LapackReal Scalar>
 RealGeneralTridiagonalExpertLinearSolve<Scalar>
 real_general_tridiagonal_expert_linear_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                             Matrix<Scalar> right_hand_sides,
+                                             uni20::DenseMatrix<Scalar> right_hand_sides,
                                              MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = coefficients.order();
@@ -1361,7 +1366,7 @@ real_general_tridiagonal_expert_linear_solve(RealGeneralTridiagonalMatrix<Scalar
 
   std::size_t const rhs_count = right_hand_sides.cols();
   RealGeneralTridiagonalExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(right_hand_sides.rows(), rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(right_hand_sides.rows(), rhs_count);
   result.factorization.factors.diagonal.resize(order);
   result.factorization.factors.lower_diagonal.resize(order == 0 ? 0 : order - 1);
   result.factorization.factors.upper_diagonal.resize(order == 0 ? 0 : order - 1);
@@ -1440,7 +1445,7 @@ Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandFac
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors.storage;
   std::vector<blas_int> pivots(factorization.factors.order);
   for (std::size_t index = 0; index < factorization.factors.order; ++index)
   {
@@ -1489,7 +1494,7 @@ Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandMat
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar> real_general_band_refined_solve(RealGeneralBandMatrix<Scalar> coefficients,
-                                                               Matrix<Scalar> right_hand_sides,
+                                                               uni20::DenseMatrix<Scalar> right_hand_sides,
                                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (coefficients.storage.cols() != coefficients.order ||
@@ -1557,7 +1562,8 @@ RealRefinedLinearSolve<Scalar> real_general_band_refined_solve(RealGeneralBandMa
 /// \return Banded solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealGeneralBandExpertLinearSolve<Scalar>
-real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients,
+                                      uni20::DenseMatrix<Scalar> right_hand_sides,
                                       MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (coefficients.storage.cols() != coefficients.order ||
@@ -1573,11 +1579,11 @@ real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients
   std::size_t const n = coefficients.order;
   std::size_t const rhs_count = right_hand_sides.cols();
   RealGeneralBandExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(n, rhs_count);
   result.factors.order = n;
   result.factors.lower_bandwidth = coefficients.lower_bandwidth;
   result.factors.upper_bandwidth = coefficients.upper_bandwidth;
-  result.factors.storage = Matrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
+  result.factors.storage = uni20::DenseMatrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
   result.pivot_rows.resize(n);
   std::iota(result.pivot_rows.begin(), result.pivot_rows.end(), std::size_t{0});
   result.forward_error_bounds.resize(rhs_count);
@@ -1697,7 +1703,7 @@ RealEquilibration<Scalar> real_general_band_power_of_two_equilibration(RealGener
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real dense matrix.
 /// \return Row and column scaling factors plus equilibration diagnostics.
-template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration(uni20::DenseMatrix<Scalar> matrix)
 {
   RealEquilibration<Scalar> result;
   result.row_scale.assign(matrix.rows(), Scalar{1});
@@ -1722,7 +1728,8 @@ template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration
 /// \param matrix Real symmetric positive definite square matrix.
 /// \return Symmetric scaling factors plus equilibration diagnostics.
 template <uni20::LapackReal Scalar>
-RealSymmetricPositiveDefiniteEquilibration<Scalar> real_symmetric_positive_definite_equilibration(Matrix<Scalar> matrix)
+RealSymmetricPositiveDefiniteEquilibration<Scalar>
+real_symmetric_positive_definite_equilibration(uni20::DenseMatrix<Scalar> matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -1750,7 +1757,8 @@ RealSymmetricPositiveDefiniteEquilibration<Scalar> real_symmetric_positive_defin
 /// \return Cholesky factors and triangle metadata.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteFactorization<Scalar>
-real_symmetric_positive_definite_factorization(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+real_symmetric_positive_definite_factorization(uni20::DenseMatrix<Scalar> matrix,
+                                               MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -1782,7 +1790,7 @@ real_symmetric_positive_definite_factorization(Matrix<Scalar> matrix, MatrixFill
 /// \return SPD band matrix in LAPACK storage layout.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteBandMatrix<Scalar>
-real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, std::size_t bandwidth,
+real_symmetric_positive_definite_band_from_dense(uni20::DenseMatrix<Scalar> const& matrix, std::size_t bandwidth,
                                                  MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -1799,7 +1807,7 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
   result.order = n;
   result.bandwidth = bandwidth;
   result.triangle = triangle;
-  result.storage = Matrix<Scalar>(bandwidth + 1, n);
+  result.storage = uni20::DenseMatrix<Scalar>(bandwidth + 1, n);
 
   for (std::size_t col = 0; col < n; ++col)
   {
@@ -1832,8 +1840,9 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                           Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar>
+real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
+                                            uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
   {
@@ -1896,9 +1905,9 @@ real_symmetric_positive_definite_band_factorization(RealSymmetricPositiveDefinit
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+uni20::DenseMatrix<Scalar>
 real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFactorization<Scalar> const& factorization,
-                                            Matrix<Scalar> right_hand_sides)
+                                            uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (factorization.factors.storage.cols() != factorization.factors.order ||
       factorization.factors.storage.rows() < factorization.factors.bandwidth + 1)
@@ -1914,7 +1923,7 @@ real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFac
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors.storage;
   blas_int const n = detail::checked_blas_int(factorization.factors.order);
   blas_int const kd = detail::checked_blas_int(factorization.factors.bandwidth);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
@@ -2012,7 +2021,7 @@ Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_numbe
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors.storage;
   blas_int const n = detail::checked_blas_int(factorization.factors.order);
   blas_int const kd = detail::checked_blas_int(factorization.factors.bandwidth);
   blas_int const ldab = detail::checked_blas_int(factors.rows());
@@ -2049,7 +2058,7 @@ Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_numbe
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar>
 real_symmetric_positive_definite_band_refined_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                    Matrix<Scalar> right_hand_sides)
+                                                    uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
   {
@@ -2104,7 +2113,7 @@ real_symmetric_positive_definite_band_refined_solve(RealSymmetricPositiveDefinit
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteBandExpertLinearSolve<Scalar>
 real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                          Matrix<Scalar> right_hand_sides)
+                                                          uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
   {
@@ -2120,11 +2129,12 @@ real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveD
   std::size_t const n = coefficients.order;
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSymmetricPositiveDefiniteBandExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(n, rhs_count);
   result.factorization.factors.order = n;
   result.factorization.factors.bandwidth = coefficients.bandwidth;
   result.factorization.factors.triangle = coefficients.triangle;
-  result.factorization.factors.storage = Matrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
+  result.factorization.factors.storage =
+      uni20::DenseMatrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
   result.scale.assign(n, Scalar{1});
@@ -2161,7 +2171,7 @@ real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveD
 /// \return Tridiagonal matrix storage suitable for LAPACK `ptsv` and `pttrf`.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar>
-real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& matrix)
+real_symmetric_positive_definite_tridiagonal_from_dense(uni20::DenseMatrix<Scalar> const& matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -2192,9 +2202,9 @@ real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& ma
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+uni20::DenseMatrix<Scalar>
 real_symmetric_positive_definite_tridiagonal_solve(RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients,
-                                                   Matrix<Scalar> right_hand_sides)
+                                                   uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2256,8 +2266,9 @@ real_symmetric_positive_definite_tridiagonal_factorization(
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
-    RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> const& factorization, Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
+    RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> const& factorization,
+    uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = factorization.factors.order();
   if (factorization.factors.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2375,7 +2386,7 @@ Scalar real_symmetric_positive_definite_tridiagonal_one_norm_reciprocal_conditio
 /// \return Solution and error-bound diagnostics.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refined_solve(
-    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2428,7 +2439,7 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refi
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve<Scalar>
 real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
-    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2444,7 +2455,7 @@ real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
 
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(right_hand_sides.rows(), rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(right_hand_sides.rows(), rhs_count);
   result.factorization.factors.diagonal.resize(order);
   result.factorization.factors.offdiagonal.resize(order == 0 ? 0 : order - 1);
   result.forward_error_bounds.resize(rhs_count);
@@ -2482,7 +2493,7 @@ real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Pivoted Cholesky factors, 0-based pivot order, rank, and rank-deficiency flag.
 template <uni20::LapackReal Scalar>
-RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(Matrix<Scalar> matrix,
+RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(uni20::DenseMatrix<Scalar> matrix,
                                                                              Scalar tolerance = Scalar{-1},
                                                                              MatrixFill triangle = MatrixFill::Upper)
 {
@@ -2535,7 +2546,8 @@ RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(Mat
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_dense_solve_linear_system(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar> real_dense_solve_linear_system(uni20::DenseMatrix<Scalar> coefficients,
+                                                          uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -2571,7 +2583,8 @@ Matrix<Scalar> real_dense_solve_linear_system(Matrix<Scalar> coefficients, Matri
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
-RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+RealExpertLinearSolve<Scalar> real_expert_linear_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                                       uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -2585,8 +2598,8 @@ RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficien
   std::size_t const n = coefficients.rows();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = uni20::DenseMatrix<Scalar>(n, rhs_count);
+  result.factors = uni20::DenseMatrix<Scalar>(n, n);
   result.pivot_rows.resize(n);
   std::iota(result.pivot_rows.begin(), result.pivot_rows.end(), std::size_t{0});
   result.forward_error_bounds.resize(rhs_count);
@@ -2629,7 +2642,7 @@ RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficien
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to factor.
 /// \return LU factors and row-pivot metadata.
-template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -2669,8 +2682,9 @@ template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factoriz
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, Matrix<Scalar> right_hand_sides,
-                             MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization,
+                                         uni20::DenseMatrix<Scalar> right_hand_sides,
+                                         MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (factorization.factors.rows() != factorization.factors.cols())
   {
@@ -2690,7 +2704,7 @@ Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, M
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots(n);
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -2719,7 +2733,8 @@ Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, M
 /// \param transpose Matrix operation applied to the coefficient matrix.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_refined_linear_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+RealRefinedLinearSolve<Scalar> real_refined_linear_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                                         uni20::DenseMatrix<Scalar> right_hand_sides,
                                                          MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (coefficients.rows() != coefficients.cols())
@@ -2742,7 +2757,7 @@ RealRefinedLinearSolve<Scalar> real_refined_linear_solve(Matrix<Scalar> coeffici
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  uni20::DenseMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   std::vector<blas_int> pivots(n);
@@ -2786,7 +2801,7 @@ Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> 
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   std::vector<Scalar> work(static_cast<std::size_t>(4 * order), Scalar{});
   std::vector<blas_int> iwork(n);
@@ -2799,7 +2814,7 @@ Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> 
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix.
 /// \return Estimate of `1 / (||A||_1 * ||inv(A)||_1)`.
-template <uni20::LapackReal Scalar> Scalar real_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> Scalar real_one_norm_reciprocal_condition_number(uni20::DenseMatrix<Scalar> matrix)
 {
   Scalar const norm = matrix_one_norm(matrix);
   auto factorization = real_lu_factorization(std::move(matrix));
@@ -2819,9 +2834,10 @@ template <uni20::LapackReal Scalar> Scalar real_one_norm_reciprocal_condition_nu
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_triangular_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                     MatrixFill triangle = MatrixFill::Upper,
-                                     MatrixTranspose transpose = MatrixTranspose::None, bool unit_diagonal = false)
+uni20::DenseMatrix<Scalar>
+real_triangular_solve(uni20::DenseMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides,
+                      MatrixFill triangle = MatrixFill::Upper, MatrixTranspose transpose = MatrixTranspose::None,
+                      bool unit_diagonal = false)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -2860,7 +2876,7 @@ Matrix<Scalar> real_triangular_solve(Matrix<Scalar> coefficients, Matrix<Scalar>
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar>
-real_triangular_refined_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_triangular_refined_solve(uni20::DenseMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides,
                               MatrixFill triangle = MatrixFill::Upper,
                               MatrixTranspose transpose = MatrixTranspose::None, bool unit_diagonal = false)
 {
@@ -2909,8 +2925,8 @@ real_triangular_refined_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Dense triangular inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper,
-                                       bool unit_diagonal = false)
+uni20::DenseMatrix<Scalar> real_triangular_inverse(uni20::DenseMatrix<Scalar> matrix,
+                                                   MatrixFill triangle = MatrixFill::Upper, bool unit_diagonal = false)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -2956,7 +2972,7 @@ Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangl
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_triangular_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
+Scalar real_triangular_one_norm_reciprocal_condition_number(uni20::DenseMatrix<Scalar> matrix,
                                                             MatrixFill triangle = MatrixFill::Upper,
                                                             bool unit_diagonal = false)
 {
@@ -2995,8 +3011,9 @@ Scalar real_triangular_one_norm_reciprocal_condition_number(Matrix<Scalar> matri
 /// \param transpose_right Operation applied to `B`.
 /// \return Dense Sylvester solution, scale factor, and perturbation diagnostic.
 template <uni20::LapackReal Scalar>
-RealSylvesterSolution<Scalar> real_sylvester_solve(Matrix<Scalar> left, Matrix<Scalar> right, Matrix<Scalar> rhs,
-                                                   int sign = 1, MatrixTranspose transpose_left = MatrixTranspose::None,
+RealSylvesterSolution<Scalar> real_sylvester_solve(uni20::DenseMatrix<Scalar> left, uni20::DenseMatrix<Scalar> right,
+                                                   uni20::DenseMatrix<Scalar> rhs, int sign = 1,
+                                                   MatrixTranspose transpose_left = MatrixTranspose::None,
                                                    MatrixTranspose transpose_right = MatrixTranspose::None)
 {
   if (left.rows() != left.cols())
@@ -3040,7 +3057,7 @@ RealSylvesterSolution<Scalar> real_sylvester_solve(Matrix<Scalar> left, Matrix<S
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to invert.
 /// \return Dense inverse matrix.
-template <uni20::LapackReal Scalar> Matrix<Scalar> real_dense_inverse(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> uni20::DenseMatrix<Scalar> real_dense_inverse(uni20::DenseMatrix<Scalar> matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -3077,7 +3094,8 @@ template <uni20::LapackReal Scalar> Matrix<Scalar> real_dense_inverse(Matrix<Sca
 /// \param right_hand_sides Dense right-hand-side matrix `B` with matching row count.
 /// \return Dense solution matrix `X`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar> real_least_squares(uni20::DenseMatrix<Scalar> coefficients,
+                                              uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (coefficients.rows() != right_hand_sides.rows())
   {
@@ -3087,7 +3105,7 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   std::size_t const rows = coefficients.rows();
   std::size_t const cols = coefficients.cols();
   std::size_t const rhs_count = right_hand_sides.cols();
-  Matrix<Scalar> solution(cols, rhs_count);
+  uni20::DenseMatrix<Scalar> solution(cols, rhs_count);
   if (cols == 0 || rhs_count == 0)
   {
     return solution;
@@ -3098,7 +3116,7 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  uni20::DenseMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3142,9 +3160,9 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 /// \param rcond Relative singular-value threshold used by LAPACK to determine rank.
 /// \return Dense solution, numerical rank, and singular values of `A`.
 template <uni20::LapackReal Scalar>
-RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                                   Scalar rcond = Scalar{100} *
-                                                                  uni20::numeric_limits<Scalar>::epsilon())
+RealSvdLeastSquares<Scalar>
+real_svd_least_squares(uni20::DenseMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides,
+                       Scalar rcond = Scalar{100} * uni20::numeric_limits<Scalar>::epsilon())
 {
   if (coefficients.rows() != right_hand_sides.rows())
   {
@@ -3155,7 +3173,7 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
   std::size_t const cols = coefficients.cols();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSvdLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
   if (cols == 0 || rhs_count == 0 || rows == 0)
   {
@@ -3163,7 +3181,7 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  uni20::DenseMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3216,7 +3234,8 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
 /// \return Dense solution, numerical rank, and singular values of `A`.
 template <uni20::LapackReal Scalar>
 RealSvdLeastSquares<Scalar>
-real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_divide_and_conquer_svd_least_squares(uni20::DenseMatrix<Scalar> coefficients,
+                                          uni20::DenseMatrix<Scalar> right_hand_sides,
                                           Scalar rcond = Scalar{100} * uni20::numeric_limits<Scalar>::epsilon())
 {
   if (coefficients.rows() != right_hand_sides.rows())
@@ -3228,7 +3247,7 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
   std::size_t const cols = coefficients.cols();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSvdLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
   if (cols == 0 || rhs_count == 0 || rows == 0)
   {
@@ -3236,7 +3255,7 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  uni20::DenseMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3291,7 +3310,7 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
 /// \return Dense solution, numerical rank, and column pivot order.
 template <uni20::LapackReal Scalar>
 RealRankRevealingLeastSquares<Scalar>
-real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_rank_revealing_least_squares(uni20::DenseMatrix<Scalar> coefficients, uni20::DenseMatrix<Scalar> right_hand_sides,
                                   Scalar rcond = Scalar{100} * uni20::numeric_limits<Scalar>::epsilon())
 {
   if (coefficients.rows() != right_hand_sides.rows())
@@ -3303,7 +3322,7 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   std::size_t const cols = coefficients.cols();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealRankRevealingLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = uni20::DenseMatrix<Scalar>(cols, rhs_count);
   result.pivot_columns.resize(cols);
   std::iota(result.pivot_columns.begin(), result.pivot_columns.end(), std::size_t{0});
   if (cols == 0 || rhs_count == 0 || rows == 0)
@@ -3312,7 +3331,7 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  uni20::DenseMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3374,8 +3393,9 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                                      MatrixFill triangle = MatrixFill::Upper)
+uni20::DenseMatrix<Scalar> real_symmetric_positive_definite_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                                                  uni20::DenseMatrix<Scalar> right_hand_sides,
+                                                                  MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -3406,9 +3426,9 @@ Matrix<Scalar> real_symmetric_positive_definite_solve(Matrix<Scalar> coefficient
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+uni20::DenseMatrix<Scalar>
 real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorization<Scalar> const& factorization,
-                                       Matrix<Scalar> right_hand_sides)
+                                       uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (factorization.factors.rows() != factorization.factors.cols())
   {
@@ -3424,7 +3444,7 @@ real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorizatio
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const uplo = detail::lapack_uplo(factorization.triangle);
@@ -3443,9 +3463,10 @@ real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorizatio
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Matrix<Scalar> coefficients,
-                                                                              Matrix<Scalar> right_hand_sides,
-                                                                              MatrixFill triangle = MatrixFill::Upper)
+RealRefinedLinearSolve<Scalar>
+real_symmetric_positive_definite_refined_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                               uni20::DenseMatrix<Scalar> right_hand_sides,
+                                               MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -3468,7 +3489,7 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Ma
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  uni20::DenseMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   char const uplo = detail::lapack_uplo(triangle);
@@ -3497,7 +3518,8 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Ma
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteExpertLinearSolve<Scalar>
-real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_symmetric_positive_definite_expert_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                              uni20::DenseMatrix<Scalar> right_hand_sides,
                                               MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
@@ -3512,8 +3534,8 @@ real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matri
   std::size_t const n = coefficients.rows();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSymmetricPositiveDefiniteExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = uni20::DenseMatrix<Scalar>(n, rhs_count);
+  result.factors = uni20::DenseMatrix<Scalar>(n, n);
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
   result.scale.assign(n, Scalar{1});
@@ -3549,7 +3571,7 @@ real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
+Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(uni20::DenseMatrix<Scalar> matrix,
                                                                              MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -3601,7 +3623,7 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(factorization.triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
@@ -3618,7 +3640,8 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Dense symmetric inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+uni20::DenseMatrix<Scalar> real_symmetric_positive_definite_inverse(uni20::DenseMatrix<Scalar> matrix,
+                                                                    MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -3649,7 +3672,7 @@ Matrix<Scalar> real_symmetric_positive_definite_inverse(Matrix<Scalar> matrix, M
 /// \return Bunch-Kaufman factors, signed pivot blocks, and triangle metadata.
 template <uni20::LapackReal Scalar>
 RealSymmetricIndefiniteFactorization<Scalar>
-real_symmetric_indefinite_factorization(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+real_symmetric_indefinite_factorization(uni20::DenseMatrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -3696,8 +3719,9 @@ real_symmetric_indefinite_factorization(Matrix<Scalar> matrix, MatrixFill triang
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                               MatrixFill triangle = MatrixFill::Upper)
+uni20::DenseMatrix<Scalar> real_symmetric_indefinite_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                                           uni20::DenseMatrix<Scalar> right_hand_sides,
+                                                           MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
   {
@@ -3736,8 +3760,9 @@ Matrix<Scalar> real_symmetric_indefinite_solve(Matrix<Scalar> coefficients, Matr
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorization<Scalar> const& factorization,
-                                               Matrix<Scalar> right_hand_sides)
+uni20::DenseMatrix<Scalar>
+real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorization<Scalar> const& factorization,
+                                uni20::DenseMatrix<Scalar> right_hand_sides)
 {
   if (factorization.factors.rows() != factorization.factors.cols())
   {
@@ -3757,7 +3782,7 @@ Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorizat
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots = detail::checked_symmetric_indefinite_pivots(factorization);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
@@ -3777,8 +3802,8 @@ Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorizat
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Scalar> coefficients,
-                                                                       Matrix<Scalar> right_hand_sides,
+RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                                                       uni20::DenseMatrix<Scalar> right_hand_sides,
                                                                        MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
@@ -3801,7 +3826,7 @@ RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Sc
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  uni20::DenseMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   char const uplo = detail::lapack_uplo(triangle);
@@ -3834,7 +3859,8 @@ RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Sc
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Dense symmetric inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+uni20::DenseMatrix<Scalar> real_symmetric_indefinite_inverse(uni20::DenseMatrix<Scalar> matrix,
+                                                             MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -3877,7 +3903,8 @@ Matrix<Scalar> real_symmetric_indefinite_inverse(Matrix<Scalar> matrix, MatrixFi
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealSymmetricIndefiniteExpertLinearSolve<Scalar>
-real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_symmetric_indefinite_expert_solve(uni20::DenseMatrix<Scalar> coefficients,
+                                       uni20::DenseMatrix<Scalar> right_hand_sides,
                                        MatrixFill triangle = MatrixFill::Upper)
 {
   if (coefficients.rows() != coefficients.cols())
@@ -3892,8 +3919,8 @@ real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scala
   std::size_t const n = coefficients.rows();
   std::size_t const rhs_count = right_hand_sides.cols();
   RealSymmetricIndefiniteExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = uni20::DenseMatrix<Scalar>(n, rhs_count);
+  result.factors = uni20::DenseMatrix<Scalar>(n, n);
   result.pivot_blocks.resize(n);
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
@@ -3941,7 +3968,7 @@ real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scala
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
+Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(uni20::DenseMatrix<Scalar> matrix,
                                                                       MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -4008,7 +4035,7 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  uni20::DenseMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots = detail::checked_symmetric_indefinite_pivots(factorization);
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(factorization.triangle);
@@ -4029,7 +4056,7 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matrix, bool compute_vectors,
+RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(uni20::DenseMatrix<Scalar> matrix, bool compute_vectors,
                                                             MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -4042,7 +4069,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4057,7 +4084,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   uni20::lapack::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4073,7 +4100,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
+RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(uni20::DenseMatrix<Scalar> matrix,
                                                                                bool compute_vectors,
                                                                                MatrixFill triangle = MatrixFill::Upper)
 {
@@ -4087,7 +4114,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4107,7 +4134,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
   uni20::lapack::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                        iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4125,8 +4152,9 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Selected eigenvalues and, optionally, selected eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, std::size_t first_index,
-                                                                        std::size_t last_index, bool compute_vectors,
+RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(uni20::DenseMatrix<Scalar> matrix,
+                                                                        std::size_t first_index, std::size_t last_index,
+                                                                        bool compute_vectors,
                                                                         MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -4150,7 +4178,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Scalar work_query{};
@@ -4175,7 +4203,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
     throw std::runtime_error("LAPACK syevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4192,9 +4220,9 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<Scalar> matrix, Matrix<Scalar> metric,
-                                                                        bool compute_vectors,
-                                                                        MatrixFill triangle = MatrixFill::Upper)
+RealSymmetricEigensystem<Scalar>
+real_generalized_symmetric_eigensystem(uni20::DenseMatrix<Scalar> matrix, uni20::DenseMatrix<Scalar> metric,
+                                       bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -4214,7 +4242,7 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4231,7 +4259,7 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
   uni20::lapack::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                       work.data(), lwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4250,8 +4278,9 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackReal Scalar>
 RealSymmetricEigensystem<Scalar>
-real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix, Matrix<Scalar> metric,
-                                                          bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
+real_generalized_symmetric_eigensystem_divide_and_conquer(uni20::DenseMatrix<Scalar> matrix,
+                                                          uni20::DenseMatrix<Scalar> metric, bool compute_vectors,
+                                                          MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -4273,7 +4302,7 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4293,7 +4322,7 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
   uni20::lapack::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                        work.data(), lwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4314,7 +4343,7 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
 /// \return Selected eigenvalues and, optionally, selected generalized eigenvectors.
 template <uni20::LapackReal Scalar>
 RealSymmetricEigensystem<Scalar>
-real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix<Scalar> metric,
+real_generalized_symmetric_eigensystem_index_range(uni20::DenseMatrix<Scalar> matrix, uni20::DenseMatrix<Scalar> metric,
                                                    std::size_t first_index, std::size_t last_index,
                                                    bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
@@ -4348,7 +4377,7 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, 5 * order)), 0);
   std::vector<blas_int> ifail(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
@@ -4372,7 +4401,7 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
   }
 
   result.eigenvalues.resize(selected);
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4386,7 +4415,7 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackComplexReal Real>
-ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix,
+ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(uni20::DenseMatrix<uni20::complex<Real>> matrix,
                                                                 bool compute_vectors,
                                                                 MatrixFill triangle = MatrixFill::Upper)
 {
@@ -4401,7 +4430,7 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4419,7 +4448,7 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
   uni20::lapack::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                       rwork.data());
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4433,7 +4462,7 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> matrix, bool compute_vectors,
+complex_hermitian_eigensystem_divide_and_conquer(uni20::DenseMatrix<uni20::complex<Real>> matrix, bool compute_vectors,
                                                  MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -4447,7 +4476,7 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4470,7 +4499,7 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
   uni20::lapack::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                        rwork.data(), lrwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4486,7 +4515,7 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
 /// \return Selected eigenvalues and, optionally, selected eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, std::size_t first_index,
+complex_hermitian_eigensystem_index_range(uni20::DenseMatrix<uni20::complex<Real>> matrix, std::size_t first_index,
                                           std::size_t last_index, bool compute_vectors,
                                           MatrixFill triangle = MatrixFill::Upper)
 {
@@ -4512,7 +4541,7 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Complex work_query{};
@@ -4540,7 +4569,7 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
     throw std::runtime_error("LAPACK heevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4556,8 +4585,9 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, Matrix<uni20::complex<Real>> metric,
-                                          bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
+complex_generalized_hermitian_eigensystem(uni20::DenseMatrix<uni20::complex<Real>> matrix,
+                                          uni20::DenseMatrix<uni20::complex<Real>> metric, bool compute_vectors,
+                                          MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -4578,7 +4608,7 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4596,7 +4626,7 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
   uni20::lapack::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                       work.data(), lwork, rwork.data());
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4610,10 +4640,9 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
-ComplexHermitianEigensystem<Real>
-complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> matrix,
-                                                             Matrix<uni20::complex<Real>> metric, bool compute_vectors,
-                                                             MatrixFill triangle = MatrixFill::Upper)
+ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_divide_and_conquer(
+    uni20::DenseMatrix<uni20::complex<Real>> matrix, uni20::DenseMatrix<uni20::complex<Real>> metric,
+    bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -4637,7 +4666,7 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4660,7 +4689,7 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
   uni20::lapack::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                        work.data(), lwork, rwork.data(), lrwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4677,8 +4706,8 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
 /// \return Selected eigenvalues and, optionally, selected generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_index_range(
-    Matrix<uni20::complex<Real>> matrix, Matrix<uni20::complex<Real>> metric, std::size_t first_index,
-    std::size_t last_index, bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
+    uni20::DenseMatrix<uni20::complex<Real>> matrix, uni20::DenseMatrix<uni20::complex<Real>> metric,
+    std::size_t first_index, std::size_t last_index, bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -4713,7 +4742,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<Real> rwork(static_cast<std::size_t>(std::max<blas_int>(1, 7 * order)), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, 5 * order)), 0);
@@ -4738,7 +4767,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
   }
 
   result.eigenvalues.resize(selected);
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : uni20::DenseMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4750,7 +4779,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
 /// \param matrix Real matrix to factor.
 /// \return Compact QR reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactQrFactorization<Scalar> real_compact_qr_factorization(Matrix<Scalar> matrix)
+RealCompactQrFactorization<Scalar> real_compact_qr_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -4791,9 +4820,9 @@ RealCompactQrFactorization<Scalar> real_compact_qr_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Left,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& factorization,
+                                                uni20::DenseMatrix<Scalar> target, MatrixSide side = MatrixSide::Left,
+                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const reflector_rows = factorization.reflectors.rows();
   std::size_t const reflector_cols = factorization.reflectors.cols();
@@ -4819,7 +4848,7 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -4848,7 +4877,7 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced QR factors.
-template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   auto compact = real_compact_qr_factorization(std::move(matrix));
   std::size_t const rows = compact.reflectors.rows();
@@ -4856,8 +4885,8 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
   std::size_t const rank = compact.rank;
 
   RealQrFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.r = Matrix<Scalar>(rank, cols);
+  result.q = uni20::DenseMatrix<Scalar>(rows, rank);
+  result.r = uni20::DenseMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -4903,7 +4932,7 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact LQ reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactLqFactorization<Scalar> real_compact_lq_factorization(Matrix<Scalar> matrix)
+RealCompactLqFactorization<Scalar> real_compact_lq_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -4944,9 +4973,9 @@ RealCompactLqFactorization<Scalar> real_compact_lq_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Right,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& factorization,
+                                                uni20::DenseMatrix<Scalar> target, MatrixSide side = MatrixSide::Right,
+                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const reflector_rows = factorization.reflectors.rows();
   std::size_t const reflector_cols = factorization.reflectors.cols();
@@ -4972,7 +5001,7 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5001,7 +5030,7 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced LQ factors.
-template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   auto compact = real_compact_lq_factorization(std::move(matrix));
   std::size_t const rows = compact.reflectors.rows();
@@ -5009,8 +5038,8 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
   std::size_t const rank = compact.rank;
 
   RealLqFactorization<Scalar> result;
-  result.l = Matrix<Scalar>(rows, rank);
-  result.q = Matrix<Scalar>(rank, cols);
+  result.l = uni20::DenseMatrix<Scalar>(rows, rank);
+  result.q = uni20::DenseMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5056,7 +5085,7 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact QL reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactQlFactorization<Scalar> real_compact_ql_factorization(Matrix<Scalar> matrix)
+RealCompactQlFactorization<Scalar> real_compact_ql_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -5097,9 +5126,9 @@ RealCompactQlFactorization<Scalar> real_compact_ql_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Left,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& factorization,
+                                                uni20::DenseMatrix<Scalar> target, MatrixSide side = MatrixSide::Left,
+                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const reflector_rows = factorization.reflectors.rows();
   std::size_t const reflector_cols = factorization.reflectors.cols();
@@ -5125,7 +5154,7 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5154,7 +5183,7 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced QL factors.
-template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   auto compact = real_compact_ql_factorization(std::move(matrix));
   std::size_t const rows = compact.reflectors.rows();
@@ -5162,8 +5191,8 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
   std::size_t const rank = compact.rank;
 
   RealQlFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.l = Matrix<Scalar>(rank, cols);
+  result.q = uni20::DenseMatrix<Scalar>(rows, rank);
+  result.l = uni20::DenseMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5213,7 +5242,7 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact RQ reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactRqFactorization<Scalar> real_compact_rq_factorization(Matrix<Scalar> matrix)
+RealCompactRqFactorization<Scalar> real_compact_rq_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -5254,9 +5283,9 @@ RealCompactRqFactorization<Scalar> real_compact_rq_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Right,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& factorization,
+                                                uni20::DenseMatrix<Scalar> target, MatrixSide side = MatrixSide::Right,
+                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const reflector_rows = factorization.reflectors.rows();
   std::size_t const reflector_cols = factorization.reflectors.cols();
@@ -5282,7 +5311,7 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5311,7 +5340,7 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced RQ factors.
-template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   auto compact = real_compact_rq_factorization(std::move(matrix));
   std::size_t const rows = compact.reflectors.rows();
@@ -5319,8 +5348,8 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
   std::size_t const rank = compact.rank;
 
   RealRqFactorization<Scalar> result;
-  result.r = Matrix<Scalar>(rows, rank);
-  result.q = Matrix<Scalar>(rank, cols);
+  result.r = uni20::DenseMatrix<Scalar>(rows, rank);
+  result.q = uni20::DenseMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5372,14 +5401,15 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to reduce.
 /// \return Bidiagonal form plus compact Householder reflectors.
-template <uni20::LapackReal Scalar> RealBidiagonalReduction<Scalar> real_bidiagonal_reduction(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealBidiagonalReduction<Scalar> real_bidiagonal_reduction(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
   std::size_t const rank = std::min(rows, cols);
 
   RealBidiagonalReduction<Scalar> result;
-  result.bidiagonal = Matrix<Scalar>(rows, cols);
+  result.bidiagonal = uni20::DenseMatrix<Scalar>(rows, cols);
   result.reflectors = std::move(matrix);
   result.diagonal.resize(rank);
   result.offdiagonal.resize(rank > 0 ? rank - 1 : 0);
@@ -5498,15 +5528,15 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd(std::vector<Scalar> diagonal, std:
   result.singular_values = std::move(diagonal);
   if (order == 0)
   {
-    result.u = Matrix<Scalar>(0, 0);
-    result.vt = Matrix<Scalar>(0, 0);
+    result.u = uni20::DenseMatrix<Scalar>(0, 0);
+    result.vt = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
   blas_int const n = detail::checked_blas_int(order);
   char const compq = compute_vectors ? 'I' : 'N';
-  Matrix<Scalar> u(compute_vectors ? order : 1, compute_vectors ? order : 1);
-  Matrix<Scalar> vt(compute_vectors ? order : 1, compute_vectors ? order : 1);
+  uni20::DenseMatrix<Scalar> u(compute_vectors ? order : 1, compute_vectors ? order : 1);
+  uni20::DenseMatrix<Scalar> vt(compute_vectors ? order : 1, compute_vectors ? order : 1);
   blas_int const leading_dimension = compute_vectors ? n : 1;
   Scalar dummy_subdiagonal{};
   Scalar* e = offdiagonal.empty() ? &dummy_subdiagonal : offdiagonal.data();
@@ -5518,8 +5548,8 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd(std::vector<Scalar> diagonal, std:
   uni20::lapack::bdsdc(upper ? 'U' : 'L', compq, n, result.singular_values.data(), e, u.data(), leading_dimension,
                        vt.data(), leading_dimension, q.data(), iq.data(), work.data(), iwork.data());
 
-  result.u = compute_vectors ? std::move(u) : Matrix<Scalar>(0, 0);
-  result.vt = compute_vectors ? std::move(vt) : Matrix<Scalar>(0, 0);
+  result.u = compute_vectors ? std::move(u) : uni20::DenseMatrix<Scalar>(0, 0);
+  result.vt = compute_vectors ? std::move(vt) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -5579,7 +5609,7 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
   // bdsvdx uses S(1:N) and up to N vector columns internally before discarding
   // unselected values.
   std::vector<Scalar> singular_values_workspace(order, Scalar{});
-  Matrix<Scalar> z(compute_vectors ? 2 * order : 1, compute_vectors ? order : 1);
+  uni20::DenseMatrix<Scalar> z(compute_vectors ? 2 * order : 1, compute_vectors ? order : 1);
   blas_int const ldz = compute_vectors ? detail::checked_blas_int(2 * order) : 1;
   std::vector<Scalar> work(std::max<std::size_t>(1, 14 * order), Scalar{});
   std::vector<blas_int> iwork(std::max<std::size_t>(1, 12 * order), 0);
@@ -5596,13 +5626,13 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
 
   if (!compute_vectors)
   {
-    result.u = Matrix<Scalar>(0, 0);
-    result.vt = Matrix<Scalar>(0, 0);
+    result.u = uni20::DenseMatrix<Scalar>(0, 0);
+    result.vt = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
-  result.u = Matrix<Scalar>(order, selected);
-  result.vt = Matrix<Scalar>(selected, order);
+  result.u = uni20::DenseMatrix<Scalar>(order, selected);
+  result.vt = uni20::DenseMatrix<Scalar>(selected, order);
   for (std::size_t col = 0; col < selected; ++col)
   {
     for (std::size_t row = 0; row < order; ++row)
@@ -5637,11 +5667,11 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(RealBidiagonalReductio
 ///        `real_bidiagonal_reduction`.
 /// \return Full `Q` factor satisfying `A = Q * B * P^T`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Scalar> const& reduction)
+uni20::DenseMatrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Scalar> const& reduction)
 {
   std::size_t const rows = reduction.reflectors.rows();
   std::size_t const cols = reduction.reflectors.cols();
-  Matrix<Scalar> factor(rows, rows);
+  uni20::DenseMatrix<Scalar> factor(rows, rows);
   for (std::size_t index = 0; index < rows; ++index)
   {
     factor[index, index] = Scalar{1};
@@ -5688,11 +5718,12 @@ Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Sc
 ///        `real_bidiagonal_reduction`.
 /// \return Full `P^T` factor satisfying `A = Q * B * P^T`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalReduction<Scalar> const& reduction)
+uni20::DenseMatrix<Scalar>
+real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalReduction<Scalar> const& reduction)
 {
   std::size_t const rows = reduction.reflectors.rows();
   std::size_t const cols = reduction.reflectors.cols();
-  Matrix<Scalar> factor(cols, cols);
+  uni20::DenseMatrix<Scalar> factor(cols, cols);
   for (std::size_t index = 0; index < cols; ++index)
   {
     factor[index, index] = Scalar{1};
@@ -5742,9 +5773,9 @@ Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalR
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar> const& reduction,
-                                                 Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                 MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar>
+apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar> const& reduction, uni20::DenseMatrix<Scalar> target,
+                                  MatrixSide side = MatrixSide::Left, MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const rows = reduction.reflectors.rows();
   std::size_t const cols = reduction.reflectors.cols();
@@ -5768,7 +5799,7 @@ Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar>
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = reduction.reflectors;
   std::vector<Scalar> tau = reduction.tauq;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5801,9 +5832,10 @@ Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar>
 /// \param transpose Matrix operation applied to `P`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar> const& reduction,
-                                                  Matrix<Scalar> target, MatrixSide side = MatrixSide::Right,
-                                                  MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar> const& reduction,
+                                                              uni20::DenseMatrix<Scalar> target,
+                                                              MatrixSide side = MatrixSide::Right,
+                                                              MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const rows = reduction.reflectors.rows();
   std::size_t const cols = reduction.reflectors.cols();
@@ -5827,7 +5859,7 @@ Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = reduction.reflectors;
   std::vector<Scalar> tau = reduction.taup;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5858,7 +5890,8 @@ Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to reduce.
 /// \return Upper Hessenberg form plus compact Householder reflectors.
-template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenberg_reduction(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealHessenbergReduction<Scalar> real_hessenberg_reduction(uni20::DenseMatrix<Scalar> matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -5872,8 +5905,8 @@ template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenb
   result.tau.resize(n > 0 ? n - 1 : 0);
   if (n == 0)
   {
-    result.hessenberg = Matrix<Scalar>(0, 0);
-    result.reflectors = Matrix<Scalar>(0, 0);
+    result.hessenberg = uni20::DenseMatrix<Scalar>(0, 0);
+    result.reflectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -5911,7 +5944,7 @@ template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenb
 /// \param reduction Compact Hessenberg reduction returned by `real_hessenberg_reduction`.
 /// \return Dense orthogonal matrix represented by the compact Householder data.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction)
+uni20::DenseMatrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction)
 {
   if (reduction.reflectors.rows() != reduction.reflectors.cols())
   {
@@ -5928,7 +5961,7 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
     throw std::invalid_argument("real_hessenberg_orthogonal_factor received invalid active interval");
   }
 
-  Matrix<Scalar> q(n, n);
+  uni20::DenseMatrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
     q[diagonal, diagonal] = Scalar{1};
@@ -5964,9 +5997,10 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction,
-                                                       Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                       MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction,
+                                                                   uni20::DenseMatrix<Scalar> target,
+                                                                   MatrixSide side = MatrixSide::Left,
+                                                                   MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (reduction.reflectors.rows() != reduction.reflectors.cols())
   {
@@ -5995,7 +6029,7 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = reduction.reflectors;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
   blas_int const order = detail::checked_blas_int(order_size);
@@ -6030,7 +6064,7 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
 /// \param triangle Which triangle of \p matrix contains the symmetric input.
 /// \return Tridiagonal form plus compact Householder reflectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(Matrix<Scalar> matrix,
+RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(uni20::DenseMatrix<Scalar> matrix,
                                                                                MatrixFill triangle = MatrixFill::Upper)
 {
   if (matrix.rows() != matrix.cols())
@@ -6047,8 +6081,8 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
   result.tau.resize(n > 0 ? n - 1 : 0);
   if (n == 0)
   {
-    result.tridiagonal = Matrix<Scalar>(0, 0);
-    result.reflectors = Matrix<Scalar>(0, 0);
+    result.tridiagonal = uni20::DenseMatrix<Scalar>(0, 0);
+    result.reflectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6064,7 +6098,7 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
                        result.tau.data(), work.data(), lwork);
 
   result.reflectors = matrix;
-  result.tridiagonal = Matrix<Scalar>(n, n);
+  result.tridiagonal = uni20::DenseMatrix<Scalar>(n, n);
   laset(result.tridiagonal, Scalar{}, Scalar{}, MatrixFill::All);
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -6086,7 +6120,8 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
 ///        `real_symmetric_tridiagonal_reduction`.
 /// \return Dense orthogonal matrix represented by the compact Householder data.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction)
+uni20::DenseMatrix<Scalar>
+real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction)
 {
   if (reduction.reflectors.rows() != reduction.reflectors.cols())
   {
@@ -6101,7 +6136,7 @@ Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiag
     throw std::invalid_argument("real_symmetric_tridiagonal_orthogonal_factor received inconsistent reduction data");
   }
 
-  Matrix<Scalar> q(n, n);
+  uni20::DenseMatrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
     q[diagonal, diagonal] = Scalar{1};
@@ -6137,10 +6172,9 @@ Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiag
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
-apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction,
-                                                   Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                   MatrixTranspose transpose = MatrixTranspose::None)
+uni20::DenseMatrix<Scalar> apply_real_symmetric_tridiagonal_orthogonal_factor(
+    RealSymmetricTridiagonalReduction<Scalar> const& reduction, uni20::DenseMatrix<Scalar> target,
+    MatrixSide side = MatrixSide::Left, MatrixTranspose transpose = MatrixTranspose::None)
 {
   if (reduction.reflectors.rows() != reduction.reflectors.cols())
   {
@@ -6171,7 +6205,7 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  uni20::DenseMatrix<Scalar> reflectors = reduction.reflectors;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
   blas_int const order = detail::checked_blas_int(order_size);
@@ -6201,15 +6235,15 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
 /// \param matrix Real matrix to factor.
 /// \return Reduced pivoted QR factors and column pivot order.
 template <uni20::LapackReal Scalar>
-RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> matrix)
+RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(uni20::DenseMatrix<Scalar> matrix)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
   std::size_t const rank = std::min(rows, cols);
 
   RealPivotedQrFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.r = Matrix<Scalar>(rank, cols);
+  result.q = uni20::DenseMatrix<Scalar>(rows, rank);
+  result.r = uni20::DenseMatrix<Scalar>(rank, cols);
   result.pivot_columns.resize(cols);
   std::iota(result.pivot_columns.begin(), result.pivot_columns.end(), std::size_t{0});
   if (rank == 0)
@@ -6279,7 +6313,8 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
 /// \param compute_vectors Whether to compute full left and right singular vectors.
 /// \return Singular values and, optionally, full singular-vector matrices.
 template <uni20::LapackReal Scalar>
-RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<Scalar> matrix, bool compute_vectors)
+RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(uni20::DenseMatrix<Scalar> matrix,
+                                                                         bool compute_vectors)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -6289,8 +6324,10 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
   result.singular_values.resize(singular_value_count);
   if (singular_value_count == 0)
   {
-    result.left_singular_vectors = compute_vectors ? Matrix<Scalar>(rows, rows) : Matrix<Scalar>(0, 0);
-    result.right_singular_vectors_transpose = compute_vectors ? Matrix<Scalar>(cols, cols) : Matrix<Scalar>(0, 0);
+    result.left_singular_vectors =
+        compute_vectors ? uni20::DenseMatrix<Scalar>(rows, rows) : uni20::DenseMatrix<Scalar>(0, 0);
+    result.right_singular_vectors_transpose =
+        compute_vectors ? uni20::DenseMatrix<Scalar>(cols, cols) : uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6299,8 +6336,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
   blas_int const lda = std::max<blas_int>(1, m);
   char const jobu = compute_vectors ? 'A' : 'N';
   char const jobvt = compute_vectors ? 'A' : 'N';
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
+  uni20::DenseMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
+  uni20::DenseMatrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? std::max<blas_int>(1, n) : 1;
 
@@ -6314,8 +6351,9 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
   uni20::lapack::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
                        right_transpose.data(), ldvt, work.data(), lwork);
 
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : uni20::DenseMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6330,8 +6368,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
 /// \param compute_vectors Whether to compute full left and right singular vectors.
 /// \return Singular values and, optionally, full singular-vector matrices.
 template <uni20::LapackReal Scalar>
-RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_and_conquer(Matrix<Scalar> matrix,
-                                                                                            bool compute_vectors)
+RealSingularValueDecomposition<Scalar>
+real_singular_value_decomposition_divide_and_conquer(uni20::DenseMatrix<Scalar> matrix, bool compute_vectors)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -6341,8 +6379,10 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
   result.singular_values.resize(singular_value_count);
   if (singular_value_count == 0)
   {
-    result.left_singular_vectors = compute_vectors ? Matrix<Scalar>(rows, rows) : Matrix<Scalar>(0, 0);
-    result.right_singular_vectors_transpose = compute_vectors ? Matrix<Scalar>(cols, cols) : Matrix<Scalar>(0, 0);
+    result.left_singular_vectors =
+        compute_vectors ? uni20::DenseMatrix<Scalar>(rows, rows) : uni20::DenseMatrix<Scalar>(0, 0);
+    result.right_singular_vectors_transpose =
+        compute_vectors ? uni20::DenseMatrix<Scalar>(cols, cols) : uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6350,8 +6390,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
   blas_int const n = detail::checked_blas_int(cols);
   blas_int const lda = std::max<blas_int>(1, m);
   char const jobz = compute_vectors ? 'A' : 'N';
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
+  uni20::DenseMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
+  uni20::DenseMatrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? std::max<blas_int>(1, n) : 1;
   std::vector<blas_int> iwork(
@@ -6367,8 +6407,9 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
   uni20::lapack::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
                        right_transpose.data(), ldvt, work.data(), lwork, iwork.data());
 
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : uni20::DenseMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6386,8 +6427,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
 /// \return Selected singular values and, optionally, selected singular-vector matrices.
 template <uni20::LapackReal Scalar>
 RealSingularValueDecomposition<Scalar>
-real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t first_index, std::size_t last_index,
-                                              bool compute_vectors)
+real_singular_value_decomposition_index_range(uni20::DenseMatrix<Scalar> matrix, std::size_t first_index,
+                                              std::size_t last_index, bool compute_vectors)
 {
   std::size_t const rows = matrix.rows();
   std::size_t const cols = matrix.cols();
@@ -6409,8 +6450,8 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
   char const jobvt = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   std::vector<Scalar> singular_values_workspace(singular_value_count, Scalar{});
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? selected : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? selected : 1, compute_vectors ? cols : 1);
+  uni20::DenseMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Scalar> right_transpose(compute_vectors ? selected : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? detail::checked_blas_int(selected) : 1;
   std::vector<blas_int> iwork(
@@ -6435,8 +6476,9 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
   }
 
   result.singular_values.assign(singular_values_workspace.begin(), singular_values_workspace.begin() + selected_count);
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : uni20::DenseMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6465,13 +6507,13 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conq
   result.eigenvalues = std::move(diagonal);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
   blas_int const order = detail::checked_blas_int(n);
   char const jobz = compute_vectors ? 'V' : 'N';
-  Matrix<Scalar> z(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Scalar> z(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   Scalar dummy_subdiagonal{};
   Scalar* e = subdiagonal.empty() ? &dummy_subdiagonal : subdiagonal.data();
@@ -6489,7 +6531,7 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conq
   uni20::lapack::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, work.data(), lwork, iwork.data(),
                        liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(z) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(z) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6531,7 +6573,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
   blas_int const last = detail::checked_blas_int(last_index + 1);
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  uni20::DenseMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Scalar dummy_subdiagonal{};
@@ -6558,7 +6600,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
     throw std::runtime_error("LAPACK stevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6566,7 +6608,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
 ///
 /// \details The public wrapper accepts the prototype row-major `RightMatrix`
 ///          used by the mdspan-facing LAPACK layer. Internally it copies to
-///          the current column-major Krylov matrix before calling Fortran
+///          a column-major DenseMatrix before calling Fortran
 ///          LAPACK, so the returned Schur vectors correspond to the logical
 ///          input matrix rather than its transpose.
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
@@ -6627,8 +6669,9 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
     expected_selected_dimension += block.size;
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> schur_vectors = update_vectors ? std::move(decomposition.schur_vectors) : Matrix<Scalar>(1, 1);
+  uni20::DenseMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  uni20::DenseMatrix<Scalar> schur_vectors =
+      update_vectors ? std::move(decomposition.schur_vectors) : uni20::DenseMatrix<Scalar>(1, 1);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const ldq = update_vectors ? order : 1;
   char const job = 'B';
@@ -6661,7 +6704,7 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
   }
 
   decomposition.schur_form = std::move(schur_form);
-  decomposition.schur_vectors = update_vectors ? std::move(schur_vectors) : Matrix<Scalar>(0, 0);
+  decomposition.schur_vectors = update_vectors ? std::move(schur_vectors) : uni20::DenseMatrix<Scalar>(0, 0);
   decomposition.eigenvalues.clear();
   decomposition.eigenvalues.reserve(n);
   for (std::size_t index = 0; index < n; ++index)
@@ -6695,7 +6738,7 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
 
   std::size_t const n = decomposition.schur_form.rows();
   RealSchurRightEigenvectors<Scalar> result;
-  result.right_eigenvectors = Matrix<uni20::complex<Scalar>>(n, n);
+  result.right_eigenvectors = uni20::DenseMatrix<uni20::complex<Scalar>>(n, n);
   if (n == 0)
   {
     return result;
@@ -6705,9 +6748,9 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
     throw std::invalid_argument("real_schur_right_eigenvectors received inconsistent Schur eigenvalue data");
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> left_vectors(1, 1);
-  Matrix<Scalar> right_vectors(n, n);
+  uni20::DenseMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  uni20::DenseMatrix<Scalar> left_vectors(1, 1);
+  uni20::DenseMatrix<Scalar> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Scalar> work(3 * n, Scalar{});
   blas_int const order = detail::checked_blas_int(n);
@@ -6796,9 +6839,9 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
     throw std::invalid_argument("real_schur_condition_estimates received inconsistent Schur eigenvalue data");
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> left_vectors(n, n);
-  Matrix<Scalar> right_vectors(n, n);
+  uni20::DenseMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  uni20::DenseMatrix<Scalar> left_vectors(n, n);
+  uni20::DenseMatrix<Scalar> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Scalar> trevc_work(3 * n, Scalar{});
   blas_int const order = detail::checked_blas_int(n);
@@ -6842,7 +6885,8 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
 
 template <uni20::LapackReal Real>
 RealNonsymmetricBalance<Real>
-real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
+real_nonsymmetric_balance(uni20::DenseMatrix<Real> matrix,
+                          RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -6884,8 +6928,8 @@ real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = 
 /// \param job The same balancing operation used for the matrix.
 /// \return Real right eigenvector columns backtransformed to the original matrix.
 template <uni20::LapackReal Real>
-Matrix<Real>
-real_nonsymmetric_balance_backtransform_right_vectors(Matrix<Real> vectors,
+uni20::DenseMatrix<Real>
+real_nonsymmetric_balance_backtransform_right_vectors(uni20::DenseMatrix<Real> vectors,
                                                       RealNonsymmetricBalance<Real> const& balance,
                                                       RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
@@ -6926,7 +6970,7 @@ real_nonsymmetric_balance_backtransform_right_vectors(Matrix<Real> vectors,
 /// \return Balanced pencil, LAPACK left/right scale data, and balanced active interval.
 template <uni20::LapackReal Real>
 RealGeneralizedNonsymmetricBalance<Real>
-real_generalized_nonsymmetric_balance(Matrix<Real> matrix, Matrix<Real> metric,
+real_generalized_nonsymmetric_balance(uni20::DenseMatrix<Real> matrix, uni20::DenseMatrix<Real> metric,
                                       RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
   if (matrix.rows() != matrix.cols())
@@ -6981,8 +7025,8 @@ real_generalized_nonsymmetric_balance(Matrix<Real> matrix, Matrix<Real> metric,
 /// \param job The same balancing operation used for the pencil.
 /// \return Real right eigenvector columns backtransformed to the original pencil.
 template <uni20::LapackReal Real>
-Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
-    Matrix<Real> vectors, RealGeneralizedNonsymmetricBalance<Real> const& balance,
+uni20::DenseMatrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
+    uni20::DenseMatrix<Real> vectors, RealGeneralizedNonsymmetricBalance<Real> const& balance,
     RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
   std::size_t const n = balance.left_scale.size();
@@ -7030,7 +7074,8 @@ Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
 /// \return Generalized upper Hessenberg forms and optional orthogonal factors.
 template <uni20::LapackReal Real>
 RealGeneralizedHessenbergReduction<Real>
-real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_triangular_metric, bool compute_vectors)
+real_generalized_hessenberg_reduction(uni20::DenseMatrix<Real> matrix, uni20::DenseMatrix<Real> upper_triangular_metric,
+                                      bool compute_vectors)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -7062,15 +7107,15 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
   result.last_exclusive = n;
   if (n == 0)
   {
-    result.matrix_hessenberg_form = Matrix<Real>(0, 0);
-    result.metric_triangular_form = Matrix<Real>(0, 0);
-    result.left_orthogonal_vectors = Matrix<Real>(0, 0);
-    result.right_orthogonal_vectors = Matrix<Real>(0, 0);
+    result.matrix_hessenberg_form = uni20::DenseMatrix<Real>(0, 0);
+    result.metric_triangular_form = uni20::DenseMatrix<Real>(0, 0);
+    result.left_orthogonal_vectors = uni20::DenseMatrix<Real>(0, 0);
+    result.right_orthogonal_vectors = uni20::DenseMatrix<Real>(0, 0);
     return result;
   }
 
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const first = 1;
   blas_int const last = order;
@@ -7084,8 +7129,8 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
 
   result.matrix_hessenberg_form = std::move(matrix);
   result.metric_triangular_form = std::move(upper_triangular_metric);
-  result.left_orthogonal_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_orthogonal_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_orthogonal_vectors = compute_vectors ? std::move(left_vectors) : uni20::DenseMatrix<Real>(0, 0);
+  result.right_orthogonal_vectors = compute_vectors ? std::move(right_vectors) : uni20::DenseMatrix<Real>(0, 0);
   return result;
 }
 
@@ -7102,7 +7147,8 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
 /// \return Generalized Schur forms, optional Schur vectors, and projective eigenvalue data.
 template <uni20::LapackReal Real>
 RealGeneralizedSchurDecomposition<Real>
-real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_triangular_metric, bool compute_vectors)
+real_generalized_hessenberg_schur(uni20::DenseMatrix<Real> hessenberg, uni20::DenseMatrix<Real> upper_triangular_metric,
+                                  bool compute_vectors)
 {
   if (hessenberg.rows() != hessenberg.cols())
   {
@@ -7142,10 +7188,10 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.matrix_schur_form = Matrix<Real>(0, 0);
-    result.metric_schur_form = Matrix<Real>(0, 0);
-    result.left_schur_vectors = Matrix<Real>(0, 0);
-    result.right_schur_vectors = Matrix<Real>(0, 0);
+    result.matrix_schur_form = uni20::DenseMatrix<Real>(0, 0);
+    result.metric_schur_form = uni20::DenseMatrix<Real>(0, 0);
+    result.left_schur_vectors = uni20::DenseMatrix<Real>(0, 0);
+    result.right_schur_vectors = uni20::DenseMatrix<Real>(0, 0);
     return result;
   }
 
@@ -7153,8 +7199,8 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldq = compute_vectors ? order : 1;
   blas_int const ldz = compute_vectors ? order : 1;
   blas_int const first = 1;
@@ -7177,8 +7223,8 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
 
   result.matrix_schur_form = std::move(hessenberg);
   result.metric_schur_form = std::move(upper_triangular_metric);
-  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : uni20::DenseMatrix<Real>(0, 0);
+  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : uni20::DenseMatrix<Real>(0, 0);
   for (std::size_t i = 0; i < n; ++i)
   {
     result.alpha[i] = uni20::complex<Real>{alphar[i], alphai[i]};
@@ -7201,8 +7247,8 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
 /// \param compute_vectors Whether to compute left and right generalized Schur vectors.
 /// \return Generalized Schur forms, optional Schur vectors, and projective eigenvalue data.
 template <uni20::LapackReal Real>
-RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matrix, Matrix<Real> metric,
-                                                               bool compute_vectors)
+RealGeneralizedSchurDecomposition<Real> real_generalized_schur(uni20::DenseMatrix<Real> matrix,
+                                                               uni20::DenseMatrix<Real> metric, bool compute_vectors)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -7224,10 +7270,10 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.matrix_schur_form = Matrix<Real>(0, 0);
-    result.metric_schur_form = Matrix<Real>(0, 0);
-    result.left_schur_vectors = Matrix<Real>(0, 0);
-    result.right_schur_vectors = Matrix<Real>(0, 0);
+    result.matrix_schur_form = uni20::DenseMatrix<Real>(0, 0);
+    result.metric_schur_form = uni20::DenseMatrix<Real>(0, 0);
+    result.left_schur_vectors = uni20::DenseMatrix<Real>(0, 0);
+    result.right_schur_vectors = uni20::DenseMatrix<Real>(0, 0);
     return result;
   }
 
@@ -7235,8 +7281,8 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  uni20::DenseMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldvsl = compute_vectors ? order : 1;
   blas_int const ldvsr = compute_vectors ? order : 1;
   char const jobvsl = compute_vectors ? 'V' : 'N';
@@ -7259,8 +7305,8 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
 
   result.matrix_schur_form = std::move(matrix);
   result.metric_schur_form = std::move(metric);
-  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : uni20::DenseMatrix<Real>(0, 0);
+  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : uni20::DenseMatrix<Real>(0, 0);
   result.selected_dimension = static_cast<std::size_t>(selected_dimension);
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -7335,8 +7381,10 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
   blas_int const order = detail::checked_blas_int(n);
   blas_int const ldq = update_vectors ? order : 1;
   blas_int const ldz = update_vectors ? order : 1;
-  Matrix<Real> left_vectors = update_vectors ? std::move(decomposition.left_schur_vectors) : Matrix<Real>(1, 1);
-  Matrix<Real> right_vectors = update_vectors ? std::move(decomposition.right_schur_vectors) : Matrix<Real>(1, 1);
+  uni20::DenseMatrix<Real> left_vectors =
+      update_vectors ? std::move(decomposition.left_schur_vectors) : uni20::DenseMatrix<Real>(1, 1);
+  uni20::DenseMatrix<Real> right_vectors =
+      update_vectors ? std::move(decomposition.right_schur_vectors) : uni20::DenseMatrix<Real>(1, 1);
   blas_int const lwork = std::max<blas_int>(1, 4 * order + 16);
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
 
@@ -7366,8 +7414,8 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
     current_blocks = detail::ordered_schur_blocks(decomposition.blocks, current_order);
   }
 
-  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : uni20::DenseMatrix<Real>(0, 0);
+  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : uni20::DenseMatrix<Real>(0, 0);
   decomposition.alpha = detail::ordered_schur_block_values(decomposition.alpha, decomposition.blocks, current_order);
   decomposition.beta = detail::ordered_schur_block_values(decomposition.beta, decomposition.blocks, current_order);
   decomposition.blocks = detail::ordered_schur_blocks(decomposition.blocks, current_order);
@@ -7460,10 +7508,12 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
     expected_selected_dimension += block.size;
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors = update_vectors ? std::move(decomposition.left_schur_vectors) : Matrix<Real>(1, 1);
-  Matrix<Real> right_vectors = update_vectors ? std::move(decomposition.right_schur_vectors) : Matrix<Real>(1, 1);
+  uni20::DenseMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  uni20::DenseMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  uni20::DenseMatrix<Real> left_vectors =
+      update_vectors ? std::move(decomposition.left_schur_vectors) : uni20::DenseMatrix<Real>(1, 1);
+  uni20::DenseMatrix<Real> right_vectors =
+      update_vectors ? std::move(decomposition.right_schur_vectors) : uni20::DenseMatrix<Real>(1, 1);
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
@@ -7500,8 +7550,8 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
 
   decomposition.matrix_schur_form = std::move(matrix_schur_form);
   decomposition.metric_schur_form = std::move(metric_schur_form);
-  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : uni20::DenseMatrix<Real>(0, 0);
+  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : uni20::DenseMatrix<Real>(0, 0);
   for (std::size_t i = 0; i < n; ++i)
   {
     decomposition.alpha[i] = uni20::complex<Real>{alphar[i], alphai[i]};
@@ -7542,7 +7592,7 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
 
   std::size_t const n = decomposition.matrix_schur_form.rows();
   RealGeneralizedSchurRightEigenvectors<Real> result;
-  result.right_eigenvectors = Matrix<uni20::complex<Real>>(n, n);
+  result.right_eigenvectors = uni20::DenseMatrix<uni20::complex<Real>>(n, n);
   if (n == 0)
   {
     return result;
@@ -7557,10 +7607,10 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
     throw std::invalid_argument("real_generalized_schur_right_eigenvectors received inconsistent eigenvalue data");
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors(1, 1);
-  Matrix<Real> right_vectors(n, n);
+  uni20::DenseMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  uni20::DenseMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  uni20::DenseMatrix<Real> left_vectors(1, 1);
+  uni20::DenseMatrix<Real> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Real> work(6 * n, Real{});
   blas_int const order = detail::checked_blas_int(n);
@@ -7660,10 +7710,10 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
     throw std::invalid_argument("real_generalized_schur_condition_estimates received inconsistent eigenvalue data");
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors(n, n);
-  Matrix<Real> right_vectors(n, n);
+  uni20::DenseMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  uni20::DenseMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  uni20::DenseMatrix<Real> left_vectors(n, n);
+  uni20::DenseMatrix<Real> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Real> tgevc_work(6 * n, Real{});
   blas_int const order = detail::checked_blas_int(n);
@@ -7709,7 +7759,7 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
 /// \return Complex eigenvalues and, optionally, right eigenvectors.
 
 template <uni20::LapackReal Real>
-RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Matrix<Real> matrix,
+RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(uni20::DenseMatrix<Real> matrix,
                                                                              bool compute_right_vectors)
 {
   if (matrix.rows() != matrix.cols())
@@ -7721,7 +7771,7 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
   RealNonsymmetricExpertEigensystem<Real> result;
   result.eigenvalues.resize(n);
   result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+      uni20::DenseMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
   result.balance_scale.resize(n);
@@ -7733,8 +7783,8 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
   blas_int const order = detail::checked_blas_int(n);
   std::vector<Real> wr(n, Real{});
   std::vector<Real> wi(n, Real{});
-  Matrix<Real> vl(n, n);
-  Matrix<Real> vr(n, n);
+  uni20::DenseMatrix<Real> vl(n, n);
+  uni20::DenseMatrix<Real> vr(n, n);
   blas_int const ldvl = order;
   blas_int const ldvr = order;
   char const balanc = 'B';
@@ -7819,8 +7869,9 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
 /// \param compute_right_vectors Whether to compute right eigenvectors.
 /// \return Projective eigenvalue data and, optionally, right eigenvectors.
 template <uni20::LapackReal Real>
-RealGeneralizedNonsymmetricEigensystem<Real>
-real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metric, bool compute_right_vectors)
+RealGeneralizedNonsymmetricEigensystem<Real> real_generalized_nonsymmetric_eigensystem(uni20::DenseMatrix<Real> matrix,
+                                                                                       uni20::DenseMatrix<Real> metric,
+                                                                                       bool compute_right_vectors)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -7841,7 +7892,7 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
   result.beta.resize(n);
   result.eigenvalues.resize(n);
   result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+      uni20::DenseMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
   if (n == 0)
   {
     return result;
@@ -7852,7 +7903,7 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
   std::vector<Real> vl(1, Real{});
-  Matrix<Real> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
+  uni20::DenseMatrix<Real> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
   blas_int const ldvl = 1;
   blas_int const ldvr = compute_right_vectors ? order : 1;
   char const jobvl = 'N';
@@ -7925,7 +7976,8 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
 ///         data, and reciprocal condition estimates.
 template <uni20::LapackReal Real>
 RealGeneralizedNonsymmetricExpertEigensystem<Real>
-real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Real> metric, bool compute_right_vectors)
+real_generalized_nonsymmetric_expert_eigensystem(uni20::DenseMatrix<Real> matrix, uni20::DenseMatrix<Real> metric,
+                                                 bool compute_right_vectors)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -7946,7 +7998,7 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
   result.beta.resize(n);
   result.eigenvalues.resize(n);
   result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+      uni20::DenseMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
   result.left_balance_scale.resize(n);
@@ -7960,8 +8012,8 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> vl(n, n);
-  Matrix<Real> vr(n, n);
+  uni20::DenseMatrix<Real> vl(n, n);
+  uni20::DenseMatrix<Real> vr(n, n);
   blas_int const ldvl = order;
   blas_int const ldvr = order;
   char const balanc = 'B';

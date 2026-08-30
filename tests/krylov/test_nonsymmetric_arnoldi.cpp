@@ -475,7 +475,7 @@ double vector_norm(DenseHostVector<double> const& vector)
 }
 
 DenseHostVector<double> projected_column(std::vector<DenseHostVector<double>> const& basis,
-                                         uni20::krylov::Matrix<double> const& hessenberg, std::size_t column)
+                                         uni20::DenseMatrix<double> const& hessenberg, std::size_t column)
 {
   DenseHostVector<double> result{std::vector<double>(basis.front().values.size(), 0.0)};
   for (std::size_t basis_index = 0; basis_index < basis.size(); ++basis_index)
@@ -567,7 +567,7 @@ TEST(KrylovNonsymmetricArnoldi, SolvesDenseComplexNonsymmetricProjectedProblem)
 {
   using Complex = uni20::complex<double>;
 
-  uni20::krylov::Matrix<Complex> matrix(2, 2);
+  uni20::DenseMatrix<Complex> matrix(2, 2);
   matrix[0, 0] = Complex{1.0, 2.0};
   matrix[1, 0] = Complex{};
   matrix[0, 1] = Complex{3.0, -1.0};
@@ -866,13 +866,13 @@ TEST(KrylovNonsymmetricArnoldi, ExtractsComplexConjugateRitzPairFromRealOperator
 
 TEST(KrylovNonsymmetricArnoldi, MeasuresProjectedDepartureFromNormality)
 {
-  uni20::krylov::Matrix<double> normal(2, 2);
+  uni20::DenseMatrix<double> normal(2, 2);
   normal[0, 0] = 1.0;
   normal[1, 0] = -2.0;
   normal[0, 1] = 2.0;
   normal[1, 1] = 1.0;
 
-  uni20::krylov::Matrix<double> nonnormal(2, 2);
+  uni20::DenseMatrix<double> nonnormal(2, 2);
   nonnormal[0, 0] = 1.0;
   nonnormal[1, 0] = 0.0;
   nonnormal[0, 1] = 10.0;

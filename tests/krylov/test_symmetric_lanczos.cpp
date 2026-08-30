@@ -87,10 +87,10 @@ std::vector<double> exact_two_dimensional_laplacian_eigenvalues(std::size_t nx)
   return eigenvalues;
 }
 
-uni20::krylov::Matrix<double> tridiagonal_matrix(std::vector<double> const& diagonal,
-                                                 std::vector<double> const& subdiagonal)
+uni20::DenseMatrix<double> tridiagonal_matrix(std::vector<double> const& diagonal,
+                                              std::vector<double> const& subdiagonal)
 {
-  uni20::krylov::Matrix<double> matrix(diagonal.size(), diagonal.size());
+  uni20::DenseMatrix<double> matrix(diagonal.size(), diagonal.size());
   uni20::krylov::laset(matrix, 0.0, 0.0, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < diagonal.size(); ++i)
   {
@@ -104,14 +104,13 @@ uni20::krylov::Matrix<double> tridiagonal_matrix(std::vector<double> const& diag
   return matrix;
 }
 
-uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
-                                       uni20::krylov::Matrix<double> const& rhs)
+uni20::DenseMatrix<double> multiply(uni20::DenseMatrix<double> const& lhs, uni20::DenseMatrix<double> const& rhs)
 {
   if (lhs.cols() != rhs.rows())
   {
     throw std::invalid_argument("test matrix multiplication size mismatch");
   }
-  uni20::krylov::Matrix<double> result(lhs.rows(), rhs.cols());
+  uni20::DenseMatrix<double> result(lhs.rows(), rhs.cols());
   uni20::krylov::laset(result, 0.0, 0.0, uni20::krylov::MatrixFill::All);
   for (uni20::index_type col = 0; col < rhs.cols(); ++col)
   {
@@ -126,9 +125,9 @@ uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
   return result;
 }
 
-uni20::krylov::Matrix<double> transpose(uni20::krylov::Matrix<double> const& matrix)
+uni20::DenseMatrix<double> transpose(uni20::DenseMatrix<double> const& matrix)
 {
-  uni20::krylov::Matrix<double> result(matrix.cols(), matrix.rows());
+  uni20::DenseMatrix<double> result(matrix.cols(), matrix.rows());
   for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     for (uni20::index_type row = 0; row < matrix.rows(); ++row)
@@ -139,7 +138,7 @@ uni20::krylov::Matrix<double> transpose(uni20::krylov::Matrix<double> const& mat
   return result;
 }
 
-void expect_matrix_near(uni20::krylov::Matrix<double> const& actual, uni20::krylov::Matrix<double> const& expected,
+void expect_matrix_near(uni20::DenseMatrix<double> const& actual, uni20::DenseMatrix<double> const& expected,
                         double tolerance)
 {
   ASSERT_EQ(actual.rows(), expected.rows());
@@ -1144,7 +1143,7 @@ TEST(KrylovSymmetricLanczos, AppliesSymmetricQrShiftsAsOrthogonalSimilarity)
   expect_matrix_near(transformed, q_t_a_q, 1.0e-11);
 
   auto identity = multiply(transpose(result.transform), result.transform);
-  uni20::krylov::Matrix<double> expected_identity(identity.rows(), identity.cols());
+  uni20::DenseMatrix<double> expected_identity(identity.rows(), identity.cols());
   uni20::krylov::laset(expected_identity, 1.0, 0.0, uni20::krylov::MatrixFill::All);
   expect_matrix_near(identity, expected_identity, 1.0e-12);
 }

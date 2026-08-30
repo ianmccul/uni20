@@ -47,7 +47,7 @@ template <uni20::Real Scalar> struct SymmetricQrShiftResult
 {
     std::vector<Scalar> diagonal;
     std::vector<Scalar> subdiagonal;
-    Matrix<Scalar> transform;
+    uni20::DenseMatrix<Scalar> transform;
 };
 
 /// \brief Compressed symmetric Lanczos factorization after implicit restart.
@@ -156,7 +156,7 @@ template <uni20::Real Scalar> GivensRotation<Scalar> lartg_like(Scalar f, Scalar
 }
 
 template <uni20::Real Scalar>
-void apply_givens_to_transform(Matrix<Scalar>& q, std::size_t lhs, std::size_t rhs, Scalar c, Scalar s)
+void apply_givens_to_transform(uni20::DenseMatrix<Scalar>& q, std::size_t lhs, std::size_t rhs, Scalar c, Scalar s)
 {
   for (uni20::index_type row = 0; row < q.rows(); ++row)
   {
@@ -677,7 +677,7 @@ SymmetricQrShiftResult<Scalar> apply_symmetric_qr_shifts(std::vector<Scalar> dia
   }
 
   SymmetricQrShiftResult<Scalar> result;
-  result.transform = Matrix<Scalar>(order, order);
+  result.transform = uni20::DenseMatrix<Scalar>(order, order);
   laset(result.transform, Scalar{1}, Scalar{}, MatrixFill::All);
   if (order == 0 || shifts.empty())
   {

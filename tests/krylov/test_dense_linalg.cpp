@@ -101,7 +101,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
 {
   using Scalar = TypeParam;
 
-  uni20::krylov::Matrix<Scalar> matrix(3, 3);
+  uni20::DenseMatrix<Scalar> matrix(3, 3);
   uni20::krylov::laset(matrix, Scalar{1}, Scalar{-2}, uni20::krylov::MatrixFill::All);
 
   for (uni20::index_type col = 0; col < matrix.cols(); ++col)
@@ -112,7 +112,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
     }
   }
 
-  uni20::krylov::Matrix<Scalar> upper(3, 3);
+  uni20::DenseMatrix<Scalar> upper(3, 3);
   uni20::krylov::laset(upper, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   uni20::krylov::lacpy(upper, matrix, uni20::krylov::MatrixFill::Upper);
 
@@ -145,7 +145,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, StoresRightMatrixRowMajorAndCopiesToColum
   expect_floating_eq((span[0, 2]), Scalar{3});
   expect_floating_eq((span[1, 0]), Scalar{4});
 
-  uni20::krylov::Matrix<Scalar> left = uni20::krylov::copy_right_to_left(right);
+  uni20::DenseMatrix<Scalar> left = uni20::krylov::copy_right_to_left(right);
   expect_vector_floating_eq(std::vector<Scalar>(left.storage().data(), left.storage().data() + left.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{4}, Scalar{2}, Scalar{5}, Scalar{3}, Scalar{6}});
 
@@ -159,7 +159,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesMatrixVectorProducts)
 {
   using Scalar = TypeParam;
 
-  uni20::krylov::Matrix<Scalar> matrix(2, 3);
+  uni20::DenseMatrix<Scalar> matrix(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{2};
   matrix[0, 1] = Scalar{3};
@@ -186,7 +186,7 @@ TEST(KrylovDenseLinalg, ComputesComplexConjugateTransposeMatrixVectorProduct)
 {
   using Scalar = uni20::complex<double>;
 
-  uni20::krylov::Matrix<Scalar> matrix(2, 1);
+  uni20::DenseMatrix<Scalar> matrix(2, 1);
   matrix[0, 0] = Scalar{1.0, 2.0};
   matrix[1, 0] = Scalar{3.0, -1.0};
 
@@ -202,7 +202,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, AppliesRankOneUpdates)
 {
   using Scalar = TypeParam;
 
-  uni20::krylov::Matrix<Scalar> matrix(2, 2);
+  uni20::DenseMatrix<Scalar> matrix(2, 2);
   uni20::krylov::laset(matrix, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   std::vector<Scalar> x{Scalar{1}, Scalar{2}};
   std::vector<Scalar> y{Scalar{3}, Scalar{4}};
@@ -219,7 +219,7 @@ TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
 {
   using Scalar = uni20::complex<double>;
 
-  uni20::krylov::Matrix<Scalar> matrix(1, 2);
+  uni20::DenseMatrix<Scalar> matrix(1, 2);
   uni20::krylov::laset(matrix, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   std::vector<Scalar> x{Scalar{2.0, 1.0}};
   std::vector<Scalar> y{Scalar{1.0, -1.0}, Scalar{3.0, 2.0}};

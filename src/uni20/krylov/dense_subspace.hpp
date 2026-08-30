@@ -21,7 +21,7 @@ namespace uni20::krylov
 template <typename Scalar> struct TridiagonalEigensystem
 {
     std::vector<Scalar> eigenvalues;
-    Matrix<Scalar> eigenvectors;
+    uni20::DenseMatrix<Scalar> eigenvectors;
 };
 
 /// \brief Eigenvalues and optional eigenvectors of a dense real symmetric matrix.
@@ -29,7 +29,7 @@ template <typename Scalar> struct TridiagonalEigensystem
 template <uni20::LapackReal Real> struct RealNonsymmetricEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
 };
 
 /// \brief Expert eigensystem diagnostics for a dense real nonsymmetric matrix.
@@ -48,15 +48,15 @@ template <uni20::LapackReal Scalar> struct RealSchurBlock
 template <uni20::LapackReal Real> struct ComplexNonsymmetricEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Real>> right_eigenvectors;
 };
 
-/// \brief Complex Schur decomposition stored in the current column-major Krylov matrix type.
+/// \brief Complex Schur decomposition stored in column-major DenseMatrix values.
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct ComplexSchurDecomposition
 {
-    Matrix<uni20::complex<Real>> schur_form;
-    Matrix<uni20::complex<Real>> schur_vectors;
+    uni20::DenseMatrix<uni20::complex<Real>> schur_form;
+    uni20::DenseMatrix<uni20::complex<Real>> schur_vectors;
     std::vector<uni20::complex<Real>> eigenvalues;
 };
 
@@ -71,8 +71,8 @@ template <uni20::LapackReal Real> struct RightComplexSchurDecomposition
 
 template <uni20::LapackReal Scalar> struct RealSchurDecomposition
 {
-    Matrix<Scalar> schur_form;
-    Matrix<Scalar> schur_vectors;
+    uni20::DenseMatrix<Scalar> schur_form;
+    uni20::DenseMatrix<Scalar> schur_vectors;
     std::vector<uni20::complex<Scalar>> eigenvalues;
     std::vector<RealSchurBlock<Scalar>> blocks;
 };
@@ -266,7 +266,7 @@ std::vector<Scalar> symmetric_tridiagonal_eigenvalues(std::vector<Scalar> diagon
     return diagonal;
   }
 
-  Matrix<Scalar> no_eigenvectors(0, 0);
+  uni20::DenseMatrix<Scalar> no_eigenvectors(0, 0);
   uni20::linalg::symmetric_tridiagonal_eigen(std::span<Scalar>(diagonal), std::span<Scalar>(subdiagonal),
                                              no_eigenvectors, false);
   return diagonal;
@@ -298,18 +298,18 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem(std::vector<Sca
   if (!compute_vectors)
   {
     result.eigenvalues = symmetric_tridiagonal_eigenvalues(std::move(diagonal), std::move(subdiagonal));
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
   result.eigenvalues = std::move(diagonal);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
-  Matrix<Scalar> z(n, n);
+  uni20::DenseMatrix<Scalar> z(n, n);
   uni20::linalg::symmetric_tridiagonal_eigen(std::span<Scalar>(result.eigenvalues), std::span<Scalar>(subdiagonal), z,
                                              true);
 
@@ -348,8 +348,8 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
     return result;
   }
 
-  Matrix<Scalar> lapack_matrix = copy_right_to_left(matrix);
-  Matrix<Scalar> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::DenseMatrix<Scalar> lapack_matrix = copy_right_to_left(matrix);
+  uni20::DenseMatrix<Scalar> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
   uni20::linalg::schur(lapack_matrix, std::span<uni20::complex<Scalar>>(result.eigenvalues), schur_vectors_left,
                        compute_vectors);
 
@@ -359,13 +359,13 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
   return result;
 }
 
-/// \brief Compute the real Schur decomposition of a column-major Krylov matrix.
+/// \brief Compute the real Schur decomposition of a column-major DenseMatrix.
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix in current Krylov local storage.
 /// \param compute_vectors Whether to compute Schur vectors.
 /// \return Real Schur form, optional Schur vectors, eigenvalues, and block metadata.
 template <uni20::LapackReal Scalar>
-RealSchurDecomposition<Scalar> real_schur(Matrix<Scalar> matrix, bool compute_vectors)
+RealSchurDecomposition<Scalar> real_schur(uni20::DenseMatrix<Scalar> matrix, bool compute_vectors)
 {
   RealSchurDecomposition<Scalar> result;
   if (matrix.rows() != matrix.cols())
@@ -375,7 +375,7 @@ RealSchurDecomposition<Scalar> real_schur(Matrix<Scalar> matrix, bool compute_ve
   std::size_t const n = static_cast<std::size_t>(matrix.rows());
 
   result.schur_form = std::move(matrix);
-  result.schur_vectors = Matrix<Scalar>(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  result.schur_vectors = uni20::DenseMatrix<Scalar>(compute_vectors ? n : 0, compute_vectors ? n : 0);
   result.eigenvalues.resize(n);
   if (n != 0)
   {
@@ -395,7 +395,7 @@ RealSchurDecomposition<Scalar> real_schur(Matrix<Scalar> matrix, bool compute_ve
 /// \param compute_vectors Whether to compute Schur vectors of the Hessenberg matrix.
 /// \return Real Schur form, optional Schur vectors, eigenvalues, and block metadata.
 template <uni20::LapackReal Scalar>
-RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, bool compute_vectors)
+RealSchurDecomposition<Scalar> real_hessenberg_schur(uni20::DenseMatrix<Scalar> hessenberg, bool compute_vectors)
 {
   if (hessenberg.rows() != hessenberg.cols())
   {
@@ -407,24 +407,24 @@ RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, 
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.schur_form = Matrix<Scalar>(0, 0);
-    result.schur_vectors = Matrix<Scalar>(0, 0);
+    result.schur_form = uni20::DenseMatrix<Scalar>(0, 0);
+    result.schur_vectors = uni20::DenseMatrix<Scalar>(0, 0);
     return result;
   }
 
-  Matrix<Scalar> schur_vectors(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::DenseMatrix<Scalar> schur_vectors(compute_vectors ? n : 0, compute_vectors ? n : 0);
   uni20::linalg::hessenberg_schur(hessenberg, std::span<uni20::complex<Scalar>>(result.eigenvalues), schur_vectors,
                                   compute_vectors);
   result.blocks = detail::real_schur_blocks(result.eigenvalues);
   result.schur_form = std::move(hessenberg);
-  result.schur_vectors = compute_vectors ? std::move(schur_vectors) : Matrix<Scalar>(0, 0);
+  result.schur_vectors = compute_vectors ? std::move(schur_vectors) : uni20::DenseMatrix<Scalar>(0, 0);
   return result;
 }
 
 /// \brief Compute the complex Schur decomposition of a layout-right matrix through LAPACK `gees`.
 ///
 /// \details The public wrapper accepts the prototype row-major `RightMatrix`
-///          and copies to the current column-major Krylov matrix before
+///          and copies to a column-major DenseMatrix before
 ///          calling Fortran LAPACK. Complex Schur blocks are all scalar 1x1
 ///          entries, so eigenvalues are the diagonal of the Schur form.
 /// \tparam Real `float` or `double`.
@@ -452,8 +452,8 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
     return result;
   }
 
-  Matrix<Complex> lapack_matrix = copy_right_to_left(matrix);
-  Matrix<Complex> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::DenseMatrix<Complex> lapack_matrix = copy_right_to_left(matrix);
+  uni20::DenseMatrix<Complex> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
   uni20::linalg::schur(lapack_matrix, std::span<Complex>(result.eigenvalues), schur_vectors_left, compute_vectors);
 
   result.schur_form = copy_left_to_right(lapack_matrix);
@@ -461,13 +461,13 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
   return result;
 }
 
-/// \brief Compute the complex Schur decomposition of a column-major Krylov matrix.
+/// \brief Compute the complex Schur decomposition of a column-major DenseMatrix.
 /// \tparam Real `float` or `double`.
 /// \param matrix Complex square matrix in current Krylov local storage.
 /// \param compute_vectors Whether to compute Schur vectors.
 /// \return Complex Schur form, optional Schur vectors, and eigenvalues.
 template <uni20::LapackReal Real>
-ComplexSchurDecomposition<Real> complex_schur(Matrix<uni20::complex<Real>> matrix, bool compute_vectors)
+ComplexSchurDecomposition<Real> complex_schur(uni20::DenseMatrix<uni20::complex<Real>> matrix, bool compute_vectors)
 {
   using Complex = uni20::complex<Real>;
   ComplexSchurDecomposition<Real> result;
@@ -478,7 +478,7 @@ ComplexSchurDecomposition<Real> complex_schur(Matrix<uni20::complex<Real>> matri
   std::size_t const n = static_cast<std::size_t>(matrix.rows());
 
   result.schur_form = std::move(matrix);
-  result.schur_vectors = Matrix<Complex>(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  result.schur_vectors = uni20::DenseMatrix<Complex>(compute_vectors ? n : 0, compute_vectors ? n : 0);
   result.eigenvalues.resize(n);
   if (n != 0)
   {
@@ -531,9 +531,9 @@ RightRealSchurDecomposition<Scalar> reorder_real_schur_layout_right(RightRealSch
   std::iota(current_order.begin(), current_order.end(), std::size_t{0});
   std::vector<RealSchurBlock<Scalar>> current_blocks = decomposition.blocks;
 
-  Matrix<Scalar> schur_form = copy_right_to_left(decomposition.schur_form);
-  Matrix<Scalar> schur_vectors =
-      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Scalar>(0, 0);
+  uni20::DenseMatrix<Scalar> schur_form = copy_right_to_left(decomposition.schur_form);
+  uni20::DenseMatrix<Scalar> schur_vectors =
+      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : uni20::DenseMatrix<Scalar>(0, 0);
 
   for (std::size_t target_position = 0; target_position < leading_block_order.size(); ++target_position)
   {
@@ -630,9 +630,9 @@ reorder_complex_schur_layout_right(RightComplexSchurDecomposition<Real> decompos
   std::vector<std::size_t> current_order(n);
   std::iota(current_order.begin(), current_order.end(), std::size_t{0});
 
-  Matrix<Complex> schur_form = copy_right_to_left(decomposition.schur_form);
-  Matrix<Complex> schur_vectors =
-      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Complex>(0, 0);
+  uni20::DenseMatrix<Complex> schur_form = copy_right_to_left(decomposition.schur_form);
+  uni20::DenseMatrix<Complex> schur_vectors =
+      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : uni20::DenseMatrix<Complex>(0, 0);
 
   for (std::size_t target_position = 0; target_position < leading_order.size(); ++target_position)
   {
@@ -692,7 +692,8 @@ ComplexSchurDecomposition<Real> reorder_complex_schur(ComplexSchurDecomposition<
 }
 
 template <uni20::LapackReal Real>
-RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> matrix, bool compute_right_vectors)
+RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(uni20::DenseMatrix<Real> matrix,
+                                                                bool compute_right_vectors)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -703,7 +704,7 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
   RealNonsymmetricEigensystem<Real> result;
   result.eigenvalues.resize(n);
   result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+      uni20::DenseMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
   if (n == 0)
   {
     return result;
@@ -733,7 +734,7 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
 ///         and reciprocal condition estimates.
 
 template <uni20::LapackReal Real>
-ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni20::complex<Real>> matrix,
+ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(uni20::DenseMatrix<uni20::complex<Real>> matrix,
                                                                       bool compute_right_vectors)
 {
   if (matrix.rows() != matrix.cols())
@@ -746,7 +747,7 @@ ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni
   std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexNonsymmetricEigensystem<Real> result;
   result.eigenvalues.resize(n);
-  result.right_eigenvectors = Matrix<Complex>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+  result.right_eigenvectors = uni20::DenseMatrix<Complex>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
   if (n == 0)
   {
     return result;
