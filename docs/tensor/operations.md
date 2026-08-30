@@ -414,6 +414,8 @@ mdspans or spans.
 | `matrix_norm`, `matrix_norm_host` | Maximum-entry, induced one/infinity, or Frobenius matrix norm selected by `MatrixNorm`. | Returns a storage-preserving real rank-zero Tensor or a host scalar. Complex norms use mathematical magnitude. | Implemented through LAPACK and accessor-respecting CPU backends. |
 | `solve_inplace` | Solve `A * X = B` using destructive coefficient and RHS workspaces. | `B` contains `X` on return; `A` contains backend factorization data. Singular provider results are terminal errors. | Implemented through LAPACK and accessor-respecting CPU backends. |
 | `solve` | Preserve `A` and `B` and return `X`. | Materializes owning column-major host work matrices before destructive dispatch. | Implemented through `solve_inplace`. |
+| `qr_factorization`, `lq_factorization` | Reduced real QR or LQ using a destructive matrix workspace. | Factor outputs may resize; the matrix workspace is overwritten. | Not implemented. |
+| `qr(matrix)`, `lq(matrix)` | Preserve a real matrix and return owning reduced factors. | Materializes column-major host work. QR returns `Q: m x k`, `R: k x n`; LQ returns `L: m x k`, `Q: k x n`, where `k = min(m,n)`. | Not implemented. |
 | `matrix_exponential` | Compute into a fixed rank-two output. | Caller supplies compatible output. | Not implemented. |
 | `self_adjoint_eigh` | Destructive LAPACK-style workspace operation. | Matrix workspace is overwritten; eigenvalue output may resize. | No direct wrapper. |
 | `eigh(matrix)` | Preserving value operation returning eigenvalues and eigenvectors. | Materializes work storage and returns two owners. | Implemented; returns two independent Async outputs. |

@@ -764,7 +764,7 @@ candidates to add only when an algorithm or example needs them:
 | real and complex Schur decomposition | `gees`, `hseqr`, `trexc` | Implemented for Arnoldi restarts and reordering. |
 | nonsymmetric eigensystem | `geev` | Implemented for projected Ritz extraction and validation. |
 | symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | `syev`/`heev` implemented with in-place and preserving value APIs; divide-and-conquer variants remain future work. |
-| QR/LQ factorization | `geqrf`, `orgqr`/`ungqr`, `gelqf`, `orglq`/`unglq` | Candidate for future dense utilities. |
+| QR/LQ factorization | `geqrf`, `orgqr`, `gelqf`, `orglq` | Reduced real QR and LQ are dispatched through destructive-workspace and preserving Tensor APIs. Complex `ungqr`/`unglq` coverage remains future work. |
 | SVD and least squares | `gesvd`, `gesdd`, `gesvdx`, `gelsd` | Exact real and complex SVD is dispatched through `gesvd`. Tensor APIs cover singular values only, either factor separately, or both factors; preserving and consuming Async forms mirror them. Reduced consuming factors may reuse the input allocation through `JOBU='O'` or `JOBVT='O'`. Dense `truncated_svd` is a Tensor policy layer over reduced exact SVD rather than a new mdspan kernel. Divide-and-conquer, selected-provider, and least-squares Tensor APIs remain future coverage. |
 
 Do not expose every backend wrapper through mdspan immediately. Add wrappers

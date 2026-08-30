@@ -3,7 +3,9 @@
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/linalg/ops/linear_solve.hpp>
+#include <uni20/linalg/ops/lq.hpp>
 #include <uni20/linalg/ops/matrix_norm.hpp>
+#include <uni20/linalg/ops/qr.hpp>
 #include <uni20/linalg/ops/svd.hpp>
 #include <uni20/linalg/ops/truncated_svd.hpp>
 #include <uni20/tensor/reductions.hpp>
@@ -202,6 +204,27 @@ TEST(MplapackBinary128CpuOpsTest, ExactSvdPreservesRealAndComplexBinary128Values
       EXPECT_TRUE(std::abs(reconstructed - complex_matrix[row, column]) <= tolerance());
     }
   }
+}
+
+TEST(MplapackBinary128CpuOpsTest, ReducedQrAndLqPreserveBinary128Values)
+{
+  Binary128 const delta = below_double_resolution_gap();
+  expect_gap_is_binary128_only(delta);
+
+  matrix_type matrix(2, 2);
+  uni20::fill(matrix, Binary128{});
+  matrix[0, 0] = Binary128{2} + delta;
+  matrix[1, 1] = Binary128{1};
+
+  auto qr_result = uni20::linalg::qr(matrix);
+  auto lq_result = uni20::linalg::lq(matrix);
+
+  Binary128 const qr_reconstructed = qr_result.q[0, 0] * qr_result.r[0, 0] + qr_result.q[0, 1] * qr_result.r[1, 0];
+  Binary128 const lq_reconstructed = lq_result.l[0, 0] * lq_result.q[0, 0] + lq_result.l[0, 1] * lq_result.q[1, 0];
+  EXPECT_FLOATING_EQ(qr_reconstructed, Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(lq_reconstructed, Binary128{2} + delta);
+  EXPECT_EQ(static_cast<double>(qr_reconstructed), 2.0);
+  EXPECT_EQ(static_cast<double>(lq_reconstructed), 2.0);
 }
 
 TEST(MplapackBinary128CpuOpsTest, TruncatedSvdUsesBinary128PolicyAndStatistics)

@@ -11,6 +11,8 @@ Operation values and diagnostic names are defined centrally in
 - `gemv.hpp`: fixed-output Tensor GEMV front end.
 - `linear_solve.hpp`: destructive-workspace and preserving-value dense general
   linear solves.
+- `lq.hpp`: destructive-workspace and preserving-value reduced real LQ
+  factorizations.
 - `matrix_exponential.hpp`: fixed-output matrix exponential dispatch.
 - `matrix_norm.hpp`: dense maximum-entry, one, infinity, and Frobenius norms.
 - `matrix_product.hpp`: fixed-update and resizable-overwrite Tensor matrix
@@ -18,6 +20,8 @@ Operation values and diagnostic names are defined centrally in
 - `matrix_set.hpp`: structured matrix initialization over accessor-respecting
   CPU kernels.
 - `nonsymmetric_eigen.hpp`: fixed-output nonsymmetric eigensystem dispatch.
+- `qr.hpp`: destructive-workspace and preserving-value reduced real QR
+  factorizations.
 - `schur.hpp`: fixed-output Schur decomposition and block-reordering dispatch.
 - `self_adjoint_eigh.hpp`: destructive in-place, preserving value, and
   allocation-reusing consuming forms for dense symmetric/Hermitian
@@ -49,6 +53,10 @@ Operation values and diagnostic names are defined centrally in
   uses compatible input storage as destructive work and may adopt it as one
   reduced factor through `JOBU='O'` or `JOBVT='O'`; full factors allocate
   separately.
+- Reduced real QR and LQ dispatch through `geqrf`/`orgqr` and
+  `gelqf`/`orglq`. Preserving `qr` and `lq` calls materialize column-major work;
+  `qr_factorization` and `lq_factorization` expose the destructive workspace
+  contract directly.
 - Truncating SVD remains a Tensor policy layer over reduced exact SVD rather
   than a second provider operation. It returns right-sized factors, permits
   rank zero, and reports same-precision scaled squared-norm statistics.

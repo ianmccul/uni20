@@ -86,6 +86,9 @@ before they lower to backend wrappers and kernels.
 - `linear_solve_op` is the destructive general-system workspace operation.
   `solve_inplace` exposes that contract directly, while `solve` preserves its
   inputs by materializing column-major host work matrices.
+- `qr_op` and `lq_op` are destructive reduced real factorization operations.
+  Their preserving value APIs materialize column-major host work and return
+  owning reduced factors.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Default selector resolution gives a user `backend_selector_override` complete

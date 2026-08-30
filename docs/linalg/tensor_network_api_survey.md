@@ -55,8 +55,9 @@ factorizations:
 - the active `truncated_svd` policy layer selects and copies reduced factors,
   permits rank zero, reports stable same-precision truncation statistics, and
   has preserving and consuming Async forms with four independent outputs;
-- QR/LQ, expert/refined solves, and positive-definite or Hermitian-indefinite
-  solves remain future work.
+- active reduced real `qr` and `lq` operations lower through `geqrf`/`orgqr`
+  and `gelqf`/`orglq`; complex QR/LQ, expert/refined solves, and
+  positive-definite or Hermitian-indefinite solves remain future work.
 
 The native Krylov matrix-free boundary already matches the tensor-network
 direction: vectors are opaque, and solvers require allocation, copy, `axpy`,

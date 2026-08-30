@@ -127,6 +127,22 @@ struct linear_solve_op
     static constexpr std::string_view name = "linear_solve";
 };
 
+/// \brief Reduced dense real QR factorization operation tag.
+/// \details Backends overwrite an input work matrix and return `Q` with shape
+///          `m x min(m,n)` and `R` with shape `min(m,n) x n`.
+struct qr_op
+{
+    static constexpr std::string_view name = "qr";
+};
+
+/// \brief Reduced dense real LQ factorization operation tag.
+/// \details Backends overwrite an input work matrix and return `L` with shape
+///          `m x min(m,n)` and `Q` with shape `min(m,n) x n`.
+struct lq_op
+{
+    static constexpr std::string_view name = "lq";
+};
+
 /// \brief Sum reduction over one or more fixed-rank input axes.
 /// \details The diagnostic name remains the user-facing operation name while
 ///          the C++ type makes its reduction role explicit.
