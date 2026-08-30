@@ -77,6 +77,26 @@ template <uni20::Real Real> auto dmrg_lanczos_breakdown(Real beta, Real alpha, R
   return beta <= Real{10} * uni20::numeric_limits<Real>::epsilon() * scale;
 }
 
+template <uni20::LapackRealOrComplex Scalar, class Vector, class Ops>
+void normalize_dmrg_lanczos_vector(Ops& ops, Vector& vector, uni20::make_real_t<Scalar> norm)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  Real const maximum = uni20::numeric_limits<Real>::max();
+  if (norm >= Real{1} / maximum)
+  {
+    ops.scal(vector, Scalar{1} / static_cast<Scalar>(norm));
+    return;
+  }
+
+  // A uniformly tiny vector still has a meaningful direction, but its direct
+  // reciprocal is not representable. Lift it into the normal range first.
+  ops.scal(vector, static_cast<Scalar>(maximum));
+  Real const lifted_norm = krylov::norm_or_inner_product<Scalar>(ops, vector);
+  if (!(lifted_norm > Real{}) || !uni20::isfinite(lifted_norm))
+    throw std::runtime_error("DMRG Lanczos could not normalize a finite nonzero vector");
+  ops.scal(vector, Scalar{1} / static_cast<Scalar>(lifted_norm));
+}
+
 } // namespace detail
 
 /// \brief Perform a lightweight fixed-step Lanczos local ground-state update.
@@ -120,7 +140,7 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
   Real const start_norm = krylov::norm_or_inner_product<Scalar>(ops, start);
   if (!(start_norm > Real{}) || !uni20::isfinite(start_norm))
     throw std::invalid_argument("DMRG Lanczos initial vector must have a finite nonzero norm");
-  ops.scal(start, Scalar{1} / static_cast<Scalar>(start_norm));
+  detail::normalize_dmrg_lanczos_vector<Scalar>(ops, start, start_norm);
   basis.push_back(std::move(start));
 
   Real final_residual_norm{};
@@ -143,7 +163,7 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
     final_residual_norm = beta;
     if (step + 1 == basis_limit || detail::dmrg_lanczos_breakdown(beta, alpha, previous_beta)) break;
 
-    ops.scal(residual, Scalar{1} / static_cast<Scalar>(beta));
+    detail::normalize_dmrg_lanczos_vector<Scalar>(ops, residual, beta);
     subdiagonal.push_back(beta);
     basis.push_back(std::move(residual));
   }
