@@ -121,6 +121,18 @@ TEST(LinearSolveTest, LapackDeclinesRowMajorWorkspacesWithoutMutation)
   EXPECT_DOUBLE_EQ((rhs[1, 1]), 0.0);
 }
 
+TEST(LinearSolveTest, DefaultInplaceApiFallsBackForRowMajorWorkspaces)
+{
+  uni20::DenseMatrix<double, uni20::RowMajor> coefficients(2, 2);
+  uni20::DenseMatrix<double, uni20::RowMajor> rhs(2, 2);
+  initialize_coefficients(coefficients);
+  initialize_rhs(rhs);
+
+  uni20::linalg::solve_inplace(coefficients, rhs);
+
+  check_solution(rhs);
+}
+
 TEST(LinearSolveTest, AcquiresDeferredHostWorkspaces)
 {
   uni20::test::DeferredHostTensor<double, 2> coefficients(2, 2);
@@ -154,6 +166,21 @@ TEST(LinearSolveTest, SingularSystemIsTerminal)
   EXPECT_DEATH(
       { uni20::linalg::solve_inplace(uni20::linalg::CpuReferenceBackend{}, coefficients, rhs); },
       "singular matrix in solve");
+}
+
+TEST(LinearSolveTest, LapackSingularSystemIsTerminal)
+{
+  uni20::DenseMatrix<double> coefficients(2, 2);
+  coefficients[0, 0] = 1.0;
+  coefficients[0, 1] = 2.0;
+  coefficients[1, 0] = 2.0;
+  coefficients[1, 1] = 4.0;
+  uni20::DenseMatrix<double> rhs(2, 1);
+  rhs[0, 0] = 1.0;
+  rhs[1, 0] = 2.0;
+
+  EXPECT_DEATH(
+      { uni20::linalg::solve_inplace(uni20::linalg::LapackBackend{}, coefficients, rhs); }, "found a singular matrix");
 }
 
 TEST(LinearSolveTest, EmptyRightHandSideIsAVacuousCpuNoOp)
@@ -196,4 +223,14 @@ TEST(LinearSolveTest, RejectsMismatchedShapesBeforeDispatch)
   uni20::DenseMatrix<double> rhs(2, 1);
 
   EXPECT_DEATH({ (void)uni20::linalg::solve(coefficients, rhs); }, "solve requires a square coefficient matrix");
+}
+
+TEST(LinearSolveTest, RejectsMismatchedRightHandSideRowsBeforeDispatch)
+{
+  uni20::DenseMatrix<double> coefficients(2, 2);
+  uni20::DenseMatrix<double> rhs(3, 1);
+
+  EXPECT_DEATH(
+      { (void)uni20::linalg::solve(coefficients, rhs); },
+      "solve coefficient and right-hand-side row counts do not agree");
 }
