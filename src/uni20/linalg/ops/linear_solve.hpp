@@ -42,7 +42,9 @@ void require_linear_solve_shape(CoefficientTensor const& coefficients, RhsTensor
 /// \brief Solve a general system in destructive coefficient and RHS workspaces.
 /// \details On return, `right_hand_sides` contains the solution. The
 ///          coefficient workspace is overwritten with backend factorization
-///          data. A provider-reported singular matrix is a terminal error.
+///          data. A provider-reported singular matrix is a terminal error. An
+///          `N x 0` right-hand side is a vacuous no-op that preserves both
+///          workspaces without testing coefficient singularity.
 /// \pre The two workspaces do not overlap.
 template <KernelBackendSelector BackendSelector, class CoefficientTensor, class RhsTensor>
   requires detail::CompatibleLinearSolveTensors<CoefficientTensor, RhsTensor>

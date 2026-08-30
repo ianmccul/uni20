@@ -156,6 +156,40 @@ TEST(LinearSolveTest, SingularSystemIsTerminal)
       "singular matrix in solve");
 }
 
+TEST(LinearSolveTest, EmptyRightHandSideIsAVacuousCpuNoOp)
+{
+  uni20::DenseMatrix<double> coefficients(2, 2);
+  coefficients[0, 0] = 1.0;
+  coefficients[0, 1] = 2.0;
+  coefficients[1, 0] = 2.0;
+  coefficients[1, 1] = 4.0;
+  uni20::DenseMatrix<double> rhs(2, 0);
+
+  uni20::linalg::solve_inplace(uni20::linalg::CpuReferenceBackend{}, coefficients, rhs);
+
+  EXPECT_DOUBLE_EQ((coefficients[0, 0]), 1.0);
+  EXPECT_DOUBLE_EQ((coefficients[0, 1]), 2.0);
+  EXPECT_DOUBLE_EQ((coefficients[1, 0]), 2.0);
+  EXPECT_DOUBLE_EQ((coefficients[1, 1]), 4.0);
+}
+
+TEST(LinearSolveTest, EmptyRightHandSideIsAVacuousLapackNoOp)
+{
+  uni20::DenseMatrix<double> coefficients(2, 2);
+  coefficients[0, 0] = 1.0;
+  coefficients[0, 1] = 2.0;
+  coefficients[1, 0] = 2.0;
+  coefficients[1, 1] = 4.0;
+  uni20::DenseMatrix<double> rhs(2, 0);
+
+  uni20::linalg::solve_inplace(uni20::linalg::LapackBackend{}, coefficients, rhs);
+
+  EXPECT_DOUBLE_EQ((coefficients[0, 0]), 1.0);
+  EXPECT_DOUBLE_EQ((coefficients[0, 1]), 2.0);
+  EXPECT_DOUBLE_EQ((coefficients[1, 0]), 2.0);
+  EXPECT_DOUBLE_EQ((coefficients[1, 1]), 4.0);
+}
+
 TEST(LinearSolveTest, RejectsMismatchedShapesBeforeDispatch)
 {
   uni20::DenseMatrix<double> coefficients(2, 3);
