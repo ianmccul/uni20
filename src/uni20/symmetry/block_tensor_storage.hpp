@@ -519,6 +519,16 @@ class PackedBlockStorageData {
         : PackedBlockStorageData(make_layout(specs))
     {}
 
+    /// \brief Construct packed storage in an explicit leaf allocation context.
+    template <class Context>
+      requires requires(Context& context, std::size_t size, std::span<std::size_t const> offsets) {
+        { LeafStorage::template make_packed_storage<T>(context, size, offsets) } -> std::same_as<buffer_type>;
+      }
+    explicit PackedBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs,
+                                    Context& context)
+        : PackedBlockStorageData(make_layout(specs), context)
+    {}
+
     auto size() const noexcept -> std::size_t { return keys_.size(); }
     auto keys() const noexcept -> std::span<key_type const> { return keys_; }
 
@@ -541,6 +551,13 @@ class PackedBlockStorageData {
     auto buffer() noexcept -> buffer_type& { return buffer_; }
     auto buffer() const noexcept -> buffer_type const& { return buffer_; }
     auto offsets() const noexcept -> std::span<std::size_t const> { return offsets_; }
+
+    /// \brief Return the leaf context used for compatible result allocations.
+    decltype(auto) allocation_context() const noexcept
+      requires requires(buffer_type const& buffer) { LeafStorage::allocation_context(buffer); }
+    {
+      return LeafStorage::allocation_context(buffer_);
+    }
 
     /// \brief Return the exclusive payload end of each stored block.
     /// \details The difference between one payload end and the next block
@@ -619,6 +636,17 @@ class PackedBlockStorageData {
     PackedBlockStorageData(Layout layout, buffer_type const& prototype)
         : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)), block_ends_(std::move(layout.block_ends)),
           buffer_(make_packed_storage_like<LeafStorage, T>(prototype, offsets_.back(), offsets_))
+    {
+      if constexpr (BlockAlignment > 1) initialize_packed_padding<LeafStorage, T>(buffer_, offsets_, block_ends_);
+    }
+
+    template <class Context>
+      requires requires(Context& context, std::size_t size, std::span<std::size_t const> offsets) {
+        { LeafStorage::template make_packed_storage<T>(context, size, offsets) } -> std::same_as<buffer_type>;
+      }
+    PackedBlockStorageData(Layout layout, Context& context)
+        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)), block_ends_(std::move(layout.block_ends)),
+          buffer_(LeafStorage::template make_packed_storage<T>(context, offsets_.back(), offsets_))
     {
       if constexpr (BlockAlignment > 1) initialize_packed_padding<LeafStorage, T>(buffer_, offsets_, block_ends_);
     }

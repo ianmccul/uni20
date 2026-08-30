@@ -307,8 +307,11 @@ template <MutableBlockTensorView Tensor, class Scalar> void scale(Tensor& tensor
   if constexpr (detail::CudaPartitionedBlockTensor<Tensor> &&
                 linalg::cuda_partitioned_scale_scalars<block_tensor_value_t<Tensor>, Scalar>)
   {
-    linalg::cuda_partitioned_scale(tensor.storage().buffer(), factor);
-    return;
+    if (!tensor.storage().has_padding() || uni20::isfinite(factor))
+    {
+      linalg::cuda_partitioned_scale(tensor.storage().buffer(), factor);
+      return;
+    }
   }
 #endif
   if constexpr (!MutableAsyncBlockTensorView<Tensor>)
@@ -357,8 +360,11 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
   {
     if (detail::same_packed_layout(output, input))
     {
-      linalg::cuda_partitioned_assign_scale(output.storage().buffer(), factor, input.storage().buffer());
-      return;
+      if (!output.storage().has_padding() || uni20::isfinite(factor))
+      {
+        linalg::cuda_partitioned_assign_scale(output.storage().buffer(), factor, input.storage().buffer());
+        return;
+      }
     }
   }
 #endif
@@ -603,8 +609,11 @@ void axpy(Output& output, Scalar factor, Input const& input)
   {
     if (detail::same_packed_layout(output, input))
     {
-      linalg::cuda_partitioned_axpy(output.storage().buffer(), factor, input.storage().buffer());
-      return;
+      if (!output.storage().has_padding() || uni20::isfinite(factor))
+      {
+        linalg::cuda_partitioned_axpy(output.storage().buffer(), factor, input.storage().buffer());
+        return;
+      }
     }
   }
 #endif
@@ -674,7 +683,11 @@ template <BlockTensorView Lhs, BlockTensorView Rhs>
                 cublas::CublasLevelOneScalar<value_type>)
   {
     if (detail::same_packed_layout(lhs, rhs))
-      return linalg::cuda_partitioned_inner_product_host(lhs.storage().buffer(), rhs.storage().buffer());
+    {
+      auto const size = lhs.storage().buffer().size();
+      if (linalg::cuda_partitioned_reduction_size_supported(size))
+        return linalg::cuda_partitioned_inner_product_host(lhs.storage().buffer(), rhs.storage().buffer());
+    }
   }
 #endif
   auto const bindings = detail::stored_key_intersection_bindings(lhs, rhs);
@@ -742,7 +755,11 @@ template <BlockTensorView Tensor>
 #if UNI20_BACKEND_CUBLAS
   if constexpr (detail::CudaPartitionedBlockTensor<Tensor> &&
                 cublas::CublasLevelOneScalar<block_tensor_value_t<Tensor>>)
-    return linalg::cuda_partitioned_norm_host(tensor.storage().buffer());
+  {
+    auto const size = tensor.storage().buffer().size();
+    if (linalg::cuda_partitioned_reduction_size_supported(size))
+      return linalg::cuda_partitioned_norm_host(tensor.storage().buffer());
+  }
 #endif
   using real_type = make_real_t<block_tensor_value_t<Tensor>>;
   std::vector<real_type> partials(tensor.stored_block_count());

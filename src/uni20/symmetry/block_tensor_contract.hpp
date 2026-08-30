@@ -54,6 +54,10 @@ using selected_pairwise_storage_t =
     std::conditional_t<std::same_as<RequestedStorage, DefaultPairwiseContractionStorage>, DefaultStorage,
                        RequestedStorage>;
 
+template <class Tensor>
+using default_pairwise_storage_t =
+    PackedSparseBlockStorage<typename block_tensor_type_t<Tensor>::storage_policy::leaf_storage_policy>;
+
 template <class Tensor> using pairwise_const_block_t = block_tensor_const_block_t<Tensor>;
 
 template <class Tensor> using pairwise_mutable_block_t = block_tensor_mutable_block_t<Tensor>;
@@ -250,17 +254,24 @@ auto pairwise_contraction_result_keys(std::span<PairwiseContractionWorkItem<Trai
   return result_keys;
 }
 
-template <class Result, class DomainType, class CodomainType, class Key>
-auto make_pairwise_contraction_result(Symmetry symmetry, DomainType domain, CodomainType codomain,
-                                      std::vector<Key> result_keys) -> Result
+template <class Result, class Prototype, class DomainType, class CodomainType, class Key>
+auto make_pairwise_contraction_result(Prototype const& prototype, Symmetry symmetry, DomainType domain,
+                                      CodomainType codomain, std::vector<Key> result_keys) -> Result
 {
   if constexpr (CompleteBlockStorage<typename Result::storage_policy>)
   {
-    return Result(symmetry, std::move(domain), std::move(codomain));
+    if constexpr (requires { Result(symmetry, domain, codomain, prototype.allocation_context()); })
+      return Result(symmetry, std::move(domain), std::move(codomain), prototype.allocation_context());
+    else
+      return Result(symmetry, std::move(domain), std::move(codomain));
   }
   else
   {
-    return Result(symmetry, std::move(domain), std::move(codomain), std::move(result_keys));
+    if constexpr (requires { Result(symmetry, domain, codomain, result_keys, prototype.allocation_context()); })
+      return Result(symmetry, std::move(domain), std::move(codomain), std::move(result_keys),
+                    prototype.allocation_context());
+    else
+      return Result(symmetry, std::move(domain), std::move(codomain), std::move(result_keys));
   }
 }
 
@@ -567,11 +578,12 @@ template <std::size_t ContractedCount, class OutputStorage = detail::DefaultPair
            (ContractedCount <= std::remove_cvref_t<RightTensor>::domain_type::size()) &&
            detail::LocalContractionSource<LeftTensor> && detail::LocalContractionSource<RightTensor> &&
            detail::LocalContractionOutput<
-               detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>, LeftTensor, RightTensor,
-               ContractedCount>
+               detail::selected_pairwise_storage_t<OutputStorage, detail::default_pairwise_storage_t<LeftTensor>>,
+               LeftTensor, RightTensor, ContractedCount>
 auto contract_adjacent(LeftTensor const& left, RightTensor const& right)
 {
-  using selected_output_storage = detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>;
+  using selected_output_storage =
+      detail::selected_pairwise_storage_t<OutputStorage, detail::default_pairwise_storage_t<LeftTensor>>;
   using traits = detail::PairwiseContractionTraits<LeftTensor, RightTensor, ContractedCount>;
   using value_type = detail::pairwise_contraction_value_t<LeftTensor, RightTensor>;
   detail::validate_pairwise_contraction<traits>(left, right);
@@ -583,7 +595,7 @@ auto contract_adjacent(LeftTensor const& left, RightTensor const& right)
   using result_type =
       BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
   auto result = detail::make_pairwise_contraction_result<result_type>(
-      left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
+      left, left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
   if constexpr (CompleteBlockStorage<selected_output_storage>)
     detail::zero_unbound_pairwise_output_blocks(result, bindings);
@@ -640,12 +652,13 @@ template <std::size_t LeftAxis, std::size_t RightAxis, class OutputStorage = det
   requires detail::PairwiseContractionSources<LeftTensor, RightTensor> && detail::LocalContractionSource<LeftTensor> &&
            detail::LocalContractionSource<RightTensor> &&
            detail::LocalContractionOutput<
-               detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>, LeftTensor,
-               RightTensor> &&
+               detail::selected_pairwise_storage_t<OutputStorage, detail::default_pairwise_storage_t<LeftTensor>>,
+               LeftTensor, RightTensor> &&
            (LeftAxis == std::remove_cvref_t<LeftTensor>::order() - 1) && (RightAxis == 0)
 auto contract(LeftTensor const& left, RightTensor const& right)
 {
-  using selected_output_storage = detail::selected_pairwise_storage_t<OutputStorage, PackedSparseBlockStorage<>>;
+  using selected_output_storage =
+      detail::selected_pairwise_storage_t<OutputStorage, detail::default_pairwise_storage_t<LeftTensor>>;
   using traits = detail::PairwiseContractionTraits<LeftTensor, RightTensor>;
   using value_type = detail::pairwise_contraction_value_t<LeftTensor, RightTensor>;
   detail::validate_pairwise_contraction<traits>(left, right);
@@ -658,7 +671,7 @@ auto contract(LeftTensor const& left, RightTensor const& right)
   using result_type =
       BlockTensor<value_type, typename traits::domain_type, typename traits::codomain_type, selected_output_storage>;
   auto result = detail::make_pairwise_contraction_result<result_type>(
-      left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
+      left, left.symmetry(), std::move(result_domain), std::move(result_codomain), std::move(result_keys));
   auto bindings = detail::bind_pairwise_contraction_worklist<traits>(left, right, result, worklist);
   if constexpr (CompleteBlockStorage<selected_output_storage>)
     detail::zero_unbound_pairwise_output_blocks(result, bindings);

@@ -4,7 +4,9 @@
 #include <uni20/linalg/dispatch_diagnostics.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
+#include <uni20/symmetry/block_tensor_contract.hpp>
 #include <uni20/symmetry/block_tensor_linear.hpp>
+#include <uni20/symmetry/block_tensor_permute.hpp>
 #include <uni20/symmetry/block_tensor_svd.hpp>
 #include <uni20/tensor/copy_into.hpp>
 #include <uni20/tensor_network/dmrg_lanczos.hpp>
@@ -303,6 +305,66 @@ TEST_F(CudaRabcContractionTest, WideBlockSvdRetainsFactorsOnCudaAndReconstructsT
       EXPECT_NEAR(reconstructed, (host_block[column, row]), 1.0e-12);
     }
   }
+}
+
+TEST_F(CudaRabcContractionTest, EmptyMappedBlockSvdRetainsCudaAllocationContext)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::cuda::ScopedDevice scoped_device(0);
+
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const domain_space(symmetry, {{q0, 1}}, "domain");
+  uni20::BlockSpace const codomain_space(symmetry, {{q1, 1}}, "codomain");
+  cuda_matrix_blocks empty(symmetry, domain_type{domain_space}, codomain_type{codomain_space},
+                           runtime.device_resources(0));
+  ASSERT_EQ(empty.stored_block_count(), 0U);
+
+  auto mapped = uni20::as_block_tensor_view(empty);
+  EXPECT_EQ(&mapped.allocation_context(), &runtime.device_resources(0));
+  auto decomposition = uni20::block_svd(mapped);
+  EXPECT_TRUE(decomposition.sectors().empty());
+  EXPECT_TRUE(decomposition.spectrum().empty());
+}
+
+TEST_F(CudaRabcContractionTest, DefaultContractionPreservesCudaAllocationContext)
+{
+  std::vector<int> devices{0};
+  if (device_count_ > 1) devices.push_back(1);
+  auto runtime = uni20::cuda::initialize({.device_ordinals = devices, .default_device = 0, .streams_per_device = 2});
+  int const operand_device = device_count_ > 1 ? 1 : 0;
+  uni20::cuda::ScopedDevice scoped_device(operand_device);
+
+  using complete_storage = uni20::PackedCompleteBlockStorage<uni20::CudaStorage>;
+  using matrix_type = matrix_blocks<complete_storage>;
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  uni20::BlockSpace const space(symmetry, {{q0, 1}}, "space");
+  auto& context = runtime.device_resources(operand_device);
+  matrix_type left(symmetry, domain_type{space}, codomain_type{space}, context);
+  matrix_type right(symmetry, domain_type{space}, codomain_type{space}, context);
+  uni20::ColumnMajorTensor<double, 2> host_left(1, 1);
+  uni20::ColumnMajorTensor<double, 2> host_right(1, 1);
+  host_left[0, 0] = 2.0;
+  host_right[0, 0] = 3.0;
+  uni20::copy(left.block_by_ordinal(0), host_left);
+  uni20::copy(right.block_by_ordinal(0), host_right);
+
+  auto adjacent_result = uni20::contract_adjacent<1>(left, right);
+  static_assert(std::same_as<typename decltype(adjacent_result)::storage_policy,
+                             uni20::PackedSparseBlockStorage<uni20::CudaStorage>>);
+  EXPECT_EQ(&adjacent_result.allocation_context(), &context);
+  EXPECT_EQ(adjacent_result.storage().buffer().device().ordinal(), operand_device);
+
+  auto result = uni20::contract<1, 0>(left, right);
+  static_assert(
+      std::same_as<typename decltype(result)::storage_policy, uni20::PackedSparseBlockStorage<uni20::CudaStorage>>);
+  EXPECT_EQ(&result.allocation_context(), &context);
+  EXPECT_EQ(result.storage().buffer().device().ordinal(), operand_device);
+  uni20::ColumnMajorTensor<double, 2> host_result(1, 1);
+  uni20::copy(host_result, result.block_by_ordinal(0));
+  EXPECT_DOUBLE_EQ((host_result[0, 0]), 6.0);
 }
 
 TEST_F(CudaRabcContractionTest, TwoSiteDmrgStepKeepsStateAndEnvironmentsOnCuda)

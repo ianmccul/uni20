@@ -161,13 +161,19 @@ void cuda_partitioned_axpy(cuda::PartitionedCudaBuffer<Scalar>& output, Factor f
 
 #if UNI20_BACKEND_CUBLAS
 
+/// \brief Return whether one allocation-wide reduction fits the cuBLAS level-one integer ABI.
+[[nodiscard]] constexpr auto cuda_partitioned_reduction_size_supported(std::size_t size) noexcept -> bool
+{
+  return size <= static_cast<std::size_t>(std::numeric_limits<int>::max());
+}
+
 /// \brief Return the conjugate-linear inner product of two complete partitioned CUDA allocations.
 template <uni20::cublas::CublasLevelOneScalar Scalar>
 [[nodiscard]] auto cuda_partitioned_inner_product_host(cuda::PartitionedCudaBuffer<Scalar> const& lhs,
                                                        cuda::PartitionedCudaBuffer<Scalar> const& rhs) -> Scalar
 {
   CHECK_EQUAL(lhs.size(), rhs.size());
-  CHECK(lhs.size() <= static_cast<std::size_t>(std::numeric_limits<int>::max()), lhs.size());
+  CHECK(cuda_partitioned_reduction_size_supported(lhs.size()), lhs.size());
   if (lhs.size() == 0) return Scalar{};
   CHECK_EQUAL(lhs.device().ordinal(), rhs.device().ordinal());
   auto execution = uni20::cublas::execution_pool(lhs.resources()).acquire();
@@ -183,7 +189,7 @@ template <uni20::cublas::CublasLevelOneScalar Scalar>
 template <uni20::cublas::CublasLevelOneScalar Scalar>
 [[nodiscard]] auto cuda_partitioned_norm_host(cuda::PartitionedCudaBuffer<Scalar> const& input) -> make_real_t<Scalar>
 {
-  CHECK(input.size() <= static_cast<std::size_t>(std::numeric_limits<int>::max()), input.size());
+  CHECK(cuda_partitioned_reduction_size_supported(input.size()), input.size());
   if (input.size() == 0) return make_real_t<Scalar>{};
   auto execution = uni20::cublas::execution_pool(input.resources()).acquire();
   auto access = input.read_synchronized_with(execution.stream());

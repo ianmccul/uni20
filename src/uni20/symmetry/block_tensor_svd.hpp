@@ -901,7 +901,9 @@ template <BlockTensorView Tensor, class Measurements, class Event>
           (block_tensor_type_t<Tensor>::dense_block_order() == 2) &&
           linalg::detail::cusolver_backend::CusolverSvdScalar<block_tensor_value_t<Tensor>> &&
           cuda::BufferMdspec<tensor_mdspec_t<block_tensor_const_block_t<Tensor>>> &&
-          performance::BatchMeasurementPolicy<Measurements, Event>
+          requires(Tensor const& tensor) {
+            { tensor.allocation_context() } -> std::same_as<cuda::DeviceResources&>;
+          } && performance::BatchMeasurementPolicy<Measurements, Event>
 [[nodiscard]] auto block_svd(Tensor const& tensor, linalg::SvdOptions options, Measurements& measurements,
                              Event batch_event)
 {
@@ -912,11 +914,7 @@ template <BlockTensorView Tensor, class Measurements, class Event>
                             block_execution_policy, CudaMatrix<scalar_type>, CudaTensor<scalar_type, 1>>;
   using sector_type = typename decomposition_type::Sector;
 
-  ERROR_IF(tensor.stored_block_count() == 0,
-           "CUDA block SVD requires one stored block to identify the device resources");
-  auto first_block = tensor.block_by_ordinal(0);
-  auto first_descriptor = mdspec_of(first_block);
-  auto& resources = first_descriptor.data_descriptor().buffer().resources();
+  auto& resources = tensor.allocation_context();
 
   auto domain_sectors =
       detail::group_svd_boundary_fragments(detail::make_svd_boundary_fragments(tensor.symmetry(), tensor.domain()));

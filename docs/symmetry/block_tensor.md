@@ -404,6 +404,9 @@ rightmost factor. It owns a transformed canonical key index which maps to the
 source tensor's unchanged physical block bindings. The view stores direct
 dense-block descriptors rather than a reference to an intermediate mapped view,
 so mapped permutations and repartitions compose without copying payload. A
+mappable storage's leaf-allocation context is retained separately from those
+descriptors, so an empty mapped view still carries CUDA device or future
+placement identity needed to allocate compatible results. A
 moved dense axis is a `layout_stride` permutation over the same data handle. Its
 numerical factor is one; later categorical factors belong beside that
 key/binding metadata rather than in rewritten payload values. Existing payload

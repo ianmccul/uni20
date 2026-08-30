@@ -165,8 +165,12 @@ operation returns a borrowed view: it does not copy, reorder, or rewrite
 numerical payload. It may sort a transformed logical key index and may expose a
 moved dense axis through `layout_stride`. A mapped view owns its boundary, key,
 and dense-block descriptor metadata, so temporary mapped views can be composed
-without retaining intermediate view objects. Owning tensor rvalues remain
-rejected because destroying the owner would invalidate the numerical payload.
+without retaining intermediate view objects. It also retains the ultimate
+source leaf-allocation context independently of the block descriptors. An empty
+mapped CUDA tensor therefore still identifies its device resources for result
+allocation and provider planning. Owning tensor rvalues remain rejected because
+destroying the owner would invalidate the numerical payload and allocation
+context.
 
 `permute<Axis...>(tensor)` uses flattened domain-then-codomain positions and
 gives the source factor at every output position. The first bosonic operation
@@ -409,13 +413,17 @@ zero while leaving block payloads unspecified. Allocation-wide zeroing,
 scaling, copying between identical layouts, AXPY, inner products, and norms may
 therefore process the complete physical allocation: each operation preserves
 zero padding. A nonzero fill is different and must skip the gaps or restore
-them to zero before an allocation-wide reduction.
+them to zero before an allocation-wide reduction. Multiplication by a finite
+factor preserves zero padding and may use the allocation-wide path. A non-finite
+factor would turn a padded zero into a NaN, so scale, assign-scale, and AXPY use
+the ordinary blockwise path for that rare case.
 
 For packed CUDA storage, compatible fixed linear operations use one aggregate
 buffer access and one elementwise kernel rather than dispatching one kernel per
 block. Exact-layout inner products and norms use one cuBLAS level-one call.
 Inputs with different key patterns or physical offsets, mapped BlockTensor
-views, and unsupported scalar operations retain the ordinary blockwise path.
+views, unsupported scalar operations, and allocations larger than the cuBLAS
+level-one integer ABI retain the ordinary blockwise path.
 The aggregate access publishes one shared completion to every logical block
 ledger, so subsequent independent block scheduling remains valid.
 
@@ -673,6 +681,13 @@ equal. All paired block coordinates are matched together and all paired dense
 degeneracy axes are passed to one ordinary dense tensor contraction. The
 single-factor `contract<left_axis, right_axis>` interface remains the explicit
 axis form and has the same sparse semantics.
+
+An owning synchronous contraction result uses packed sparse storage over the
+left input's leaf storage by default. If that leaf exposes an allocation
+context, the result is constructed in the same context. For CUDA this preserves
+the selected device and resource installation rather than allocating from the
+process-wide default device. Explicit `OutputStorage` selection remains
+available and uses the source context when that storage accepts it.
 
 When both inputs use `AsyncSeparateSparseBlockStorage`, the same `contract`
 front end retains the left input's async storage policy by default and returns

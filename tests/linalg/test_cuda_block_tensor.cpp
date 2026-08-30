@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <ranges>
 #include <vector>
 
@@ -50,6 +51,15 @@ class CudaBlockTensorTest : public ::testing::Test {
 
     int device_count_ = 0;
 };
+
+#if UNI20_BACKEND_CUBLAS
+TEST(CudaPartitionedBlockTensorTest, AllocationWideReductionEligibilityMatchesCublasIntegerRange)
+{
+  auto const maximum = static_cast<std::size_t>(std::numeric_limits<int>::max());
+  EXPECT_TRUE(uni20::linalg::cuda_partitioned_reduction_size_supported(maximum));
+  EXPECT_FALSE(uni20::linalg::cuda_partitioned_reduction_size_supported(maximum + 1));
+}
+#endif
 
 TEST_F(CudaBlockTensorTest, PackedBlocksRoundTripAndAllocateLikePreservesPlacement)
 {
@@ -229,6 +239,66 @@ TEST_F(CudaBlockTensorTest, AlignedPackedLinearOperationsKeepPaddingZero)
   physical = copy_physical(device);
   for (double const element : physical)
     EXPECT_DOUBLE_EQ(element, 0.0);
+}
+
+TEST_F(CudaBlockTensorTest, NonfiniteScaledPayloadsKeepAlignedPaddingZero)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::cuda::ScopedDevice scoped_device(0);
+
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const space(symmetry, {{q0, 3}, {q1, 2}}, "space");
+  host_tensor host(symmetry, domain_type{space}, codomain_type{space});
+  for (std::size_t ordinal = 0; ordinal < host.stored_block_count(); ++ordinal)
+  {
+    auto block = host.block_by_ordinal(ordinal);
+    for (uni20::index_type column = 0; column < block.extent(1); ++column)
+      for (uni20::index_type row = 0; row < block.extent(0); ++row)
+        block[row, column] = 1.0;
+  }
+
+  auto copy_payload_to_device = [&](aligned_cuda_tensor& tensor) {
+    for (std::size_t ordinal = 0; ordinal < tensor.stored_block_count(); ++ordinal)
+      uni20::copy(tensor.block_by_ordinal(ordinal), host.block_by_ordinal(ordinal));
+  };
+  auto expect_zero_padding = [](aligned_cuda_tensor const& tensor) {
+    auto stream = tensor.storage().buffer().resources().streams().acquire();
+    auto access = tensor.storage().buffer().read_synchronized_with(stream);
+    std::vector<double> physical(tensor.storage().buffer().size());
+    uni20::cuda::check(cudaMemcpyAsync(physical.data(), access.data(), physical.size() * sizeof(double),
+                                       cudaMemcpyDeviceToHost, stream.native_handle()),
+                       "copy aligned nonfinite CUDA storage", 0);
+    stream.synchronize();
+    access.release_after_synchronization();
+    for (std::size_t offset = 9; offset < 16; ++offset)
+      EXPECT_DOUBLE_EQ(physical[offset], 0.0);
+  };
+  auto expect_infinite_payload = [](aligned_cuda_tensor const& tensor) {
+    uni20::ColumnMajorTensor<double, 2> host_block(3, 3);
+    uni20::copy(host_block, tensor.block_by_ordinal(0));
+    EXPECT_TRUE(std::isinf(host_block[0, 0]));
+  };
+
+  double const infinity = std::numeric_limits<double>::infinity();
+  aligned_cuda_tensor input(symmetry, domain_type{space}, codomain_type{space});
+  aligned_cuda_tensor output(symmetry, domain_type{space}, codomain_type{space});
+  copy_payload_to_device(input);
+  copy_payload_to_device(output);
+
+  uni20::scale(output, infinity);
+  expect_zero_padding(output);
+  expect_infinite_payload(output);
+
+  uni20::assign_scale(output, infinity, input);
+  expect_zero_padding(output);
+  expect_infinite_payload(output);
+
+  uni20::set_zero(output);
+  uni20::axpy(output, infinity, input);
+  expect_zero_padding(output);
+  expect_infinite_payload(output);
 }
 
 TEST_F(CudaBlockTensorTest, ParallelPackedLinearOperationsDispatchFromSchedulerBatch)

@@ -210,6 +210,13 @@ struct CudaStorage
       return make_packed_storage<ElementType>(storage.resources(), size, offsets);
     }
 
+    /// \brief Return the allocation context retained by a packed CUDA buffer.
+    template <class ElementType>
+    [[nodiscard]] static auto allocation_context(packed_storage_t<ElementType> const& storage) noexcept -> context_type&
+    {
+      return storage.resources();
+    }
+
     /// \brief Initialize only the alignment gaps in a packed CUDA allocation.
     /// \details Uni20's real and complex scalar zeros have an all-zero CUDA
     ///          object representation. Block payloads remain uninitialized.
