@@ -37,7 +37,7 @@ struct Options
     std::size_t sites = 4;
     std::size_t maximum_states = 16;
     std::size_t maximum_sweeps = 8;
-    std::string energy_tolerance = "1e-12";
+    std::string energy_tolerance = "0";
     std::size_t local_matvecs = 4;
     std::size_t block_threads = 1;
     MeasurementMode measurements = MeasurementMode::off;

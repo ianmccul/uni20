@@ -31,6 +31,10 @@ applications requested for each local update. It defaults to four. This is a
 local work budget, not a convergence tolerance; sweep-level environment and
 energy convergence remain the controlling DMRG criteria.
 
+`--energy-tol=VALUE` overrides the sweep-level energy tolerance. Its default is
+zero, which selects `100 * numeric_limits<Real>::epsilon()` after applying the
+chosen scalar precision.
+
 `--scalar=complex` runs the same calculation with `uni20::complex<Real>`
 storage and arithmetic. This is useful for controlled comparisons with
 implementations that do not provide a real-scalar path.
