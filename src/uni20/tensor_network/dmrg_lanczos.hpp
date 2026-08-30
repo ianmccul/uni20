@@ -55,14 +55,15 @@ namespace detail
 {
 
 template <uni20::LapackRealOrComplex Scalar>
-auto dmrg_lanczos_projection_scalar(Scalar value) -> uni20::make_real_t<Scalar>
+auto dmrg_lanczos_projection_scalar(Scalar value,
+                                    uni20::make_real_t<Scalar> local_scale = {1}) -> uni20::make_real_t<Scalar>
 {
   using Real = uni20::make_real_t<Scalar>;
   using std::abs;
   Real const real_part = static_cast<Real>(uni20::real(value));
   if constexpr (uni20::Complex<Scalar>)
   {
-    Real const scale = std::max(Real{1}, abs(real_part));
+    Real const scale = std::max({Real{1}, local_scale, static_cast<Real>(abs(value))});
     Real const tolerance = Real{100} * uni20::numeric_limits<Real>::epsilon() * scale;
     if (abs(static_cast<Real>(uni20::imag(value))) > tolerance)
       throw std::runtime_error("DMRG Lanczos received a non-real projected diagonal");
@@ -82,9 +83,10 @@ void normalize_dmrg_lanczos_vector(Ops& ops, Vector& vector, uni20::make_real_t<
 {
   using Real = uni20::make_real_t<Scalar>;
   Real const maximum = uni20::numeric_limits<Real>::max();
-  if (norm >= Real{1} / maximum)
+  Real const reciprocal = Real{1} / norm;
+  if (uni20::isfinite(reciprocal))
   {
-    ops.scal(vector, Scalar{1} / static_cast<Scalar>(norm));
+    ops.scal(vector, static_cast<Scalar>(reciprocal));
     return;
   }
 
@@ -154,7 +156,10 @@ template <uni20::LapackRealOrComplex Scalar, class Vector, krylov::KrylovMatrixF
     Real const previous_beta = step == 0 ? Real{} : subdiagonal[step - 1];
     if (step > 0) ops.axpy(residual, -static_cast<Scalar>(previous_beta), basis[step - 1]);
 
-    Real const alpha = detail::dmrg_lanczos_projection_scalar<Scalar>(ops.inner_product(basis[step], residual));
+    Real projection_scale = Real{1};
+    if constexpr (uni20::Complex<Scalar>) projection_scale = krylov::norm_or_inner_product<Scalar>(ops, residual);
+    Real const alpha =
+        detail::dmrg_lanczos_projection_scalar<Scalar>(ops.inner_product(basis[step], residual), projection_scale);
     diagonal.push_back(alpha);
     ops.axpy(residual, -static_cast<Scalar>(alpha), basis[step]);
 
