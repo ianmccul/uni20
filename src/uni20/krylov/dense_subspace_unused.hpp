@@ -3145,6 +3145,7 @@ detail::ColumnMajorLapackMatrix<Scalar> real_least_squares(detail::ColumnMajorLa
   }
   if (rows == 0)
   {
+    std::fill_n(solution.data(), solution.size(), Scalar{});
     return solution;
   }
 
@@ -3209,8 +3210,13 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(detail::ColumnMajorLapackMatr
   RealSvdLeastSquares<Scalar> result;
   result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
@@ -3283,8 +3289,13 @@ real_divide_and_conquer_svd_least_squares(detail::ColumnMajorLapackMatrix<Scalar
   RealSvdLeastSquares<Scalar> result;
   result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
@@ -3360,8 +3371,13 @@ real_rank_revealing_least_squares(detail::ColumnMajorLapackMatrix<Scalar> coeffi
   result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.pivot_columns.resize(cols);
   std::iota(result.pivot_columns.begin(), result.pivot_columns.end(), std::size_t{0});
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
@@ -5727,10 +5743,7 @@ real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Scalar> const& re
   std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
   std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
   detail::ColumnMajorLapackMatrix<Scalar> factor(rows, rows);
-  for (std::size_t index = 0; index < rows; ++index)
-  {
-    factor[index, index] = Scalar{1};
-  }
+  laset(factor, Scalar{1}, Scalar{}, MatrixFill::All);
   if (rows == 0 || cols == 0)
   {
     return factor;
@@ -5779,10 +5792,7 @@ real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalReduction<Scalar
   std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
   std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
   detail::ColumnMajorLapackMatrix<Scalar> factor(cols, cols);
-  for (std::size_t index = 0; index < cols; ++index)
-  {
-    factor[index, index] = Scalar{1};
-  }
+  laset(factor, Scalar{1}, Scalar{}, MatrixFill::All);
   if (rows == 0 || cols == 0)
   {
     return factor;

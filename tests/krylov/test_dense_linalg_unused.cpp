@@ -765,6 +765,42 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRankRevealingLeastSquaresPro
   }
 }
 
+TYPED_TEST(KrylovDenseSubspaceTypedTest, ReturnsZeroMinimumNormSolutionsForZeroRowLeastSquaresProblems)
+{
+  using Scalar = TypeParam;
+
+  auto coefficients = zero_matrix<Scalar>(0, 3);
+  auto right_hand_sides = zero_matrix<Scalar>(0, 2);
+
+  auto gels_solution = uni20::krylov::real_least_squares(coefficients, right_hand_sides);
+  auto gelss_result = uni20::krylov::real_svd_least_squares(coefficients, right_hand_sides);
+  auto gelsd_result = uni20::krylov::real_divide_and_conquer_svd_least_squares(coefficients, right_hand_sides);
+  auto gelsy_result = uni20::krylov::real_rank_revealing_least_squares(coefficients, right_hand_sides);
+
+  auto expect_zero_solution = [](auto const& solution) {
+    ASSERT_EQ(solution.rows(), 3);
+    ASSERT_EQ(solution.cols(), 2);
+    for (uni20::index_type row = 0; row < solution.rows(); ++row)
+    {
+      for (uni20::index_type col = 0; col < solution.cols(); ++col)
+      {
+        EXPECT_EQ((solution[row, col]), Scalar{});
+      }
+    }
+  };
+
+  expect_zero_solution(gels_solution);
+  expect_zero_solution(gelss_result.solution);
+  expect_zero_solution(gelsd_result.solution);
+  expect_zero_solution(gelsy_result.solution);
+  EXPECT_EQ(gelss_result.rank, 0);
+  EXPECT_EQ(gelsd_result.rank, 0);
+  EXPECT_EQ(gelsy_result.rank, 0);
+  EXPECT_TRUE(gelss_result.singular_values.empty());
+  EXPECT_TRUE(gelsd_result.singular_values.empty());
+  EXPECT_EQ(gelsy_result.pivot_columns, (std::vector<std::size_t>{0, 1, 2}));
+}
+
 TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricPositiveDefiniteSystem)
 {
   using Scalar = TypeParam;
@@ -1915,6 +1951,30 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionWideMatr
       }
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(500.0));
+    }
+  }
+}
+
+TYPED_TEST(KrylovDenseSubspaceTypedTest, ReturnsIdentityBidiagonalFactorsForZeroRankReductions)
+{
+  using Scalar = TypeParam;
+
+  auto tall_reduction = uni20::krylov::real_bidiagonal_reduction(zero_matrix<Scalar>(3, 0));
+  auto wide_reduction = uni20::krylov::real_bidiagonal_reduction(zero_matrix<Scalar>(0, 3));
+  auto q = uni20::krylov::real_bidiagonal_left_orthogonal_factor(tall_reduction);
+  auto pt = uni20::krylov::real_bidiagonal_right_orthogonal_factor_transpose(wide_reduction);
+
+  ASSERT_EQ(q.rows(), 3);
+  ASSERT_EQ(q.cols(), 3);
+  ASSERT_EQ(pt.rows(), 3);
+  ASSERT_EQ(pt.cols(), 3);
+  for (uni20::index_type row = 0; row < 3; ++row)
+  {
+    for (uni20::index_type col = 0; col < 3; ++col)
+    {
+      Scalar const expected = row == col ? Scalar{1} : Scalar{};
+      EXPECT_EQ((q[row, col]), expected);
+      EXPECT_EQ((pt[row, col]), expected);
     }
   }
 }
