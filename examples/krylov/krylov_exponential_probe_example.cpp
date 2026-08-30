@@ -446,6 +446,7 @@ template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(u
   std::size_t const n = static_cast<std::size_t>(z.rows());
 
   uni20::krylov::Matrix<Scalar> augmented(n + 1, n + 1);
+  uni20::krylov::laset(augmented, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   for (std::size_t row = 0; row < n; ++row)
   {
     for (std::size_t col = 0; col < n; ++col)
@@ -569,6 +570,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
 
   std::size_t const projected_size = diagonal.size();
   uni20::krylov::Matrix<Real> projected(projected_size, projected_size);
+  uni20::krylov::laset(projected, Real{}, Real{}, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
     projected[i, i] = diagonal[i];

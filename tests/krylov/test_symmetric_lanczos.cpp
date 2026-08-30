@@ -112,6 +112,7 @@ uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
     throw std::invalid_argument("test matrix multiplication size mismatch");
   }
   uni20::krylov::Matrix<double> result(lhs.rows(), rhs.cols());
+  uni20::krylov::laset(result, 0.0, 0.0, uni20::krylov::MatrixFill::All);
   for (uni20::index_type col = 0; col < rhs.cols(); ++col)
   {
     for (uni20::index_type k = 0; k < lhs.cols(); ++k)

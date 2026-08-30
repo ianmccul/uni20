@@ -260,6 +260,7 @@ Matrix<Real> make_hermitian_projected_tridiagonal(std::vector<Real> const& diago
     throw std::invalid_argument("Hermitian Krylov tridiagonal data have inconsistent sizes");
   }
   Matrix<Real> projected(diagonal.size(), diagonal.size());
+  laset(projected, Real{}, Real{}, MatrixFill::All);
   for (std::size_t i = 0; i < diagonal.size(); ++i)
   {
     projected[i, i] = diagonal[i];

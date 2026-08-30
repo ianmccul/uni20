@@ -351,6 +351,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
 
   std::size_t const projected_size = diagonal.size();
   uni20::krylov::Matrix<Scalar> projected(projected_size, projected_size);
+  uni20::krylov::laset(projected, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
     projected[i, i] = diagonal[i];

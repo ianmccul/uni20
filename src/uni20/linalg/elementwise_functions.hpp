@@ -14,6 +14,17 @@
 namespace uni20::linalg
 {
 
+/// \brief Nullary elementwise function that returns one retained value.
+/// \tparam Value Stored value type.
+template <class Value> struct constant
+{
+    [[no_unique_address]] Value value;
+
+    [[nodiscard]] UNI20_HOST_DEVICE constexpr auto operator()() const -> Value { return value; }
+};
+
+template <class Value> constant(Value) -> constant<std::decay_t<Value>>;
+
 /// \brief Return the additive inverse of one element value.
 /// \details The named type permits precompiled backends to register an explicit
 ///          lowering while the same object remains usable by generic host code.

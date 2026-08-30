@@ -70,6 +70,11 @@ template <class Scalar> double scalar_error(Scalar const& actual, Scalar const& 
   return static_cast<double>(std::abs(actual - expected));
 }
 
+template <class Matrix> void zero_storage(Matrix& matrix)
+{
+  std::ranges::fill(matrix.storage(), typename Matrix::value_type{});
+}
+
 TEST(SvdTest, DestructiveSvdAcquiresNormalizedDeferredOperands)
 {
   uni20::test::DeferredHostTensor<double, 2> matrix(2, 2);
@@ -250,6 +255,7 @@ TEST(SvdTest, ComplexValueApiReturnsConjugateTransposedRightVectors)
 TEST(SvdTest, FullLeftAndRightExtentsAreIndependent)
 {
   uni20::DenseMatrix<double> tall(3, 2);
+  zero_storage(tall);
   tall[0, 0] = 1.0;
   tall[1, 1] = 2.0;
   tall[2, 0] = 3.0;
@@ -263,6 +269,7 @@ TEST(SvdTest, FullLeftAndRightExtentsAreIndependent)
   expect_orthonormal_columns(full_left.left_singular_vectors, 1.0e-12);
 
   uni20::DenseMatrix<double> wide(2, 3);
+  zero_storage(wide);
   wide[0, 0] = 1.0;
   wide[0, 2] = -2.0;
   wide[1, 1] = 3.0;
@@ -336,6 +343,7 @@ TEST(SvdTest, ValuesOnlyAndOneSidedApisComputeOnlyRequestedFactors)
 TEST(SvdTest, OneSidedFullFactorsHaveIndependentExtentPolicies)
 {
   uni20::DenseMatrix<double> tall(3, 2);
+  zero_storage(tall);
   tall[0, 0] = 1.0;
   tall[1, 1] = 2.0;
   tall[2, 0] = 3.0;
@@ -346,6 +354,7 @@ TEST(SvdTest, OneSidedFullFactorsHaveIndependentExtentPolicies)
   expect_orthonormal_columns(left, 1.0e-12);
 
   uni20::DenseMatrix<double> wide(2, 3);
+  zero_storage(wide);
   wide[0, 0] = 1.0;
   wide[0, 2] = -2.0;
   wide[1, 1] = 3.0;
@@ -359,6 +368,7 @@ TEST(SvdTest, OneSidedFullFactorsHaveIndependentExtentPolicies)
 TEST(SvdTest, ConsumingReducedFactorsAdoptInputStorage)
 {
   uni20::DenseMatrix<double> tall(3, 2);
+  zero_storage(tall);
   tall[0, 0] = 3.0;
   tall[1, 1] = 2.0;
   tall[2, 0] = 1.0;
@@ -371,6 +381,7 @@ TEST(SvdTest, ConsumingReducedFactorsAdoptInputStorage)
   EXPECT_EQ(left_values.extent(0), 2);
 
   uni20::DenseMatrix<double> wide(2, 3);
+  zero_storage(wide);
   wide[0, 0] = 4.0;
   wide[0, 2] = -1.0;
   wide[1, 1] = 2.0;
@@ -386,6 +397,7 @@ TEST(SvdTest, ConsumingReducedFactorsAdoptInputStorage)
 TEST(SvdTest, ConsumingExplicitBackendMayDeclineOverwriteOptimizationAtCompileTime)
 {
   uni20::DenseMatrix<double> matrix(3, 2);
+  zero_storage(matrix);
   matrix[0, 0] = 3.0;
   matrix[1, 1] = 2.0;
   matrix[2, 0] = 1.0;
@@ -443,6 +455,7 @@ TEST(SvdTest, ConsumingCompleteSvdPreservesPaddedLeadingDimension)
 TEST(SvdTest, ConsumingCompleteSvdCanOverwriteEitherReducedFactor)
 {
   uni20::DenseMatrix<double> wide(2, 3);
+  zero_storage(wide);
   wide[0, 0] = 3.0;
   wide[0, 2] = 1.0;
   wide[1, 1] = 2.0;
@@ -453,6 +466,7 @@ TEST(SvdTest, ConsumingCompleteSvdCanOverwriteEitherReducedFactor)
   expect_svd_reconstruction(wide_original, wide_result, 1.0e-12);
 
   uni20::DenseMatrix<double> tall(3, 2);
+  zero_storage(tall);
   tall[0, 0] = 3.0;
   tall[1, 1] = 2.0;
   tall[2, 0] = 1.0;
@@ -487,6 +501,7 @@ TEST(SvdTest, ConsumingRowMajorInputMaterializesCompatibleWorkStorage)
 TEST(SvdTest, DestructiveApiResizesOutputs)
 {
   uni20::DenseMatrix<double> matrix_work(2, 2);
+  zero_storage(matrix_work);
   matrix_work[0, 0] = 4.0;
   matrix_work[1, 1] = 2.0;
   uni20::Tensor<double, 1> singular_values;

@@ -107,21 +107,24 @@ R(output center block) += alpha * A(left environment block)
 
 The prototype freezes the center boundary and stored-key pattern at
 construction. A reachable output block omitted from that pattern is rejected:
-Krylov application may not silently change vector spaces. Runtime application
-groups terms by output block, uses beta zero then one, and may execute distinct
-output groups through the storage-selected synchronous scheduler batch.
+Krylov application may not silently change vector spaces. Coordinate-indexed
+joins snapshot the MPO coefficients into a canonical sparse
+`f(r,a,b,c)` plan, coalescing duplicate coordinates.
 
 `make_two_site_effective_hamiltonian(...)` constructs the operation used by the
-DMRG sweep. It retains identity mapped views of the environments and MPO sites
-by value, so compiling each bond copies descriptor metadata but not numerical
-block payload. The cache and MPO owners therefore must outlive the local solve.
-The direct `TwoSiteEffectiveHamiltonian` constructor remains available when an
-operation should own moved operands or retain already-borrowed views.
+DMRG sweep. It retains identity mapped views of the environments by value, so
+compiling each bond copies descriptor metadata but not environment payload.
+The environment-cache owners must outlive the local solve. MPO payloads are not
+retained after their coefficients have been compiled into `f`.
 
-The current leaf plan is deliberately left-first. It allocates one rank-two
-temporary for `A * B`, then accumulates the second contraction through ordinary
-tensor dispatch. It does not yet compare left-first and right-first cost,
-coalesce reusable intermediates, or retain device-resident scratch.
+The current host backend is right-first. Effective-Hamiltonian construction
+prepares each distinct `(B_b,C_c)` group, the output order, and reusable
+intermediate storage before the local Krylov loop. Every application computes
+each `B_b * transpose(C_c)` value once, then accumulates independent output
+groups through ordinary dense contraction dispatch. The canonical `f` plan
+remains neutral so future backends can choose left-first, right-first, or mixed
+execution from the same hypergraph. Device placement, communication, and hybrid
+planning remain deferred.
 
 The U(1) test factors the Heisenberg interaction into neutral `Sz` and two
 charge-changing MPO channels. The compiled planner produces only the four terms

@@ -33,7 +33,7 @@ namespace detail
 
 template <class Output, class... Inputs>
 concept OverwriteTransformSpans =
-    MutableMdspanLike<Output> && (sizeof...(Inputs) >= 1) && (MdspanLike<Inputs> && ...) &&
+    MutableMdspanLike<Output> && (MdspanLike<Inputs> && ...) &&
     ((std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Inputs>::rank()) && ...);
 
 template <class Output, class... Inputs>
@@ -120,6 +120,41 @@ void transform_inplace(BackendSelector&& selector, OutputMdspan&& output, Functi
                                    input_descriptor...);
       },
       input_descriptors);
+}
+
+/// \brief Overwrite a fixed-shape Tensor from a nullary element generator.
+/// \details Computes `output[i...] = function()` without reading the old output.
+template <class BackendSelector, MutableTensorView OutputTensor, class Function>
+void assign_transform(BackendSelector&& selector, OutputTensor&& output, Function&& function)
+{
+  auto operation = linalg::transform_op{std::forward<Function>(function)};
+  auto output_descriptor = mdspec_of(output);
+  detail::dispatch_transform(std::forward<BackendSelector>(selector), std::move(operation), output_descriptor);
+}
+
+/// \brief Overwrite a fixed-shape Tensor from a nullary element generator.
+template <MutableTensorView OutputTensor, class Function>
+void assign_transform(OutputTensor&& output, Function&& function)
+{
+  auto operation = linalg::transform_op{std::forward<Function>(function)};
+  auto selector = linalg::select_backend(operation, output);
+  auto output_descriptor = mdspec_of(output);
+  detail::dispatch_transform(std::move(selector), std::move(operation), output_descriptor);
+}
+
+/// \brief Fill a fixed-shape mdspan or Tensor without reading its old values.
+template <class BackendSelector, class Output, class Value>
+  requires(detail::OverwriteTransformSpans<Output> || MutableTensorView<Output>)
+void fill(BackendSelector&& selector, Output&& output, Value&& value)
+{
+  assign_transform(std::forward<BackendSelector>(selector), std::forward<Output>(output),
+                   linalg::constant{std::forward<Value>(value)});
+}
+
+/// \brief Fill a fixed-shape Tensor without reading its old values.
+template <MutableTensorView Output, class Value> void fill(Output&& output, Value&& value)
+{
+  assign_transform(std::forward<Output>(output), linalg::constant{std::forward<Value>(value)});
 }
 
 /// \brief Overwrite a Tensor output through an explicit backend selector.

@@ -189,6 +189,7 @@ TEST(TwoSiteDmrgSlice, CompilesMpoAndEnvironmentsIntoSparseEffectiveHamiltonianP
   auto effective_hamiltonian = uni20::tensor_network::make_two_site_effective_hamiltonian(
       initial, left_environment, first_mpo, second_mpo, right_environment);
   EXPECT_EQ(effective_hamiltonian.term_count(), 4);
+  EXPECT_GT(effective_hamiltonian.prepared_intermediate_count(), 0);
 
   Center applied = make_center(symmetry, left_bond, left_physical, right_physical, right_bond);
   effective_hamiltonian(applied, initial);
@@ -271,6 +272,14 @@ TEST(TwoSiteDmrgSlice, AppliesDenseEnvironmentBlocksAsATimesBTimesCTranspose)
 
   first_mpo.block(mpo_key)[] = 3.0;
   effective_hamiltonian(output, input);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 782.0);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 946.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 1774.0);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 2146.0);
+
+  auto recompiled_hamiltonian = uni20::tensor_network::make_two_site_effective_hamiltonian(
+      input, left_environment, first_mpo, second_mpo, right_environment);
+  recompiled_hamiltonian(output, input);
   EXPECT_DOUBLE_EQ((result[0, 0]), 1173.0);
   EXPECT_DOUBLE_EQ((result[0, 1]), 1419.0);
   EXPECT_DOUBLE_EQ((result[1, 0]), 2661.0);

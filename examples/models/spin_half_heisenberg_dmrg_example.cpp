@@ -32,6 +32,14 @@ enum class MeasurementMode
   detailed,
 };
 
+enum class MpsStorageMode
+{
+  packed,
+  parallel_packed,
+  parallel_aligned_packed,
+  parallel_separate,
+};
+
 struct Options
 {
     std::size_t sites = 4;
@@ -42,6 +50,7 @@ struct Options
     std::size_t block_threads = 1;
     MeasurementMode measurements = MeasurementMode::off;
     uni20::ScalarPrecision precision = uni20::ScalarPrecision::fp64;
+    MpsStorageMode mps_storage = MpsStorageMode::packed;
     bool complex_scalar = false;
     bool check = false;
 };
@@ -100,6 +109,14 @@ struct ReferenceEnergy
       if (!precision) throw std::invalid_argument("unknown precision: " + std::string(value));
       options.precision = *precision;
     }
+    else if (auto const value = option_value(argument, "--mps-storage="); value == "packed")
+      options.mps_storage = MpsStorageMode::packed;
+    else if (auto const value = option_value(argument, "--mps-storage="); value == "parallel-packed")
+      options.mps_storage = MpsStorageMode::parallel_packed;
+    else if (auto const value = option_value(argument, "--mps-storage="); value == "parallel-aligned-packed")
+      options.mps_storage = MpsStorageMode::parallel_aligned_packed;
+    else if (auto const value = option_value(argument, "--mps-storage="); value == "parallel-separate")
+      options.mps_storage = MpsStorageMode::parallel_separate;
     else if (auto const value = option_value(argument, "--scalar="); value == "real")
       options.complex_scalar = false;
     else if (auto const value = option_value(argument, "--scalar="); value == "complex")
@@ -179,17 +196,30 @@ template <class Measurements> void print_performance_measurements(Measurements c
 
 } // namespace
 
-template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
+template <class MpsStorage> constexpr auto mps_storage_name() -> std::string_view
+{
+  if constexpr (std::same_as<MpsStorage, uni20::PackedSparseBlockStorage<>>)
+    return "packed";
+  else if constexpr (std::same_as<MpsStorage, uni20::ParallelPackedSparseBlockStorage<>>)
+    return "parallel-packed";
+  else if constexpr (std::same_as<MpsStorage, uni20::ParallelPackedSparseBlockStorage<uni20::HostStorage, 64>>)
+    return "parallel-aligned-packed";
+  else
+    return "parallel-separate";
+}
+
+template <uni20::RealOrComplex Scalar, uni20::BlockTensorStorage MpsStorage> int run_example(Options const& run)
 {
   using real_type = uni20::make_real_t<Scalar>;
   using std::abs;
-  using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using environment_storage = uni20::ParallelPackedSparseBlockStorage<uni20::HostStorage, 64>;
+  using center_storage = uni20::ParallelPackedCompleteBlockStorage<uni20::HostStorage, 64>;
   auto const local = uni20::models::make_spin_half_u1_site();
-  auto mps = uni20::models::make_neel_product_mps<Scalar>(run.sites, local);
+  auto mps = uni20::models::make_neel_product_mps<Scalar, MpsStorage>(run.sites, local);
   auto const mpo = uni20::models::make_spin_half_heisenberg_mpo<Scalar>(run.sites, local);
   using mps_type = std::remove_cvref_t<decltype(mps)>;
   using mpo_type = std::remove_cvref_t<decltype(mpo)>;
-  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, parallel_storage> environments(mps, mpo, 0, 0);
+  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, environment_storage> environments(mps, mpo, 0, 0);
   uni20::async::TbbScheduler scheduler{static_cast<int>(run.block_threads)};
   uni20::async::ScopedScheduler use_scheduler(&scheduler);
 
@@ -202,15 +232,16 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
     auto const start = std::chrono::steady_clock::now();
     auto result = [&] {
       if constexpr (uni20::performance::measurement_level_v<Measurements> == uni20::performance::MeasurementLevel::none)
-        return uni20::tensor_network::run_two_site_dmrg(mps, mpo, environments, options, parallel_storage{});
+        return uni20::tensor_network::run_two_site_dmrg(mps, mpo, environments, options, center_storage{});
       else
         return uni20::tensor_network::run_two_site_dmrg(mps, mpo, environments, options, measurements,
-                                                        parallel_storage{});
+                                                        center_storage{});
     }();
     auto const elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
     std::cout << "scalar=" << (uni20::Complex<Scalar> ? "complex" : "real") << '\n';
     std::cout << "precision=" << uni20::scalar_precision_name(run.precision) << '\n';
+    std::cout << "mps-storage=" << mps_storage_name<MpsStorage>() << '\n';
     std::cout << "block-threads=" << run.block_threads << '\n';
     for (auto const& sweep : result.sweeps)
     {
@@ -275,7 +306,22 @@ int main(int argc, char** argv)
 {
   Options const options = parse_options(argc, argv);
   return uni20::visit_scalar_precision(options.precision, [&]<uni20::Real Real>() {
-    if (options.complex_scalar) return run_example<uni20::complex<Real>>(options);
-    return run_example<Real>(options);
+    auto run = [&]<class MpsStorage>() {
+      if (options.complex_scalar) return run_example<uni20::complex<Real>, MpsStorage>(options);
+      return run_example<Real, MpsStorage>(options);
+    };
+
+    switch (options.mps_storage)
+    {
+      case MpsStorageMode::packed:
+        return run.template operator()<uni20::PackedSparseBlockStorage<>>();
+      case MpsStorageMode::parallel_packed:
+        return run.template operator()<uni20::ParallelPackedSparseBlockStorage<>>();
+      case MpsStorageMode::parallel_aligned_packed:
+        return run.template operator()<uni20::ParallelPackedSparseBlockStorage<uni20::HostStorage, 64>>();
+      case MpsStorageMode::parallel_separate:
+        return run.template operator()<uni20::ParallelSeparateSparseBlockStorage<>>();
+    }
+    std::unreachable();
   });
 }

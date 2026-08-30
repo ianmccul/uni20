@@ -14,6 +14,15 @@
 namespace
 {
 
+template <class Storage>
+concept NeelProductMpsStorage = requires(uni20::models::SpinHalfU1Site const& local) {
+  uni20::models::make_neel_product_mps<double, Storage>(4, local);
+};
+
+static_assert(NeelProductMpsStorage<uni20::PackedSparseBlockStorage<>>);
+static_assert(NeelProductMpsStorage<uni20::PackedCompleteBlockStorage<>>);
+static_assert(!NeelProductMpsStorage<uni20::AsyncSeparateSparseBlockStorage<>>);
+
 class RecordingBatchScheduler : public uni20::async::DebugScheduler {
   public:
     std::size_t batch_calls = 0;
@@ -68,6 +77,36 @@ TEST(SpinHalfHeisenbergModelTest, BuildsNormalizedNeelProductMpsWithCumulativeCh
   EXPECT_EQ(down_first.site(0).stored_keys()[0].coordinate(1), 1);
   EXPECT_EQ(down_first.site(2).codomain().template space<0>()[0].q, local.down);
   EXPECT_THROW(static_cast<void>(uni20::models::make_neel_product_mps(0, local)), std::invalid_argument);
+}
+
+TEST(SpinHalfHeisenbergModelTest, BuildsNeelProductMpsWithSelectedStorage)
+{
+  using storage_type = uni20::ParallelSeparateSparseBlockStorage<>;
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto const mps = uni20::models::make_neel_product_mps<double, storage_type>(4, local);
+
+  static_assert(std::same_as<typename std::remove_cvref_t<decltype(mps)>::storage_policy, storage_type>);
+  ASSERT_EQ(mps.size(), 4);
+  for (std::size_t site = 0; site < mps.size(); ++site)
+  {
+    ASSERT_EQ(mps.site(site).stored_block_count(), 1);
+    EXPECT_DOUBLE_EQ((mps.site(site).block_by_ordinal(0)[0, 0]), 1.0);
+  }
+}
+
+TEST(SpinHalfHeisenbergModelTest, BuildsNeelProductMpsWithCompleteStorage)
+{
+  using storage_type = uni20::PackedCompleteBlockStorage<>;
+  auto const local = uni20::models::make_spin_half_u1_site();
+  auto const mps = uni20::models::make_neel_product_mps<double, storage_type>(4, local);
+
+  static_assert(std::same_as<typename std::remove_cvref_t<decltype(mps)>::storage_policy, storage_type>);
+  ASSERT_EQ(mps.size(), 4);
+  for (std::size_t site = 0; site < mps.size(); ++site)
+  {
+    ASSERT_EQ(mps.site(site).stored_block_count(), 1);
+    EXPECT_DOUBLE_EQ((mps.site(site).block_by_ordinal(0)[0, 0]), 1.0);
+  }
 }
 
 TEST(SpinHalfHeisenbergModelTest, BuildsReducedBoundaryHeisenbergMpo)
@@ -136,13 +175,14 @@ TEST(SpinHalfHeisenbergModelTest, SupportsComplexStorageWithRealCouplings)
 
 TEST(SpinHalfHeisenbergModelTest, ConvergesAnUntruncatedLengthFourDmrgRun)
 {
-  using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using environment_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using center_storage = uni20::ParallelPackedCompleteBlockStorage<>;
   auto const local = uni20::models::make_spin_half_u1_site();
   auto mps = uni20::models::make_neel_product_mps(4, local);
   auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(4, local);
   using mps_type = std::remove_cvref_t<decltype(mps)>;
   using mpo_type = std::remove_cvref_t<decltype(mpo)>;
-  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, parallel_storage> cache(mps, mpo, 0, 0);
+  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, environment_storage> cache(mps, mpo, 0, 0);
   RecordingBatchScheduler scheduler;
   uni20::async::ScopedScheduler use_scheduler(&scheduler);
   uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
@@ -150,7 +190,7 @@ TEST(SpinHalfHeisenbergModelTest, ConvergesAnUntruncatedLengthFourDmrgRun)
   options.energy_tolerance = 1.0e-12;
   options.bond_options.truncation.maximum_retained_extent = 16;
 
-  auto const result = uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, parallel_storage{});
+  auto const result = uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, center_storage{});
   ASSERT_TRUE(result.converged);
   ASSERT_GE(result.sweeps.size(), 2);
   ASSERT_LE(result.sweeps.size(), options.maximum_sweeps);
@@ -201,14 +241,15 @@ TEST(SpinHalfHeisenbergModelTest, DoesNotConvergeFromTruncatedTerminalEnergies)
 
 TEST(SpinHalfHeisenbergModelTest, RecordsOptInDmrgPhaseAndSvdBatchMeasurements)
 {
-  using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using environment_storage = uni20::ParallelPackedSparseBlockStorage<>;
+  using center_storage = uni20::ParallelPackedCompleteBlockStorage<>;
   using event = uni20::tensor_network::TwoSiteDmrgPerformanceEvent;
   auto const local = uni20::models::make_spin_half_u1_site();
   auto mps = uni20::models::make_neel_product_mps(2, local);
   auto const mpo = uni20::models::make_spin_half_heisenberg_mpo(2, local);
   using mps_type = std::remove_cvref_t<decltype(mps)>;
   using mpo_type = std::remove_cvref_t<decltype(mpo)>;
-  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, parallel_storage> cache(mps, mpo, 0, 0);
+  uni20::tensor_network::MpoEnvironmentCache<mps_type, mpo_type, environment_storage> cache(mps, mpo, 0, 0);
   RecordingBatchScheduler scheduler;
   uni20::async::ScopedScheduler use_scheduler(&scheduler);
   uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
@@ -216,7 +257,7 @@ TEST(SpinHalfHeisenbergModelTest, RecordsOptInDmrgPhaseAndSvdBatchMeasurements)
   uni20::tensor_network::DetailedTwoSiteDmrgPerformanceMeasurements measurements;
 
   auto const result =
-      uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, measurements, parallel_storage{});
+      uni20::tensor_network::run_two_site_dmrg(mps, mpo, cache, options, measurements, center_storage{});
 
   ASSERT_EQ(result.sweeps.size(), 1U);
   EXPECT_EQ(measurements[event::run].count, 1U);

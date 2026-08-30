@@ -83,6 +83,7 @@ linear_combination(std::size_t rows, std::size_t cols,
                    std::initializer_list<std::pair<DenseMatrix<Scalar> const*, Scalar>> const& terms)
 {
   DenseMatrix<Scalar> result(rows, cols);
+  std::fill_n(result.data(), result.size(), Scalar{});
   for (auto const& term : terms)
   {
     DenseMatrix<Scalar> const& mat = *term.first;
@@ -440,6 +441,7 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
   Real const uy = y_scaled / norm_scaled;
   Real const uz = z_scaled / norm_scaled;
   DenseMatrix<Scalar> K(3, 3);
+  std::fill_n(K.data(), K.size(), Scalar{});
   K[0, 1] = Scalar(-uz);
   K[0, 2] = Scalar(uy);
   K[1, 0] = Scalar(uz);

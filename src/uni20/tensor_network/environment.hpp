@@ -309,7 +309,7 @@ template <typename Value, SparseBlockStorage Storage = SeparateSparseBlockStorag
   for (std::size_t ordinal = 0; ordinal < result.stored_block_count(); ++ordinal)
   {
     auto block = result.block_by_ordinal(ordinal);
-    uni20::transform_inplace(block, linalg::scale{Value{}});
+    uni20::fill(block, Value{});
     using index_type = typename decltype(block)::index_type;
     for (index_type index = 0; index < block.extent(0); ++index)
       block[index, index] = Value{1};

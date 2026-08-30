@@ -163,6 +163,17 @@ auto selector =
     select_backend_for<OutputTensor, LhsTensor, RhsTensor>(operation);
 ```
 
+An operation backend that delegates lower-level work and retains only the
+nested storage policy may use:
+
+```cpp
+auto selector =
+    select_backend_for_storage<LeafStoragePolicy>(nested_operation);
+```
+
+This applies the same user-override and library-default precedence as ordinary
+tensor-based selection.
+
 Selector resolution is based on static tensor and storage-policy information. It does
 not inspect tensor values. Backend-neutral storage policies may participate with a
 backend-bound storage policy, but incompatible backend-bound storage policies require

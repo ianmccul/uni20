@@ -23,6 +23,20 @@ using Center = uni20::tensor_network::TwoSiteCenter<double, uni20::BlockSpace, u
 using SiteKey = typename Site::key_type;
 using MpoKey = typename MpoSite::key_type;
 using CenterKey = typename Center::key_type;
+using EnvironmentStorage = uni20::SeparateSparseBlockStorage<>;
+using EnvironmentCache = uni20::tensor_network::MpoEnvironmentCache<Mps, Mpo, EnvironmentStorage>;
+
+template <class Storage>
+concept CanOptimizeWithCenterStorage = requires(Mps& mps, Mpo const& mpo, EnvironmentCache& cache) {
+  uni20::tensor_network::optimize_two_site_dmrg_bond(mps, mpo, cache, std::size_t{},
+                                                     uni20::tensor_network::MpsSweepDirection::left_to_right,
+                                                     uni20::tensor_network::TwoSiteDmrgOptions<double>{}, Storage{});
+};
+
+static_assert(CanOptimizeWithCenterStorage<uni20::PackedSparseBlockStorage<>>);
+static_assert(CanOptimizeWithCenterStorage<uni20::PackedCompleteBlockStorage<>>);
+static_assert(!CanOptimizeWithCenterStorage<uni20::AsyncSeparateSparseBlockStorage<>>);
+static_assert(!CanOptimizeWithCenterStorage<uni20::PackedDiagonalBlockStorage<>>);
 
 struct HeisenbergSpaces
 {

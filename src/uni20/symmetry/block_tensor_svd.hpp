@@ -15,6 +15,7 @@
 #include <uni20/symmetry/block_tensor.hpp>
 #include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/tensor/tensor.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
 #include <array>
@@ -557,6 +558,7 @@ template <ImmediateBlockTensorView Tensor, class Measurements, class Event>
     auto& codomain = sector_inputs[sector].codomain;
     ColumnMajorTensor<scalar_type, 2> matrix(static_cast<uni20::index_type>(codomain.flattened_extent),
                                              static_cast<uni20::index_type>(domain.flattened_extent));
+    uni20::fill(matrix, scalar_type{});
     std::vector<typename decomposition_type::source_key_type> stored_source_keys;
     for (auto const& domain_fragment : domain.fragments)
     {

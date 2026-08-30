@@ -25,7 +25,8 @@ kernels operate on resolved mdspans.
 - `copy.hpp`: inferred `make_tensor(...)` materialization and owning reshape support.
 - `conjugate_inplace.hpp`: backend-dispatched eager conjugation of mutable
   tensor storage.
-- `transform.hpp`: backend-dispatched variadic elementwise overwrite and update
+- `transform.hpp`: backend-dispatched nullary/variadic elementwise overwrite,
+  constant fill, and update
   operations for mdspan and Tensor operands. Their all-async Tensor overloads
   live in [`linalg/async/`](../linalg/async/).
 - Fixed-output GEMM and matrix-product overwrite/update operations live in
@@ -54,8 +55,9 @@ kernels operate on resolved mdspans.
   runtime-rank tensor requires a separate descriptor and type rather than a
   second meaning for `Tensor`.
 - Every specialization models the tensor-level concepts directly.
-- Rank-zero `ScalarTensor` owners default-construct their one logical element
-  and use `scalar[]` for ordinary host-accessible indexing.
+- Rank-zero `ScalarTensor` owners allocate their one logical element and use
+  `scalar[]` for ordinary host-accessible indexing. Newly allocated host
+  storage is unspecified until an operation writes it.
 - `OwningTensor` is an explicit opt-in classification for types whose move
   operation transfers the storage and lifetime exposed through `mdspan()`.
   Non-owning descriptors such as `ConstTensorView` and
@@ -150,7 +152,7 @@ kernels operate on resolved mdspans.
   source layout. `reshape_view_left` and `reshape_view_right` explicitly select
   the interpretation of a compatible `layout_stride` mapping; plain reshape
   never guesses that order.
-- `DenseMatrix<T>` is `Tensor<T, 2, VectorStorage, ColumnMajor>`; use
+- `DenseMatrix<T>` is `Tensor<T, 2, HostStorage, ColumnMajor>`; use
   `DenseMatrix<T, RowMajor>` when row-major ownership is preferred. Matrix-level
   linalg front ends accept either form and resolve mdspans internally.
 - Tensor operations should lower to dense primitives only after storage, layout,

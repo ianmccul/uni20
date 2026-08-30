@@ -39,6 +39,12 @@ when the change is specifically correcting that behavior.
    repository-wide guidance?
 10. What checks were unavailable, and what residual risk remains?
 
+For a policy-generic API, test representative policies at every capability
+boundary named by its constraints. Include compile-time acceptance and rejection
+probes when a broad family such as `BlockTensorStorage` has immediate, async,
+sparse, complete, diagonal, or distributed refinements. Concrete policies that
+share one implementation do not each require duplicate runtime coverage.
+
 ## Reachability and Representability
 
 A correctness finding needs a concrete construction and execution path using

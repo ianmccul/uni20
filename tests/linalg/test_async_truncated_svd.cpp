@@ -25,6 +25,7 @@ static_assert(requires(async_deferred_matrix_type&& matrix) { uni20::linalg::tru
 matrix_type make_matrix()
 {
   matrix_type matrix(3, 3);
+  uni20::fill(matrix, 0.0);
   matrix[0, 0] = 4.0;
   matrix[1, 1] = 2.0;
   matrix[2, 2] = 0.5;
@@ -34,6 +35,7 @@ matrix_type make_matrix()
 deferred_matrix_type make_deferred_matrix()
 {
   deferred_matrix_type matrix(3, 3);
+  uni20::fill(matrix, 0.0);
   auto lease = uni20::test::acquire_host_write_access_sync(matrix);
   auto& span = lease.mdspan();
   span[0, 0] = 4.0;

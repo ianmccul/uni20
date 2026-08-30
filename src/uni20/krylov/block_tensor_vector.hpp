@@ -23,12 +23,11 @@ namespace uni20::krylov
 namespace detail
 {
 
-template <class Tensor> struct IsSparseBlockTensorValue : std::false_type
+template <class Tensor> struct IsBlockTensorValue : std::false_type
 {};
 
 template <typename Scalar, class DomainType, class CodomainType, BlockTensorStorage Storage>
-struct IsSparseBlockTensorValue<BlockTensor<Scalar, DomainType, CodomainType, Storage>>
-    : std::bool_constant<SparseBlockStorage<Storage>>
+struct IsBlockTensorValue<BlockTensor<Scalar, DomainType, CodomainType, Storage>> : std::true_type
 {};
 
 } // namespace detail
@@ -39,7 +38,7 @@ struct IsSparseBlockTensorValue<BlockTensor<Scalar, DomainType, CodomainType, St
 ///          storage policy. \c allocate_like reproduces that structure without
 ///          flattening it. An operator-specific adapter may derive from or
 ///          contain this class and add \c matvec.
-/// \tparam Tensor Owning sparse BlockTensor value type.
+/// \tparam Tensor Owning BlockTensor value type.
 template <class Tensor> class BlockTensorVectorOps {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
@@ -48,8 +47,8 @@ template <class Tensor> class BlockTensorVectorOps {
     using domain_type = typename tensor_type::domain_type;
     using codomain_type = typename tensor_type::codomain_type;
     using key_type = typename tensor_type::key_type;
-    static_assert(detail::IsSparseBlockTensorValue<tensor_type>::value,
-                  "BlockTensorVectorOps requires an owning sparse BlockTensor value");
+    static_assert(detail::IsBlockTensorValue<tensor_type>::value,
+                  "BlockTensorVectorOps requires an owning BlockTensor value");
     static_assert(RealOrComplex<scalar_type>, "BlockTensorVectorOps requires a real or complex scalar type");
 
     /// \brief Freeze the Krylov vector space represented by a prototype tensor.
@@ -73,12 +72,25 @@ template <class Tensor> class BlockTensorVectorOps {
       return dimension_;
     }
 
-    /// \brief Allocate a zero-initialized vector with the frozen structure.
+    /// \brief Allocate a vector with the frozen structure and unspecified values.
+    /// \details Krylov algorithms overwrite the result through copy, matvec, or
+    ///          set_zero before any read.
     /// \throws std::invalid_argument If \p vector is not a member of this vector space.
     [[nodiscard]] auto allocate_like(tensor_type const& vector) const -> tensor_type
     {
       this->require_member(vector);
-      return tensor_type(symmetry_, domain_, codomain_, stored_keys_);
+      if constexpr (requires { vector.allocate_like(); })
+      {
+        return vector.allocate_like();
+      }
+      else if constexpr (CompleteBlockStorage<typename tensor_type::storage_policy>)
+      {
+        return tensor_type(symmetry_, domain_, codomain_);
+      }
+      else
+      {
+        return tensor_type(symmetry_, domain_, codomain_, stored_keys_);
+      }
     }
 
     /// \brief Copy one vector into another without changing either structure.

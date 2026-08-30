@@ -5,6 +5,7 @@
 #include <uni20/krylov/dense_host_vector.hpp>
 #include <uni20/krylov/dense_linalg.hpp>
 #include <uni20/krylov/symmetric_lanczos.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -169,6 +170,7 @@ template <typename Scalar> class DenseShiftInvertOps {
       {
         throw std::invalid_argument("Krylov shift-invert example requires a square matrix");
       }
+      uni20::fill(factorized_coefficient_, Scalar{});
       for (auto const& entry : matrix.entries)
       {
         factorized_coefficient_[entry.row, entry.col] += static_cast<Scalar>(entry.value);

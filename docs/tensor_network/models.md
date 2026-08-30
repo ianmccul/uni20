@@ -48,6 +48,12 @@ sector. The rank-one state is normalized and both left- and right-canonical.
 This is the intended initial state for the first finite DMRG driver, so that
 driver does not require a separate canonicalization pass.
 
+The optional storage policy must provide immediately accessible local blocks.
+Sparse storage allocates only the selected product-state block, while complete
+storage allocates its canonical legal-key set. Async and distributed storage
+require a separate initialization protocol and are not accepted by this
+synchronous builder.
+
 ```cpp
 auto mps = models::make_neel_product_mps(20, local);
 ```

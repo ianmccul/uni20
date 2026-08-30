@@ -56,6 +56,17 @@ template <class Tensor> auto singular_values_in_sector(Tensor& tensor, std::size
   return tensor.diagonal_values(key_type{{sector, sector}});
 }
 
+template <class Tensor> void zero_dense_blocks(Tensor& tensor)
+{
+  for (std::size_t ordinal = 0; ordinal < tensor.stored_block_count(); ++ordinal)
+  {
+    auto block = tensor.block_by_ordinal(ordinal);
+    for (index_type column = 0; column < block.extent(1); ++column)
+      for (index_type row = 0; row < block.extent(0); ++row)
+        block[row, column] = typename Tensor::element_type{};
+  }
+}
+
 template <class Storage> class BlockTensorSvdStorageTest : public ::testing::Test {};
 
 using ImmediateSvdStorageTypes = ::testing::Types<SeparateSparseBlockStorage<>, ParallelSeparateSparseBlockStorage<>,
@@ -72,6 +83,7 @@ TYPED_TEST(BlockTensorSvdStorageTest, FactorizesEveryImmediateLocalStoragePolicy
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, TypeParam>;
   using Key = typename Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 2.0;
 
   auto decomposition = block_svd(matrix);
@@ -91,6 +103,7 @@ TEST(BlockTensorSvd, ParallelStorageBatchesChargeSectorsAndRetainsExecutionPolic
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, ParallelPackedSparseBlockStorage<>>;
   using Key = typename Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}, Key{{1, 1}}, Key{{2, 2}}});
+  zero_dense_blocks(matrix);
   for (std::size_t sector = 0; sector < input.size(); ++sector)
   {
     auto block = matrix.block(Key{{sector, sector}});
@@ -101,8 +114,7 @@ TEST(BlockTensorSvd, ParallelStorageBatchesChargeSectorsAndRetainsExecutionPolic
   RecordingBatchScheduler scheduler;
   async::ScopedScheduler use_scheduler(&scheduler);
   auto decomposition = block_svd(matrix);
-  static_assert(std::same_as<typename decltype(decomposition)::block_execution_policy,
-                             SchedulerBatchBlockExecution>);
+  static_assert(std::same_as<typename decltype(decomposition)::block_execution_policy, SchedulerBatchBlockExecution>);
 
   ASSERT_EQ(scheduler.batch_calls, 1);
   EXPECT_EQ(scheduler.batch_sizes, (std::vector<std::size_t>{3}));
@@ -128,6 +140,7 @@ TEST(BlockTensorSvd, FactorizesARepartitionedThreeOneViewAsTwoTwo)
   using Key = Center::key_type;
   Center center(symmetry, Domain{left_bond, left_site, right_site}, Codomain{right_bond},
                 {Key{{0, 0, 0, 0}}, Key{{0, 1, 1, 0}}});
+  zero_dense_blocks(center);
   center.block(Key{{0, 0, 0, 0}})[0, 0] = 4.0;
   center.block(Key{{0, 1, 1, 0}})[0, 0] = 1.0;
 
@@ -153,6 +166,7 @@ TEST(BlockTensorSvd, SelectsAcrossSectorsAndMaterializesComplementIndependently)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}, Key{{1, 1}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 4.0;
   matrix.block(Key{{0, 0}})[1, 1] = 1.0;
   matrix.block(Key{{1, 1}})[0, 0] = 3.0;
@@ -175,10 +189,8 @@ TEST(BlockTensorSvd, SelectsAcrossSectorsAndMaterializesComplementIndependently)
   auto const& kept_bond = singular_value_bond(kept_factors.singular_values);
   EXPECT_EQ(kept_bond.label(), "kept");
   ASSERT_EQ(kept_bond.size(), 2);
-  EXPECT_EQ(
-      kept_bond[sector_coordinate(kept_bond, q0)].dim, 1);
-  EXPECT_EQ(
-      kept_bond[sector_coordinate(kept_bond, q1)].dim, 1);
+  EXPECT_EQ(kept_bond[sector_coordinate(kept_bond, q0)].dim, 1);
+  EXPECT_EQ(kept_bond[sector_coordinate(kept_bond, q1)].dim, 1);
   EXPECT_EQ(kept.truncation().retained_rank, 2);
   EXPECT_NEAR(kept.truncation().discarded_weight, 1.0 / 26.0, 1.0e-14);
 
@@ -240,6 +252,7 @@ TEST(BlockTensorSvd, FullSelectionReconstructsEveryChargeSector)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}, Key{{1, 1}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 4.0;
   matrix.block(Key{{0, 0}})[0, 1] = -2.0;
   matrix.block(Key{{0, 0}})[1, 0] = 1.0;
@@ -285,6 +298,7 @@ TEST(BlockTensorSvd, AssemblesRepeatedBoundaryFragmentsAndImplicitZeros)
   using Tensor = BlockTensor<double, Domain<LocalSpace, BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Tensor::key_type;
   Tensor tensor(symmetry, Domain{local, input_bond}, Codomain{output_bond}, {Key{{0, 0, 0}}});
+  zero_dense_blocks(tensor);
   tensor.block(Key{{0, 0, 0}})[0, 0] = 5.0;
 
   auto decomposition = block_svd(tensor);
@@ -312,6 +326,7 @@ TEST(BlockTensorSvd, MaterializesKeptAndPairedNullPartitionsFromOneDecomposition
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 2.0;
 
   auto decomposition = block_svd(matrix);
@@ -353,6 +368,7 @@ TEST(BlockTensorSvd, ComplexFactorsReconstructTheOriginalBlock)
   using Matrix = BlockTensor<Scalar, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = Scalar{2.0, 1.0};
   matrix.block(Key{{0, 0}})[0, 1] = Scalar{-1.0, 0.5};
   matrix.block(Key{{0, 0}})[1, 0] = Scalar{0.25, -2.0};
@@ -360,8 +376,7 @@ TEST(BlockTensorSvd, ComplexFactorsReconstructTheOriginalBlock)
 
   auto decomposition = block_svd(matrix);
   auto factors = materialize_svd(decomposition, select_svd_states(decomposition.spectrum()));
-  auto right_times_singular =
-      contract<1, 0>(factors.right_singular_vectors_adjoint, factors.singular_values);
+  auto right_times_singular = contract<1, 0>(factors.right_singular_vectors_adjoint, factors.singular_values);
   auto reconstructed_tensor = contract<1, 0>(right_times_singular, factors.left_singular_vectors);
   auto reconstructed_block = reconstructed_tensor.block(Key{{0, 0}});
   using LeftKey = typename decltype(factors.left_singular_vectors)::key_type;
@@ -379,8 +394,7 @@ TEST(BlockTensorSvd, ComplexFactorsReconstructTheOriginalBlock)
         reconstructed += left[static_cast<uni20::index_type>(state), row] * values[state] *
                          right[column, static_cast<uni20::index_type>(state)];
       EXPECT_NEAR(std::abs(reconstructed - matrix.block(Key{{0, 0}})[column, row]), 0.0, 1.0e-12);
-      EXPECT_NEAR(std::abs(reconstructed_block[column, row] - matrix.block(Key{{0, 0}})[column, row]), 0.0,
-                  1.0e-12);
+      EXPECT_NEAR(std::abs(reconstructed_block[column, row] - matrix.block(Key{{0, 0}})[column, row]), 0.0, 1.0e-12);
     }
   }
 }
@@ -395,6 +409,7 @@ TEST(BlockTensorSvd, EmptySelectionMaterializesAnEmptyBond)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 2.0;
 
   auto decomposition = block_svd(matrix);
@@ -419,6 +434,7 @@ TEST(BlockTensorSvd, MaterializesFullRightNullSpaceSeparately)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 1.0;
   matrix.block(Key{{0, 0}})[1, 1] = 2.0;
 
@@ -456,6 +472,7 @@ TEST(BlockTensorSvd, FullRightNullSpaceRetainsUnmatchedDomainCharge)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 2.0;
 
   auto decomposition = block_svd(matrix, linalg::SvdOptions{.right = linalg::SvdVectorExtent::Full});
@@ -492,6 +509,7 @@ TEST(BlockTensorSvd, FullLeftNullSpaceRetainsUnmatchedCodomainCharge)
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
   using Key = Matrix::key_type;
   Matrix matrix(symmetry, Domain{input}, Codomain{output}, {Key{{0, 0}}});
+  zero_dense_blocks(matrix);
   matrix.block(Key{{0, 0}})[0, 0] = 2.0;
 
   auto decomposition = block_svd(matrix, linalg::SvdOptions{.left = linalg::SvdVectorExtent::Full});

@@ -25,7 +25,7 @@ storage.
 The owning alias is:
 
 ```cpp
-template <typename ElementType, typename StoragePolicy = VectorStorage,
+template <typename ElementType, typename StoragePolicy = HostStorage,
           typename AccessorFactory = DefaultAccessorFactory>
 using ScalarTensor =
     Tensor<ElementType, 0, StoragePolicy, ColumnMajor, AccessorFactory>;
@@ -74,7 +74,12 @@ scalar[]     // rank zero
 It is available only when the tensor's ordinary accessor can be invoked in the
 current compilation and execution context.
 
-For `VectorStorage`, `scalar[]` returns a host-accessible element reference in
+Constructing a `HostStorage` tensor allocates its elements without initializing
+real or complex scalar values. A newly constructed scalar tensor must therefore
+be written by an operation or by the caller before `scalar[]` is read. Allocation
+and numerical initialization are separate operations throughout the tensor API.
+
+For `HostStorage`, `scalar[]` returns a host-accessible element reference in
 the same way as indexing any other host tensor. `CudaTensor` deliberately
 does not provide a host-callable element subscript merely because its rank is
 zero. Host extraction from such a tensor requires an explicit host-result or
@@ -260,7 +265,7 @@ Their semantic requirements are:
 - cross-device movement may select direct peer transfer or a staged path;
 - ordinary tensor indexing never performs transfer implicitly.
 
-`VectorStorage` is pageable host memory. Transfers between it and `CudaStorage`
+`HostStorage` is pageable host memory. Transfers between it and `CudaStorage`
 therefore use blocking `cudaMemcpy`: device-to-host returns only when the host
 result is readable, while host-to-device returns once CUDA has staged the host
 source and records the remaining default-stream DMA in the destination buffer's
@@ -281,7 +286,7 @@ or the corresponding direct host-result operation.
 
 The current front end constructs an owning result by rebinding the input's
 static storage policy to the result element type and rank. Backend-neutral
-generated inputs materialize into `VectorStorage`. Canonical row-major or
+generated inputs materialize into `HostStorage`. Canonical row-major or
 column-major layout is preserved for partial sums; noncanonical inputs use the
 default column-major layout. Rank-zero results use `ScalarTensor`.
 

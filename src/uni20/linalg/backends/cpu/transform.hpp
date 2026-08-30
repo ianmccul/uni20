@@ -36,7 +36,7 @@ template <class Mdspan> consteval bool transform_value_is_readable()
 template <class OutputMdspan, class Function, class... InputMdspans> consteval bool overwrite_transform_is_supported()
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
-  if constexpr (!uni20::MutableMdspanLike<output_type> || sizeof...(InputMdspans) == 0 ||
+  if constexpr (!uni20::MutableMdspanLike<output_type> ||
                 (!(uni20::MdspanLike<std::remove_cvref_t<InputMdspans>> && ...)) ||
                 !((output_type::rank() == std::remove_cvref_t<InputMdspans>::rank()) && ...))
   {
