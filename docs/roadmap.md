@@ -144,7 +144,7 @@ See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 - Dense projected subspace work uses `DenseMatrix` and the normal linalg
   dispatch layer rather than a private dense algebra stack.
 - Matrix Market fixtures, convergence/residual tests, provider comparisons,
-  and optional MPLAPACK binary128 probes exercise precision-sensitive paths.
+  and the optional MPLAPACK binary128 backend exercise precision-sensitive paths.
 
 See [Krylov Algorithms](krylov/algorithms.md) and
 [Krylov Precision Validation](krylov/precision_validation.md).
