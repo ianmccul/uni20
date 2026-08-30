@@ -6,20 +6,18 @@
 
 #pragma once
 
-#include <uni20/async/debug_scheduler.hpp>
-#include <uni20/linalg/ops/contract.hpp>
 #include <uni20/symmetry/block_tensor_contract.hpp>
 #include <uni20/symmetry/block_tensor_linear.hpp>
 #include <uni20/symmetry/block_tensor_permute.hpp>
 #include <uni20/symmetry/block_tensor_repartition.hpp>
-#include <uni20/tensor/tensor.hpp>
+#include <uni20/tensor_network/rabc_contraction.hpp>
 
 #include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <map>
 #include <memory>
-#include <numeric>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -72,18 +70,6 @@ concept CompatibleMpoEffectiveScalars =
     std::same_as<block_tensor_value_t<Center>, block_tensor_value_t<SecondMpo>> &&
     std::same_as<block_tensor_value_t<Center>, block_tensor_value_t<RightEnvironment>>;
 
-template <class Function> void execute_effective_groups(SerialBlockExecution, std::size_t size, Function&& function)
-{
-  for (std::size_t index = 0; index < size; ++index)
-    function(index);
-}
-
-template <class Function>
-void execute_effective_groups(SchedulerBatchBlockExecution, std::size_t size, Function&& function)
-{
-  async::execute_batch(size, std::forward<Function>(function));
-}
-
 } // namespace detail
 
 /// \brief Apply a local two-site operator to a fixed BlockTensor center.
@@ -134,13 +120,15 @@ LocalTwoSiteEffectiveHamiltonian(Hamiltonian) -> LocalTwoSiteEffectiveHamiltonia
 /// \brief Matrix-free two-site Hamiltonian compiled from environments and MPO sites.
 /// \details Construction joins the stored logical keys of the left environment,
 ///          two adjacent MPO sites, and right environment into an immutable
-///          sparse R/A/B/C term plan for one fixed center structure. Each apply
-///          groups terms by output block and evaluates `A * B * transpose(C)`
-///          through ordinary dense tensor contraction dispatch. No whole-center
-///          dense projection or high-rank BlockTensor intermediate is formed.
-///          The four fixed operands are retained by value. If any retained
-///          operand is a borrowed view, its ultimate payload owner must outlive
-///          this operation object.
+///          sparse R/A/B/C term plan for one fixed center structure and
+///          snapshots their scalar coefficients into an immutable sparse
+///          `f(r,a,b,c)` tensor. Construction also selects and prepares the
+///          current R/A/B/C backend so repeated applications reuse its schedule
+///          and intermediate workspace.
+///          No whole-center dense projection or high-rank BlockTensor
+///          intermediate is formed. The two environments are retained by
+///          value. If either is a borrowed view, its ultimate payload owner
+///          must outlive this operation object.
 /// \tparam Center Fixed two-site center structure used to compile block ordinals.
 /// \tparam LeftEnvironment Left `(bra bond, auxiliary, ket bond)` environment.
 /// \tparam FirstMpo Left MPO site with `(left auxiliary, ket, right auxiliary, bra)` key order.
@@ -161,6 +149,8 @@ class TwoSiteEffectiveHamiltonian {
     using domain_type = block_tensor_domain_t<center_type>;
     using codomain_type = block_tensor_codomain_t<center_type>;
     using key_type = block_tensor_key_t<center_type>;
+    using plan_type = RabcContractionPlan<scalar_type, key_type, block_tensor_key_t<left_environment_type>, key_type,
+                                          block_tensor_key_t<right_environment_type>>;
 
   private:
     static_assert(std::same_as<typename left_environment_type::codomain_type::template space_type<0>,
@@ -186,22 +176,12 @@ class TwoSiteEffectiveHamiltonian {
     static_assert(std::same_as<typename right_environment_type::codomain_type::template space_type<0>,
                                typename codomain_type::template space_type<0>>);
 
-    struct Term
-    {
-        std::size_t output_ordinal;
-        std::size_t input_ordinal;
-        std::size_t left_environment_ordinal;
-        std::size_t first_mpo_ordinal;
-        std::size_t second_mpo_ordinal;
-        std::size_t right_environment_ordinal;
-    };
-
   public:
     /// \brief Compile one fixed-center sparse effective-Hamiltonian plan.
     /// \param prototype Center value whose exact boundary and stored keys define the vector space.
     /// \param left_environment Left environment retained by value.
-    /// \param first_mpo Left MPO site retained by value.
-    /// \param second_mpo Right MPO site retained by value.
+    /// \param first_mpo Left MPO site whose coefficients are compiled into `f`.
+    /// \param second_mpo Right MPO site whose coefficients are compiled into `f`.
     /// \param right_environment Right environment retained by value.
     /// \throws std::invalid_argument If spaces are incompatible or the center
     ///         stored pattern is not closed under the represented Hamiltonian.
@@ -210,20 +190,17 @@ class TwoSiteEffectiveHamiltonian {
                                 right_environment_type right_environment)
         : symmetry_(prototype.symmetry()), domain_(prototype.domain()), codomain_(prototype.codomain()),
           stored_keys_(prototype.stored_keys().begin(), prototype.stored_keys().end()),
-          left_environment_(std::move(left_environment)), first_mpo_(std::move(first_mpo)),
-          second_mpo_(std::move(second_mpo)), right_environment_(std::move(right_environment))
+          left_environment_(std::move(left_environment)), right_environment_(std::move(right_environment))
     {
-      this->validate_operand_spaces(prototype);
-      terms_ = this->make_terms();
-      group_offsets_ = this->make_group_offsets();
-      group_order_ = this->make_group_order();
+      this->validate_operand_spaces(prototype, first_mpo, second_mpo);
+      auto plan = this->make_plan(first_mpo, second_mpo);
+      prepared_rabc_.emplace(
+          prepare_rabc_contract(prototype, std::move(plan), left_environment_, prototype, right_environment_));
     }
 
     /// \brief Overwrite a compatible fixed center with one planned Hamiltonian apply.
-    /// \details Output blocks are independent batch items when the output
-    ///          storage selects scheduler-batch execution. Groups are submitted
-    ///          by descending estimated dense-contraction cost. Contributions
-    ///          to one output block remain serial and use beta zero then one.
+    /// \details The sparse R/A/B/C kernel backend owns contraction ordering,
+    ///          intermediate reuse, batching, placement, and communication.
     /// \pre Distinct input and output views do not overlap numerical storage.
     template <MutableImmediateBlockTensorView Output, detail::MpoEffectiveCenter Input>
       requires detail::CompatibleTwoSiteCenters<Output, Input> &&
@@ -231,7 +208,7 @@ class TwoSiteEffectiveHamiltonian {
                std::same_as<block_tensor_key_t<Output>, key_type> &&
                std::same_as<block_tensor_domain_t<Output>, domain_type> &&
                std::same_as<block_tensor_codomain_t<Output>, codomain_type>
-    void operator()(Output& output, Input const& input) const
+    void operator()(Output& output, Input const& input)
     {
       this->require_center(output);
       this->require_center(input);
@@ -243,32 +220,43 @@ class TwoSiteEffectiveHamiltonian {
         }
       }
 
-      detail::execute_effective_groups(
-          typename std::remove_cvref_t<Output>::storage_policy::block_execution_policy{}, output.stored_block_count(),
-          [&](std::size_t group) { this->execute_group(output, input, group_order_[group]); });
+      (*prepared_rabc_)(output, left_environment_, input, right_environment_);
     }
 
     /// \brief Return the number of compiled logical R/A/B/C contributions.
-    [[nodiscard]] auto term_count() const noexcept -> std::size_t { return terms_.size(); }
+    [[nodiscard]] auto term_count() const noexcept -> std::size_t { return prepared_rabc_->plan().term_count(); }
+
+    /// \brief Return the immutable sparse coefficient plan used by the prepared backend.
+    [[nodiscard]] auto plan() const noexcept -> plan_type const&
+    {
+      return prepared_rabc_->plan();
+    }
+
+    /// \brief Return the number of retained host right-first intermediate blocks.
+    [[nodiscard]] auto prepared_intermediate_count() const noexcept -> std::size_t
+    {
+      return prepared_rabc_->intermediate_count();
+    }
 
   private:
-    void validate_operand_spaces(center_type const& prototype) const
+    void validate_operand_spaces(center_type const& prototype, first_mpo_type const& first_mpo,
+                                 second_mpo_type const& second_mpo) const
     {
-      if (left_environment_.symmetry() != symmetry_ || first_mpo_.symmetry() != symmetry_ ||
-          second_mpo_.symmetry() != symmetry_ || right_environment_.symmetry() != symmetry_)
+      if (left_environment_.symmetry() != symmetry_ || first_mpo.symmetry() != symmetry_ ||
+          second_mpo.symmetry() != symmetry_ || right_environment_.symmetry() != symmetry_)
       {
         throw std::invalid_argument("two-site effective Hamiltonian operands require one symmetry");
       }
 
       if (left_environment_.codomain().template space<0>() != prototype.domain().template space<0>() ||
           left_environment_.domain().template space<0>() != prototype.domain().template space<0>() ||
-          left_environment_.domain().template space<1>() != first_mpo_.domain().template space<0>() ||
-          first_mpo_.domain().template space<1>() != prototype.domain().template space<1>() ||
-          first_mpo_.codomain().template space<1>() != prototype.domain().template space<1>() ||
-          first_mpo_.codomain().template space<0>() != second_mpo_.domain().template space<0>() ||
-          second_mpo_.domain().template space<1>() != prototype.domain().template space<2>() ||
-          second_mpo_.codomain().template space<1>() != prototype.domain().template space<2>() ||
-          second_mpo_.codomain().template space<0>() != right_environment_.domain().template space<1>() ||
+          left_environment_.domain().template space<1>() != first_mpo.domain().template space<0>() ||
+          first_mpo.domain().template space<1>() != prototype.domain().template space<1>() ||
+          first_mpo.codomain().template space<1>() != prototype.domain().template space<1>() ||
+          first_mpo.codomain().template space<0>() != second_mpo.domain().template space<0>() ||
+          second_mpo.domain().template space<1>() != prototype.domain().template space<2>() ||
+          second_mpo.codomain().template space<1>() != prototype.domain().template space<2>() ||
+          second_mpo.codomain().template space<0>() != right_environment_.domain().template space<1>() ||
           right_environment_.domain().template space<0>() != prototype.codomain().template space<0>() ||
           right_environment_.codomain().template space<0>() != prototype.codomain().template space<0>())
       {
@@ -284,84 +272,90 @@ class TwoSiteEffectiveHamiltonian {
       return static_cast<std::size_t>(found - stored_keys_.begin());
     }
 
-    [[nodiscard]] auto make_terms() const -> std::vector<Term>
+    [[nodiscard]] auto make_plan(first_mpo_type const& first_mpo, second_mpo_type const& second_mpo) const
+        -> plan_type
     {
-      std::vector<Term> result;
-      for (std::size_t left = 0; left < left_environment_.stored_block_count(); ++left)
-      {
-        auto const& left_key = left_environment_.stored_keys()[left];
-        for (std::size_t first = 0; first < first_mpo_.stored_block_count(); ++first)
-        {
-          auto const& first_key = first_mpo_.stored_keys()[first];
-          if (left_key.coordinate(1) != first_key.coordinate(0)) continue;
-          for (std::size_t second = 0; second < second_mpo_.stored_block_count(); ++second)
-          {
-            auto const& second_key = second_mpo_.stored_keys()[second];
-            if (first_key.coordinate(2) != second_key.coordinate(0)) continue;
-            for (std::size_t right = 0; right < right_environment_.stored_block_count(); ++right)
-            {
-              auto const& right_key = right_environment_.stored_keys()[right];
-              if (second_key.coordinate(2) != right_key.coordinate(1)) continue;
+      std::map<std::size_t, std::vector<std::size_t>> left_by_input_bond;
+      for (std::size_t ordinal = 0; ordinal < left_environment_.stored_block_count(); ++ordinal)
+        left_by_input_bond[left_environment_.stored_keys()[ordinal].coordinate(2)].push_back(ordinal);
 
-              key_type const input_key{
-                  {left_key.coordinate(2), first_key.coordinate(1), second_key.coordinate(1), right_key.coordinate(2)}};
-              auto const input = this->find_center_ordinal(input_key);
-              if (!input) continue;
-              key_type const output_key{
-                  {left_key.coordinate(0), first_key.coordinate(3), second_key.coordinate(3), right_key.coordinate(0)}};
-              auto const output = this->find_center_ordinal(output_key);
-              if (!output)
+      using coordinate_pair = std::array<std::size_t, 2>;
+      std::map<coordinate_pair, std::vector<std::size_t>> first_by_left_auxiliary_and_input;
+      for (std::size_t ordinal = 0; ordinal < first_mpo.stored_block_count(); ++ordinal)
+      {
+        auto const& key = first_mpo.stored_keys()[ordinal];
+        first_by_left_auxiliary_and_input[{key.coordinate(0), key.coordinate(1)}].push_back(ordinal);
+      }
+      std::map<coordinate_pair, std::vector<std::size_t>> second_by_left_auxiliary_and_input;
+      for (std::size_t ordinal = 0; ordinal < second_mpo.stored_block_count(); ++ordinal)
+      {
+        auto const& key = second_mpo.stored_keys()[ordinal];
+        second_by_left_auxiliary_and_input[{key.coordinate(0), key.coordinate(1)}].push_back(ordinal);
+      }
+      std::map<coordinate_pair, std::vector<std::size_t>> right_by_auxiliary_and_input_bond;
+      for (std::size_t ordinal = 0; ordinal < right_environment_.stored_block_count(); ++ordinal)
+      {
+        auto const& key = right_environment_.stored_keys()[ordinal];
+        right_by_auxiliary_and_input_bond[{key.coordinate(1), key.coordinate(2)}].push_back(ordinal);
+      }
+
+      std::vector<RabcTerm<scalar_type>> terms;
+      for (std::size_t input = 0; input < stored_keys_.size(); ++input)
+      {
+        auto const& input_key = stored_keys_[input];
+        auto const left_match = left_by_input_bond.find(input_key.coordinate(0));
+        if (left_match == left_by_input_bond.end()) continue;
+        for (std::size_t const left : left_match->second)
+        {
+          auto const& left_key = left_environment_.stored_keys()[left];
+          auto const first_match =
+              first_by_left_auxiliary_and_input.find({left_key.coordinate(1), input_key.coordinate(1)});
+          if (first_match == first_by_left_auxiliary_and_input.end()) continue;
+          for (std::size_t const first : first_match->second)
+          {
+            auto const& first_key = first_mpo.stored_keys()[first];
+            auto const second_match =
+                second_by_left_auxiliary_and_input.find({first_key.coordinate(2), input_key.coordinate(2)});
+            if (second_match == second_by_left_auxiliary_and_input.end()) continue;
+            for (std::size_t const second : second_match->second)
+            {
+              auto const& second_key = second_mpo.stored_keys()[second];
+              auto const right_match =
+                  right_by_auxiliary_and_input_bond.find({second_key.coordinate(2), input_key.coordinate(3)});
+              if (right_match == right_by_auxiliary_and_input_bond.end()) continue;
+              scalar_type const coefficient =
+                  first_mpo.block_by_ordinal(first)[] * second_mpo.block_by_ordinal(second)[];
+              if (coefficient == scalar_type{}) continue;
+              for (std::size_t const right : right_match->second)
               {
-                throw std::invalid_argument(
-                    "two-site center stored pattern is not closed under its effective Hamiltonian");
+                auto const& right_key = right_environment_.stored_keys()[right];
+                key_type const output_key{{left_key.coordinate(0), first_key.coordinate(3), second_key.coordinate(3),
+                                           right_key.coordinate(0)}};
+                auto const output = this->find_center_ordinal(output_key);
+                if (!output)
+                {
+                  throw std::invalid_argument(
+                      "two-site center stored pattern is not closed under its effective Hamiltonian");
+                }
+                terms.push_back({.r_key_index = *output,
+                                 .a_key_index = left,
+                                 .b_key_index = input,
+                                 .c_key_index = right,
+                                 .coefficient = coefficient});
               }
-              result.push_back({*output, *input, left, first, second, right});
             }
           }
         }
       }
-      std::ranges::stable_sort(result, {}, &Term::output_ordinal);
-      return result;
-    }
-
-    [[nodiscard]] auto make_group_offsets() const -> std::vector<std::size_t>
-    {
-      std::vector<std::size_t> result(stored_keys_.size() + 1, 0);
-      for (auto const& term : terms_)
-        ++result[term.output_ordinal + 1];
-      std::partial_sum(result.begin(), result.end(), result.begin());
-      return result;
-    }
-
-    [[nodiscard]] auto estimate_group_cost(std::size_t output_ordinal) const -> long double
-    {
-      long double result = 0;
-      std::size_t const first = group_offsets_[output_ordinal];
-      std::size_t const last = group_offsets_[output_ordinal + 1];
-      for (std::size_t index = first; index < last; ++index)
-      {
-        auto const& term = terms_[index];
-        auto const left = left_environment_.block_by_ordinal(term.left_environment_ordinal);
-        auto const right = right_environment_.block_by_ordinal(term.right_environment_ordinal);
-        long double const left_rows = left.extent(0);
-        long double const input_left = left.extent(1);
-        long double const output_right = right.extent(0);
-        long double const input_right = right.extent(1);
-        result += left_rows * input_left * input_right + left_rows * input_right * output_right;
-      }
-      return result;
-    }
-
-    [[nodiscard]] auto make_group_order() const -> std::vector<std::size_t>
-    {
-      std::vector<std::size_t> result(stored_keys_.size());
-      std::iota(result.begin(), result.end(), std::size_t{});
-      std::vector<long double> costs(result.size());
-      for (std::size_t ordinal = 0; ordinal < costs.size(); ++ordinal)
-        costs[ordinal] = this->estimate_group_cost(ordinal);
-      std::ranges::stable_sort(result,
-                               [&](std::size_t left, std::size_t right) { return costs[left] > costs[right]; });
-      return result;
+      using a_key_type = typename plan_type::a_key_type;
+      using c_key_type = typename plan_type::c_key_type;
+      return plan_type(stored_keys_,
+                       std::vector<a_key_type>(left_environment_.stored_keys().begin(),
+                                               left_environment_.stored_keys().end()),
+                       stored_keys_,
+                       std::vector<c_key_type>(right_environment_.stored_keys().begin(),
+                                               right_environment_.stored_keys().end()),
+                       std::move(terms));
     }
 
     template <BlockTensorView Tensor> void require_center(Tensor const& center) const
@@ -373,48 +367,17 @@ class TwoSiteEffectiveHamiltonian {
       }
     }
 
-    template <MutableImmediateBlockTensorView Output, detail::MpoEffectiveCenter Input>
-    void execute_group(Output& output, Input const& input, std::size_t output_ordinal) const
-    {
-      auto output_block = output.block_by_ordinal(output_ordinal);
-      std::size_t const first = group_offsets_[output_ordinal];
-      std::size_t const last = group_offsets_[output_ordinal + 1];
-      if (first == last)
-      {
-        uni20::transform_inplace(output_block, linalg::scale{scalar_type{}});
-        return;
-      }
-
-      constexpr std::array<std::pair<std::size_t, std::size_t>, 1> left_dimensions{std::pair{1U, 0U}};
-      constexpr std::array<std::pair<std::size_t, std::size_t>, 1> right_dimensions{std::pair{1U, 1U}};
-      for (std::size_t index = first; index < last; ++index)
-      {
-        auto const& term = terms_[index];
-        auto const left_block = left_environment_.block_by_ordinal(term.left_environment_ordinal);
-        auto const input_block = input.block_by_ordinal(term.input_ordinal);
-        auto const right_block = right_environment_.block_by_ordinal(term.right_environment_ordinal);
-        auto const first_mpo_block = first_mpo_.block_by_ordinal(term.first_mpo_ordinal);
-        auto const second_mpo_block = second_mpo_.block_by_ordinal(term.second_mpo_ordinal);
-        scalar_type const coefficient = first_mpo_block[] * second_mpo_block[];
-
-        ColumnMajorTensor<scalar_type, 2> intermediate(left_block.extent(0), input_block.extent(1));
-        linalg::contract(intermediate, scalar_type{1}, left_block, input_block, left_dimensions, scalar_type{0});
-        scalar_type const beta = index == first ? scalar_type{0} : scalar_type{1};
-        linalg::contract(output_block, coefficient, intermediate, right_block, right_dimensions, beta);
-      }
-    }
-
     Symmetry symmetry_;
     domain_type domain_;
     codomain_type codomain_;
     std::vector<key_type> stored_keys_;
     left_environment_type left_environment_;
-    first_mpo_type first_mpo_;
-    second_mpo_type second_mpo_;
     right_environment_type right_environment_;
-    std::vector<Term> terms_;
-    std::vector<std::size_t> group_offsets_;
-    std::vector<std::size_t> group_order_;
+    using prepared_rabc_type = decltype(prepare_rabc_contract(
+        std::declval<center_type const&>(), std::declval<plan_type>(),
+        std::declval<left_environment_type const&>(), std::declval<center_type const&>(),
+        std::declval<right_environment_type const&>()));
+    std::optional<prepared_rabc_type> prepared_rabc_;
 };
 
 template <class Center, class LeftEnvironment, class FirstMpo, class SecondMpo, class RightEnvironment>
@@ -423,17 +386,18 @@ TwoSiteEffectiveHamiltonian(Center const&, LeftEnvironment, FirstMpo, SecondMpo,
                                    std::remove_cvref_t<FirstMpo>, std::remove_cvref_t<SecondMpo>,
                                    std::remove_cvref_t<RightEnvironment>>;
 
-/// \brief Compile a two-site effective Hamiltonian borrowing fixed operand payloads.
+/// \brief Compile a two-site effective Hamiltonian borrowing environment payloads.
 /// \details The returned operation retains identity mapped views by value, so
 ///          keys, boundaries, and block descriptors are not borrowed from
-///          temporary view objects. The ultimate environment and MPO payload
-///          owners must outlive the returned operation.
+///          temporary view objects. Environment payload owners must outlive
+///          the returned operation. MPO coefficients are snapshotted into the
+///          sparse `f` plan and the MPO payloads are not retained.
 /// \param prototype Center value whose exact boundary and stored keys define the vector space.
 /// \param left_environment Left environment payload owner.
-/// \param first_mpo Left MPO-site payload owner.
-/// \param second_mpo Right MPO-site payload owner.
+/// \param first_mpo Left MPO site compiled into the sparse coefficient plan.
+/// \param second_mpo Right MPO site compiled into the sparse coefficient plan.
 /// \param right_environment Right environment payload owner.
-/// \return Compiled operation containing zero-copy views of all fixed operands.
+/// \return Compiled operation containing zero-copy environment views and an owned `f` plan.
 template <detail::MpoEffectiveCenter Center, detail::MpoEffectiveEnvironment LeftEnvironment,
           detail::MpoEffectiveSite FirstMpo, detail::MpoEffectiveSite SecondMpo,
           detail::MpoEffectiveEnvironment RightEnvironment>

@@ -12,7 +12,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/mdspan/mdspec.hpp>
-#include <uni20/storage/vectorstorage.hpp>
+#include <uni20/storage/host_storage.hpp>
 #include <uni20/tensor/copy_into.hpp>
 
 #include <array>
@@ -94,7 +94,7 @@ using tensor_device_accessor_t = typename TensorDeviceAccessor<AccessorFactory, 
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 /// \tparam Extents Extents type describing the tensor shape; fully dynamic by default.
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = HostStorage,
           typename LayoutPolicy = stdex::layout_left,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>,
           typename Extents = stdex::dextents<index_type, Rank>>
@@ -740,7 +740,7 @@ inline constexpr bool
 ///          physical layout deduce the default column-major layout.
 template <TensorView InputTensor>
 Tensor(InputTensor const&)
-    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspec_t<InputTensor>::rank(), VectorStorage,
+    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspec_t<InputTensor>::rank(), HostStorage,
               detail::materialized_layout_t<void, tensor_mdspec_t<InputTensor>>, DefaultAccessorFactory>;
 
 /// \brief Configurable owning tensor with an explicit mdspan extents type.
@@ -750,7 +750,7 @@ Tensor(InputTensor const&)
 /// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
-template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
+template <typename ElementType, typename Extents, typename StoragePolicy = HostStorage,
           typename LayoutPolicy = stdex::layout_left,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using BasicTensor = Tensor<ElementType, Extents::rank(), StoragePolicy, LayoutPolicy, AccessorFactory, Extents>;

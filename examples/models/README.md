@@ -35,11 +35,20 @@ energy convergence remain the controlling DMRG criteria.
 `uni20::complex<double>` storage and arithmetic. This is useful for controlled
 comparisons with implementations that do not provide a real-scalar path.
 
-`--block-threads=N` installs a `TbbScheduler` with concurrency `N`. The
-environment and transient two-site center use
-`ParallelPackedSparseBlockStorage`, so independent output blocks execute as
-synchronous lightweight batch items. Dense BLAS should normally remain
-single-threaded when block-level concurrency is greater than one.
+`--block-threads=N` installs a `TbbScheduler` with concurrency `N`. Sparse
+environments use `ParallelPackedSparseBlockStorage`; transient two-site centers
+and their Krylov vectors use `ParallelPackedCompleteBlockStorage`. Independent
+output blocks execute as synchronous lightweight batch items. Dense BLAS should
+normally remain single-threaded when block-level concurrency is greater than
+one.
+
+`--mps-storage=packed` retains the default serial packed storage for MPS sites.
+`--mps-storage=parallel-packed` enables scheduler batches while retaining one
+packed site allocation. `--mps-storage=parallel-aligned-packed` pads each block
+start to a 64-byte boundary within that allocation, while
+`--mps-storage=parallel-separate` gives every dense site block an independently
+aligned allocation. The environment and transient center policies are
+unchanged, so these modes isolate MPS-site storage and execution effects.
 
 `--measurements=coarse` records and prints inclusive DMRG phase wall times.
 `--measurements=detailed` additionally times every per-charge block-SVD item

@@ -7,8 +7,10 @@
 
 #include "deferred_host_tensor.hpp"
 
+#include <algorithm>
 #include <array>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -106,6 +108,16 @@ TEST(TensorTransformTest, UnaryTensorUpdateUsesExistingOutputValue)
   EXPECT_DOUBLE_EQ(values[3], 16.0);
 }
 
+TEST(TensorTransformTest, FillOverwritesWithoutReadingExistingValues)
+{
+  uni20::Tensor<double, 1> values(4);
+  uni20::fill(values, std::numeric_limits<double>::quiet_NaN());
+  uni20::fill(values, 0.0);
+
+  for (uni20::index_type index = 0; index < 4; ++index)
+    EXPECT_DOUBLE_EQ(values[index], 0.0);
+}
+
 TEST(TensorTransformTest, NamedNegateFunctorUsesTheGenericCpuBackend)
 {
   uni20::Tensor<double, 1> input(3);
@@ -167,11 +179,11 @@ TEST(TensorTransformTest, NamedArithmeticFunctorsUseTheGenericCpuBackend)
   uni20::assign_transform(products, uni20::linalg::multiply{}, lhs, rhs);
   uni20::assign_transform(quotients, uni20::linalg::divide{}, lhs, rhs);
 
-  EXPECT_EQ(squared.storage(), (std::vector<double>{4.0, 16.0, 64.0}));
-  EXPECT_EQ(reciprocals.storage(), (std::vector<double>{0.5, -0.25, 0.125}));
-  EXPECT_EQ(differences.storage(), (std::vector<double>{1.5, -6.0, 12.0}));
-  EXPECT_EQ(products.storage(), (std::vector<double>{1.0, -8.0, -32.0}));
-  EXPECT_EQ(quotients.storage(), (std::vector<double>{4.0, -2.0, -2.0}));
+  EXPECT_TRUE(std::ranges::equal(squared.storage(), std::array{4.0, 16.0, 64.0}));
+  EXPECT_TRUE(std::ranges::equal(reciprocals.storage(), std::array{0.5, -0.25, 0.125}));
+  EXPECT_TRUE(std::ranges::equal(differences.storage(), std::array{1.5, -6.0, 12.0}));
+  EXPECT_TRUE(std::ranges::equal(products.storage(), std::array{1.0, -8.0, -32.0}));
+  EXPECT_TRUE(std::ranges::equal(quotients.storage(), std::array{4.0, -2.0, -2.0}));
 }
 
 TEST(TensorTransformTest, DeferredTensorsResolveAllLeasesAtTheCpuBoundary)

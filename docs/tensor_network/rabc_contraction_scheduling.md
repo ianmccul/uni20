@@ -1,28 +1,57 @@
 # R/A/B/C Contraction Scheduling
 
 **Status:** active architecture informed by the separate TensorContraction
-prototype. The first pure-Uni20 immediate-host fixed-center term compiler and
-left-first executor are implemented. Reuse-aware planning, CUDA/MPI placement,
-and the cost model described below remain future work.
+prototype. Pure Uni20 now has a neutral sparse `f(r,a,b,c)` plan, a dispatched
+R/A/B/C operation, and a host right-first backend with prepared `(B,C)` reuse.
+Left-first/hybrid selection, CUDA/MPI placement, and the cost model described
+below remain future work.
 
 ## Current Pure-Uni20 Reference Path
 
-`tensor_network::TwoSiteEffectiveHamiltonian` joins stored logical keys from a
-left environment, two MPO sites, and a right environment. Construction binds
-each valid path to fixed input/output center block ordinals and rejects a center
-pattern that omits a reachable output. Application groups terms by output block
-and currently evaluates:
+`tensor_network::TwoSiteEffectiveHamiltonian` uses coordinate-indexed joins over
+the input-center keys, environments, and MPO sites. Construction snapshots MPO
+coefficients into a canonical sparse plan:
 
 ```text
-X = A * B
-R += alpha * X * transpose(C)
+R_keys, A_keys, B_keys, C_keys
+f_t = (r_key_index, a_key_index, b_key_index, c_key_index, coefficient)
 ```
 
-Both dense contractions use ordinary Uni20 linalg dispatch. Parallel-separate
-output storage runs distinct output groups as synchronous scheduler batch
-items. This is the correctness reference for later planner work, not yet an
-optimized R/A/B/C executor: it allocates a temporary per term and does not
-reuse common `(A,B)` or `(B,C)` products.
+Duplicate `(r,a,b,c)` entries are summed and exact-zero coefficients are
+removed. Coefficients are real or complex field scalars; integer coefficient
+plans are outside the numerical contraction contract. The sorted key tables
+retain logical block identity independently of the operands' physical storage
+order, but their coordinate values are interpreted relative to the symmetry
+and boundaries for which the plan was constructed. Binding a plan to operands
+with different symmetry or boundary semantics is a program error. The plan
+does not retain or compare that metadata on the normal execution path. The
+selected backend resolves valid keys to storage ordinals and placement during
+preparation. The logical plan is an execution-order-neutral hypergraph: it
+contains no left-first, right-first, placement, or communication choice.
+
+Backend selection occurs while the output BlockTensor storage policy remains
+visible. The current `HostRightFirstRabcBackend` derives unique `(b,c)` groups
+and evaluates:
+
+```text
+Y_bc = B_b * transpose(C_c)
+R_r += f_rabc * A_a * Y_bc
+```
+
+Every `Y_bc` is formed once per application. For a fixed effective Hamiltonian,
+`prepare_rabc_contract` validates the block structures, derives the grouping
+and output order, and allocates every intermediate before the Krylov loop.
+Repeated applications reuse that schedule and workspace. Distinct
+intermediates and output blocks use the output storage's synchronous block-batch
+policy, while each output block's contributions remain serial. Dense
+contractions retain the operation-specific nested selector, so direct/looped
+GEMM and reference fallback remain available. A prepared host executor is tied
+to one plan and block structure and must not be invoked concurrently.
+
+`rabc_contract` is an overwrite operation. Every stored output block is
+assigned on each invocation; a block with no contributing term is filled with
+zero because missing symmetry sectors are implicitly zero. A future update
+operation representing `R += ABC` would instead preserve such blocks.
 
 This note records the intended Uni20 replacement for the temporary
 TensorContraction `Arranger`/`Swapper` scheduling model.

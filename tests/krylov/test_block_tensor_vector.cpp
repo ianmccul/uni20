@@ -75,6 +75,7 @@ TEST(BlockTensorVectorOpsTest, FreezesStructureAndAllocatesWithoutDenseProjectio
   EXPECT_EQ(allocated.domain(), prototype.domain());
   EXPECT_EQ(allocated.codomain(), prototype.codomain());
   EXPECT_TRUE(std::ranges::equal(allocated.stored_keys(), prototype.stored_keys()));
+  ops.set_zero(allocated);
   EXPECT_DOUBLE_EQ(ops.norm(allocated), 0.0);
 
   auto relabelled_space = space;
@@ -101,6 +102,27 @@ TEST(BlockTensorVectorOpsTest, CountsCompressedDiagonalDegreesOfFreedom)
   uni20::krylov::BlockTensorVectorOps<DiagonalTensor> ops(prototype);
   EXPECT_EQ(ops.problem_dimension(), 5);
   EXPECT_EQ(ops.vector_dimension(prototype), 5);
+}
+
+TEST(BlockTensorVectorOpsTest, AllocatesCompletePackedVectorsFromTheirBoundaries)
+{
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const space(symmetry, {{q0, 2}, {q1, 1}}, "state");
+  using CompleteTensor = uni20::BlockTensor<double, uni20::Domain<uni20::BlockSpace>,
+                                            uni20::Codomain<uni20::BlockSpace>, uni20::PackedCompleteBlockStorage<>>;
+  CompleteTensor prototype(symmetry, uni20::Domain{space}, uni20::Codomain{space});
+  uni20::krylov::BlockTensorVectorOps<CompleteTensor> ops(prototype);
+  prototype.block_by_ordinal(0)[0, 0] = 7.0;
+
+  auto allocated = ops.allocate_like(prototype);
+  EXPECT_TRUE(allocated.has_all_legal_blocks());
+  EXPECT_TRUE(std::ranges::equal(allocated.stored_keys(), prototype.stored_keys()));
+  EXPECT_TRUE(std::ranges::equal(allocated.storage().offsets(), prototype.storage().offsets()));
+  EXPECT_NE(allocated.storage().buffer().data(), prototype.storage().buffer().data());
+  ops.set_zero(allocated);
+  EXPECT_DOUBLE_EQ(ops.norm(allocated), 0.0);
 }
 
 TEST(BlockTensorVectorOpsTest, RunsU1BlockTensorThroughSymmetricLanczos)

@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -14,6 +15,7 @@ namespace
 uni20::DenseMatrix<double> make_diagonal_matrix()
 {
   uni20::DenseMatrix<double> matrix(4, 4);
+  std::ranges::fill(matrix.storage(), 0.0);
   matrix[0, 0] = 4.0;
   matrix[1, 1] = 3.0;
   matrix[2, 2] = 1.0;
@@ -104,6 +106,7 @@ TEST(TruncatedSvdTest, ExtentBoundsApplyAfterAccuracyCriteria)
 TEST(TruncatedSvdTest, PositiveCutoffCanReturnZeroRank)
 {
   uni20::DenseMatrix<double> matrix(3, 2);
+  std::ranges::fill(matrix.storage(), 0.0);
   auto result =
       uni20::linalg::truncated_svd(matrix, uni20::linalg::SvdTruncationPolicy<double>{.singular_value_cutoff = 1.0});
 
@@ -150,6 +153,7 @@ TEST(TruncatedSvdTest, HandlesComplexInputAndConsumingOwner)
 TEST(TruncatedSvdTest, ScaledStatisticsAvoidIntermediateOverflow)
 {
   uni20::DenseMatrix<double> matrix(2, 2);
+  std::ranges::fill(matrix.storage(), 0.0);
   matrix[0, 0] = 1.0e200;
   matrix[1, 1] = 1.0e199;
 

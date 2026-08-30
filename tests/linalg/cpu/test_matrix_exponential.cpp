@@ -90,7 +90,9 @@ template <typename Scalar> DenseMatrix<Scalar> MakeIdentity(std::size_t order)
 
 template <typename Scalar> DenseMatrix<Scalar> MakeZeroMatrix(std::size_t order)
 {
-  return DenseMatrix<Scalar>(order, order);
+  DenseMatrix<Scalar> result(order, order);
+  std::fill_n(result.data(), result.size(), Scalar{});
+  return result;
 }
 
 template <typename Scalar> Scalar MakeScalarValue()

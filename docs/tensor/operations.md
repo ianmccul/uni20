@@ -254,9 +254,11 @@ An update output is not modelled as two operands that happen to alias. For
 example:
 
 ```text
+assign_transform(out, generator)      means out = generator()
 assign_transform(out, op, lhs, rhs)   means out = op(lhs, rhs)
 transform_inplace(out, op, rhs)       means out = op(old(out), rhs)
 transform_inplace(out, op)            means out = op(old(out))
+fill(out, value)                      means out = value
 ```
 
 The first form has three physical operands. The second has two, not three: the
@@ -328,7 +330,8 @@ contracts described later in this guide.
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; deferred non-owning and generated inputs materialize before owning reshape. | Not implemented. |
 | `copy(out, in)` | Overwrite while observing input accessor semantics. Matching contiguous host/CUDA transfers use the CUDA runtime; same-device positive-strided CUDA mappings with compact rank through eight use 32- or 64-bit logical-index elementwise execution. | Resizes a resizable output or validates a fixed output. CUDA strided copy supports jointly compacted differing layouts, padding, and buffer-view offsets; non-strided or unregistered accessor lowerings decline. | Implemented for CUDA-to-CUDA owning tensors. Pageable host transfers remain blocking and have no Async overload. |
-| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. The CUDA reference backend registers same-element-type unary and binary arithmetic function objects plus stateful `linalg::scale<Factor>` for positive-strided raw CUDA operands. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
+| `assign_transform(out, function, inputs...)` | Nullary or variadic elementwise overwrite through backend dispatch. With no input, the callable generates every output value. The CUDA reference backend registers same-element-type unary and binary arithmetic function objects plus stateful `linalg::scale<Factor>` for positive-strided raw CUDA operands. | A nullary overwrite requires fixed output shape. Other forms resize a resizable output to the first input or validate a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
+| `fill(out, value)` | Constant nullary overwrite; the old output value is never read. | Requires fixed output shape and preserves storage. | Implemented for synchronous and Async host tensors. Async fill takes one write epoch. |
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. CPU accessors are evaluated directly; positive-strided CUDA `cfloat` and `cdouble` storage uses the CUDA reference elementwise executor. Real and integer values return as a no-op. | Reuses existing storage and takes one exclusive execution-domain access when work is required. | Not implemented. |

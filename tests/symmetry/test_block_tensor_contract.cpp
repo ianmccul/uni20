@@ -109,6 +109,31 @@ TYPED_TEST(BlockTensorContractionTest, ContractsDenseBlockAxisAsMatrixMultiplica
   EXPECT_DOUBLE_EQ((separate_result.block(result_key)[1, 1]), 154.0);
 }
 
+TEST(BlockTensorContractionTest, CompleteResultStoresAndZerosEveryLegalBlock)
+{
+  Symmetry const sym{"N:U(1)"};
+  auto const q0 = QNum::identity(sym);
+  auto const q1 = make_qnum(sym, {{"N", 1}});
+  BlockSpace const external(sym, {{q0, 1}, {q1, 1}}, "external");
+  BlockSpace const bond(sym, {{q0, 1}}, "bond");
+
+  using Left = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  using Right = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, PackedSparseBlockStorage<>>;
+  typename Left::key_type const q0_key{{0, 0}};
+  Left left(sym, Domain{external}, Codomain{bond}, {q0_key});
+  Right right(sym, Domain{bond}, Codomain{external}, {q0_key});
+  left.block(q0_key)[0, 0] = 2.0;
+  right.block(q0_key)[0, 0] = 3.0;
+
+  auto result = contract<1, 0, PackedCompleteBlockStorage<>>(left, right);
+  using Result = decltype(result);
+  static_assert(CompleteBlockStorage<typename Result::storage_policy>);
+  typename Result::key_type const q1_key{{1, 1}};
+  ASSERT_EQ(result.stored_block_count(), 2);
+  EXPECT_DOUBLE_EQ((result.block(q0_key)[0, 0]), 6.0);
+  EXPECT_DOUBLE_EQ((result.block(q1_key)[0, 0]), 0.0);
+}
+
 TYPED_TEST(BlockTensorContractionTest, ContractsAdjacentFactorGroupWithMultipleDenseAxes)
 {
   Symmetry const sym{"N:U(1)"};

@@ -79,6 +79,7 @@ template <typename T> DenseMatrix<T> multiply(DenseMatrix<T> const& lhs, DenseMa
   }
 
   DenseMatrix<T> result(lhs.rows(), rhs.cols());
+  std::fill_n(result.data(), result.size(), T{});
   for (std::size_t i = 0; i < lhs.rows(); ++i)
   {
     for (std::size_t k = 0; k < lhs.cols(); ++k)

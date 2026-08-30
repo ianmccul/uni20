@@ -26,6 +26,20 @@ using Mpo =
 using CenterKey = typename Center::key_type;
 using SiteKey = typename Site::key_type;
 using MpoKey = typename MpoSite::key_type;
+using Decomposition = decltype(uni20::tensor_network::decompose_two_site_center(std::declval<Center const&>()));
+
+template <class Storage>
+concept CanMaterializeTwoSiteMpsSplit =
+    requires(Decomposition const& decomposition, uni20::BlockSvdSelection<double> const& selection) {
+      uni20::tensor_network::materialize_two_site_mps_split<Storage>(
+          decomposition, selection, uni20::tensor_network::MpsSweepDirection::left_to_right);
+    };
+
+static_assert(CanMaterializeTwoSiteMpsSplit<uni20::SeparateSparseBlockStorage<>>);
+static_assert(CanMaterializeTwoSiteMpsSplit<uni20::ParallelPackedSparseBlockStorage<>>);
+static_assert(!CanMaterializeTwoSiteMpsSplit<uni20::PackedCompleteBlockStorage<>>);
+static_assert(!CanMaterializeTwoSiteMpsSplit<uni20::AsyncSeparateSparseBlockStorage<>>);
+static_assert(!CanMaterializeTwoSiteMpsSplit<uni20::PackedDiagonalBlockStorage<>>);
 
 struct SplitSpaces
 {

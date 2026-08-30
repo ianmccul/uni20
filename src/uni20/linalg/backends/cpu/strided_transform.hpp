@@ -38,7 +38,7 @@ template <bool ReadsOutput, class Output, class Operation, class... Inputs> cons
   }
   else
   {
-    return sizeof...(Inputs) >= 1 && std::invocable<Operation&, typename std::remove_cvref_t<Inputs>::reference...>&&
+    return std::invocable<Operation&, typename std::remove_cvref_t<Inputs>::reference...>&&
              requires(typename output_type::reference output, Operation & operation)
     {
       output = std::invoke(operation, std::declval<typename std::remove_cvref_t<Inputs>::reference>()...);

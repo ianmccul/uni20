@@ -509,6 +509,7 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
   ArnoldiFactorization<Scalar, Vector> factorization;
   factorization.hessenberg =
       Matrix<Scalar>(static_cast<std::size_t>(max_steps) + 1, static_cast<std::size_t>(max_steps));
+  laset(factorization.hessenberg, Scalar{}, Scalar{}, MatrixFill::All);
   factorization.basis.push_back(std::move(q0));
 
   for (int step = 0; step < max_steps; ++step)
@@ -1010,6 +1011,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
 
   ArnoldiFactorization<Scalar, Vector> factorization;
   factorization.hessenberg = Matrix<Scalar>(target_step_count + 1, target_step_count);
+  laset(factorization.hessenberg, Scalar{}, Scalar{}, MatrixFill::All);
   factorization.basis.reserve(target_step_count + 1);
   for (auto const& vector : compressed.basis)
   {
@@ -1223,6 +1225,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
 
   ArnoldiFactorization<Complex, Vector> factorization;
   factorization.hessenberg = Matrix<Complex>(target_step_count + 1, target_step_count);
+  laset(factorization.hessenberg, Complex{}, Complex{}, MatrixFill::All);
   factorization.basis.reserve(target_step_count + 1);
   for (auto const& vector : compressed.basis)
   {

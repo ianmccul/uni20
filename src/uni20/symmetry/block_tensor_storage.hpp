@@ -1,7 +1,7 @@
 /**
  * \file block_tensor_storage.hpp
  * \ingroup symmetry
- * \brief Defines the first sparse BlockTensor storage policies.
+ * \brief Defines host sparse and packed-complete BlockTensor storage policies.
  */
 
 #pragma once
@@ -11,7 +11,7 @@
 #include <uni20/mdspan/diagonal_accessor.hpp>
 #include <uni20/mdspan/generated_layout.hpp>
 #include <uni20/mdspan/mdspec.hpp>
-#include <uni20/storage/vectorstorage.hpp>
+#include <uni20/storage/host_storage.hpp>
 #include <uni20/symmetry/block_key.hpp>
 #include <uni20/tensor/mdspec_tensor_view.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -21,6 +21,7 @@
 #include <concepts>
 #include <cstddef>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
@@ -158,7 +159,7 @@ concept DistributedBlockStorageFor =
 namespace detail
 {
 
-template <std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder> struct SparseBlockSpec
+template <std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder> struct BlockSpec
 {
     BlockKey<KeyCoordinateCount> key;
     std::array<std::size_t, DenseBlockOrder> extents;
@@ -244,8 +245,7 @@ class SeparateSparseBlockStorageData {
     static_assert(block_type::immediately_readable && block_type::immediately_writable,
                   "separate sparse block storage currently requires immediate leaf access");
 
-    explicit SeparateSparseBlockStorageData(
-        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+    explicit SeparateSparseBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
     {
       keys_.reserve(specs.size());
       blocks_.reserve(specs.size());
@@ -275,8 +275,9 @@ class SeparateSparseBlockStorageData {
     std::vector<block_type> blocks_;
 };
 
-template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
-class PackedSparseBlockStorageData {
+template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage,
+          std::size_t BlockAlignment>
+class PackedBlockStorageData {
   public:
     using key_type = BlockKey<KeyCoordinateCount>;
     using buffer_type = typename LeafStorage::template storage_t<T>;
@@ -290,16 +291,24 @@ class PackedSparseBlockStorageData {
     using const_block_type = MdspecTensorView<const_mdspan_type, const_mdspan_type, LeafStorage>;
 
     static_assert(std::same_as<detail::tensor_accessor_factory_t<LeafStorage>, DefaultAccessorFactory>,
-                  "packed sparse block storage currently requires default-accessor leaf storage");
+                  "packed block storage currently requires default-accessor leaf storage");
+    static_assert(BlockAlignment > 0, "packed block alignment must be positive");
+    static_assert([] {
+      if constexpr (BlockAlignment == 1)
+        return true;
+      else if constexpr (requires { LeafStorage::allocation_alignment; })
+        return LeafStorage::allocation_alignment % BlockAlignment == 0;
+      else
+        return false;
+    }(), "nontrivial packed block alignment must divide the leaf allocation alignment");
     static_assert(
         requires(buffer_type& buffer, buffer_type const& const_buffer) {
           { LeafStorage::make_handle(buffer) } -> std::same_as<T*>;
           { LeafStorage::make_handle(const_buffer) } -> std::same_as<T const*>;
-        }, "packed sparse block storage currently requires immediate contiguous host leaf storage");
+        }, "packed block storage currently requires immediate contiguous host leaf storage");
 
-    explicit PackedSparseBlockStorageData(
-        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
-        : PackedSparseBlockStorageData(make_layout(specs))
+    explicit PackedBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+        : PackedBlockStorageData(make_layout(specs))
     {}
 
     auto size() const noexcept -> std::size_t { return keys_.size(); }
@@ -327,6 +336,14 @@ class PackedSparseBlockStorageData {
     auto buffer() const noexcept -> buffer_type const& { return buffer_; }
     auto offsets() const noexcept -> std::span<std::size_t const> { return offsets_; }
 
+    /// \brief Allocate storage with the same packed block layout.
+    /// \details Numerical values are unspecified until an operation writes them.
+    /// \return Independent storage retaining the canonical keys and offsets.
+    [[nodiscard]] auto allocate_like() const -> PackedBlockStorageData
+    {
+      return PackedBlockStorageData(Layout{.keys = keys_, .offsets = offsets_});
+    }
+
   private:
     struct Layout
     {
@@ -334,27 +351,43 @@ class PackedSparseBlockStorageData {
         std::vector<std::size_t> offsets;
     };
 
-    static auto make_layout(std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
+    static constexpr std::size_t alignment_elements = BlockAlignment / std::gcd(BlockAlignment, sizeof(T));
+
+    static auto align_offset(std::size_t offset) -> std::size_t
+    {
+      std::size_t const remainder = offset % alignment_elements;
+      if (remainder == 0) return offset;
+      std::size_t const padding = alignment_elements - remainder;
+      if (offset > std::numeric_limits<std::size_t>::max() - padding)
+        throw std::length_error("packed BlockTensor alignment overflows size_t");
+      return offset + padding;
+    }
+
+    static auto make_layout(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
     {
       Layout layout;
       layout.keys.reserve(specs.size());
       layout.offsets.reserve(specs.size() + 1);
-      layout.offsets.push_back(0);
+
+      std::size_t end_offset = 0;
 
       for (auto const& spec : specs)
       {
+        std::size_t const block_offset = align_offset(end_offset);
         layout.keys.push_back(spec.key);
+        layout.offsets.push_back(block_offset);
         std::size_t const block_size = checked_block_size(spec.extents);
-        if (layout.offsets.back() > std::numeric_limits<std::size_t>::max() - block_size)
+        if (block_offset > std::numeric_limits<std::size_t>::max() - block_size)
         {
           throw std::length_error("packed BlockTensor size overflows size_t");
         }
-        layout.offsets.push_back(layout.offsets.back() + block_size);
+        end_offset = block_offset + block_size;
       }
+      layout.offsets.push_back(end_offset);
       return layout;
     }
 
-    explicit PackedSparseBlockStorageData(Layout layout)
+    explicit PackedBlockStorageData(Layout layout)
         : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)),
           buffer_(make_storage<LeafStorage, T>(offsets_.back()))
     {}
@@ -395,8 +428,7 @@ class PackedDiagonalBlockStorageData {
           { LeafStorage::make_handle(const_buffer) } -> std::same_as<T const*>;
         }, "packed diagonal block storage currently requires immediate contiguous host leaf storage");
 
-    explicit PackedDiagonalBlockStorageData(
-        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+    explicit PackedDiagonalBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
         : PackedDiagonalBlockStorageData(make_layout(specs))
     {}
 
@@ -413,8 +445,8 @@ class PackedDiagonalBlockStorageData {
         mutable_data += offsets_[ordinal];
         const_data += offsets_[ordinal];
       }
-      auto const component_extents = component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] -
-                                                                                    offsets_[ordinal])};
+      auto const component_extents =
+          component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] - offsets_[ordinal])};
       auto const component_mapping =
           component_mapping_type{component_extents, std::array<index_type, 1>{index_type{1}}};
       auto mutable_components = mutable_components_type{mutable_data, component_mapping};
@@ -428,8 +460,8 @@ class PackedDiagonalBlockStorageData {
       auto const block_extents = make_extents<extents_type>(extents);
       auto const* data = LeafStorage::make_handle(buffer_);
       if (offsets_[ordinal] != 0) data += offsets_[ordinal];
-      auto const component_extents = component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] -
-                                                                                    offsets_[ordinal])};
+      auto const component_extents =
+          component_extents_type{static_cast<index_type>(offsets_[ordinal + 1] - offsets_[ordinal])};
       auto const component_mapping =
           component_mapping_type{component_extents, std::array<index_type, 1>{index_type{1}}};
       auto components = const_components_type{data, component_mapping};
@@ -464,7 +496,7 @@ class PackedDiagonalBlockStorageData {
         std::vector<std::size_t> offsets;
     };
 
-    static auto make_layout(std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
+    static auto make_layout(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs) -> Layout
     {
       Layout layout;
       layout.keys.reserve(specs.size());
@@ -533,7 +565,7 @@ class AsyncSeparateSparseBlockStorageData {
                   "async separate sparse block storage currently requires default-accessor leaf storage");
 
     explicit AsyncSeparateSparseBlockStorageData(
-        std::vector<SparseBlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
+        std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
     {
       keys_.reserve(specs.size());
       blocks_.reserve(specs.size());
@@ -574,7 +606,7 @@ class AsyncSeparateSparseBlockStorageData {
 
 /// \brief Sparse storage with one independently owning dense Tensor per stored block.
 /// \tparam LeafStorage Tensor storage policy used by each dense block.
-template <class LeafStorage = VectorStorage> struct SeparateSparseBlockStorage
+template <class LeafStorage = HostStorage> struct SeparateSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -597,7 +629,7 @@ template <class LeafStorage = VectorStorage> struct SeparateSparseBlockStorage
 ///          same batch item. The batch call is synchronous, so the BlockTensor
 ///          remains an ordinary immediate value after the operation returns.
 /// \tparam LeafStorage Tensor storage policy used by each dense block.
-template <class LeafStorage = VectorStorage> struct ParallelSeparateSparseBlockStorage
+template <class LeafStorage = HostStorage> struct ParallelSeparateSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -616,8 +648,11 @@ template <class LeafStorage = VectorStorage> struct ParallelSeparateSparseBlockS
 };
 
 /// \brief Sparse storage packing every stored dense block into one leaf buffer.
+/// \details A `BlockAlignment` greater than one pads block starts to that byte
+///          alignment while preserving a single allocation.
 /// \tparam LeafStorage Immediate host Tensor storage policy used by the packed buffer.
-template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
+/// \tparam BlockAlignment Required byte alignment of every block start.
+template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct PackedSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -626,7 +661,8 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
     static constexpr bool is_distributed = false;
 
     template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
-    using storage_t = detail::PackedSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+    using storage_t =
+        detail::PackedBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy, BlockAlignment>;
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
@@ -638,9 +674,11 @@ template <class LeafStorage = VectorStorage> struct PackedSparseBlockStorage
 /// \details The packed buffer remains fixed while numerical operations execute.
 ///          Algorithms must place all writes to one logical output block in
 ///          the same batch item, so concurrently written block ranges are
-///          disjoint. The batch call is synchronous.
+///          disjoint. The batch call is synchronous. A `BlockAlignment` greater
+///          than one pads block starts to that byte alignment.
 /// \tparam LeafStorage Immediate host storage used by the packed buffer.
-template <class LeafStorage = VectorStorage> struct ParallelPackedSparseBlockStorage
+/// \tparam BlockAlignment Required byte alignment of every block start.
+template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct ParallelPackedSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -649,7 +687,58 @@ template <class LeafStorage = VectorStorage> struct ParallelPackedSparseBlockSto
     static constexpr bool is_distributed = false;
 
     template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
-    using storage_t = detail::PackedSparseBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy>;
+    using storage_t =
+        detail::PackedBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy, BlockAlignment>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
+/// \brief Complete storage packing every symmetry-legal dense block into one leaf buffer.
+/// \details The owning BlockTensor determines the canonical legal-key set from
+///          its boundaries. Fixed packed offsets make block placement stable
+///          for the lifetime of the tensor. A `BlockAlignment` greater than one
+///          pads block starts to that byte alignment.
+/// \tparam LeafStorage Immediate host Tensor storage policy used by the packed buffer.
+/// \tparam BlockAlignment Required byte alignment of every block start.
+template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct PackedCompleteBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SerialBlockExecution;
+    static constexpr bool stores_all_legal_blocks = true;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::PackedBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy, BlockAlignment>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return leaf_storage_policy::backend_selector();
+    }
+};
+
+/// \brief Complete packed storage whose disjoint blocks may be processed in a scheduler batch.
+/// \details The packed buffer and canonical legal-key layout remain fixed.
+///          Algorithms must place all writes to one logical output block in
+///          the same synchronous batch item. A `BlockAlignment` greater than
+///          one pads block starts to that byte alignment.
+/// \tparam LeafStorage Immediate host storage used by the packed buffer.
+/// \tparam BlockAlignment Required byte alignment of every block start.
+template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct ParallelPackedCompleteBlockStorage
+{
+    using leaf_storage_policy = LeafStorage;
+    using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
+    using block_execution_policy = SchedulerBatchBlockExecution;
+    static constexpr bool stores_all_legal_blocks = true;
+    static constexpr bool is_distributed = false;
+
+    template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+    using storage_t =
+        detail::PackedBlockStorageData<T, KeyCoordinateCount, DenseBlockOrder, leaf_storage_policy, BlockAlignment>;
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
@@ -662,7 +751,7 @@ template <class LeafStorage = VectorStorage> struct ParallelPackedSparseBlockSto
 ///          whose dense indices are all equal. Logical block presence remains
 ///          controlled by the owning BlockTensor's stored-key set.
 /// \tparam LeafStorage Immediate contiguous host storage for compressed values.
-template <class LeafStorage = VectorStorage> struct PackedDiagonalBlockStorage
+template <class LeafStorage = HostStorage> struct PackedDiagonalBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -686,7 +775,7 @@ template <class LeafStorage = VectorStorage> struct PackedDiagonalBlockStorage
 ///          `async_block()` exposes the retained async value used to create read
 ///          and write capabilities.
 /// \tparam LeafStorage Immediate host Tensor storage policy used by each block.
-template <class LeafStorage = VectorStorage> struct AsyncSeparateSparseBlockStorage
+template <class LeafStorage = HostStorage> struct AsyncSeparateSparseBlockStorage
 {
     using leaf_storage_policy = LeafStorage;
     using backend_selector_type = typename leaf_storage_policy::backend_selector_type;
@@ -708,6 +797,8 @@ static_assert(SparseBlockStorage<SeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<ParallelSeparateSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedSparseBlockStorage<>>);
 static_assert(SparseBlockStorage<ParallelPackedSparseBlockStorage<>>);
+static_assert(CompleteBlockStorage<PackedCompleteBlockStorage<>>);
+static_assert(CompleteBlockStorage<ParallelPackedCompleteBlockStorage<>>);
 static_assert(SparseBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(DiagonalBlockStorage<PackedDiagonalBlockStorage<>>);
 static_assert(SparseBlockStorage<AsyncSeparateSparseBlockStorage<>>);
@@ -716,6 +807,8 @@ static_assert(BlockTensorStorageFor<SeparateSparseBlockStorage<>, double, 4, 0>)
 static_assert(BlockTensorStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<ParallelPackedSparseBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<PackedCompleteBlockStorage<>, double, 2, 2>);
+static_assert(BlockTensorStorageFor<ParallelPackedCompleteBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
@@ -723,6 +816,8 @@ static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelPackedSparseBlockStorage<>, double, 4, 0>);
+static_assert(ImmediateLocalBlockStorageFor<PackedCompleteBlockStorage<>, double, 4, 0>);
+static_assert(ImmediateLocalBlockStorageFor<ParallelPackedCompleteBlockStorage<>, double, 4, 0>);
 static_assert(ImmediateLocalBlockStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(AsyncLocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);

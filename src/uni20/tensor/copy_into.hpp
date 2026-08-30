@@ -16,7 +16,7 @@
 #if UNI20_BACKEND_CUDA
 #include <uni20/linalg/backends/cuda/copy.hpp>
 #include <uni20/storage/cuda_storage.hpp>
-#include <uni20/storage/vectorstorage.hpp>
+#include <uni20/storage/host_storage.hpp>
 #endif
 
 #include <cstddef>
@@ -38,8 +38,8 @@ concept CopyTensors = MutableTensorView<Output> && TensorView<Input> &&
 #if UNI20_BACKEND_CUDA
 template <class Output, class Input>
 inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_policy_t<Output>, CudaStorage> &&
-                                                   std::same_as<tensor_storage_policy_t<Input>, VectorStorage>) ||
-                                                  (std::same_as<tensor_storage_policy_t<Output>, VectorStorage> &&
+                                                   std::same_as<tensor_storage_policy_t<Input>, HostStorage>) ||
+                                                  (std::same_as<tensor_storage_policy_t<Output>, HostStorage> &&
                                                    std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
 #endif
 

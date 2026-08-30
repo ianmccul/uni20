@@ -49,10 +49,19 @@ concept CompatibleLinearOutputRepresentation =
     BlockTensorView<Output> && (BlockTensorView<Inputs> && ...) &&
     (!DiagonalBlockTensorView<Output> || (DiagonalBlockTensorView<Inputs> && ...));
 
-template <class OutputStorage, class... Inputs>
+template <class OutputStorage, class FirstInput, class... OtherInputs>
 concept CompatibleLinearOutputStorage =
-    BlockTensorStorage<OutputStorage> && (BlockTensorView<Inputs> && ...) &&
-    (!DiagonalBlockStorage<OutputStorage> || (DiagonalBlockTensorView<Inputs> && ...));
+    BlockTensorStorage<OutputStorage> && BlockTensorView<FirstInput> && (BlockTensorView<OtherInputs> && ...) &&
+    (!DiagonalBlockStorage<OutputStorage> ||
+     (DiagonalBlockTensorView<FirstInput> && (DiagonalBlockTensorView<OtherInputs> && ...))) &&
+    ((ImmediateBlockTensorView<FirstInput> && (ImmediateBlockTensorView<OtherInputs> && ...) &&
+      ImmediateLocalBlockStorageFor<OutputStorage, block_tensor_value_t<FirstInput>,
+                                    block_tensor_type_t<FirstInput>::key_coordinate_count(),
+                                    block_tensor_type_t<FirstInput>::dense_block_order()>) ||
+     (AsyncBlockTensorView<FirstInput> && (AsyncBlockTensorView<OtherInputs> && ...) &&
+      AsyncLocalBlockStorageFor<OutputStorage, block_tensor_value_t<FirstInput>,
+                                block_tensor_type_t<FirstInput>::key_coordinate_count(),
+                                block_tensor_type_t<FirstInput>::dense_block_order()>));
 
 template <class Lhs, class Rhs> void require_compatible_block_tensor_values(Lhs const& lhs, Rhs const& rhs)
 {
@@ -163,9 +172,9 @@ template <class Block> void set_zero_block(Block&& block)
   using value_type = tensor_element_t<Block>;
   auto span = mdspec_of(block);
   if constexpr (MutableDiagonalMdspecLike<decltype(span)>)
-    uni20::transform_inplace(block.backend_selector(), diagonal_components(span), linalg::scale{value_type{}});
+    uni20::fill(block.backend_selector(), diagonal_components(span), value_type{});
   else
-    uni20::transform_inplace(std::forward<Block>(block), linalg::scale{value_type{}});
+    uni20::fill(std::forward<Block>(block), value_type{});
 }
 
 template <class Block, class Scalar> void scale_block(Block&& block, Scalar const& factor)
@@ -351,7 +360,7 @@ void set_zero(Tensor& tensor)
     {
       auto& block = tensor.async_block_by_ordinal(ordinal);
       using value_type = block_tensor_value_t<Tensor>;
-      uni20::transform_inplace(block, linalg::scale{value_type{}});
+      uni20::fill(block, value_type{});
     }
   }
 }
@@ -432,7 +441,7 @@ void assign_scale(Output& output, Scalar factor, Input const& input)
       }
       else
       {
-        uni20::transform_inplace(output_block, linalg::scale{value_type{}});
+        uni20::fill(output_block, value_type{});
       }
     }
   }
@@ -552,7 +561,7 @@ void add(Output& output, Lhs const& lhs, Rhs const& rhs)
       }
       else
       {
-        uni20::transform_inplace(output_block, linalg::scale{value_type{}});
+        uni20::fill(output_block, value_type{});
       }
     }
   }
@@ -652,7 +661,8 @@ void axpy(Output& output, Scalar factor, Input const& input)
 
 /// \brief Return the sum of two BlockTensor values using the union of stored keys.
 /// \details A selected generalized-diagonal output policy requires both inputs
-///          to have generalized-diagonal block representations.
+///          to have generalized-diagonal block representations. The selected
+///          storage must use the same immediate or async execution mode as both inputs.
 /// \throws std::invalid_argument If the symmetry or boundary values differ.
 /// \tparam OutputStorage Sparse output policy, or `void` to preserve the left policy.
 template <class OutputStorage = void, BlockTensorView Lhs, BlockTensorView Rhs>

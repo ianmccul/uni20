@@ -24,6 +24,7 @@ add_test_module(krylov_block_tensor
     test_dmrg_lanczos.cpp
     test_finite_environment_cache.cpp
     test_mpo_environment.cpp
+    test_rabc_contraction.cpp
     test_two_site_dmrg_slice.cpp
     test_two_site_dmrg_sweep.cpp
     test_two_site_split.cpp

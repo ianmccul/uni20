@@ -258,9 +258,9 @@ resident CUDA execution, and MPI-aware block placement. The goal is behavioral
 and performance parity through Uni20's current architecture without retaining
 the external TensorContraction implementation.
 
-- Extend the implemented immediate-host left-environment/MPO-pair/right-
-  environment term plan with reusable intermediates and backend-aware
-  left-first/right-first selection.
+- Extend the implemented dispatched sparse R/A/B/C plan and host right-first
+  `(B,C)` reuse with persistent scratch and backend-aware left-first/hybrid
+  selection.
 - Extend the implemented finite-chain owners, revision-aware directional
   environment caches, selected-SVD factor absorption, and directional sweep
   traversal with post-truncation measurement and general initial-state
@@ -274,8 +274,8 @@ the external TensorContraction implementation.
   `BlockTensor` and preserve every quantum-number and leg-orientation invariant.
 - Reproduce the integration branch's U(1) Heisenberg and U(1)xU(1)
   Fermi-Hubbard numerical checks and sweep diagnostics.
-- Lower the effective-Hamiltonian R/A/B/C operation through Uni20 kernel
-  dispatch, placement, device-completion, and communication abstractions.
+- Extend the kernel-dispatched effective-Hamiltonian R/A/B/C operation through
+  placement, device-completion, and communication abstractions.
 - Recover resident CUDA and MPI execution incrementally, using captured
   R/A/B/C fixtures and branch benchmark results as regression evidence.
 - Treat successful parity as migration of capability, not a source-level port:

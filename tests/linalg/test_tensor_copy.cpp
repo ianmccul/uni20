@@ -83,7 +83,7 @@ TEST(TensorCopyTest, MakeTensorInfersScalarExtentsAndSourceLayout)
 
   auto result = uni20::make_tensor(uni20::conj(input));
 
-  using expected_type = uni20::Tensor<complex_type, 2, uni20::VectorStorage, uni20::RowMajor>;
+  using expected_type = uni20::Tensor<complex_type, 2, uni20::HostStorage, uni20::RowMajor>;
   static_assert(std::same_as<decltype(result), expected_type>);
   EXPECT_EQ((result[0, 1]), (complex_type{3.0, 4.0}));
   EXPECT_EQ(result.mapping().stride(0), 2);
@@ -151,14 +151,14 @@ TEST(TensorCopyTest, BareMdspanConvenienceDispatchesNormalizedMdspecs)
 TEST(TensorCopyTest, MakeTensorMaterializesStaticExtentsAsGeneralPurposeTensor)
 {
   using fixed_extents = stdex::extents<uni20::index_type, 2, 3>;
-  using fixed_tensor = uni20::BasicTensor<double, fixed_extents, uni20::VectorStorage, uni20::RowMajor>;
+  using fixed_tensor = uni20::BasicTensor<double, fixed_extents, uni20::HostStorage, uni20::RowMajor>;
   fixed_tensor input(fixed_extents{});
   input[0, 0] = 1.0;
   input[1, 2] = 6.0;
 
   auto result = uni20::make_tensor(input);
 
-  using expected_type = uni20::Tensor<double, 2, uni20::VectorStorage, uni20::RowMajor>;
+  using expected_type = uni20::Tensor<double, 2, uni20::HostStorage, uni20::RowMajor>;
   static_assert(std::same_as<decltype(result), expected_type>);
   EXPECT_EQ(result.rows(), 2);
   EXPECT_EQ(result.cols(), 3);

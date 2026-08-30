@@ -47,7 +47,7 @@ So: kind is a type, location is a value.
 ## Current state
 
 - **The kind axis is implemented.** `Tensor` is parameterized by a
-  `StoragePolicy` (`VectorStorage` by default; see `src/uni20/tensor/`).
+  `StoragePolicy` (`HostStorage` by default; see `src/uni20/tensor/`).
   `CudaStorage` is the current device-resident policy. Other memory kinds
   should use the same type-level mechanism rather than becoming runtime tags.
 - **CUDA Tensor placement is implemented for owning dense tensors.**

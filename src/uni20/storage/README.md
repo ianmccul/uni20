@@ -6,8 +6,8 @@ backend tags without owning tensor mathematics.
 
 ## Contents
 
-- `vectorstorage.hpp`: host `std::vector` storage policy with layout-stride
-  mapping and a CPU default backend tag.
+- `host_storage.hpp`: aligned pageable-host storage with uninitialized scalar
+  allocation and the default CPU backend list.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
 - `cuda_accessor.hpp`: CUDA-device-callable pointer accessors, complex

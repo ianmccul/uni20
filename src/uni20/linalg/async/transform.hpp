@@ -121,6 +121,28 @@ async::AsyncTask co_transform_inplace(BackendSelector const selector, async::Wri
   co_return;
 }
 
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function>
+async::AsyncTask co_assign_transform_existing(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                              linalg::transform_op<Function> operation)
+{
+  if constexpr (async::is_async_alias_v<OutputTensor>)
+  {
+    AsyncAliasWriteDescriptorAwaiter output_descriptor(output);
+    auto awaited = co_await async::all(output_descriptor);
+    auto mutable_output = std::get<0>(awaited);
+    uni20::assign_transform(selector, mutable_output, std::move(operation.function));
+  }
+  else
+  {
+    auto output_storage = output.storage();
+    auto awaited = co_await async::all(output_storage);
+    auto& storage = std::get<0>(awaited);
+    if (!storage.constructed()) throw async::buffer_write_uninitialized{};
+    uni20::assign_transform(selector, *storage, std::move(operation.function));
+  }
+  co_return;
+}
+
 template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function, TensorView... InputTensors>
 void schedule_async_assign_transform(BackendSelector selector, async::Async<OutputTensor>& output,
                                      linalg::transform_op<Function> operation,
@@ -143,7 +165,49 @@ void schedule_async_transform_inplace(BackendSelector selector, async::Async<Out
   async::schedule(std::move(task));
 }
 
+template <class BackendSelector, AsyncTensorOutput OutputTensor, class Function>
+void schedule_async_assign_transform_existing(BackendSelector selector, async::Async<OutputTensor>& output,
+                                              linalg::transform_op<Function> operation)
+{
+  auto task = co_assign_transform_existing(std::move(selector), output.write(), std::move(operation));
+  task.debug_name("assign_transform");
+  async::schedule(std::move(task));
+}
+
 } // namespace detail
+
+/// \brief Schedule a nullary overwrite of an existing async Tensor.
+/// \details The output must already contain a Tensor. The old element values are
+///          not read or passed to the callable.
+template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Function>
+void assign_transform(BackendSelector selector, async::Async<OutputTensor>& output, Function&& function)
+{
+  auto operation = linalg::transform_op{std::forward<Function>(function)};
+  detail::schedule_async_assign_transform_existing(std::move(selector), output, std::move(operation));
+}
+
+/// \brief Schedule a nullary overwrite using the static Tensor selector.
+template <detail::AsyncTensorOutput OutputTensor, class Function>
+void assign_transform(async::Async<OutputTensor>& output, Function&& function)
+{
+  auto operation = linalg::transform_op{std::forward<Function>(function)};
+  auto selector = linalg::select_backend_for<OutputTensor>(operation);
+  detail::schedule_async_assign_transform_existing(std::move(selector), output, std::move(operation));
+}
+
+/// \brief Fill an existing async Tensor without reading its old values.
+template <class BackendSelector, detail::AsyncTensorOutput OutputTensor, class Value>
+void fill(BackendSelector selector, async::Async<OutputTensor>& output, Value&& value)
+{
+  assign_transform(std::move(selector), output, linalg::constant{std::forward<Value>(value)});
+}
+
+/// \brief Fill an existing async Tensor without reading its old values.
+template <detail::AsyncTensorOutput OutputTensor, class Value>
+void fill(async::Async<OutputTensor>& output, Value&& value)
+{
+  assign_transform(output, linalg::constant{std::forward<Value>(value)});
+}
 
 /// \brief Schedule a variadic elementwise overwrite with an explicit backend selector.
 /// \details Every Tensor operand is asynchronous. The callable is owned by the

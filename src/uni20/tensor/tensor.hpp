@@ -31,22 +31,22 @@ using RowMajor = stdex::layout_right;
 using ColumnMajor = stdex::layout_left;
 
 /// \brief Owning runtime-extents tensor with canonical column-major storage.
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = HostStorage,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using ColumnMajorTensor = Tensor<ElementType, Rank, StoragePolicy, ColumnMajor, AccessorFactory>;
 
 /// \brief Owning runtime-extents tensor with canonical row-major storage.
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = HostStorage,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using RowMajorTensor = Tensor<ElementType, Rank, StoragePolicy, RowMajor, AccessorFactory>;
 
 /// \brief Owning runtime-extents tensor with an explicitly strided mapping.
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = HostStorage,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using StridedTensor = Tensor<ElementType, Rank, StoragePolicy, stdex::layout_stride, AccessorFactory>;
 
 /// \brief Owning rank-zero tensor that retains storage and backend semantics.
-template <typename ElementType, typename StoragePolicy = VectorStorage,
+template <typename ElementType, typename StoragePolicy = HostStorage,
           typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using ScalarTensor = Tensor<ElementType, 0, StoragePolicy, ColumnMajor, AccessorFactory>;
 
@@ -56,7 +56,7 @@ using ScalarTensor = Tensor<ElementType, 0, StoragePolicy, ColumnMajor, Accessor
 /// \tparam LayoutPolicy Contiguous matrix layout; column-major by default for
 ///                      direct LAPACK interoperability.
 template <typename ElementType, typename LayoutPolicy = ColumnMajor>
-using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
+using DenseMatrix = Tensor<ElementType, 2, HostStorage, LayoutPolicy>;
 
 #if UNI20_BACKEND_CUDA
 /// \brief Owning runtime-extents Tensor in CUDA device storage.

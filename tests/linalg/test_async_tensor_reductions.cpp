@@ -234,7 +234,9 @@ TEST(AsyncTensorReductionTest, RejectsOutputInputQueueAliasBeforeBufferEnrollmen
 {
   uni20::async::DebugScheduler scheduler;
   uni20::async::ScopedScheduler scoped(&scheduler);
-  async_scalar_tensor_type value = scalar_tensor_type{};
+  scalar_tensor_type initial;
+  initial[] = 0.0;
+  async_scalar_tensor_type value = std::move(initial);
   ErrorModeGuard const error_mode;
 
   EXPECT_THROW(uni20::sum(value, value), std::runtime_error);

@@ -168,6 +168,20 @@ template <class StoragePolicy, class Operation>
 }
 } // namespace detail
 
+/// \brief Resolve a backend selector directly from one storage policy.
+/// \details This overload is useful for an operation backend that delegates
+///          lower-level work through another operation-specific selector. User
+///          overrides and Uni20 defaults have the same priority as ordinary
+///          tensor-based selection.
+/// \tparam StoragePolicy Storage policy governing the nested operation.
+/// \param operation Operation whose selector is requested.
+/// \return Resolved backend selector value.
+template <class StoragePolicy, class Operation>
+[[nodiscard]] constexpr auto select_backend_for_storage(Operation const& operation)
+{
+  return detail::select_backend_for_storage<StoragePolicy>(operation);
+}
+
 /// \brief Resolve the immutable backend selector for Tensor operand types.
 /// \details Backend-bound operands with storage policies must use one common
 ///          policy; backend-neutral storage operands are ignored when finding
