@@ -23,8 +23,9 @@ norms and inner products.
   are `uni20::DenseMatrix` aliases, and active projected eigensystem, Schur, and
   matrix-exponential paths use the operation-tag linalg dispatch layer.
 - `dense_subspace_unused.hpp`: quarantined experimental helper inventory. It is
-  retained for possible future mining but is not part of the active Krylov test
-  target or the supported projected-problem path.
+  retained for possible future mining and compiled by dedicated regression
+  tests, but is not exposed through the default Krylov API or used by the
+  supported projected-problem path.
 - `dense_host_vector.hpp`: simple host-vector adapter for tests, examples, and
   prototype callers.
 - `block_tensor_vector.hpp`: exact-structure BlockTensor vector algebra and an

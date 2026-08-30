@@ -485,9 +485,41 @@ class Tensor {
       return storage_policy::make_handle(data_);
     }
 
+    /// \brief Return contiguous mutable element storage for a canonical tensor.
+    /// \details This convenience is available only for immediately accessible
+    ///          `layout_left` or `layout_right` tensors using the ordinary
+    ///          default accessor and a pointer data handle. Other tensors must
+    ///          preserve mapping and accessor semantics through `mdspan()` or
+    ///          explicit access acquisition.
+    /// \return Pointer to the first element in canonical contiguous storage.
+    [[nodiscard]] auto data() noexcept -> element_type* requires(immediately_writable &&
+                                                                 (std::same_as<layout_type, stdex::layout_left> ||
+                                                                  std::same_as<layout_type, stdex::layout_right>) &&
+                                                                 is_default_accessor_v<accessor_type> &&
+                                                                 std::same_as<mutable_handle_type, element_type*>) {
+      return this->mutable_handle();
+    }
+
+    /// \brief Return contiguous read-only element storage for a canonical tensor.
+    /// \details This convenience is available only for immediately accessible
+    ///          `layout_left` or `layout_right` tensors using the ordinary
+    ///          default accessor and a pointer data handle. Other tensors must
+    ///          preserve mapping and accessor semantics through `mdspan()` or
+    ///          explicit access acquisition.
+    /// \return Pointer to the first element in canonical contiguous storage.
+    [[nodiscard]] auto data() const noexcept
+        -> element_type const* requires(immediately_readable &&
+                                        (std::same_as<layout_type, stdex::layout_left> ||
+                                         std::same_as<layout_type, stdex::layout_right>) &&
+                                        is_default_accessor_v<const_accessor_type> &&
+                                        std::same_as<handle_type, element_type const*>) { return this->handle(); }
+
     /// \brief Return the tensor mapping.
     /// \return Mapping containing extents and strides.
-    [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return mapping_; }
+    [[nodiscard]] auto mapping() const noexcept -> mapping_type const&
+    {
+      return mapping_;
+    }
 
     /// \brief Return the tensor extents.
     /// \return Extents contained in the mapping.

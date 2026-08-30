@@ -1,5 +1,8 @@
 set(_uni20_krylov_test_sources
     test_dense_linalg.cpp
+    # Intentionally compiled: keeps the opt-in direct-LAPACK wrapper inventory
+    # tested without exposing it through the default Krylov API surface.
+    test_dense_linalg_unused.cpp
     test_dense_subspace.cpp
     test_known_matrices.cpp
     test_krylov_exponential.cpp
@@ -36,6 +39,7 @@ add_test_module(krylov_block_tensor
 
 if(UNI20_ENABLE_MPLAPACK)
   add_executable(uni20_krylov_mplapack_binary128_tests
+    test_mplapack_binary128_dense_subspace.cpp
     test_mplapack_binary128_krylov_solvers.cpp
     "${PROJECT_SOURCE_DIR}/tests/uni20_tests_main.cpp"
   )

@@ -100,6 +100,11 @@ kernels operate on resolved mdspans.
   handle and returns an ordinary mdspan in that case. Descriptor metadata is
   selected only when no immediate handle is available. Readable and writable
   capabilities are independent.
+- `Tensor::data()` is a narrow convenience for immediately accessible
+  `layout_left` or `layout_right` tensors with the default accessor and a raw
+  pointer handle. Strided mappings, transformed accessors, and deferred storage
+  must preserve their semantics through `mdspan()` or domain-specific access
+  acquisition instead.
 - `TensorView` covers both immediately accessible and descriptor-backed
   tensors. Domain-explicit operations use explicit completion suffixes:
   `acquire_host_read_access_sync` returns an RAII TensorView lease directly,

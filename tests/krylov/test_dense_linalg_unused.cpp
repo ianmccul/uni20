@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <concepts>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -38,6 +39,14 @@ template <typename Scalar> double scaled_tolerance(double factor) { return facto
 
 template <typename Scalar> double abs_as_double(Scalar const& value) { return static_cast<double>(std::abs(value)); }
 
+template <typename Scalar, std::integral Rows, std::integral Columns>
+uni20::DenseMatrix<Scalar> zero_matrix(Rows rows, Columns columns)
+{
+  uni20::DenseMatrix<Scalar> result(rows, columns);
+  std::fill_n(result.data(), result.size(), Scalar{});
+  return result;
+}
+
 template <typename Scalar>
 void expect_vector_near_values(std::vector<Scalar> const& actual, std::vector<Scalar> const& expected)
 {
@@ -57,13 +66,13 @@ uni20::DenseMatrix<Scalar> multiply_for_test(uni20::DenseMatrix<Scalar> const& l
     throw std::invalid_argument("test matrix dimensions do not agree");
   }
 
-  uni20::DenseMatrix<Scalar> result(lhs.rows(), rhs.cols());
-  for (std::size_t row = 0; row < lhs.rows(); ++row)
+  auto result = zero_matrix<Scalar>(lhs.rows(), rhs.cols());
+  for (uni20::index_type row = 0; row < lhs.rows(); ++row)
   {
-    for (std::size_t inner = 0; inner < lhs.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < lhs.cols(); ++inner)
     {
       Scalar const factor = lhs[row, inner];
-      for (std::size_t col = 0; col < rhs.cols(); ++col)
+      for (uni20::index_type col = 0; col < rhs.cols(); ++col)
       {
         result[row, col] += factor * rhs[inner, col];
       }
@@ -74,10 +83,10 @@ uni20::DenseMatrix<Scalar> multiply_for_test(uni20::DenseMatrix<Scalar> const& l
 
 template <typename Scalar> uni20::DenseMatrix<Scalar> transpose(uni20::DenseMatrix<Scalar> const& matrix)
 {
-  uni20::DenseMatrix<Scalar> result(matrix.cols(), matrix.rows());
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  auto result = zero_matrix<Scalar>(matrix.cols(), matrix.rows());
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       result[col, row] = matrix[row, col];
     }
@@ -87,7 +96,7 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> transpose(uni20::DenseMatr
 
 template <typename Scalar> uni20::DenseMatrix<Scalar> identity_matrix(std::size_t order)
 {
-  uni20::DenseMatrix<Scalar> result(order, order);
+  auto result = zero_matrix<Scalar>(order, order);
   for (std::size_t index = 0; index < order; ++index)
   {
     result[index, index] = Scalar{1};
@@ -97,10 +106,10 @@ template <typename Scalar> uni20::DenseMatrix<Scalar> identity_matrix(std::size_
 
 template <typename Scalar> uni20::DenseMatrix<Scalar> conjugate_transpose(uni20::DenseMatrix<Scalar> const& matrix)
 {
-  uni20::DenseMatrix<Scalar> result(matrix.cols(), matrix.rows());
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  auto result = zero_matrix<Scalar>(matrix.cols(), matrix.rows());
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       if constexpr (uni20::is_complex_v<Scalar>)
       {
@@ -120,9 +129,9 @@ void expect_reconstructs(uni20::DenseMatrix<Scalar> const& original, uni20::Dens
                          uni20::DenseMatrix<Scalar> const& schur_vectors)
 {
   auto reconstructed = multiply_for_test(multiply_for_test(schur_vectors, schur_form), transpose(schur_vectors));
-  for (std::size_t row = 0; row < original.rows(); ++row)
+  for (uni20::index_type row = 0; row < original.rows(); ++row)
   {
-    for (std::size_t col = 0; col < original.cols(); ++col)
+    for (uni20::index_type col = 0; col < original.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((original[row, col])),
                   scaled_tolerance<Scalar>(20.0));
@@ -138,9 +147,9 @@ void expect_complex_reconstructs(uni20::DenseMatrix<Scalar> const& original,
   auto reconstructed =
       multiply_for_test(multiply_for_test(schur_vectors, schur_form), conjugate_transpose(schur_vectors));
   using Real = typename Scalar::value_type;
-  for (std::size_t row = 0; row < original.rows(); ++row)
+  for (uni20::index_type row = 0; row < original.rows(); ++row)
   {
-    for (std::size_t col = 0; col < original.cols(); ++col)
+    for (uni20::index_type col = 0; col < original.cols(); ++col)
     {
       EXPECT_LT(abs_as_double((reconstructed[row, col]) - (original[row, col])), scaled_tolerance<Real>(50.0));
     }
@@ -158,9 +167,9 @@ void expect_generalized_schur_reconstructs(
   auto reconstructed_metric =
       multiply_for_test(multiply_for_test(decomposition.left_schur_vectors, decomposition.metric_schur_form),
                         transpose(decomposition.right_schur_vectors));
-  for (std::size_t row = 0; row < original_matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < original_matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < original_matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < original_matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed_matrix[row, col])),
                   static_cast<double>((original_matrix[row, col])), scaled_tolerance<Scalar>(100.0));
@@ -176,10 +185,10 @@ schur_right_eigenvector_residual_max(uni20::DenseMatrix<Scalar> const& schur_for
                                      uni20::DenseMatrix<uni20::complex<Scalar>> const& eigenvectors, std::size_t column)
 {
   Scalar residual_max{};
-  for (std::size_t row = 0; row < schur_form.rows(); ++row)
+  for (uni20::index_type row = 0; row < schur_form.rows(); ++row)
   {
     uni20::complex<Scalar> applied{};
-    for (std::size_t inner = 0; inner < schur_form.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < schur_form.cols(); ++inner)
     {
       applied += uni20::complex<Scalar>{schur_form[row, inner], Scalar{}} * eigenvectors[inner, column];
     }
@@ -197,11 +206,11 @@ Scalar generalized_schur_right_eigenvector_residual_max(uni20::DenseMatrix<Scala
                                                         std::size_t column)
 {
   Scalar residual_max{};
-  for (std::size_t row = 0; row < matrix_schur_form.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix_schur_form.rows(); ++row)
   {
     uni20::complex<Scalar> matrix_applied{};
     uni20::complex<Scalar> metric_applied{};
-    for (std::size_t inner = 0; inner < matrix_schur_form.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < matrix_schur_form.cols(); ++inner)
     {
       matrix_applied += uni20::complex<Scalar>{matrix_schur_form[row, inner], Scalar{}} * eigenvectors[inner, column];
       metric_applied += uni20::complex<Scalar>{metric_schur_form[row, inner], Scalar{}} * eigenvectors[inner, column];
@@ -215,7 +224,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, StoresMatrixColumnMajor)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[0, 1] = Scalar{2};
   matrix[0, 2] = Scalar{3};
@@ -231,7 +240,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealMatrixNorms)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{4};
   matrix[0, 1] = Scalar{-2};
@@ -253,7 +262,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealSymmetricMatrixNorms)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{-3};
   matrix[1, 0] = Scalar{100};
@@ -277,7 +286,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealTriangularMatrixNorms)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{3};
   matrix[0, 1] = Scalar{2};
   matrix[1, 0] = Scalar{100};
@@ -304,7 +313,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealEquilibration)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{};
   matrix[1, 0] = Scalar{};
@@ -327,13 +336,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealLinearSystemWithPivoting
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{4};
   expected[1, 0] = Scalar{-1};
   expected[0, 1] = Scalar{-2};
@@ -344,9 +353,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealLinearSystemWithPivoting
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   tolerance<Scalar>());
@@ -358,13 +367,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, RefinesDenseRealLinearSystemWithDiagnos
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{2};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{0.2};
   expected[1, 0] = Scalar{0.6};
 
@@ -389,13 +398,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealExpertLinearSystemWithDi
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{2};
   coefficients[1, 0] = Scalar{1};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{2};
 
@@ -425,13 +434,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesFromDenseRealLuFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{4};
   expected[1, 0] = Scalar{-1};
   expected[0, 1] = Scalar{-2};
@@ -447,22 +456,22 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesFromDenseRealLuFactorization)
   EXPECT_EQ(factorization.pivot_rows[0], 1);
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   tolerance<Scalar>());
     }
   }
 
-  uni20::DenseMatrix<Scalar> transposed_expected(2, 1);
+  auto transposed_expected = zero_matrix<Scalar>(2, 1);
   transposed_expected[0, 0] = Scalar{3};
   transposed_expected[1, 0] = Scalar{-2};
   auto transposed_rhs = multiply_for_test(transpose(coefficients), transposed_expected);
   auto transposed_solution =
       uni20::krylov::real_lu_solve(factorization, transposed_rhs, uni20::krylov::MatrixTranspose::Transpose);
-  for (std::size_t row = 0; row < transposed_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < transposed_solution.rows(); ++row)
   {
     EXPECT_NEAR(static_cast<double>((transposed_solution[row, 0])), static_cast<double>((transposed_expected[row, 0])),
                 tolerance<Scalar>());
@@ -473,7 +482,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseRealReciprocalConditionNu
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 1] = Scalar{0.25};
 
@@ -490,12 +499,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealTriangularSystem)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{2};
   coefficients[0, 1] = Scalar{-1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{4};
   expected[1, 0] = Scalar{-1};
   expected[0, 1] = Scalar{-2};
@@ -506,9 +515,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealTriangularSystem)
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   scaled_tolerance<Scalar>(20.0));
@@ -520,12 +529,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, RefinesDenseRealTriangularSystemWithDia
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{2};
   coefficients[0, 1] = Scalar{-1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{4};
   expected[1, 0] = Scalar{-1};
 
@@ -548,7 +557,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseRealTriangularMatrix)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{-1};
   matrix[1, 1] = Scalar{3};
@@ -559,9 +568,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseRealTriangularMatrix)
   ASSERT_EQ(inverse.rows(), 2);
   ASSERT_EQ(inverse.cols(), 2);
   EXPECT_NEAR(static_cast<double>((inverse[1, 0])), 0.0, tolerance<Scalar>());
-  for (std::size_t row = 0; row < product.rows(); ++row)
+  for (uni20::index_type row = 0; row < product.rows(); ++row)
   {
-    for (std::size_t col = 0; col < product.cols(); ++col)
+    for (uni20::index_type col = 0; col < product.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((product[row, col])), static_cast<double>(expected),
@@ -574,7 +583,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseRealTriangularReciprocalC
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{4};
 
@@ -587,13 +596,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSylvesterEquation)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> left(1, 1);
+  auto left = zero_matrix<Scalar>(1, 1);
   left[0, 0] = Scalar{2};
 
-  uni20::DenseMatrix<Scalar> right(1, 1);
+  auto right = zero_matrix<Scalar>(1, 1);
   right[0, 0] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> rhs(1, 1);
+  auto rhs = zero_matrix<Scalar>(1, 1);
   rhs[0, 0] = Scalar{10};
 
   auto result = uni20::krylov::real_sylvester_solve(left, right, rhs);
@@ -609,7 +618,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseRealMatrix)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{4};
   matrix[1, 0] = Scalar{2};
   matrix[0, 1] = Scalar{7};
@@ -620,9 +629,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseRealMatrix)
 
   ASSERT_EQ(inverse.rows(), 2);
   ASSERT_EQ(inverse.cols(), 2);
-  for (std::size_t row = 0; row < product.rows(); ++row)
+  for (uni20::index_type row = 0; row < product.rows(); ++row)
   {
-    for (std::size_t col = 0; col < product.cols(); ++col)
+    for (uni20::index_type col = 0; col < product.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((product[row, col])), static_cast<double>(expected),
@@ -635,7 +644,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealLeastSquaresProblem)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(3, 2);
+  auto coefficients = zero_matrix<Scalar>(3, 2);
   coefficients[0, 0] = Scalar{1};
   coefficients[1, 0] = Scalar{};
   coefficients[2, 0] = Scalar{1};
@@ -643,7 +652,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealLeastSquaresProblem)
   coefficients[1, 1] = Scalar{1};
   coefficients[2, 1] = Scalar{1};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
   expected[0, 1] = Scalar{-2};
@@ -654,9 +663,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealLeastSquaresProblem)
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -668,10 +677,10 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSvdLeastSquaresProblem)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{1};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{2};
 
   auto rhs = multiply_for_test(coefficients, expected);
@@ -696,10 +705,10 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseDivideAndConquerSvdLeastSqua
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{1};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{2};
 
   auto rhs = multiply_for_test(coefficients, expected);
@@ -725,7 +734,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRankRevealingLeastSquaresPro
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(3, 2);
+  auto coefficients = zero_matrix<Scalar>(3, 2);
   coefficients[0, 0] = Scalar{1};
   coefficients[1, 0] = Scalar{2};
   coefficients[2, 0] = Scalar{3};
@@ -733,7 +742,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRankRevealingLeastSquaresPro
   coefficients[1, 1] = Scalar{4};
   coefficients[2, 1] = Scalar{6};
 
-  uni20::DenseMatrix<Scalar> expected_one_solution(2, 1);
+  auto expected_one_solution = zero_matrix<Scalar>(2, 1);
   expected_one_solution[0, 0] = Scalar{3};
   expected_one_solution[1, 0] = Scalar{-1};
   auto rhs = multiply_for_test(coefficients, expected_one_solution);
@@ -749,7 +758,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRankRevealingLeastSquaresPro
   std::sort(sorted_pivots.begin(), sorted_pivots.end());
   EXPECT_EQ(sorted_pivots[0], 0);
   EXPECT_EQ(sorted_pivots[1], 1);
-  for (std::size_t row = 0; row < rhs.rows(); ++row)
+  for (uni20::index_type row = 0; row < rhs.rows(); ++row)
   {
     EXPECT_NEAR(static_cast<double>((reconstructed[row, 0])), static_cast<double>((rhs[row, 0])),
                 scaled_tolerance<Scalar>(100.0));
@@ -760,13 +769,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricPositiveDefiniteSys
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
   expected[0, 1] = Scalar{-2};
@@ -777,9 +786,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricPositiveDefiniteSys
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   scaled_tolerance<Scalar>(20.0));
@@ -791,13 +800,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricPositiveDefiniteSys
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{2};
 
@@ -818,7 +827,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDensePivotedCholeskyFactorizati
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[1, 1] = Scalar{1};
 
@@ -831,7 +840,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDensePivotedCholeskyFactorizati
   EXPECT_FALSE(factorization.rank_deficient);
   EXPECT_EQ(factorization.triangle, uni20::krylov::MatrixFill::Upper);
 
-  uni20::DenseMatrix<Scalar> upper(2, 2);
+  auto upper = zero_matrix<Scalar>(2, 2);
   for (std::size_t row = 0; row < 2; ++row)
   {
     for (std::size_t col = row; col < 2; ++col)
@@ -855,7 +864,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ReportsRankDeficientPivotedCholeskyFact
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
 
   auto factorization = uni20::krylov::real_pivoted_cholesky_factorization(coefficients);
@@ -870,13 +879,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, RefinesDenseSymmetricPositiveDefiniteSy
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1} / Scalar{11};
   expected[1, 0] = Scalar{7} / Scalar{11};
 
@@ -901,13 +910,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricPositiveDefiniteExp
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
   coefficients[1, 1] = Scalar{3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{2};
 
@@ -937,7 +946,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseSymmetricPositiveDefiniteE
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{};
   coefficients[1, 0] = Scalar{};
@@ -956,7 +965,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseSymmetricPositiveDefinite
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
@@ -972,7 +981,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseSymmetricPositiveDefinite
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
@@ -989,7 +998,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseSymmetricPositiveDefiniteMa
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{4};
   coefficients[0, 1] = Scalar{1};
   coefficients[1, 0] = Scalar{1};
@@ -1005,9 +1014,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseSymmetricPositiveDefiniteMa
   EXPECT_NEAR(static_cast<double>((inverse[0, 1])), -1.0 / 11.0, scaled_tolerance<Scalar>(50.0));
   EXPECT_NEAR(static_cast<double>((inverse[1, 0])), -1.0 / 11.0, scaled_tolerance<Scalar>(50.0));
   EXPECT_NEAR(static_cast<double>((inverse[1, 1])), 4.0 / 11.0, scaled_tolerance<Scalar>(50.0));
-  for (std::size_t row = 0; row < product.rows(); ++row)
+  for (uni20::index_type row = 0; row < product.rows(); ++row)
   {
-    for (std::size_t col = 0; col < product.cols(); ++col)
+    for (uni20::index_type col = 0; col < product.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((product[row, col])), static_cast<double>(expected),
@@ -1020,13 +1029,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricIndefiniteSystem)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{2};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{-3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 2);
+  auto expected = zero_matrix<Scalar>(2, 2);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
   expected[0, 1] = Scalar{-2};
@@ -1037,9 +1046,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricIndefiniteSystem)
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 2);
-  for (std::size_t row = 0; row < solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < solution.rows(); ++row)
   {
-    for (std::size_t col = 0; col < solution.cols(); ++col)
+    for (uni20::index_type col = 0; col < solution.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>(solution[row, col]), static_cast<double>((expected[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -1051,13 +1060,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricIndefiniteSystemFro
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{2};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{-3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
 
@@ -1079,13 +1088,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, RefinesDenseSymmetricIndefiniteSystemWi
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{2};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{-3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
 
@@ -1110,7 +1119,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseSymmetricIndefiniteMatrix)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{2};
   coefficients[1, 0] = Scalar{2};
@@ -1125,9 +1134,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, InvertsDenseSymmetricIndefiniteMatrix)
   EXPECT_NEAR(static_cast<double>((inverse[0, 1])), 0.5, scaled_tolerance<Scalar>(100.0));
   EXPECT_NEAR(static_cast<double>((inverse[1, 0])), 0.5, scaled_tolerance<Scalar>(100.0));
   EXPECT_NEAR(static_cast<double>((inverse[1, 1])), 0.0, scaled_tolerance<Scalar>(100.0));
-  for (std::size_t row = 0; row < product.rows(); ++row)
+  for (uni20::index_type row = 0; row < product.rows(); ++row)
   {
-    for (std::size_t col = 0; col < product.cols(); ++col)
+    for (uni20::index_type col = 0; col < product.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((product[row, col])), static_cast<double>(expected),
@@ -1140,13 +1149,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseSymmetricIndefiniteExpertSys
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{};
   coefficients[0, 1] = Scalar{2};
   coefficients[1, 0] = Scalar{2};
   coefficients[1, 1] = Scalar{-3};
 
-  uni20::DenseMatrix<Scalar> expected(2, 1);
+  auto expected = zero_matrix<Scalar>(2, 1);
   expected[0, 0] = Scalar{1};
   expected[1, 0] = Scalar{3};
 
@@ -1175,7 +1184,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseSymmetricIndefiniteRecipr
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{-2};
   coefficients[0, 1] = Scalar{};
   coefficients[1, 0] = Scalar{99};
@@ -1191,7 +1200,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesDenseSymmetricIndefiniteFactor
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> coefficients(2, 2);
+  auto coefficients = zero_matrix<Scalar>(2, 2);
   coefficients[0, 0] = Scalar{-2};
   coefficients[0, 1] = Scalar{};
   coefficients[1, 0] = Scalar{99};
@@ -1208,7 +1217,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSymmetricEigenvectors)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{1};
   matrix[1, 0] = Scalar{};
@@ -1222,7 +1231,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSymmetricEigenvectors)
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -1240,7 +1249,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSymmetricEigenvaluesFrom
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{99};
   matrix[1, 0] = Scalar{1};
@@ -1259,7 +1268,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSymmetricDivideAndConque
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[0, 1] = Scalar{1};
   matrix[1, 0] = Scalar{};
@@ -1273,7 +1282,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseRealSymmetricDivideAndConque
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -1291,7 +1300,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSelectedDenseRealSymmetricEigenve
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 1] = Scalar{2};
   matrix[2, 2] = Scalar{3};
@@ -1304,12 +1313,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSelectedDenseRealSymmetricEigenve
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 2.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar residual_norm{};
     Scalar vector_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Scalar const diagonal = Scalar{1} + static_cast<Scalar>(row);
       Scalar const residual = diagonal * result.eigenvectors[row, col] - lambda * result.eigenvectors[row, col];
@@ -1325,11 +1334,11 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseGeneralizedRealSymmetricEige
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{9};
 
-  uni20::DenseMatrix<Scalar> metric(2, 2);
+  auto metric = zero_matrix<Scalar>(2, 2);
   metric[0, 0] = Scalar{1};
   metric[1, 1] = Scalar{3};
 
@@ -1341,7 +1350,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseGeneralizedRealSymmetricEige
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 2.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -1359,11 +1368,11 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseGeneralizedRealSymmetricDivi
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{9};
 
-  uni20::DenseMatrix<Scalar> metric(2, 2);
+  auto metric = zero_matrix<Scalar>(2, 2);
   metric[0, 0] = Scalar{1};
   metric[1, 1] = Scalar{3};
 
@@ -1375,7 +1384,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesDenseGeneralizedRealSymmetricDivi
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 2.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -1393,12 +1402,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSelectedDenseGeneralizedRealSymme
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{6};
   matrix[2, 2] = Scalar{12};
 
-  uni20::DenseMatrix<Scalar> metric(3, 3);
+  auto metric = zero_matrix<Scalar>(3, 3);
   metric[0, 0] = Scalar{1};
   metric[1, 1] = Scalar{2};
   metric[2, 2] = Scalar{3};
@@ -1411,12 +1420,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSelectedDenseGeneralizedRealSymme
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 3.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 4.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar residual_norm{};
     Scalar metric_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Scalar const matrix_diagonal = row == 0 ? Scalar{2} : (row == 1 ? Scalar{6} : Scalar{12});
       Scalar const metric_diagonal = Scalar{1} + static_cast<Scalar>(row);
@@ -1435,7 +1444,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseComplexHermitianEigen
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{2};
   matrix[0, 1] = Complex{0, 1};
   matrix[1, 1] = Complex{2};
@@ -1448,7 +1457,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseComplexHermitianEigen
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, tolerance<Real>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Real>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -1467,7 +1476,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseComplexHermitianDivid
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{2};
   matrix[0, 1] = Complex{0, 1};
   matrix[1, 1] = Complex{2};
@@ -1480,7 +1489,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseComplexHermitianDivid
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, tolerance<Real>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Real>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -1499,7 +1508,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesSelectedDenseComplexHermit
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = Complex{1};
   matrix[1, 1] = Complex{2};
   matrix[2, 2] = Complex{3};
@@ -1512,12 +1521,12 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesSelectedDenseComplexHermit
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 2.0, tolerance<Real>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Real>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Real residual_norm{};
     Real vector_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Real const diagonal = Real{1} + static_cast<Real>(row);
       Complex const value = result.eigenvectors[row, col];
@@ -1535,12 +1544,12 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseGeneralizedComplexHer
   using Real = typename Complex::value_type;
 
   Real const root_three = std::sqrt(Real{3});
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{2};
   matrix[0, 1] = Complex{0, root_three};
   matrix[1, 1] = Complex{6};
 
-  uni20::DenseMatrix<Complex> metric(2, 2);
+  auto metric = zero_matrix<Complex>(2, 2);
   metric[0, 0] = Complex{1};
   metric[1, 1] = Complex{3};
 
@@ -1552,7 +1561,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseGeneralizedComplexHer
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, scaled_tolerance<Real>(20.0));
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, scaled_tolerance<Real>(20.0));
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -1572,12 +1581,12 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseGeneralizedComplexHer
   using Real = typename Complex::value_type;
 
   Real const root_three = std::sqrt(Real{3});
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{2};
   matrix[0, 1] = Complex{0, root_three};
   matrix[1, 1] = Complex{6};
 
-  uni20::DenseMatrix<Complex> metric(2, 2);
+  auto metric = zero_matrix<Complex>(2, 2);
   metric[0, 0] = Complex{1};
   metric[1, 1] = Complex{3};
 
@@ -1589,7 +1598,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesDenseGeneralizedComplexHer
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 1.0, scaled_tolerance<Real>(20.0));
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, scaled_tolerance<Real>(20.0));
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -1608,12 +1617,12 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesSelectedDenseGeneralizedCo
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = Complex{2};
   matrix[1, 1] = Complex{6};
   matrix[2, 2] = Complex{12};
 
-  uni20::DenseMatrix<Complex> metric(3, 3);
+  auto metric = zero_matrix<Complex>(3, 3);
   metric[0, 0] = Complex{1};
   metric[1, 1] = Complex{2};
   metric[2, 2] = Complex{3};
@@ -1626,12 +1635,12 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesSelectedDenseGeneralizedCo
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 3.0, scaled_tolerance<Real>(20.0));
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 4.0, scaled_tolerance<Real>(20.0));
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Real const lambda = result.eigenvalues[col];
     Real residual_norm{};
     Real metric_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Real const matrix_diagonal = row == 0 ? Real{2} : (row == 1 ? Real{6} : Real{12});
       Real const metric_diagonal = Real{1} + static_cast<Real>(row);
@@ -1648,7 +1657,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQrFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 2);
+  auto matrix = zero_matrix<Scalar>(3, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[2, 0] = Scalar{};
@@ -1664,9 +1673,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQrFactorization)
   ASSERT_EQ(result.r.cols(), 2);
 
   auto reconstructed = multiply_for_test(result.q, result.r);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -1674,9 +1683,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQrFactorization)
   }
 
   auto gram = multiply_for_test(transpose(result.q), result.q);
-  for (std::size_t row = 0; row < gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((gram[row, col])), static_cast<double>(expected), scaled_tolerance<Scalar>(50.0));
@@ -1688,7 +1697,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealLqFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
@@ -1704,9 +1713,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealLqFactorization)
   ASSERT_EQ(result.q.cols(), 3);
 
   auto reconstructed = multiply_for_test(result.l, result.q);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -1714,9 +1723,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealLqFactorization)
   }
 
   auto gram = multiply_for_test(result.q, transpose(result.q));
-  for (std::size_t row = 0; row < gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((gram[row, col])), static_cast<double>(expected), scaled_tolerance<Scalar>(50.0));
@@ -1728,7 +1737,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQlFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 2);
+  auto matrix = zero_matrix<Scalar>(3, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[2, 0] = Scalar{};
@@ -1744,9 +1753,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQlFactorization)
   ASSERT_EQ(result.l.cols(), 2);
 
   auto reconstructed = multiply_for_test(result.q, result.l);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -1754,9 +1763,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealQlFactorization)
   }
 
   auto gram = multiply_for_test(transpose(result.q), result.q);
-  for (std::size_t row = 0; row < gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((gram[row, col])), static_cast<double>(expected), scaled_tolerance<Scalar>(50.0));
@@ -1768,7 +1777,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealRqFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
@@ -1784,9 +1793,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealRqFactorization)
   ASSERT_EQ(result.q.cols(), 3);
 
   auto reconstructed = multiply_for_test(result.r, result.q);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(50.0));
@@ -1794,9 +1803,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealRqFactorization)
   }
 
   auto gram = multiply_for_test(result.q, transpose(result.q));
-  for (std::size_t row = 0; row < gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((gram[row, col])), static_cast<double>(expected), scaled_tolerance<Scalar>(50.0));
@@ -1808,7 +1817,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionTallMatr
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(4, 3);
+  auto matrix = zero_matrix<Scalar>(4, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{2};
   matrix[2, 0] = Scalar{-1};
@@ -1834,9 +1843,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionTallMatr
   ASSERT_EQ(reduction.bidiagonal.cols(), 3);
   ASSERT_EQ(reduction.diagonal.size(), 3);
   ASSERT_EQ(reduction.offdiagonal.size(), 2);
-  for (std::size_t row = 0; row < reduction.bidiagonal.rows(); ++row)
+  for (uni20::index_type row = 0; row < reduction.bidiagonal.rows(); ++row)
   {
-    for (std::size_t col = 0; col < reduction.bidiagonal.cols(); ++col)
+    for (uni20::index_type col = 0; col < reduction.bidiagonal.cols(); ++col)
     {
       bool const allowed = row == col || col == row + 1;
       if (!allowed)
@@ -1847,18 +1856,18 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionTallMatr
                   scaled_tolerance<Scalar>(500.0));
     }
   }
-  for (std::size_t row = 0; row < q_gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < q_gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < q_gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < q_gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((q_gram[row, col])), static_cast<double>(expected),
                   scaled_tolerance<Scalar>(500.0));
     }
   }
-  for (std::size_t row = 0; row < p_gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < p_gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < p_gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < p_gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((p_gram[row, col])), static_cast<double>(expected),
@@ -1871,7 +1880,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionWideMatr
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 4);
+  auto matrix = zero_matrix<Scalar>(3, 4);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{2};
   matrix[2, 0] = Scalar{-1};
@@ -1895,9 +1904,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalReductionWideMatr
   ASSERT_EQ(reduction.bidiagonal.cols(), 4);
   ASSERT_EQ(reduction.diagonal.size(), 3);
   ASSERT_EQ(reduction.offdiagonal.size(), 2);
-  for (std::size_t row = 0; row < reduction.bidiagonal.rows(); ++row)
+  for (uni20::index_type row = 0; row < reduction.bidiagonal.rows(); ++row)
   {
-    for (std::size_t col = 0; col < reduction.bidiagonal.cols(); ++col)
+    for (uni20::index_type col = 0; col < reduction.bidiagonal.cols(); ++col)
     {
       bool const allowed = row == col || row == col + 1;
       if (!allowed)
@@ -1948,7 +1957,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealBidiagonalDivideAndConquerS
   ASSERT_EQ(result.vt.rows(), 3);
   ASSERT_EQ(result.vt.cols(), 3);
 
-  uni20::DenseMatrix<Scalar> sigma(3, 3);
+  auto sigma = zero_matrix<Scalar>(3, 3);
   for (std::size_t index = 0; index < result.singular_values.size(); ++index)
   {
     sigma[index, index] = result.singular_values[index];
@@ -2002,7 +2011,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesSelectedRealBidiagonalSvd)
   EXPECT_NEAR(static_cast<double>(result.singular_values[0]), 2.0, scaled_tolerance<Scalar>(50.0));
   EXPECT_NEAR(static_cast<double>(result.singular_values[1]), 1.0, scaled_tolerance<Scalar>(50.0));
 
-  uni20::DenseMatrix<Scalar> sigma(2, 2);
+  auto sigma = zero_matrix<Scalar>(2, 2);
   for (std::size_t index = 0; index < result.singular_values.size(); ++index)
   {
     sigma[index, index] = result.singular_values[index];
@@ -2024,7 +2033,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealHessenbergReductionAndOrtho
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(4, 4);
+  auto matrix = zero_matrix<Scalar>(4, 4);
   matrix[0, 0] = Scalar{4};
   matrix[1, 0] = Scalar{3};
   matrix[2, 0] = Scalar{-2};
@@ -2051,9 +2060,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealHessenbergReductionAndOrtho
   ASSERT_EQ(reduction.tau.size(), 3);
   EXPECT_EQ(reduction.first, 0);
   EXPECT_EQ(reduction.last_exclusive, 4);
-  for (std::size_t col = 0; col < reduction.hessenberg.cols(); ++col)
+  for (uni20::index_type col = 0; col < reduction.hessenberg.cols(); ++col)
   {
-    for (std::size_t row = col + 2; row < reduction.hessenberg.rows(); ++row)
+    for (uni20::index_type row = col + 2; row < reduction.hessenberg.rows(); ++row)
     {
       EXPECT_NEAR(static_cast<double>((reduction.hessenberg[row, col])), 0.0, tolerance<Scalar>());
     }
@@ -2072,9 +2081,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealHessenbergReductionAndOrtho
   }
 
   auto reconstructed = multiply_for_test(multiply_for_test(q, reduction.hessenberg), transpose(q));
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2086,7 +2095,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealHessenbergOrthogonalFactor)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(4, 4);
+  auto matrix = zero_matrix<Scalar>(4, 4);
   matrix[0, 0] = Scalar{4};
   matrix[1, 0] = Scalar{3};
   matrix[2, 0] = Scalar{-2};
@@ -2107,7 +2116,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealHessenbergOrthogonalFactor)
   auto reduction = uni20::krylov::real_hessenberg_reduction(matrix);
   auto q = uni20::krylov::real_hessenberg_orthogonal_factor(reduction);
 
-  uni20::DenseMatrix<Scalar> left_target(4, 2);
+  auto left_target = zero_matrix<Scalar>(4, 2);
   left_target[0, 0] = Scalar{1};
   left_target[1, 0] = Scalar{-2};
   left_target[2, 0] = Scalar{3};
@@ -2122,7 +2131,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealHessenbergOrthogonalFactor)
   auto recovered_left = uni20::krylov::apply_real_hessenberg_orthogonal_factor(
       reduction, left_applied, uni20::krylov::MatrixSide::Left, uni20::krylov::MatrixTranspose::Transpose);
 
-  uni20::DenseMatrix<Scalar> right_target(2, 4);
+  auto right_target = zero_matrix<Scalar>(2, 4);
   right_target[0, 0] = Scalar{2};
   right_target[1, 0] = Scalar{-1};
   right_target[0, 1] = Scalar{3};
@@ -2138,9 +2147,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealHessenbergOrthogonalFactor)
   auto recovered_right = uni20::krylov::apply_real_hessenberg_orthogonal_factor(
       reduction, right_applied, uni20::krylov::MatrixSide::Right, uni20::krylov::MatrixTranspose::Transpose);
 
-  for (std::size_t row = 0; row < left_applied.rows(); ++row)
+  for (uni20::index_type row = 0; row < left_applied.rows(); ++row)
   {
-    for (std::size_t col = 0; col < left_applied.cols(); ++col)
+    for (uni20::index_type col = 0; col < left_applied.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_applied[row, col])), static_cast<double>((expected_left[row, col])),
                   scaled_tolerance<Scalar>(200.0));
@@ -2149,9 +2158,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealHessenbergOrthogonalFactor)
     }
   }
 
-  for (std::size_t row = 0; row < right_applied.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_applied.rows(); ++row)
   {
-    for (std::size_t col = 0; col < right_applied.cols(); ++col)
+    for (uni20::index_type col = 0; col < right_applied.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((right_applied[row, col])), static_cast<double>((expected_right[row, col])),
                   scaled_tolerance<Scalar>(200.0));
@@ -2165,7 +2174,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(4, 4);
+  auto matrix = zero_matrix<Scalar>(4, 4);
   matrix[0, 0] = Scalar{4};
   matrix[1, 0] = Scalar{1};
   matrix[2, 0] = Scalar{2};
@@ -2186,9 +2195,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
   auto reduction = uni20::krylov::real_symmetric_tridiagonal_reduction(matrix, uni20::krylov::MatrixFill::Lower);
   auto q = uni20::krylov::real_symmetric_tridiagonal_orthogonal_factor(reduction);
 
-  for (std::size_t col = 0; col < reduction.tridiagonal.cols(); ++col)
+  for (uni20::index_type col = 0; col < reduction.tridiagonal.cols(); ++col)
   {
-    for (std::size_t row = 0; row < reduction.tridiagonal.rows(); ++row)
+    for (uni20::index_type row = 0; row < reduction.tridiagonal.rows(); ++row)
     {
       if (row + 1 < col || col + 1 < row)
       {
@@ -2200,9 +2209,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
   auto orthogonality = multiply_for_test(transpose(q), q);
   auto identity = identity_matrix<Scalar>(q.rows());
   auto reconstructed = multiply_for_test(multiply_for_test(q, reduction.tridiagonal), transpose(q));
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((orthogonality[row, col])), static_cast<double>((identity[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2211,7 +2220,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
     }
   }
 
-  uni20::DenseMatrix<Scalar> left_target(4, 2);
+  auto left_target = zero_matrix<Scalar>(4, 2);
   left_target[0, 0] = Scalar{1};
   left_target[1, 0] = Scalar{-2};
   left_target[2, 0] = Scalar{3};
@@ -2226,7 +2235,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
   auto recovered_left = uni20::krylov::apply_real_symmetric_tridiagonal_orthogonal_factor(
       reduction, left_applied, uni20::krylov::MatrixSide::Left, uni20::krylov::MatrixTranspose::Transpose);
 
-  uni20::DenseMatrix<Scalar> right_target(2, 4);
+  auto right_target = zero_matrix<Scalar>(2, 4);
   right_target[0, 0] = Scalar{2};
   right_target[1, 0] = Scalar{-1};
   right_target[0, 1] = Scalar{3};
@@ -2242,9 +2251,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
   auto recovered_right = uni20::krylov::apply_real_symmetric_tridiagonal_orthogonal_factor(
       reduction, right_applied, uni20::krylov::MatrixSide::Right, uni20::krylov::MatrixTranspose::Transpose);
 
-  for (std::size_t row = 0; row < left_applied.rows(); ++row)
+  for (uni20::index_type row = 0; row < left_applied.rows(); ++row)
   {
-    for (std::size_t col = 0; col < left_applied.cols(); ++col)
+    for (uni20::index_type col = 0; col < left_applied.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_applied[row, col])), static_cast<double>((expected_left[row, col])),
                   scaled_tolerance<Scalar>(300.0));
@@ -2253,9 +2262,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSymmetricTridiagonalReducti
     }
   }
 
-  for (std::size_t row = 0; row < right_applied.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_applied.rows(); ++row)
   {
-    for (std::size_t col = 0; col < right_applied.cols(); ++col)
+    for (uni20::index_type col = 0; col < right_applied.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((right_applied[row, col])), static_cast<double>((expected_right[row, col])),
                   scaled_tolerance<Scalar>(300.0));
@@ -2269,7 +2278,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealQrFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 2);
+  auto matrix = zero_matrix<Scalar>(3, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[2, 0] = Scalar{};
@@ -2289,9 +2298,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealQrFactorization)
   ASSERT_EQ(compact.tau.size(), 2);
   ASSERT_EQ(left_q.rows(), 3);
   ASSERT_EQ(left_q.cols(), 3);
-  for (std::size_t row = 0; row < left_q.rows(); ++row)
+  for (uni20::index_type row = 0; row < left_q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < left_q.cols(); ++col)
+    for (uni20::index_type col = 0; col < left_q.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_q[row, col])), static_cast<double>((right_q[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2310,7 +2319,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealLqFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
@@ -2330,9 +2339,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealLqFactorization)
   ASSERT_EQ(compact.tau.size(), 2);
   ASSERT_EQ(left_q.rows(), 3);
   ASSERT_EQ(left_q.cols(), 3);
-  for (std::size_t row = 0; row < left_q.rows(); ++row)
+  for (uni20::index_type row = 0; row < left_q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < left_q.cols(); ++col)
+    for (uni20::index_type col = 0; col < left_q.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_q[row, col])), static_cast<double>((right_q[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2351,7 +2360,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealQlFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 2);
+  auto matrix = zero_matrix<Scalar>(3, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[2, 0] = Scalar{};
@@ -2366,15 +2375,15 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealQlFactorization)
   auto right_q = uni20::krylov::apply_real_ql_factor(compact, identity, uni20::krylov::MatrixSide::Right);
   auto recovered_identity = uni20::krylov::apply_real_ql_factor(compact, left_q, uni20::krylov::MatrixSide::Left,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  std::size_t const first_reduced_col = left_q.cols() - explicit_ql.q.cols();
+  uni20::index_type const first_reduced_col = left_q.cols() - explicit_ql.q.cols();
 
   ASSERT_EQ(compact.rank, 2);
   ASSERT_EQ(compact.tau.size(), 2);
   ASSERT_EQ(left_q.rows(), 3);
   ASSERT_EQ(left_q.cols(), 3);
-  for (std::size_t row = 0; row < left_q.rows(); ++row)
+  for (uni20::index_type row = 0; row < left_q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < left_q.cols(); ++col)
+    for (uni20::index_type col = 0; col < left_q.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_q[row, col])), static_cast<double>((right_q[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2393,7 +2402,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealRqFactorization)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 3);
+  auto matrix = zero_matrix<Scalar>(2, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
@@ -2408,15 +2417,15 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesCompactRealRqFactorization)
   auto right_q = uni20::krylov::apply_real_rq_factor(compact, identity, uni20::krylov::MatrixSide::Right);
   auto recovered_identity = uni20::krylov::apply_real_rq_factor(compact, right_q, uni20::krylov::MatrixSide::Right,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  std::size_t const first_reduced_row = right_q.rows() - explicit_rq.q.rows();
+  uni20::index_type const first_reduced_row = right_q.rows() - explicit_rq.q.rows();
 
   ASSERT_EQ(compact.rank, 2);
   ASSERT_EQ(compact.tau.size(), 2);
   ASSERT_EQ(right_q.rows(), 3);
   ASSERT_EQ(right_q.cols(), 3);
-  for (std::size_t row = 0; row < right_q.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < right_q.cols(); ++col)
+    for (uni20::index_type col = 0; col < right_q.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((left_q[row, col])), static_cast<double>((right_q[row, col])),
                   scaled_tolerance<Scalar>(100.0));
@@ -2435,7 +2444,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealBidiagonalOrthogonalFactors)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(4, 3);
+  auto matrix = zero_matrix<Scalar>(4, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{2};
   matrix[2, 0] = Scalar{-1};
@@ -2462,9 +2471,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealBidiagonalOrthogonalFactors)
   auto recovered_p =
       uni20::krylov::apply_real_bidiagonal_right_factor(reduction, applied_pt, uni20::krylov::MatrixSide::Left);
 
-  for (std::size_t row = 0; row < q.rows(); ++row)
+  for (uni20::index_type row = 0; row < q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < q.cols(); ++col)
+    for (uni20::index_type col = 0; col < q.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((applied_q[row, col])), static_cast<double>((q[row, col])),
                   scaled_tolerance<Scalar>(500.0));
@@ -2472,9 +2481,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, AppliesRealBidiagonalOrthogonalFactors)
                   scaled_tolerance<Scalar>(500.0));
     }
   }
-  for (std::size_t row = 0; row < pt.rows(); ++row)
+  for (uni20::index_type row = 0; row < pt.rows(); ++row)
   {
-    for (std::size_t col = 0; col < pt.cols(); ++col)
+    for (uni20::index_type col = 0; col < pt.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((applied_pt[row, col])), static_cast<double>((pt[row, col])),
                   scaled_tolerance<Scalar>(500.0));
@@ -2488,7 +2497,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealPivotedQrFactorizati
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 2);
+  auto matrix = zero_matrix<Scalar>(3, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{};
   matrix[2, 0] = Scalar{};
@@ -2507,10 +2516,10 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealPivotedQrFactorizati
   EXPECT_EQ(result.pivot_columns[1], 0);
 
   auto pivoted_reconstructed = multiply_for_test(result.q, result.r);
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     std::size_t const original_col = result.pivot_columns[col];
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       EXPECT_NEAR(static_cast<double>((pivoted_reconstructed[row, col])),
                   static_cast<double>((matrix[row, original_col])), scaled_tolerance<Scalar>(50.0));
@@ -2518,9 +2527,9 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesReducedRealPivotedQrFactorizati
   }
 
   auto gram = multiply_for_test(transpose(result.q), result.q);
-  for (std::size_t row = 0; row < gram.rows(); ++row)
+  for (uni20::index_type row = 0; row < gram.rows(); ++row)
   {
-    for (std::size_t col = 0; col < gram.cols(); ++col)
+    for (uni20::index_type col = 0; col < gram.cols(); ++col)
     {
       Scalar const expected = row == col ? Scalar{1} : Scalar{};
       EXPECT_NEAR(static_cast<double>((gram[row, col])), static_cast<double>(expected), scaled_tolerance<Scalar>(50.0));
@@ -2532,7 +2541,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealSingularValueDecomposi
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{3};
 
@@ -2546,14 +2555,14 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealSingularValueDecomposi
   EXPECT_NEAR(static_cast<double>(result.singular_values[0]), 3.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.singular_values[1]), 2.0, tolerance<Scalar>());
 
-  uni20::DenseMatrix<Scalar> sigma(2, 2);
+  auto sigma = zero_matrix<Scalar>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto reconstructed = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
                                          result.right_singular_vectors_transpose);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(20.0));
@@ -2565,7 +2574,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealDivideAndConquerSingul
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{2};
   matrix[1, 1] = Scalar{3};
 
@@ -2579,14 +2588,14 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesDenseRealDivideAndConquerSingul
   EXPECT_NEAR(static_cast<double>(result.singular_values[0]), 3.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.singular_values[1]), 2.0, tolerance<Scalar>());
 
-  uni20::DenseMatrix<Scalar> sigma(2, 2);
+  auto sigma = zero_matrix<Scalar>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto reconstructed = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
                                          result.right_singular_vectors_transpose);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_NEAR(static_cast<double>((reconstructed[row, col])), static_cast<double>((matrix[row, col])),
                   scaled_tolerance<Scalar>(20.0));
@@ -2598,7 +2607,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesSelectedDenseRealSingularValueD
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 1] = Scalar{4};
   matrix[2, 2] = Scalar{2};
@@ -2620,15 +2629,15 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesSelectedDenseRealSingularValueD
   EXPECT_NEAR(static_cast<double>(result.singular_values[0]), 2.0, scaled_tolerance<Scalar>(50.0));
   EXPECT_NEAR(static_cast<double>(result.singular_values[1]), 1.0, scaled_tolerance<Scalar>(50.0));
 
-  uni20::DenseMatrix<Scalar> sigma(2, 2);
+  auto sigma = zero_matrix<Scalar>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto selected_contribution = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
                                                  result.right_singular_vectors_transpose);
 
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       Scalar const expected = row == col && row != 1 ? matrix[row, col] : Scalar{};
       EXPECT_NEAR(static_cast<double>((selected_contribution[row, col])), static_cast<double>(expected),
@@ -2641,7 +2650,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSchurDecompositionWithCompl
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{1};
   matrix[1, 0] = Scalar{-2};
   matrix[0, 1] = Scalar{2};
@@ -2666,7 +2675,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealHessenbergSchurDecompositio
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> hessenberg(3, 3);
+  auto hessenberg = zero_matrix<Scalar>(3, 3);
   hessenberg[0, 0] = Scalar{1};
   hessenberg[1, 0] = Scalar{-2};
   hessenberg[0, 1] = Scalar{2};
@@ -2714,7 +2723,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ReordersRealSchurOneByOneBlocks)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 1] = Scalar{3};
   matrix[2, 2] = Scalar{2};
@@ -2743,7 +2752,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SelectsRealSchurSubspaceWithConditionEs
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{1};
   matrix[1, 1] = Scalar{3};
   matrix[2, 2] = Scalar{2};
@@ -2775,7 +2784,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSchurRightEigenvectors)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
   matrix[1, 1] = Scalar{3};
@@ -2788,10 +2797,10 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealSchurRightEigenvectors)
   ASSERT_EQ(result.computed_vectors, 2);
   ASSERT_EQ(result.right_eigenvectors.rows(), 2);
   ASSERT_EQ(result.right_eigenvectors.cols(), 2);
-  for (std::size_t column = 0; column < result.right_eigenvectors.cols(); ++column)
+  for (uni20::index_type column = 0; column < result.right_eigenvectors.cols(); ++column)
   {
     Scalar vector_max{};
-    for (std::size_t row = 0; row < result.right_eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.right_eigenvectors.rows(); ++row)
     {
       vector_max = std::max(vector_max, static_cast<Scalar>(std::abs(result.right_eigenvectors[row, column])));
     }
@@ -2806,7 +2815,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesRealSchurEigenpairConditioning
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(2, 2);
+  auto matrix = zero_matrix<Scalar>(2, 2);
   matrix[0, 0] = Scalar{1};
   matrix[0, 1] = Scalar{1};
   matrix[1, 1] = Scalar{3};
@@ -2828,7 +2837,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ReordersRealSchurComplexBlockAsUnit)
 {
   using Scalar = TypeParam;
 
-  uni20::DenseMatrix<Scalar> matrix(3, 3);
+  auto matrix = zero_matrix<Scalar>(3, 3);
   matrix[0, 0] = Scalar{5};
   matrix[1, 1] = Scalar{1};
   matrix[2, 1] = Scalar{-2};
@@ -2897,7 +2906,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSymmetricTridiagonalEigenvectors)
   ASSERT_EQ(result.eigenvectors.rows(), 2);
   ASSERT_EQ(result.eigenvectors.cols(), 2);
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -2931,7 +2940,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSymmetricTridiagonalDivideAndConq
   ASSERT_EQ(result.eigenvectors.rows(), 2);
   ASSERT_EQ(result.eigenvectors.cols(), 2);
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar const x0 = result.eigenvectors[0, col];
@@ -2967,12 +2976,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesSelectedSymmetricTridiagonalEigen
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[0]), 2.0, tolerance<Scalar>());
   EXPECT_NEAR(static_cast<double>(result.eigenvalues[1]), 3.0, tolerance<Scalar>());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Scalar const lambda = result.eigenvalues[col];
     Scalar residual_norm{};
     Scalar vector_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Scalar const diagonal = Scalar{1} + static_cast<Scalar>(row);
       Scalar const entry = result.eigenvectors[row, col];
@@ -2990,7 +2999,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, SolvesComplexNonsymmetricEigenva
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Real{1}, Real{2}};
   matrix[1, 0] = Complex{};
   matrix[0, 1] = Complex{Real{3}, Real{-1}};
@@ -3016,7 +3025,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, ComputesComplexSchurDecompositio
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Real{1}, Real{2}};
   matrix[1, 0] = Complex{};
   matrix[0, 1] = Complex{Real{3}, Real{-1}};
@@ -3041,7 +3050,7 @@ TYPED_TEST(KrylovDenseSubspaceComplexTypedTest, ReordersComplexSchurEntries)
   using Complex = TypeParam;
   using Real = typename Complex::value_type;
 
-  uni20::DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = Complex{Real{1}, Real{2}};
   matrix[1, 0] = Complex{};
   matrix[2, 0] = Complex{};
@@ -3093,7 +3102,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesRealNonsymmetricDiagonalEigenvalu
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{3};
   matrix[1, 1] = Real{-1};
   matrix[2, 2] = Real{2};
@@ -3114,7 +3123,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, BalancesRealNonsymmetricMatrixAndBacktr
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{};
   matrix[0, 1] = Real{1000000};
   matrix[1, 0] = Real{1} / Real{1000};
@@ -3130,7 +3139,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, BalancesRealNonsymmetricMatrixAndBacktr
   EXPECT_GT(static_cast<double>(std::abs((balance.balanced_matrix[0, 1]))), 0.0);
   EXPECT_GT(static_cast<double>(std::abs((balance.balanced_matrix[1, 0]))), 0.0);
 
-  uni20::DenseMatrix<Real> vectors(2, 2);
+  auto vectors = zero_matrix<Real>(2, 2);
   vectors[0, 0] = Real{1};
   vectors[1, 1] = Real{1};
 
@@ -3152,13 +3161,13 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, BalancesRealGeneralizedNonsymmetricPenc
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{};
   matrix[0, 1] = Real{1000000};
   matrix[1, 0] = Real{1} / Real{1000};
   matrix[1, 1] = Real{};
 
-  uni20::DenseMatrix<Real> metric(2, 2);
+  auto metric = zero_matrix<Real>(2, 2);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{2};
 
@@ -3176,7 +3185,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, BalancesRealGeneralizedNonsymmetricPenc
   EXPECT_GT(static_cast<double>(std::abs((balance.balanced_matrix[0, 1]))), 0.0);
   EXPECT_GT(static_cast<double>(std::abs((balance.balanced_matrix[1, 0]))), 0.0);
 
-  uni20::DenseMatrix<Real> vectors(2, 2);
+  auto vectors = zero_matrix<Real>(2, 2);
   vectors[0, 0] = Real{1};
   vectors[1, 1] = Real{1};
 
@@ -3199,7 +3208,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedHessenbergReduct
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{4};
   matrix[1, 0] = Real{2};
   matrix[2, 0] = Real{-1};
@@ -3210,7 +3219,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedHessenbergReduct
   matrix[1, 2] = Real{1};
   matrix[2, 2] = Real{6};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{2};
   metric[0, 1] = Real{-1};
   metric[1, 1] = Real{3};
@@ -3275,7 +3284,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedHessenbergSchurD
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> hessenberg(3, 3);
+  auto hessenberg = zero_matrix<Real>(3, 3);
   hessenberg[0, 0] = Real{3};
   hessenberg[1, 0] = Real{2};
   hessenberg[0, 1] = Real{1};
@@ -3285,7 +3294,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedHessenbergSchurD
   hessenberg[1, 2] = Real{5};
   hessenberg[2, 2] = Real{6};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{2};
   metric[0, 1] = Real{-1};
   metric[1, 1] = Real{3};
@@ -3344,11 +3353,11 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedSchurDecompositi
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{2};
   matrix[1, 1] = Real{6};
 
-  uni20::DenseMatrix<Real> metric(2, 2);
+  auto metric = zero_matrix<Real>(2, 2);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{2};
 
@@ -3380,12 +3389,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ReordersRealGeneralizedSchurBlocks)
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{1};
   matrix[1, 1] = Real{3};
   matrix[2, 2] = Real{2};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{1};
   metric[2, 2] = Real{1};
@@ -3420,12 +3429,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SelectsRealGeneralizedSchurSubspaceWith
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{1};
   matrix[1, 1] = Real{3};
   matrix[2, 2] = Real{2};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{1};
   metric[2, 2] = Real{1};
@@ -3460,12 +3469,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, ComputesRealGeneralizedSchurRightEigenv
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{1};
   matrix[1, 1] = Real{3};
   matrix[2, 2] = Real{2};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{1};
   metric[2, 2] = Real{1};
@@ -3491,12 +3500,12 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, EstimatesRealGeneralizedSchurEigenpairC
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(3, 3);
+  auto matrix = zero_matrix<Real>(3, 3);
   matrix[0, 0] = Real{1};
   matrix[1, 1] = Real{3};
   matrix[2, 2] = Real{2};
 
-  uni20::DenseMatrix<Real> metric(3, 3);
+  auto metric = zero_matrix<Real>(3, 3);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{1};
   metric[2, 2] = Real{1};
@@ -3518,7 +3527,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesRealNonsymmetricExpertEigenvector
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{2};
   matrix[0, 1] = Real{1};
   matrix[1, 1] = Real{3};
@@ -3560,11 +3569,11 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesRealGeneralizedNonsymmetricDiagon
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{2};
   matrix[1, 1] = Real{9};
 
-  uni20::DenseMatrix<Real> metric(2, 2);
+  auto metric = zero_matrix<Real>(2, 2);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{3};
 
@@ -3596,11 +3605,11 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesRealGeneralizedNonsymmetricExpert
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{2};
   matrix[1, 1] = Real{9};
 
-  uni20::DenseMatrix<Real> metric(2, 2);
+  auto metric = zero_matrix<Real>(2, 2);
   metric[0, 0] = Real{1};
   metric[1, 1] = Real{3};
 
@@ -3646,7 +3655,7 @@ TYPED_TEST(KrylovDenseSubspaceTypedTest, SolvesRealNonsymmetricComplexConjugateP
 {
   using Real = TypeParam;
 
-  uni20::DenseMatrix<Real> matrix(2, 2);
+  auto matrix = zero_matrix<Real>(2, 2);
   matrix[0, 0] = Real{1};
   matrix[1, 0] = Real{-2};
   matrix[0, 1] = Real{2};
