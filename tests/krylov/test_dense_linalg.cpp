@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <complex>
+#include <limits>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -167,7 +168,9 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesMatrixVectorProducts)
   matrix[1, 2] = Scalar{6};
 
   std::vector<Scalar> x{Scalar{1}, Scalar{2}, Scalar{3}};
-  std::vector<Scalar> y{Scalar{10}, Scalar{20}};
+  using Real = uni20::make_real_t<Scalar>;
+  Scalar const nan{uni20::numeric_limits<Real>::quiet_NaN()};
+  std::vector<Scalar> y{nan, nan};
 
   uni20::krylov::gemv(span(y), Scalar{1}, matrix, const_span(x), Scalar{0});
   expect_vector_floating_eq(y, std::vector<Scalar>{Scalar{22}, Scalar{28}});

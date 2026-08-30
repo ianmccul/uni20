@@ -39,9 +39,35 @@ template <typename ElementType> class HostBuffer {
     explicit HostBuffer(size_type size) : data_(allocate(size)), size_(size) {}
 
     /// \brief Allocate and fill storage with one value.
-    HostBuffer(size_type size, value_type const& value) : HostBuffer(size) { std::fill_n(data_, size_, value); }
+    HostBuffer(size_type size, value_type const& value) : HostBuffer(size)
+    {
+      try
+      {
+        std::fill_n(data_, size_, value);
+      }
+      catch (...)
+      {
+        release(data_, size_);
+        data_ = nullptr;
+        size_ = 0;
+        throw;
+      }
+    }
 
-    HostBuffer(HostBuffer const& other) : HostBuffer(other.size_) { this->copy_from(other.data_, other.size_); }
+    HostBuffer(HostBuffer const& other) : HostBuffer(other.size_)
+    {
+      try
+      {
+        this->copy_from(other.data_, other.size_);
+      }
+      catch (...)
+      {
+        release(data_, size_);
+        data_ = nullptr;
+        size_ = 0;
+        throw;
+      }
+    }
 
     HostBuffer(HostBuffer&& other) noexcept
         : data_(std::exchange(other.data_, nullptr)), size_(std::exchange(other.size_, 0))
