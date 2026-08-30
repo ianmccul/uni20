@@ -186,7 +186,7 @@ template <class Block, class Scalar> void scale_block(Block&& block, Scalar cons
     uni20::transform_inplace(std::forward<Block>(block), linalg::scale{factor});
 }
 
-template <MutableStridedMdspecLike Span> [[nodiscard]] auto dense_diagonal_components(Span const& span)
+template <StridedMdspecLike Span> [[nodiscard]] auto dense_diagonal_components(Span const& span)
 {
   using span_type = std::remove_cvref_t<Span>;
   using element_type = typename span_type::element_type;
@@ -219,6 +219,31 @@ template <MutableStridedMdspecLike Span> [[nodiscard]] auto dense_diagonal_compo
     using result_type =
         mdspec<element_type, extents_type, layout_type, accessor_type, typename span_type::data_descriptor_type>;
     return result_type{span.data_descriptor(), std::move(mapping), span.accessor()};
+  }
+}
+
+template <class LhsBlock, class RhsBlock> [[nodiscard]] auto inner_product_block_host(LhsBlock&& lhs, RhsBlock&& rhs)
+{
+  auto lhs_span = mdspec_of(lhs);
+  auto rhs_span = mdspec_of(rhs);
+  if constexpr (DiagonalMdspecLike<decltype(lhs_span)> && DiagonalMdspecLike<decltype(rhs_span)>)
+  {
+    return uni20::inner_product_host(lhs.backend_selector(), diagonal_components(lhs_span),
+                                     diagonal_components(rhs_span));
+  }
+  else if constexpr (DiagonalMdspecLike<decltype(lhs_span)> && StridedMdspecLike<decltype(rhs_span)>)
+  {
+    return uni20::inner_product_host(lhs.backend_selector(), diagonal_components(lhs_span),
+                                     dense_diagonal_components(rhs_span));
+  }
+  else if constexpr (StridedMdspecLike<decltype(lhs_span)> && DiagonalMdspecLike<decltype(rhs_span)>)
+  {
+    return uni20::inner_product_host(lhs.backend_selector(), dense_diagonal_components(lhs_span),
+                                     diagonal_components(rhs_span));
+  }
+  else
+  {
+    return uni20::inner_product_host(std::forward<LhsBlock>(lhs), std::forward<RhsBlock>(rhs));
   }
 }
 
@@ -679,7 +704,7 @@ template <BlockTensorView Lhs, BlockTensorView Rhs>
                                          auto const& binding = bindings[index];
                                          auto lhs_block = lhs.block_by_ordinal(binding.lhs_ordinal);
                                          auto rhs_block = rhs.block_by_ordinal(binding.rhs_ordinal);
-                                         partials[index] = uni20::inner_product_host(lhs_block, rhs_block);
+                                         partials[index] = detail::inner_product_block_host(lhs_block, rhs_block);
                                        });
   }
   else
@@ -689,7 +714,7 @@ template <BlockTensorView Lhs, BlockTensorView Rhs>
       auto const& binding = bindings[index];
       auto lhs_read = lhs.async_block_by_ordinal(binding.lhs_ordinal).read();
       auto rhs_read = rhs.async_block_by_ordinal(binding.rhs_ordinal).read();
-      partials[index] = uni20::inner_product_host(lhs_read.get_wait(), rhs_read.get_wait());
+      partials[index] = detail::inner_product_block_host(lhs_read.get_wait(), rhs_read.get_wait());
     }
   }
 
