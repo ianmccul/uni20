@@ -415,7 +415,7 @@ mdspans or spans.
 | `solve_inplace` | Solve `A * X = B` using destructive coefficient and RHS workspaces. | `B` contains `X` on return; `A` contains backend factorization data. An `N x 0` right-hand side is a vacuous no-op that preserves both workspaces without testing singularity. Other singular provider results are terminal errors. | Implemented through LAPACK and accessor-respecting CPU backends. |
 | `solve` | Preserve `A` and `B` and return `X`. | Materializes owning column-major host work matrices before destructive dispatch. | Implemented through `solve_inplace`. |
 | `qr_factorization`, `lq_factorization` | Reduced real QR or LQ using a destructive matrix workspace. | Factor outputs may resize; the matrix workspace is overwritten. | Not implemented. |
-| `qr(matrix)`, `lq(matrix)` | Preserve a real matrix and return owning reduced factors. | Materializes column-major host work. QR returns `Q: m x k`, `R: k x n`; LQ returns `L: m x k`, `Q: k x n`, where `k = min(m,n)`. | Not implemented. |
+| `qr(matrix)`, `lq(matrix)` | Preserve or consume a real matrix and return owning reduced factors. | Preserving calls materialize column-major host work. Consuming calls use an exact column-major host tensor directly as destructive workspace and otherwise materialize. QR returns `Q: m x k`, `R: k x n`; LQ returns `L: m x k`, `Q: k x n`, where `k = min(m,n)`. | Preserving and consuming forms return two independent Async outputs. |
 | `matrix_exponential` | Compute into a fixed rank-two output. | Caller supplies compatible output. | Not implemented. |
 | `self_adjoint_eigh` | Destructive LAPACK-style workspace operation. | Matrix workspace is overwritten; eigenvalue output may resize. | No direct wrapper. |
 | `eigh(matrix)` | Preserving value operation returning eigenvalues and eigenvectors. | Materializes work storage and returns two owners. | Implemented; returns two independent Async outputs. |
@@ -431,13 +431,14 @@ mdspans or spans.
 | `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | Not implemented. |
 | `symmetric_tridiagonal_eigen` | Tridiagonal eigensystem over caller-provided spans and tensor output. | LAPACK-style mutable work/output buffers. | Not implemented. |
 
-Preserving Async `eigh`, exact SVD, and truncated SVD overloads accept
-`Async<Tensor>` whenever `Tensor` models the appropriate ranked `TensorView`.
-This includes deferred views: the preserving synchronous operation materializes
-its work tensor through ordinary backend-dispatched copy. Consuming overloads
-require a mutable owning `TensorView`, but not immediate access. Taking the
-stored async value is the semantic consumption; compatible immediate owners may
-additionally reuse or transfer their allocation as an optimization.
+Preserving Async `qr`, `lq`, `eigh`, exact SVD, and truncated SVD overloads
+accept `Async<Tensor>` whenever `Tensor` models the appropriate ranked
+`TensorView`. This includes deferred views: the preserving synchronous
+operation materializes its work tensor through ordinary backend-dispatched
+copy. Consuming overloads, where provided, require a mutable owning
+`TensorView`, but not immediate access. Taking the stored async value is the
+semantic consumption; compatible immediate owners may additionally reuse or
+transfer their allocation as an optimization.
 
 Async tensor wrappers constrain fixed operands at the `TensorView` or
 `MutableTensorView` level. They must not require `ImmediateTensorView` merely

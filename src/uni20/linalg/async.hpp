@@ -10,7 +10,9 @@
 #if UNI20_BACKEND_CUDA
 #include <uni20/linalg/async/copy.hpp>
 #endif
+#include <uni20/linalg/async/lq.hpp>
 #include <uni20/linalg/async/reductions.hpp>
+#include <uni20/linalg/async/qr.hpp>
 #include <uni20/linalg/async/self_adjoint_eigh.hpp>
 #include <uni20/linalg/async/svd.hpp>
 #include <uni20/linalg/async/transform.hpp>
