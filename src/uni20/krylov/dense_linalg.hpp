@@ -318,9 +318,14 @@ void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix
     throw std::invalid_argument("dense matrix-vector sizes do not agree");
   }
 
-  for (Scalar& value : y)
+  if (beta == Scalar{})
   {
-    value *= beta;
+    std::fill(y.begin(), y.end(), Scalar{});
+  }
+  else
+  {
+    for (Scalar& value : y)
+      value *= beta;
   }
 
   if (transpose == MatrixTranspose::None)

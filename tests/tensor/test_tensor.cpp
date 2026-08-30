@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -28,6 +29,27 @@ using scalar_tensor_type = ScalarTensor<double>;
 static_assert(!HostStorage::storage_t<double>::initializes_elements);
 static_assert(!HostStorage::storage_t<uni20::complex<double>>::initializes_elements);
 static_assert(!std::equality_comparable<HostBuffer<int>>);
+
+struct ThrowingAssignmentValue
+{
+    static inline int live_count = 0;
+    static inline bool throw_on_assignment = false;
+
+    int value = 0;
+
+    ThrowingAssignmentValue() { ++live_count; }
+    explicit ThrowingAssignmentValue(int value) : value(value) { ++live_count; }
+    ThrowingAssignmentValue(ThrowingAssignmentValue const& other) : value(other.value) { ++live_count; }
+
+    auto operator=(ThrowingAssignmentValue const& other) -> ThrowingAssignmentValue&
+    {
+      if (throw_on_assignment) throw std::runtime_error("requested assignment failure");
+      value = other.value;
+      return *this;
+    }
+
+    ~ThrowingAssignmentValue() { --live_count; }
+};
 
 struct ImmediateAndDescriptorStorage
 {
@@ -484,6 +506,26 @@ TEST(HostBufferTest, ConstructsAndDestroysNontrivialElements)
   buffer.resize(3);
   EXPECT_EQ(buffer[0], "host");
   EXPECT_EQ(buffer[2], "");
+}
+
+TEST(HostBufferTest, ReleasesNontrivialElementsWhenInitializationThrows)
+{
+  EXPECT_EQ(ThrowingAssignmentValue::live_count, 0);
+  {
+    ThrowingAssignmentValue value{7};
+    ThrowingAssignmentValue::throw_on_assignment = true;
+    EXPECT_THROW(static_cast<void>(HostBuffer<ThrowingAssignmentValue>{3, value}), std::runtime_error);
+    EXPECT_EQ(ThrowingAssignmentValue::live_count, 1);
+
+    ThrowingAssignmentValue::throw_on_assignment = false;
+    HostBuffer<ThrowingAssignmentValue> source(3, value);
+    EXPECT_EQ(ThrowingAssignmentValue::live_count, 4);
+    ThrowingAssignmentValue::throw_on_assignment = true;
+    EXPECT_THROW(static_cast<void>(HostBuffer<ThrowingAssignmentValue>{source}), std::runtime_error);
+    EXPECT_EQ(ThrowingAssignmentValue::live_count, 4);
+  }
+  ThrowingAssignmentValue::throw_on_assignment = false;
+  EXPECT_EQ(ThrowingAssignmentValue::live_count, 0);
 }
 
 TEST(TensorTest, StridesUseNormalizedImmediateAndDeferredMetadata)
