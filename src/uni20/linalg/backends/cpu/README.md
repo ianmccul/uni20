@@ -23,10 +23,9 @@ vendor accelerator backend.
 - `linear_solve.hpp`: accessor-respecting Gaussian elimination with partial
   pivoting over destructive matrix workspaces.
 - `matrix_set.hpp`: accessor-respecting structured matrix initialization.
-- `dense_matrix.hpp`: legacy small dense matrix container still used by the
-  current matrix exponential implementation.
 - `matrix_exponential.hpp`, `matrix_exponential.cpp`: adaptive dense matrix
-  exponential implementation.
+  exponential over `uni20::DenseMatrix`, composed from dispatched matrix
+  products, transforms, norms, structured initialization, and solves.
 - [`detail/`](detail/): shared same-precision numerical accumulation helpers.
 
 ## Notes

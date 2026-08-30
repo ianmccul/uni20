@@ -350,7 +350,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
   }
 
   std::size_t const projected_size = diagonal.size();
-  uni20::krylov::Matrix<Scalar> projected(projected_size, projected_size);
+  uni20::DenseMatrix<Scalar> projected(projected_size, projected_size);
   uni20::krylov::laset(projected, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
@@ -362,7 +362,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
     }
   }
 
-  uni20::krylov::Matrix<Scalar> scaled(projected_size, projected_size);
+  uni20::DenseMatrix<Scalar> scaled(projected_size, projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)
   {
     for (std::size_t col = 0; col < projected_size; ++col)
@@ -371,7 +371,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
     }
   }
 
-  uni20::krylov::Matrix<Scalar> exponential(projected_size, projected_size);
+  uni20::DenseMatrix<Scalar> exponential(projected_size, projected_size);
   uni20::linalg::matrix_exponential(exponential, scaled, Scalar{1});
   DenseHostVector<Scalar> action{{std::vector<Scalar>(initial.values.size(), Scalar{})}};
   std::vector<Scalar> coefficients(projected_size);

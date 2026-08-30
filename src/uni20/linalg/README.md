@@ -42,8 +42,7 @@ before they lower to backend wrappers and kernels.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
 - [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense
-  matrix norms and solves, legacy dense matrix helpers, and the current dense
-  matrix exponential implementation.
+  matrix norms and solves, and the dense matrix exponential implementation.
 - [`backends/lapack/`](backends/lapack/): LAPACK-backed linalg entry points.
 - [`backends/cusolver/`](backends/cusolver/): cuSOLVER-backed linalg entry points.
 
@@ -87,6 +86,9 @@ before they lower to backend wrappers and kernels.
 - `linear_solve_op` is the destructive general-system workspace operation.
   `solve_inplace` exposes that contract directly, while `solve` preserves its
   inputs by materializing column-major host work matrices.
+- `qr_op` and `lq_op` are destructive reduced real factorization operations.
+  Their preserving value APIs materialize column-major host work and return
+  owning reduced factors.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Default selector resolution gives a user `backend_selector_override` complete

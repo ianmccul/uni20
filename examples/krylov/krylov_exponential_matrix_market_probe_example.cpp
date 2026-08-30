@@ -690,7 +690,7 @@ template <typename Scalar, typename ReferenceScalar>
   }
 
   std::size_t const projected_size = diagonal.size();
-  uni20::krylov::Matrix<Real> projected(projected_size, projected_size);
+  uni20::DenseMatrix<Real> projected(projected_size, projected_size);
   uni20::krylov::laset(projected, Real{}, Real{}, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
@@ -702,7 +702,7 @@ template <typename Scalar, typename ReferenceScalar>
     }
   }
 
-  uni20::krylov::Matrix<Scalar> exponential(projected_size, projected_size);
+  uni20::DenseMatrix<Scalar> exponential(projected_size, projected_size);
   uni20::linalg::matrix_exponential(exponential, projected, time);
   DenseHostVector<Scalar> action{{std::vector<Scalar>(initial.values.size(), Scalar{})}};
   std::vector<Scalar> coefficients(projected_size);

@@ -238,7 +238,7 @@ void validate_hermitian_adaptive_error_model(KrylovExponentialParams<Real> const
 template <uni20::RealOrComplex Scalar, typename Vector> struct HermitianExponentialProjection
 {
     std::vector<Vector> basis;
-    Matrix<uni20::make_real_t<Scalar>> projected;
+    uni20::DenseMatrix<uni20::make_real_t<Scalar>> projected;
     uni20::make_real_t<Scalar> initial_norm = uni20::make_real_t<Scalar>{};
     uni20::make_real_t<Scalar> residual_norm = uni20::make_real_t<Scalar>{};
     uni20::make_real_t<Scalar> basis_max_diag_error = uni20::make_real_t<Scalar>{};
@@ -252,14 +252,14 @@ template <uni20::RealOrComplex Scalar, typename Vector> struct HermitianExponent
 };
 
 template <uni20::Real Real>
-Matrix<Real> make_hermitian_projected_tridiagonal(std::vector<Real> const& diagonal,
-                                                  std::vector<Real> const& subdiagonal)
+uni20::DenseMatrix<Real> make_hermitian_projected_tridiagonal(std::vector<Real> const& diagonal,
+                                                              std::vector<Real> const& subdiagonal)
 {
   if (diagonal.size() > 0 && subdiagonal.size() + 1 != diagonal.size())
   {
     throw std::invalid_argument("Hermitian Krylov tridiagonal data have inconsistent sizes");
   }
-  Matrix<Real> projected(diagonal.size(), diagonal.size());
+  uni20::DenseMatrix<Real> projected(diagonal.size(), diagonal.size());
   laset(projected, Real{}, Real{}, MatrixFill::All);
   for (std::size_t i = 0; i < diagonal.size(); ++i)
   {
@@ -336,7 +336,7 @@ hermitian_exponential_projection(Ops& ops, Vector const& initial,
   if (result.initial_norm == Real{})
   {
     ops.set_zero(start);
-    result.projected = Matrix<Real>();
+    result.projected = uni20::DenseMatrix<Real>();
     result.happy_breakdown = true;
     return result;
   }
@@ -421,7 +421,8 @@ Vector combine_exponential_basis(Ops& ops, Vector const& prototype, std::vector<
   return action;
 }
 
-template <typename Scalar> std::vector<Scalar> first_column_scaled(Matrix<Scalar> const& exponential, Scalar scale)
+template <typename Scalar>
+std::vector<Scalar> first_column_scaled(uni20::DenseMatrix<Scalar> const& exponential, Scalar scale)
 {
   std::vector<Scalar> coefficients(static_cast<std::size_t>(exponential.rows()));
   for (uni20::index_type row = 0; row < exponential.rows(); ++row)
@@ -432,7 +433,7 @@ template <typename Scalar> std::vector<Scalar> first_column_scaled(Matrix<Scalar
 }
 
 template <uni20::RealOrComplex Scalar>
-std::vector<Scalar> first_real_column_scaled(Matrix<uni20::make_real_t<Scalar>> const& exponential,
+std::vector<Scalar> first_real_column_scaled(uni20::DenseMatrix<uni20::make_real_t<Scalar>> const& exponential,
                                              uni20::make_real_t<Scalar> scale)
 {
   std::vector<Scalar> coefficients(static_cast<std::size_t>(exponential.rows()));
@@ -474,8 +475,8 @@ uni20::complex<Real> projected_defect_delta(TridiagonalEigensystem<Real> const& 
 }
 
 template <uni20::Real Real, typename TimeScalar>
-Real hermitian_projected_defect_integral_estimate(Matrix<Real> const& projected, Real initial_norm, Real residual_norm,
-                                                  TimeScalar time)
+Real hermitian_projected_defect_integral_estimate(uni20::DenseMatrix<Real> const& projected, Real initial_norm,
+                                                  Real residual_norm, TimeScalar time)
 {
   if (projected.rows() != projected.cols())
   {
@@ -534,9 +535,10 @@ Real hermitian_projected_defect_integral_estimate(Matrix<Real> const& projected,
 
 template <typename TimeScalar, uni20::LapackScalar OutputScalar, typename InputScalar>
   requires std::constructible_from<OutputScalar, TimeScalar>
-Matrix<OutputScalar> projected_exponential(Matrix<InputScalar> const& projected, TimeScalar time)
+uni20::DenseMatrix<OutputScalar> projected_exponential(uni20::DenseMatrix<InputScalar> const& projected,
+                                                       TimeScalar time)
 {
-  Matrix<OutputScalar> scaled(projected.rows(), projected.cols());
+  uni20::DenseMatrix<OutputScalar> scaled(projected.rows(), projected.cols());
   OutputScalar const coefficient = static_cast<OutputScalar>(time);
   for (uni20::index_type row = 0; row < projected.rows(); ++row)
   {
@@ -545,7 +547,7 @@ Matrix<OutputScalar> projected_exponential(Matrix<InputScalar> const& projected,
       scaled[row, col] = coefficient * static_cast<OutputScalar>(projected[row, col]);
     }
   }
-  Matrix<OutputScalar> result(projected.rows(), projected.cols());
+  uni20::DenseMatrix<OutputScalar> result(projected.rows(), projected.cols());
   uni20::linalg::matrix_exponential(result, scaled, uni20::make_real_t<OutputScalar>{1});
   return result;
 }
@@ -594,7 +596,7 @@ make_hermitian_exponential_result(Ops& ops, Vector const& initial,
   using Real = uni20::make_real_t<Scalar>;
   using ProjectedScalar = std::conditional_t<uni20::Complex<Scalar>, Scalar, Real>;
 
-  Matrix<ProjectedScalar> const exponential =
+  uni20::DenseMatrix<ProjectedScalar> const exponential =
       projected_exponential<TimeScalar, ProjectedScalar>(projection.projected, time);
   std::vector<Scalar> const coefficients =
       first_column_scaled(exponential, static_cast<ProjectedScalar>(projection.initial_norm));
@@ -672,7 +674,7 @@ hermitian_krylov_exponential_action(Ops& ops, Vector const& initial, TimeScalar 
     {
       return false;
     }
-    Matrix<Real> const projected = detail::make_hermitian_projected_tridiagonal(diagonal, subdiagonal);
+    uni20::DenseMatrix<Real> const projected = detail::make_hermitian_projected_tridiagonal(diagonal, subdiagonal);
     Real const estimate =
         detail::hermitian_projected_defect_integral_estimate(projected, initial_norm, residual_norm, time);
     Real const target_error = detail::hermitian_exponential_target_error(params, initial_norm);
@@ -763,8 +765,8 @@ nonsymmetric_krylov_exponential_action(Ops& ops, Vector const& initial, TimeScal
 
   ArnoldiFactorization<Scalar, Vector> factorization =
       arnoldi_factorize<Scalar>(ops, initial, basis_limit, detail::exponential_breakdown_tolerance(params));
-  Matrix<Scalar> const projected = arnoldi_projected_hessenberg(factorization);
-  Matrix<Scalar> const exponential = detail::projected_exponential<TimeScalar, Scalar>(projected, time);
+  uni20::DenseMatrix<Scalar> const projected = arnoldi_projected_hessenberg(factorization);
+  uni20::DenseMatrix<Scalar> const exponential = detail::projected_exponential<TimeScalar, Scalar>(projected, time);
   std::vector<Scalar> const coefficients = detail::first_column_scaled(exponential, static_cast<Scalar>(initial_norm));
   Vector action =
       detail::combine_exponential_basis<Scalar>(ops, initial, factorization.basis, coefficients, coefficients.size());

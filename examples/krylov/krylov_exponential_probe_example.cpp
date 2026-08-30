@@ -437,7 +437,7 @@ template <typename Scalar>
   return residual_norm;
 }
 
-template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(uni20::krylov::Matrix<Scalar> const& z)
+template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(uni20::DenseMatrix<Scalar> const& z)
 {
   if (z.rows() != z.cols())
   {
@@ -445,7 +445,7 @@ template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(u
   }
   std::size_t const n = static_cast<std::size_t>(z.rows());
 
-  uni20::krylov::Matrix<Scalar> augmented(n + 1, n + 1);
+  uni20::DenseMatrix<Scalar> augmented(n + 1, n + 1);
   uni20::krylov::laset(augmented, Scalar{}, Scalar{}, uni20::krylov::MatrixFill::All);
   for (std::size_t row = 0; row < n; ++row)
   {
@@ -456,7 +456,7 @@ template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(u
   }
   augmented[0, n] = Scalar{1};
 
-  uni20::krylov::Matrix<Scalar> exponential(n + 1, n + 1);
+  uni20::DenseMatrix<Scalar> exponential(n + 1, n + 1);
   uni20::linalg::matrix_exponential(exponential, augmented, uni20::make_real_t<Scalar>{1});
   std::vector<Scalar> column(n);
   for (std::size_t row = 0; row < n; ++row)
@@ -569,7 +569,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   }
 
   std::size_t const projected_size = diagonal.size();
-  uni20::krylov::Matrix<Real> projected(projected_size, projected_size);
+  uni20::DenseMatrix<Real> projected(projected_size, projected_size);
   uni20::krylov::laset(projected, Real{}, Real{}, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
@@ -581,7 +581,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
     }
   }
 
-  uni20::krylov::Matrix<ProjectedScalar> scaled(projected_size, projected_size);
+  uni20::DenseMatrix<ProjectedScalar> scaled(projected_size, projected_size);
   ProjectedScalar const coefficient = static_cast<ProjectedScalar>(time);
   for (std::size_t row = 0; row < projected_size; ++row)
   {
@@ -591,7 +591,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
     }
   }
 
-  uni20::krylov::Matrix<ProjectedScalar> exponential(projected_size, projected_size);
+  uni20::DenseMatrix<ProjectedScalar> exponential(projected_size, projected_size);
   uni20::linalg::matrix_exponential(exponential, scaled, uni20::make_real_t<ProjectedScalar>{1});
   auto const phi1_column = phi1_first_column(scaled);
   auto const orthogonality = probe_basis_orthogonality(basis);

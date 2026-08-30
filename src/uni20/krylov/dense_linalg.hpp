@@ -6,7 +6,6 @@
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_traits.hpp>
 #include <uni20/krylov/detail_math.hpp>
-#include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/linalg/linalg.hpp>
 #include <uni20/mdspan/mdspan.hpp>
@@ -25,9 +24,6 @@
 namespace uni20::krylov
 {
 
-/// \brief Owning column-major dense matrix used for local Krylov subspace algebra.
-template <typename Scalar> using Matrix = uni20::DenseMatrix<Scalar>;
-
 /// \brief Owning row-major dense matrix retained for layout-specific Krylov helpers.
 template <typename Scalar> using RightMatrix = uni20::DenseMatrix<Scalar, uni20::RowMajor>;
 
@@ -43,11 +39,11 @@ template <typename Scalar> auto right_mdspan(RightMatrix<Scalar>& matrix) { retu
 /// \return Immutable rank-2 layout-right mdspan view.
 template <typename Scalar> auto right_mdspan(RightMatrix<Scalar> const& matrix) { return matrix.mdspan(); }
 
-/// \brief Copy a column-major Krylov matrix into a row-major prototype matrix.
+/// \brief Copy a column-major DenseMatrix into a row-major matrix.
 /// \tparam Scalar Element type.
 /// \param matrix Source column-major matrix.
 /// \return Row-major matrix with the same logical entries.
-template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(Matrix<Scalar> const& matrix)
+template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(uni20::DenseMatrix<Scalar> const& matrix)
 {
   RightMatrix<Scalar> result(matrix.rows(), matrix.cols());
   for (uni20::index_type row = 0; row < matrix.rows(); ++row)
@@ -60,13 +56,13 @@ template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(Matrix<Scalar>
   return result;
 }
 
-/// \brief Copy a row-major prototype matrix into a column-major Krylov matrix.
+/// \brief Copy a row-major matrix into a column-major DenseMatrix.
 /// \tparam Scalar Element type.
 /// \param matrix Source row-major matrix.
 /// \return Column-major matrix with the same logical entries.
-template <typename Scalar> Matrix<Scalar> copy_right_to_left(RightMatrix<Scalar> const& matrix)
+template <typename Scalar> uni20::DenseMatrix<Scalar> copy_right_to_left(RightMatrix<Scalar> const& matrix)
 {
-  Matrix<Scalar> result(matrix.rows(), matrix.cols());
+  uni20::DenseMatrix<Scalar> result(matrix.rows(), matrix.cols());
   for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
     for (uni20::index_type col = 0; col < matrix.cols(); ++col)
@@ -268,7 +264,8 @@ template <typename Scalar> Scalar dotc(std::span<Scalar const> x, std::span<Scal
 /// \param destination Destination matrix with the same shape as \p source.
 /// \param source Source matrix.
 /// \param fill Region to copy.
-template <typename Scalar> void lacpy(Matrix<Scalar>& destination, Matrix<Scalar> const& source, MatrixFill fill)
+template <typename Scalar>
+void lacpy(uni20::DenseMatrix<Scalar>& destination, uni20::DenseMatrix<Scalar> const& source, MatrixFill fill)
 {
   if (source.rows() != destination.rows() || source.cols() != destination.cols())
   {
@@ -294,7 +291,7 @@ template <typename Scalar> void lacpy(Matrix<Scalar>& destination, Matrix<Scalar
 /// \param off_diagonal Value written away from the diagonal.
 /// \param fill Region to set.
 template <typename Scalar>
-void laset(Matrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_diagonal, MatrixFill fill)
+void laset(uni20::DenseMatrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_diagonal, MatrixFill fill)
 {
   uni20::linalg::set_matrix(matrix, diagonal, off_diagonal, fill);
 }
@@ -308,7 +305,7 @@ void laset(Matrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_dia
 /// \param beta Scale factor for the original \p y value.
 /// \param transpose Matrix operation applied before multiplication.
 template <typename Scalar>
-void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar const> x,
+void gemv(std::span<Scalar> y, Scalar const& alpha, uni20::DenseMatrix<Scalar> const& matrix, std::span<Scalar const> x,
           Scalar const& beta, MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const output_size = transpose == MatrixTranspose::None ? matrix.rows() : matrix.cols();
@@ -364,7 +361,7 @@ void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix
 /// \param x Left vector.
 /// \param y Right vector.
 template <typename Scalar>
-void geru(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
+void geru(uni20::DenseMatrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
   if (x.size() != static_cast<std::size_t>(matrix.rows()) || y.size() != static_cast<std::size_t>(matrix.cols()))
   {
@@ -388,7 +385,7 @@ void geru(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x
 /// \param x Left vector.
 /// \param y Right vector, conjugated elementwise for complex scalar types.
 template <typename Scalar>
-void gerc(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
+void gerc(uni20::DenseMatrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
   if (x.size() != static_cast<std::size_t>(matrix.rows()) || y.size() != static_cast<std::size_t>(matrix.cols()))
   {

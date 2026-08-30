@@ -164,9 +164,10 @@ The native solver entry points are intended to mirror the ordinary precision
 coverage where the scalar category makes sense: real solver paths gain `f128`,
 complex solver paths gain `cf128`, and Hermitian paths gain both. The broad
 dense projected helper inventory remains quarantined in
-`dense_subspace_unused.hpp`; it is not part of the maintained binary128 test
-matrix. See [Dense BLAS/LAPACK Wrapper Coverage](../linalg/dense_blas_lapack_coverage.md)
-for that provider/helper inventory.
+`dense_subspace_unused.hpp`, but its dedicated regression source is compiled in
+the optional MPLAPACK binary128 test executable. See
+[Dense BLAS/LAPACK Wrapper Coverage](../linalg/dense_blas_lapack_coverage.md) for
+that provider/helper inventory.
 
 | algorithm or surface | `f128` | `cf128` | tests |
 | --- | --- | --- | --- |
@@ -176,9 +177,10 @@ for that provider/helper inventory.
 | Tensor reductions through the CPU reference backend | yes | no | `MplapackBinary128CpuOpsTest.TensorReductionsPreserveBinary128Values` |
 | Dense matrix exponential prescaling | yes | no | `MplapackBinary128CpuOpsTest.MatrixExponentialPrescalesWithinBinary128` |
 | Exact Tensor SVD | yes | yes | `MplapackBinary128CpuOpsTest.ExactSvdPreservesRealAndComplexBinary128Values`, `AsyncSvdTest.SupportsConfiguredFloat128Backend` |
+| Reduced Tensor QR and LQ | yes | n/a | `MplapackBinary128CpuOpsTest.ReducedQrAndLqPreserveBinary128Values` |
 | BlockTensor SVD and finite two-site DMRG | yes | yes | `SpinHalfHeisenbergDmrgFloat128Example`, `SpinHalfHeisenbergDmrgComplexFloat128Example`; the analytic four-site energy check requires fp128 agreement beyond double precision. |
-| Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; no maintained binary128 target. |
-| Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; no maintained binary128 target. |
+| Broad dense projected real helper inventory | regression | n/a | Quarantined API inventory exercised by `MplapackBinary128DenseSubspaceTest.*`. |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | regression | Quarantined API inventory exercised by `MplapackBinary128DenseSubspaceTest.*`. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |
 | Symmetric/Hermitian Lanczos, full projection | yes | no | `MplapackBinary128KrylovSolversTest.SymmetricLanczosResolvesDiagonalGapBelowDoublePrecision` |
 | Real nonsymmetric projected Schur kernels | yes | n/a | `MplapackBinary128KrylovSolversTest.RealSchurAndReorderUseBinary128ProjectedLAPACK`, `RealHessenbergSchurUsesBinary128ProjectedLAPACK` |

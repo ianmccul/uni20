@@ -3,6 +3,7 @@ add_test_module(linalg
     cpu/test_matrix_exponential.cpp
     test_async_dispatch.cpp
     test_async_matrix_product.cpp
+    test_async_qr_lq.cpp
     test_async_self_adjoint_eigh.cpp
     test_async_svd.cpp
     test_async_truncated_svd.cpp
@@ -17,6 +18,7 @@ add_test_module(linalg
     test_linear_solve.cpp
     test_matrix_norm.cpp
     test_matrix_product.cpp
+    test_qr_lq.cpp
     test_self_adjoint_eigh.cpp
     test_svd.cpp
     test_truncated_svd.cpp

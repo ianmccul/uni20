@@ -7,12 +7,14 @@ This directory contains LAPACK operation-tag backend adapters.
 - `common.hpp`: checked LAPACK workspace-query conversion helpers.
 - `matrix_norm.hpp`: general dense matrix norms through `lange`.
 - `linear_solve.hpp`: destructive dense general solves through `gesv`.
+- `lq.hpp`: reduced real LQ factorization through `gelqf` and `orglq`.
 - `tridiagonal_eigen.hpp`: symmetric tridiagonal eigenvalues and eigenvectors
   through `sterf` and `steqr`.
 - `nonsymmetric_eigen.hpp`: real and complex nonsymmetric eigensystems through
   `geev`, including real conjugate-pair unpacking.
 - `self_adjoint_eigh.hpp`: real symmetric and complex Hermitian eigensystems
   through `syev`/`heev`.
+- `qr.hpp`: reduced real QR factorization through `geqrf` and `orgqr`.
 - `svd.hpp`: exact real and complex singular value decompositions through
   `gesvd`, including values-only, one-sided, complete, and reduced-factor
   input-overwrite jobs.

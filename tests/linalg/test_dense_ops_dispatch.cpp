@@ -30,6 +30,8 @@ TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
   EXPECT_EQ(uni20::linalg::norm_op::name, "norm");
   EXPECT_EQ(uni20::linalg::matrix_norm_op::name, "matrix_norm");
   EXPECT_EQ(uni20::linalg::linear_solve_op::name, "linear_solve");
+  EXPECT_EQ(uni20::linalg::qr_op::name, "qr");
+  EXPECT_EQ(uni20::linalg::lq_op::name, "lq");
   EXPECT_EQ((uni20::linalg::sum_reduction_op<3, 1>::name), "sum");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");
   EXPECT_EQ(uni20::linalg::matrix_exponential_op::name, "matrix_exponential");

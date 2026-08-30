@@ -349,7 +349,7 @@ template <typename Scalar> class DenseShiftInvertOps {
       }
     }
 
-    uni20::krylov::Matrix<Scalar> factorized_coefficient_;
+    uni20::DenseMatrix<Scalar> factorized_coefficient_;
     std::vector<std::size_t> pivots_;
     int solve_count_ = 0;
 };

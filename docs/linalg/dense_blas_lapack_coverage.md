@@ -6,10 +6,13 @@ a provider/wrapper coverage survey, not the Krylov algorithm contract.
 
 Most broad utility rows below are retained in
 [`dense_subspace_unused.hpp`](../../src/uni20/krylov/dense_subspace_unused.hpp).
-That header is quarantined and excluded from the active Krylov target, so those
-rows do not define a supported linalg API. Rows explicitly described as
-dispatched are active dependencies of the maintained Krylov path and lower
-through the [dense linalg layer](../../src/uni20/linalg/).
+That header is quarantined from the default Krylov API and is not used by the
+maintained projected-problem path. Dedicated ordinary-precision and optional
+MPLAPACK binary128 regression sources still compile and exercise the inventory;
+this coverage does not make those helpers a supported linalg API. Rows
+explicitly described as dispatched are supported linalg operations and lower
+through the [dense linalg layer](../../src/uni20/linalg/); the maintained Krylov
+path uses the subset required by its algorithms.
 
 Keep this inventory synchronized with provider declarations and with any
 helpers promoted from the quarantined survey into operation-tag linalg
@@ -118,9 +121,9 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | Dense real symmetric indefinite reciprocal condition estimate | yes | yes | n/a | n/a | Dense projected symmetric indefinite one-norm reciprocal condition estimate through LAPACK `sytrf`/`sycon`. |
 | Dense real symmetric indefinite factorized reciprocal condition estimate | yes | yes | n/a | n/a | Dense projected symmetric indefinite one-norm reciprocal condition estimate from reusable Bunch-Kaufman factors through LAPACK `sycon`. |
 | Dense real compact QR factor application | yes | yes | n/a | n/a | Dense projected Householder QR factor application through LAPACK `ormqr`. |
-| Dense real QR factorization | yes | yes | n/a | n/a | Dense projected reduced QR through LAPACK `geqrf`/`orgqr`. |
+| Dense real QR factorization | yes | yes | n/a | n/a | Active `qr_op` dispatch computes reduced QR through LAPACK `geqrf`/`orgqr`. `qr_factorization` exposes destructive workspace semantics; `qr` preserves its input and returns owning column-major factors. |
 | Dense real compact LQ factor application | yes | yes | n/a | n/a | Dense projected Householder LQ factor application through LAPACK `ormlq`. |
-| Dense real LQ factorization | yes | yes | n/a | n/a | Dense projected reduced LQ through LAPACK `gelqf`/`orglq`. |
+| Dense real LQ factorization | yes | yes | n/a | n/a | Active `lq_op` dispatch computes reduced LQ through LAPACK `gelqf`/`orglq`. `lq_factorization` exposes destructive workspace semantics; `lq` preserves its input and returns owning column-major factors. |
 | Dense real compact QL factor application | yes | yes | n/a | n/a | Dense projected Householder QL factor application through LAPACK `ormql`. |
 | Dense real QL factorization | yes | yes | n/a | n/a | Dense projected reduced QL through LAPACK `geqlf`/`orgql`. |
 | Dense real compact RQ factor application | yes | yes | n/a | n/a | Dense projected Householder RQ factor application through LAPACK `ormrq`. |
@@ -185,10 +188,10 @@ provider/helper support; algorithm-level binary128 coverage remains in
 | --- | --- | --- | --- |
 | Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
 | MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
-| Checked LAPACK norms, core LU, and SVD wrappers | yes | yes | Provider wrappers cover `lange`, `lansy`/`lanhe`, `lantr`, `gesv`, `getrf`, `getrs`, `getri`, `gecon`, `gesvd`, `gesdd`, and `gesvdx`. |
-| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm evaluation, dense solve, tensor reductions, and matrix-exponential prescaling in binary128. Matrix norm and general solve now have operation-tag front ends suitable for migrating those probes from the legacy CPU dense container. |
-| Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; excluded from maintained Krylov targets. |
-| Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; excluded from maintained Krylov targets. |
+| Checked LAPACK norms, core LU, orthogonal factorizations, and SVD wrappers | yes | yes | Provider wrappers cover `lange`, `lansy`/`lanhe`, `lantr`, `gesv`, `getrf`, `getrs`, `getri`, `gecon`, real `geqrf`/`orgqr` and `gelqf`/`orglq`, plus `gesvd`, `gesdd`, and `gesvdx`. |
+| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover dispatched real one-norm evaluation, dense solve, reduced QR/LQ, tensor reductions, and matrix-exponential prescaling in binary128 over `uni20::DenseMatrix`. |
+| Broad dense projected real helper inventory | regression | n/a | Quarantined API inventory exercised by the optional MPLAPACK binary128 regression target. |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | regression | Quarantined API inventory exercised by the optional MPLAPACK binary128 regression target. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | Uses MPLAPACK `Rsterf`/`Rsteqr`; this is the projected problem behind real and complex Hermitian Lanczos. |
 | Real nonsymmetric projected eigensystem and Schur kernels | yes | n/a | Active wrapper surface covers `Rgeev`, `Rgees`, `Rhseqr`, and `Rtrexc`. |
 | Complex nonsymmetric projected eigensystem and Schur kernels | n/a | yes | Active wrapper surface covers `Cgeev`, `Cgees`, and `Ctrexc`. |

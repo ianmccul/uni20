@@ -23,7 +23,7 @@ TEST(KrylovDenseSubspace, SolvesSymmetricTridiagonalProjection)
 
 TEST(KrylovDenseSubspace, ReordersRealSchurBlocks)
 {
-  uni20::krylov::Matrix<double> matrix(2, 2);
+  uni20::DenseMatrix<double> matrix(2, 2);
   uni20::krylov::laset(matrix, 0.0, 0.0, uni20::krylov::MatrixFill::All);
   matrix[0, 0] = 1.0;
   matrix[1, 1] = 3.0;
@@ -38,7 +38,7 @@ TEST(KrylovDenseSubspace, ReordersRealSchurBlocks)
 
 TEST(KrylovDenseSubspace, SolvesRealNonsymmetricProjection)
 {
-  uni20::krylov::Matrix<double> matrix(2, 2);
+  uni20::DenseMatrix<double> matrix(2, 2);
   matrix[0, 0] = 1.0;
   matrix[0, 1] = -2.0;
   matrix[1, 0] = 2.0;
@@ -59,7 +59,7 @@ TEST(KrylovDenseSubspace, SolvesComplexNonsymmetricProjection)
 {
   using Complex = uni20::complex<double>;
 
-  uni20::krylov::Matrix<Complex> matrix(2, 2);
+  uni20::DenseMatrix<Complex> matrix(2, 2);
   uni20::krylov::laset(matrix, Complex{}, Complex{}, uni20::krylov::MatrixFill::All);
   matrix[0, 0] = Complex{1.0, 0.0};
   matrix[1, 1] = Complex{3.0, 0.0};

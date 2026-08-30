@@ -9,10 +9,21 @@ namespace uni20::krylov
 /// \details This header is intentionally opt-in. It keeps prototype wrappers tested
 ///          while avoiding default exposure from `dense_subspace.hpp`.
 
+namespace detail
+{
+
+/// \brief Column-major host matrix used by the direct LAPACK wrapper inventory.
+/// \details These quarantined helpers pass matrix storage directly to LAPACK and
+///          therefore encode the provider layout instead of relying on the
+///          default layout of `uni20::DenseMatrix`.
+template <typename Scalar> using ColumnMajorLapackMatrix = uni20::DenseMatrix<Scalar, uni20::ColumnMajor>;
+
+} // namespace detail
+
 template <uni20::LapackReal Scalar> struct RealSymmetricEigensystem
 {
     std::vector<Scalar> eigenvalues;
-    Matrix<Scalar> eigenvectors;
+    detail::ColumnMajorLapackMatrix<Scalar> eigenvectors;
 };
 
 /// \brief Eigenvalues and optional eigenvectors of a dense complex Hermitian matrix.
@@ -20,7 +31,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricEigensystem
 template <uni20::LapackComplexReal Real> struct ComplexHermitianEigensystem
 {
     std::vector<Real> eigenvalues;
-    Matrix<uni20::complex<Real>> eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> eigenvectors;
 };
 
 /// \brief Singular values and optional singular vectors of a dense real matrix.
@@ -28,15 +39,15 @@ template <uni20::LapackComplexReal Real> struct ComplexHermitianEigensystem
 template <uni20::LapackReal Scalar> struct RealSingularValueDecomposition
 {
     std::vector<Scalar> singular_values;
-    Matrix<Scalar> left_singular_vectors;
-    Matrix<Scalar> right_singular_vectors_transpose;
+    detail::ColumnMajorLapackMatrix<Scalar> left_singular_vectors;
+    detail::ColumnMajorLapackMatrix<Scalar> right_singular_vectors_transpose;
 };
 
 /// \brief LU factorization of a dense real square matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealLuFactorization
 {
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
 };
 
@@ -48,7 +59,7 @@ template <uni20::LapackReal Scalar> struct RealLuFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralBandMatrix
 {
-    Matrix<Scalar> storage;
+    detail::ColumnMajorLapackMatrix<Scalar> storage;
     std::size_t order = 0;
     std::size_t lower_bandwidth = 0;
     std::size_t upper_bandwidth = 0;
@@ -91,7 +102,7 @@ template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     RealGeneralTridiagonalFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -103,7 +114,7 @@ template <uni20::LapackReal Scalar> struct RealGeneralTridiagonalExpertLinearSol
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealGeneralBandExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     RealGeneralBandMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
     Scalar reciprocal_condition = Scalar{};
@@ -117,8 +128,8 @@ template <uni20::LapackReal Scalar> struct RealGeneralBandExpertLinearSolve
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_rows;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -131,7 +142,7 @@ template <uni20::LapackReal Scalar> struct RealExpertLinearSolve
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRefinedLinearSolve
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     std::vector<Scalar> forward_error_bounds;
     std::vector<Scalar> backward_error_bounds;
 };
@@ -151,8 +162,8 @@ template <uni20::LapackReal Scalar> struct RealEquilibration
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
     std::vector<Scalar> backward_error_bounds;
@@ -174,7 +185,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteEquilibr
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteFactorization
 {
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     MatrixFill triangle = MatrixFill::Upper;
 };
 
@@ -186,7 +197,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteFactoriz
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandMatrix
 {
-    Matrix<Scalar> storage;
+    detail::ColumnMajorLapackMatrix<Scalar> storage;
     std::size_t order = 0;
     std::size_t bandwidth = 0;
     MatrixFill triangle = MatrixFill::Upper;
@@ -203,7 +214,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandFact
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteBandExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     RealSymmetricPositiveDefiniteBandFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -240,7 +251,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiago
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> factorization;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -252,7 +263,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricPositiveDefiniteTridiago
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealPivotedCholeskyFactorization
 {
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     std::vector<std::size_t> pivot_order;
     std::size_t rank = 0;
     MatrixFill triangle = MatrixFill::Upper;
@@ -263,7 +274,7 @@ template <uni20::LapackReal Scalar> struct RealPivotedCholeskyFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteFactorization
 {
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     std::vector<int> pivot_blocks;
     MatrixFill triangle = MatrixFill::Upper;
 };
@@ -272,8 +283,8 @@ template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteExpertLinearSolve
 {
-    Matrix<Scalar> solution;
-    Matrix<Scalar> factors;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> factors;
     std::vector<int> pivot_blocks;
     Scalar reciprocal_condition = Scalar{};
     std::vector<Scalar> forward_error_bounds;
@@ -285,7 +296,7 @@ template <uni20::LapackReal Scalar> struct RealSymmetricIndefiniteExpertLinearSo
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRankRevealingLeastSquares
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     std::size_t rank = 0;
     std::vector<std::size_t> pivot_columns;
 };
@@ -294,7 +305,7 @@ template <uni20::LapackReal Scalar> struct RealRankRevealingLeastSquares
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSvdLeastSquares
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     std::size_t rank = 0;
     std::vector<Scalar> singular_values;
 };
@@ -303,7 +314,7 @@ template <uni20::LapackReal Scalar> struct RealSvdLeastSquares
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSylvesterSolution
 {
-    Matrix<Scalar> solution;
+    detail::ColumnMajorLapackMatrix<Scalar> solution;
     Scalar scale = Scalar{1};
     bool separation_perturbed = false;
 };
@@ -312,39 +323,39 @@ template <uni20::LapackReal Scalar> struct RealSylvesterSolution
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealQrFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> r;
+    detail::ColumnMajorLapackMatrix<Scalar> q;
+    detail::ColumnMajorLapackMatrix<Scalar> r;
 };
 
 /// \brief Reduced LQ factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealLqFactorization
 {
-    Matrix<Scalar> l;
-    Matrix<Scalar> q;
+    detail::ColumnMajorLapackMatrix<Scalar> l;
+    detail::ColumnMajorLapackMatrix<Scalar> q;
 };
 
 /// \brief Reduced QL factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealQlFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> l;
+    detail::ColumnMajorLapackMatrix<Scalar> q;
+    detail::ColumnMajorLapackMatrix<Scalar> l;
 };
 
 /// \brief Reduced RQ factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealRqFactorization
 {
-    Matrix<Scalar> r;
-    Matrix<Scalar> q;
+    detail::ColumnMajorLapackMatrix<Scalar> r;
+    detail::ColumnMajorLapackMatrix<Scalar> q;
 };
 
 /// \brief Compact Householder QR factorization of a dense real matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactQrFactorization
 {
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -353,7 +364,7 @@ template <uni20::LapackReal Scalar> struct RealCompactQrFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactLqFactorization
 {
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -362,7 +373,7 @@ template <uni20::LapackReal Scalar> struct RealCompactLqFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactQlFactorization
 {
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -371,7 +382,7 @@ template <uni20::LapackReal Scalar> struct RealCompactQlFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealCompactRqFactorization
 {
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t rank = 0;
 };
@@ -380,8 +391,8 @@ template <uni20::LapackReal Scalar> struct RealCompactRqFactorization
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealBidiagonalReduction
 {
-    Matrix<Scalar> bidiagonal;
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> bidiagonal;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> diagonal;
     std::vector<Scalar> offdiagonal;
     std::vector<Scalar> tauq;
@@ -394,16 +405,16 @@ template <uni20::LapackReal Scalar> struct RealBidiagonalReduction
 template <uni20::LapackReal Scalar> struct RealBidiagonalSvd
 {
     std::vector<Scalar> singular_values;
-    Matrix<Scalar> u;
-    Matrix<Scalar> vt;
+    detail::ColumnMajorLapackMatrix<Scalar> u;
+    detail::ColumnMajorLapackMatrix<Scalar> vt;
 };
 
 /// \brief Compact real Hessenberg reduction of a dense square matrix.
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealHessenbergReduction
 {
-    Matrix<Scalar> hessenberg;
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> hessenberg;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> tau;
     std::size_t first = 0;
     std::size_t last_exclusive = 0;
@@ -413,8 +424,8 @@ template <uni20::LapackReal Scalar> struct RealHessenbergReduction
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricTridiagonalReduction
 {
-    Matrix<Scalar> tridiagonal;
-    Matrix<Scalar> reflectors;
+    detail::ColumnMajorLapackMatrix<Scalar> tridiagonal;
+    detail::ColumnMajorLapackMatrix<Scalar> reflectors;
     std::vector<Scalar> diagonal;
     std::vector<Scalar> offdiagonal;
     std::vector<Scalar> tau;
@@ -425,8 +436,8 @@ template <uni20::LapackReal Scalar> struct RealSymmetricTridiagonalReduction
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealPivotedQrFactorization
 {
-    Matrix<Scalar> q;
-    Matrix<Scalar> r;
+    detail::ColumnMajorLapackMatrix<Scalar> q;
+    detail::ColumnMajorLapackMatrix<Scalar> r;
     std::vector<std::size_t> pivot_columns;
 };
 
@@ -436,7 +447,7 @@ template <uni20::LapackReal Scalar> struct RealPivotedQrFactorization
 template <uni20::LapackReal Real> struct RealNonsymmetricExpertEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> right_eigenvectors;
     std::vector<Real> reciprocal_eigenvalue_condition_numbers;
     std::vector<Real> reciprocal_eigenvector_condition_numbers;
     std::vector<Real> balance_scale;
@@ -458,7 +469,7 @@ enum class RealNonsymmetricBalanceJob
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealNonsymmetricBalance
 {
-    Matrix<Real> balanced_matrix;
+    detail::ColumnMajorLapackMatrix<Real> balanced_matrix;
     std::vector<Real> scale;
     std::size_t balanced_first = 0;
     std::size_t balanced_last_exclusive = 0;
@@ -471,7 +482,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricEigensystem
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> right_eigenvectors;
 };
 
 /// \brief Expert eigensystem diagnostics for a dense real nonsymmetric matrix pencil.
@@ -481,7 +492,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricExpertEigens
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> right_eigenvectors;
     std::vector<Real> reciprocal_eigenvalue_condition_numbers;
     std::vector<Real> reciprocal_eigenvector_condition_numbers;
     std::vector<Real> left_balance_scale;
@@ -496,8 +507,8 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricExpertEigens
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricBalance
 {
-    Matrix<Real> balanced_matrix;
-    Matrix<Real> balanced_metric;
+    detail::ColumnMajorLapackMatrix<Real> balanced_matrix;
+    detail::ColumnMajorLapackMatrix<Real> balanced_metric;
     std::vector<Real> left_scale;
     std::vector<Real> right_scale;
     std::size_t balanced_first = 0;
@@ -508,10 +519,10 @@ template <uni20::LapackReal Real> struct RealGeneralizedNonsymmetricBalance
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedHessenbergReduction
 {
-    Matrix<Real> matrix_hessenberg_form;
-    Matrix<Real> metric_triangular_form;
-    Matrix<Real> left_orthogonal_vectors;
-    Matrix<Real> right_orthogonal_vectors;
+    detail::ColumnMajorLapackMatrix<Real> matrix_hessenberg_form;
+    detail::ColumnMajorLapackMatrix<Real> metric_triangular_form;
+    detail::ColumnMajorLapackMatrix<Real> left_orthogonal_vectors;
+    detail::ColumnMajorLapackMatrix<Real> right_orthogonal_vectors;
     std::size_t first = 0;
     std::size_t last_exclusive = 0;
 };
@@ -521,10 +532,10 @@ template <uni20::LapackReal Real> struct RealGeneralizedHessenbergReduction
 
 template <uni20::LapackReal Real> struct RealGeneralizedSchurDecomposition
 {
-    Matrix<Real> matrix_schur_form;
-    Matrix<Real> metric_schur_form;
-    Matrix<Real> left_schur_vectors;
-    Matrix<Real> right_schur_vectors;
+    detail::ColumnMajorLapackMatrix<Real> matrix_schur_form;
+    detail::ColumnMajorLapackMatrix<Real> metric_schur_form;
+    detail::ColumnMajorLapackMatrix<Real> left_schur_vectors;
+    detail::ColumnMajorLapackMatrix<Real> right_schur_vectors;
     std::vector<uni20::complex<Real>> alpha;
     std::vector<Real> beta;
     std::vector<uni20::complex<Real>> eigenvalues;
@@ -548,7 +559,7 @@ template <uni20::LapackReal Real> struct RealGeneralizedSchurSelectedSubspace
 /// \tparam Real Underlying real precision.
 template <uni20::LapackReal Real> struct RealGeneralizedSchurRightEigenvectors
 {
-    Matrix<uni20::complex<Real>> right_eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> right_eigenvectors;
     std::size_t computed_vectors = 0;
 };
 
@@ -576,7 +587,7 @@ template <uni20::LapackReal Scalar> struct RealSchurSelectedSubspace
 /// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSchurRightEigenvectors
 {
-    Matrix<uni20::complex<Scalar>> right_eigenvectors;
+    detail::ColumnMajorLapackMatrix<uni20::complex<Scalar>> right_eigenvectors;
     std::size_t computed_vectors = 0;
 };
 
@@ -605,9 +616,10 @@ inline char lapack_uplo(MatrixFill fill)
   throw std::invalid_argument("dense symmetric LAPACK operation received an unknown triangle selector");
 }
 
-template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scalar> const& matrix, MatrixFill triangle)
+template <uni20::LapackReal Scalar>
+Scalar symmetric_matrix_one_norm(detail::ColumnMajorLapackMatrix<Scalar> const& matrix, MatrixFill triangle)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("symmetric_matrix_one_norm requires a square matrix");
   }
@@ -617,10 +629,10 @@ template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scal
   }
 
   Scalar norm{};
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     Scalar column_sum{};
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       if (triangle == MatrixFill::Upper)
       {
@@ -636,15 +648,16 @@ template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scal
   return norm;
 }
 
-template <typename Scalar> void mirror_selected_symmetric_triangle(Matrix<Scalar>& matrix, MatrixFill triangle)
+template <typename Scalar>
+void mirror_selected_symmetric_triangle(detail::ColumnMajorLapackMatrix<Scalar>& matrix, MatrixFill triangle)
 {
   if (triangle == MatrixFill::All)
   {
     throw std::invalid_argument("symmetric triangle mirroring requires an upper or lower triangle selector");
   }
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       if (triangle == MatrixFill::Upper && row > col)
       {
@@ -662,7 +675,7 @@ template <uni20::LapackReal Scalar>
 std::vector<blas_int>
 checked_symmetric_indefinite_pivots(RealSymmetricIndefiniteFactorization<Scalar> const& factorization)
 {
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   std::vector<blas_int> pivots(n);
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -721,7 +734,8 @@ inline char lapack_balance_job(RealNonsymmetricBalanceJob job)
 }
 } // namespace detail
 
-template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm)
+template <uni20::LapackReal Scalar>
+Scalar real_matrix_norm(detail::ColumnMajorLapackMatrix<Scalar> matrix, MatrixNorm norm)
 {
   if (matrix.rows() == 0 || matrix.cols() == 0)
   {
@@ -743,9 +757,10 @@ template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Requested symmetric matrix norm.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, MatrixFill triangle = MatrixFill::Upper)
+Scalar real_symmetric_matrix_norm(detail::ColumnMajorLapackMatrix<Scalar> matrix, MatrixNorm norm,
+                                  MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_matrix_norm requires a square matrix");
   }
@@ -772,8 +787,8 @@ Scalar real_symmetric_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matrix
 /// \param unit_diagonal Whether to treat the diagonal as all ones.
 /// \return Requested triangular/trapezoidal matrix norm.
 template <uni20::LapackReal Scalar>
-Scalar real_triangular_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, MatrixFill triangle = MatrixFill::Upper,
-                                   bool unit_diagonal = false)
+Scalar real_triangular_matrix_norm(detail::ColumnMajorLapackMatrix<Scalar> matrix, MatrixNorm norm,
+                                   MatrixFill triangle = MatrixFill::Upper, bool unit_diagonal = false)
 {
   if (matrix.rows() == 0 || matrix.cols() == 0)
   {
@@ -799,20 +814,20 @@ Scalar real_triangular_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matri
 /// \param upper_bandwidth Number of stored superdiagonals.
 /// \return General-band matrix in LAPACK factor-storage layout.
 template <uni20::LapackReal Scalar>
-RealGeneralBandMatrix<Scalar> real_general_band_from_dense(Matrix<Scalar> const& matrix, std::size_t lower_bandwidth,
-                                                           std::size_t upper_bandwidth)
+RealGeneralBandMatrix<Scalar> real_general_band_from_dense(detail::ColumnMajorLapackMatrix<Scalar> const& matrix,
+                                                           std::size_t lower_bandwidth, std::size_t upper_bandwidth)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_general_band_from_dense requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealGeneralBandMatrix<Scalar> result;
   result.order = n;
   result.lower_bandwidth = lower_bandwidth;
   result.upper_bandwidth = upper_bandwidth;
-  result.storage = Matrix<Scalar>(2 * lower_bandwidth + upper_bandwidth + 1, n);
+  result.storage = detail::ColumnMajorLapackMatrix<Scalar>(2 * lower_bandwidth + upper_bandwidth + 1, n);
 
   for (std::size_t col = 0; col < n; ++col)
   {
@@ -842,8 +857,8 @@ Scalar real_general_band_matrix_norm(RealGeneralBandMatrix<Scalar> band_matrix, 
   {
     return Scalar{};
   }
-  if (band_matrix.storage.cols() != band_matrix.order ||
-      band_matrix.storage.rows() < 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1)
+  if (!std::cmp_equal(band_matrix.storage.cols(), band_matrix.order) ||
+      std::cmp_less(band_matrix.storage.rows(), 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_matrix_norm received inconsistent band storage");
   }
@@ -865,14 +880,16 @@ Scalar real_general_band_matrix_norm(RealGeneralBandMatrix<Scalar> band_matrix, 
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficients,
+                        detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.storage.cols() != coefficients.order ||
-      coefficients.storage.rows() < 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument("real_general_band_solve received incompatible right-hand sides");
   }
@@ -898,8 +915,8 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficient
 template <uni20::LapackReal Scalar>
 RealGeneralBandFactorization<Scalar> real_general_band_factorization(RealGeneralBandMatrix<Scalar> matrix)
 {
-  if (matrix.storage.cols() != matrix.order ||
-      matrix.storage.rows() < 2 * matrix.lower_bandwidth + matrix.upper_bandwidth + 1)
+  if (!std::cmp_equal(matrix.storage.cols(), matrix.order) ||
+      std::cmp_less(matrix.storage.rows(), 2 * matrix.lower_bandwidth + matrix.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_factorization received inconsistent band storage");
   }
@@ -937,13 +954,14 @@ RealGeneralBandFactorization<Scalar> real_general_band_factorization(RealGeneral
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> const& factorization,
-                                       Matrix<Scalar> right_hand_sides,
-                                       MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_general_band_solve(RealGeneralBandFactorization<Scalar> const& factorization,
+                        detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                        MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (factorization.factors.storage.cols() != factorization.factors.order ||
-      factorization.factors.storage.rows() <
-          2 * factorization.factors.lower_bandwidth + factorization.factors.upper_bandwidth + 1)
+  if (!std::cmp_equal(factorization.factors.storage.cols(), factorization.factors.order) ||
+      std::cmp_less(factorization.factors.storage.rows(),
+                    2 * factorization.factors.lower_bandwidth + factorization.factors.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_solve received inconsistent band factors");
   }
@@ -951,7 +969,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
   {
     throw std::invalid_argument("real_general_band_solve received inconsistent pivot metadata");
   }
-  if (right_hand_sides.rows() != factorization.factors.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), factorization.factors.order))
   {
     throw std::invalid_argument("real_general_band_solve received incompatible right-hand sides");
   }
@@ -960,7 +978,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors.storage;
   std::vector<blas_int> pivots(factorization.factors.order);
   for (std::size_t index = 0; index < factorization.factors.order; ++index)
   {
@@ -988,9 +1006,10 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
 /// \param matrix Real square tridiagonal matrix.
 /// \return General tridiagonal matrix storage suitable for LAPACK `gtsv` and `gttrf`.
 template <uni20::LapackReal Scalar>
-RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<Scalar> const& matrix)
+RealGeneralTridiagonalMatrix<Scalar>
+real_general_tridiagonal_from_dense(detail::ColumnMajorLapackMatrix<Scalar> const& matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_general_tridiagonal_from_dense requires a square matrix");
   }
@@ -1002,7 +1021,7 @@ RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<
     result.lower_diagonal.resize(matrix.rows() - 1);
     result.upper_diagonal.resize(matrix.rows() - 1);
   }
-  for (std::size_t index = 0; index < matrix.rows(); ++index)
+  for (uni20::index_type index = 0; index < matrix.rows(); ++index)
   {
     result.diagonal[index] = matrix[index, index];
     if (index + 1 < matrix.rows())
@@ -1021,8 +1040,9 @@ RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                              Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
+                               detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.lower_diagonal.size() != (order == 0 ? 0 : order - 1) ||
@@ -1030,7 +1050,7 @@ Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scala
   {
     throw std::invalid_argument("real_general_tridiagonal_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument("real_general_tridiagonal_solve received incompatible right-hand sides");
   }
@@ -1103,9 +1123,10 @@ real_general_tridiagonal_factorization(RealGeneralTridiagonalMatrix<Scalar> matr
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalFactorization<Scalar> const& factorization,
-                                              Matrix<Scalar> right_hand_sides,
-                                              MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_general_tridiagonal_solve(RealGeneralTridiagonalFactorization<Scalar> const& factorization,
+                               detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                               MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = factorization.factors.order();
   if (factorization.factors.lower_diagonal.size() != (order == 0 ? 0 : order - 1) ||
@@ -1118,7 +1139,7 @@ Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalFactorizatio
   {
     throw std::invalid_argument("real_general_tridiagonal_solve received inconsistent pivot metadata");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument("real_general_tridiagonal_solve received incompatible right-hand sides");
   }
@@ -1266,9 +1287,10 @@ Scalar real_general_tridiagonal_one_norm_reciprocal_condition_number(RealGeneral
 /// \param transpose Matrix operation applied to the coefficient matrix.
 /// \return Solution and error-bound diagnostics.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                                                      Matrix<Scalar> right_hand_sides,
-                                                                      MatrixTranspose transpose = MatrixTranspose::None)
+RealRefinedLinearSolve<Scalar>
+real_general_tridiagonal_refined_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
+                                       detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                       MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.lower_diagonal.size() != (order == 0 ? 0 : order - 1) ||
@@ -1276,12 +1298,12 @@ RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGenera
   {
     throw std::invalid_argument("real_general_tridiagonal_refined_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument("real_general_tridiagonal_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -1344,7 +1366,7 @@ RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGenera
 template <uni20::LapackReal Scalar>
 RealGeneralTridiagonalExpertLinearSolve<Scalar>
 real_general_tridiagonal_expert_linear_solve(RealGeneralTridiagonalMatrix<Scalar> coefficients,
-                                             Matrix<Scalar> right_hand_sides,
+                                             detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                              MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const order = coefficients.order();
@@ -1354,14 +1376,14 @@ real_general_tridiagonal_expert_linear_solve(RealGeneralTridiagonalMatrix<Scalar
     throw std::invalid_argument(
         "real_general_tridiagonal_expert_linear_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument("real_general_tridiagonal_expert_linear_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealGeneralTridiagonalExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(right_hand_sides.rows(), rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(right_hand_sides.rows(), rhs_count);
   result.factorization.factors.diagonal.resize(order);
   result.factorization.factors.lower_diagonal.resize(order == 0 ? 0 : order - 1);
   result.factorization.factors.upper_diagonal.resize(order == 0 ? 0 : order - 1);
@@ -1421,9 +1443,9 @@ template <uni20::LapackReal Scalar>
 Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandFactorization<Scalar> const& factorization,
                                                               Scalar original_one_norm)
 {
-  if (factorization.factors.storage.cols() != factorization.factors.order ||
-      factorization.factors.storage.rows() <
-          2 * factorization.factors.lower_bandwidth + factorization.factors.upper_bandwidth + 1)
+  if (!std::cmp_equal(factorization.factors.storage.cols(), factorization.factors.order) ||
+      std::cmp_less(factorization.factors.storage.rows(),
+                    2 * factorization.factors.lower_bandwidth + factorization.factors.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_one_norm_reciprocal_condition_number received inconsistent factors");
   }
@@ -1440,7 +1462,7 @@ Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandFac
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors.storage;
   std::vector<blas_int> pivots(factorization.factors.order);
   for (std::size_t index = 0; index < factorization.factors.order; ++index)
   {
@@ -1489,20 +1511,20 @@ Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandMat
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar> real_general_band_refined_solve(RealGeneralBandMatrix<Scalar> coefficients,
-                                                               Matrix<Scalar> right_hand_sides,
+                                                               detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                                                MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (coefficients.storage.cols() != coefficients.order ||
-      coefficients.storage.rows() < 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_refined_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument("real_general_band_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -1557,27 +1579,29 @@ RealRefinedLinearSolve<Scalar> real_general_band_refined_solve(RealGeneralBandMa
 /// \return Banded solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealGeneralBandExpertLinearSolve<Scalar>
-real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients,
+                                      detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                       MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (coefficients.storage.cols() != coefficients.order ||
-      coefficients.storage.rows() < 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), 2 * coefficients.lower_bandwidth + coefficients.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_expert_linear_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument("real_general_band_expert_linear_solve received incompatible right-hand sides");
   }
 
   std::size_t const n = coefficients.order;
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealGeneralBandExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(n, rhs_count);
   result.factors.order = n;
   result.factors.lower_bandwidth = coefficients.lower_bandwidth;
   result.factors.upper_bandwidth = coefficients.upper_bandwidth;
-  result.factors.storage = Matrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
+  result.factors.storage =
+      detail::ColumnMajorLapackMatrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
   result.pivot_rows.resize(n);
   std::iota(result.pivot_rows.begin(), result.pivot_rows.end(), std::size_t{0});
   result.forward_error_bounds.resize(rhs_count);
@@ -1632,8 +1656,8 @@ real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients
 template <uni20::LapackReal Scalar>
 RealEquilibration<Scalar> real_general_band_equilibration(RealGeneralBandMatrix<Scalar> band_matrix)
 {
-  if (band_matrix.storage.cols() != band_matrix.order ||
-      band_matrix.storage.rows() < 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1)
+  if (!std::cmp_equal(band_matrix.storage.cols(), band_matrix.order) ||
+      std::cmp_less(band_matrix.storage.rows(), 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_equilibration received inconsistent band storage");
   }
@@ -1666,8 +1690,8 @@ RealEquilibration<Scalar> real_general_band_equilibration(RealGeneralBandMatrix<
 template <uni20::LapackReal Scalar>
 RealEquilibration<Scalar> real_general_band_power_of_two_equilibration(RealGeneralBandMatrix<Scalar> band_matrix)
 {
-  if (band_matrix.storage.cols() != band_matrix.order ||
-      band_matrix.storage.rows() < 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1)
+  if (!std::cmp_equal(band_matrix.storage.cols(), band_matrix.order) ||
+      std::cmp_less(band_matrix.storage.rows(), 2 * band_matrix.lower_bandwidth + band_matrix.upper_bandwidth + 1))
   {
     throw std::invalid_argument("real_general_band_power_of_two_equilibration received inconsistent band storage");
   }
@@ -1697,7 +1721,8 @@ RealEquilibration<Scalar> real_general_band_power_of_two_equilibration(RealGener
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real dense matrix.
 /// \return Row and column scaling factors plus equilibration diagnostics.
-template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealEquilibration<Scalar> real_equilibration(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
   RealEquilibration<Scalar> result;
   result.row_scale.assign(matrix.rows(), Scalar{1});
@@ -1722,9 +1747,10 @@ template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration
 /// \param matrix Real symmetric positive definite square matrix.
 /// \return Symmetric scaling factors plus equilibration diagnostics.
 template <uni20::LapackReal Scalar>
-RealSymmetricPositiveDefiniteEquilibration<Scalar> real_symmetric_positive_definite_equilibration(Matrix<Scalar> matrix)
+RealSymmetricPositiveDefiniteEquilibration<Scalar>
+real_symmetric_positive_definite_equilibration(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_equilibration requires a square matrix");
   }
@@ -1750,9 +1776,10 @@ RealSymmetricPositiveDefiniteEquilibration<Scalar> real_symmetric_positive_defin
 /// \return Cholesky factors and triangle metadata.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteFactorization<Scalar>
-real_symmetric_positive_definite_factorization(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+real_symmetric_positive_definite_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                               MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_factorization requires a square matrix");
   }
@@ -1782,10 +1809,10 @@ real_symmetric_positive_definite_factorization(Matrix<Scalar> matrix, MatrixFill
 /// \return SPD band matrix in LAPACK storage layout.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteBandMatrix<Scalar>
-real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, std::size_t bandwidth,
-                                                 MatrixFill triangle = MatrixFill::Upper)
+real_symmetric_positive_definite_band_from_dense(detail::ColumnMajorLapackMatrix<Scalar> const& matrix,
+                                                 std::size_t bandwidth, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_from_dense requires a square matrix");
   }
@@ -1794,12 +1821,12 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
     throw std::invalid_argument("real_symmetric_positive_definite_band_from_dense requires upper or lower storage");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricPositiveDefiniteBandMatrix<Scalar> result;
   result.order = n;
   result.bandwidth = bandwidth;
   result.triangle = triangle;
-  result.storage = Matrix<Scalar>(bandwidth + 1, n);
+  result.storage = detail::ColumnMajorLapackMatrix<Scalar>(bandwidth + 1, n);
 
   for (std::size_t col = 0; col < n; ++col)
   {
@@ -1832,14 +1859,16 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                           Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
+                                            detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), coefficients.bandwidth + 1))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_solve received incompatible right-hand sides");
   }
@@ -1865,7 +1894,8 @@ template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteBandFactorization<Scalar>
 real_symmetric_positive_definite_band_factorization(RealSymmetricPositiveDefiniteBandMatrix<Scalar> matrix)
 {
-  if (matrix.storage.cols() != matrix.order || matrix.storage.rows() < matrix.bandwidth + 1)
+  if (!std::cmp_equal(matrix.storage.cols(), matrix.order) ||
+      std::cmp_less(matrix.storage.rows(), matrix.bandwidth + 1))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_factorization received inconsistent band storage");
@@ -1896,16 +1926,16 @@ real_symmetric_positive_definite_band_factorization(RealSymmetricPositiveDefinit
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+detail::ColumnMajorLapackMatrix<Scalar>
 real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFactorization<Scalar> const& factorization,
-                                            Matrix<Scalar> right_hand_sides)
+                                            detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (factorization.factors.storage.cols() != factorization.factors.order ||
-      factorization.factors.storage.rows() < factorization.factors.bandwidth + 1)
+  if (!std::cmp_equal(factorization.factors.storage.cols(), factorization.factors.order) ||
+      std::cmp_less(factorization.factors.storage.rows(), factorization.factors.bandwidth + 1))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_solve received inconsistent band factors");
   }
-  if (right_hand_sides.rows() != factorization.factors.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), factorization.factors.order))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_solve received incompatible right-hand sides");
   }
@@ -1914,7 +1944,7 @@ real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFac
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors.storage;
   blas_int const n = detail::checked_blas_int(factorization.factors.order);
   blas_int const kd = detail::checked_blas_int(factorization.factors.bandwidth);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
@@ -1931,7 +1961,8 @@ real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFac
 template <uni20::LapackReal Scalar>
 Scalar real_symmetric_positive_definite_band_one_norm(RealSymmetricPositiveDefiniteBandMatrix<Scalar> const& matrix)
 {
-  if (matrix.storage.cols() != matrix.order || matrix.storage.rows() < matrix.bandwidth + 1)
+  if (!std::cmp_equal(matrix.storage.cols(), matrix.order) ||
+      std::cmp_less(matrix.storage.rows(), matrix.bandwidth + 1))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_band_one_norm received inconsistent band storage");
   }
@@ -1991,8 +2022,8 @@ template <uni20::LapackReal Scalar>
 Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_number(
     RealSymmetricPositiveDefiniteBandFactorization<Scalar> const& factorization, Scalar original_one_norm)
 {
-  if (factorization.factors.storage.cols() != factorization.factors.order ||
-      factorization.factors.storage.rows() < factorization.factors.bandwidth + 1)
+  if (!std::cmp_equal(factorization.factors.storage.cols(), factorization.factors.order) ||
+      std::cmp_less(factorization.factors.storage.rows(), factorization.factors.bandwidth + 1))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_one_norm_reciprocal_condition_number received inconsistent factors");
@@ -2012,7 +2043,7 @@ Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_numbe
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors.storage;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors.storage;
   blas_int const n = detail::checked_blas_int(factorization.factors.order);
   blas_int const kd = detail::checked_blas_int(factorization.factors.bandwidth);
   blas_int const ldab = detail::checked_blas_int(factors.rows());
@@ -2049,20 +2080,21 @@ Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_numbe
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar>
 real_symmetric_positive_definite_band_refined_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                    Matrix<Scalar> right_hand_sides)
+                                                    detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), coefficients.bandwidth + 1))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_refined_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -2104,27 +2136,29 @@ real_symmetric_positive_definite_band_refined_solve(RealSymmetricPositiveDefinit
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteBandExpertLinearSolve<Scalar>
 real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveDefiniteBandMatrix<Scalar> coefficients,
-                                                          Matrix<Scalar> right_hand_sides)
+                                                          detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.storage.cols() != coefficients.order || coefficients.storage.rows() < coefficients.bandwidth + 1)
+  if (!std::cmp_equal(coefficients.storage.cols(), coefficients.order) ||
+      std::cmp_less(coefficients.storage.rows(), coefficients.bandwidth + 1))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_expert_linear_solve received inconsistent band storage");
   }
-  if (right_hand_sides.rows() != coefficients.order)
+  if (!std::cmp_equal(right_hand_sides.rows(), coefficients.order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_band_expert_linear_solve received incompatible right-hand sides");
   }
 
   std::size_t const n = coefficients.order;
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSymmetricPositiveDefiniteBandExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(n, rhs_count);
   result.factorization.factors.order = n;
   result.factorization.factors.bandwidth = coefficients.bandwidth;
   result.factorization.factors.triangle = coefficients.triangle;
-  result.factorization.factors.storage = Matrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
+  result.factorization.factors.storage =
+      detail::ColumnMajorLapackMatrix<Scalar>(coefficients.storage.rows(), coefficients.storage.cols());
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
   result.scale.assign(n, Scalar{1});
@@ -2161,9 +2195,9 @@ real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveD
 /// \return Tridiagonal matrix storage suitable for LAPACK `ptsv` and `pttrf`.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar>
-real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& matrix)
+real_symmetric_positive_definite_tridiagonal_from_dense(detail::ColumnMajorLapackMatrix<Scalar> const& matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_tridiagonal_from_dense requires a square matrix");
   }
@@ -2174,7 +2208,7 @@ real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& ma
   {
     result.offdiagonal.resize(matrix.rows() - 1);
   }
-  for (std::size_t index = 0; index < matrix.rows(); ++index)
+  for (uni20::index_type index = 0; index < matrix.rows(); ++index)
   {
     result.diagonal[index] = matrix[index, index];
     if (index + 1 < matrix.rows())
@@ -2192,9 +2226,9 @@ real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& ma
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+detail::ColumnMajorLapackMatrix<Scalar>
 real_symmetric_positive_definite_tridiagonal_solve(RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients,
-                                                   Matrix<Scalar> right_hand_sides)
+                                                   detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2202,7 +2236,7 @@ real_symmetric_positive_definite_tridiagonal_solve(RealSymmetricPositiveDefinite
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_solve received incompatible right-hand sides");
@@ -2256,8 +2290,9 @@ real_symmetric_positive_definite_tridiagonal_factorization(
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
-    RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> const& factorization, Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
+    RealSymmetricPositiveDefiniteTridiagonalFactorization<Scalar> const& factorization,
+    detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = factorization.factors.order();
   if (factorization.factors.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2265,7 +2300,7 @@ Matrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_solve received inconsistent tridiagonal factors");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_solve received incompatible right-hand sides");
@@ -2375,7 +2410,8 @@ Scalar real_symmetric_positive_definite_tridiagonal_one_norm_reciprocal_conditio
 /// \return Solution and error-bound diagnostics.
 template <uni20::LapackReal Scalar>
 RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refined_solve(
-    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients,
+    detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2383,13 +2419,13 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refi
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_refined_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -2428,7 +2464,8 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refi
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve<Scalar>
 real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
-    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+    RealSymmetricPositiveDefiniteTridiagonalMatrix<Scalar> coefficients,
+    detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
   std::size_t const order = coefficients.order();
   if (coefficients.offdiagonal.size() != (order == 0 ? 0 : order - 1))
@@ -2436,15 +2473,15 @@ real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_expert_linear_solve received inconsistent tridiagonal storage");
   }
-  if (right_hand_sides.rows() != order)
+  if (!std::cmp_equal(right_hand_sides.rows(), order))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_tridiagonal_expert_linear_solve received incompatible right-hand sides");
   }
 
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSymmetricPositiveDefiniteTridiagonalExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(right_hand_sides.rows(), rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(right_hand_sides.rows(), rhs_count);
   result.factorization.factors.diagonal.resize(order);
   result.factorization.factors.offdiagonal.resize(order == 0 ? 0 : order - 1);
   result.forward_error_bounds.resize(rhs_count);
@@ -2482,16 +2519,16 @@ real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Pivoted Cholesky factors, 0-based pivot order, rank, and rank-deficiency flag.
 template <uni20::LapackReal Scalar>
-RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(Matrix<Scalar> matrix,
-                                                                             Scalar tolerance = Scalar{-1},
-                                                                             MatrixFill triangle = MatrixFill::Upper)
+RealPivotedCholeskyFactorization<Scalar>
+real_pivoted_cholesky_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix, Scalar tolerance = Scalar{-1},
+                                    MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_pivoted_cholesky_factorization requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealPivotedCholeskyFactorization<Scalar> result;
   result.factors = std::move(matrix);
   result.pivot_order.resize(n);
@@ -2535,18 +2572,20 @@ RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(Mat
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_dense_solve_linear_system(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_dense_solve_linear_system(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                               detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_dense_solve_linear_system requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_dense_solve_linear_system received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
   if (n == 0)
   {
     return right_hand_sides;
@@ -2571,22 +2610,23 @@ Matrix<Scalar> real_dense_solve_linear_system(Matrix<Scalar> coefficients, Matri
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
-RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+RealExpertLinearSolve<Scalar> real_expert_linear_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                                       detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_expert_linear_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_expert_linear_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(n, rhs_count);
+  result.factors = detail::ColumnMajorLapackMatrix<Scalar>(n, n);
   result.pivot_rows.resize(n);
   std::iota(result.pivot_rows.begin(), result.pivot_rows.end(), std::size_t{0});
   result.forward_error_bounds.resize(rhs_count);
@@ -2629,14 +2669,15 @@ RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficien
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to factor.
 /// \return LU factors and row-pivot metadata.
-template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealLuFactorization<Scalar> real_lu_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_lu_factorization requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealLuFactorization<Scalar> result;
   result.factors = std::move(matrix);
   result.pivot_rows.resize(n);
@@ -2669,19 +2710,20 @@ template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factoriz
 /// \param transpose Matrix operation applied to the original coefficient matrix.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, Matrix<Scalar> right_hand_sides,
-                             MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization,
+                                                      detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                                      MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument("real_lu_solve requires square LU factors");
   }
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   if (factorization.pivot_rows.size() != n)
   {
     throw std::invalid_argument("real_lu_solve received inconsistent pivot metadata");
   }
-  if (right_hand_sides.rows() != n)
+  if (!std::cmp_equal(right_hand_sides.rows(), n))
   {
     throw std::invalid_argument("real_lu_solve received incompatible right-hand sides");
   }
@@ -2690,7 +2732,7 @@ Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, M
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots(n);
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -2719,20 +2761,21 @@ Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, M
 /// \param transpose Matrix operation applied to the coefficient matrix.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_refined_linear_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+RealRefinedLinearSolve<Scalar> real_refined_linear_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                                         detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                                          MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_refined_linear_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_refined_linear_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -2742,7 +2785,7 @@ RealRefinedLinearSolve<Scalar> real_refined_linear_solve(Matrix<Scalar> coeffici
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   std::vector<blas_int> pivots(n);
@@ -2771,7 +2814,7 @@ template <uni20::LapackReal Scalar>
 Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> const& factorization,
                                                     Scalar original_one_norm)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument("real_lu_one_norm_reciprocal_condition_number requires square LU factors");
   }
@@ -2780,13 +2823,13 @@ Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> 
     throw std::invalid_argument("real_lu_one_norm_reciprocal_condition_number requires a nonnegative matrix norm");
   }
 
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   if (n == 0)
   {
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   std::vector<Scalar> work(static_cast<std::size_t>(4 * order), Scalar{});
   std::vector<blas_int> iwork(n);
@@ -2799,9 +2842,10 @@ Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> 
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix.
 /// \return Estimate of `1 / (||A||_1 * ||inv(A)||_1)`.
-template <uni20::LapackReal Scalar> Scalar real_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+Scalar real_one_norm_reciprocal_condition_number(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  Scalar const norm = matrix_one_norm(matrix);
+  Scalar const norm = uni20::linalg::matrix_norm_host(matrix, uni20::linalg::MatrixNorm::One);
   auto factorization = real_lu_factorization(std::move(matrix));
   return real_lu_one_norm_reciprocal_condition_number(factorization, norm);
 }
@@ -2819,20 +2863,21 @@ template <uni20::LapackReal Scalar> Scalar real_one_norm_reciprocal_condition_nu
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_triangular_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                     MatrixFill triangle = MatrixFill::Upper,
-                                     MatrixTranspose transpose = MatrixTranspose::None, bool unit_diagonal = false)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_triangular_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                      detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides, MatrixFill triangle = MatrixFill::Upper,
+                      MatrixTranspose transpose = MatrixTranspose::None, bool unit_diagonal = false)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_triangular_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_triangular_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
   if (n == 0 || right_hand_sides.cols() == 0)
   {
     return right_hand_sides;
@@ -2859,22 +2904,23 @@ Matrix<Scalar> real_triangular_solve(Matrix<Scalar> coefficients, Matrix<Scalar>
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar>
-real_triangular_refined_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                              MatrixFill triangle = MatrixFill::Upper,
-                              MatrixTranspose transpose = MatrixTranspose::None, bool unit_diagonal = false)
+RealRefinedLinearSolve<Scalar> real_triangular_refined_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                                             detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                                             MatrixFill triangle = MatrixFill::Upper,
+                                                             MatrixTranspose transpose = MatrixTranspose::None,
+                                                             bool unit_diagonal = false)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_triangular_refined_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_triangular_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -2909,15 +2955,16 @@ real_triangular_refined_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Dense triangular inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper,
-                                       bool unit_diagonal = false)
+detail::ColumnMajorLapackMatrix<Scalar> real_triangular_inverse(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                                MatrixFill triangle = MatrixFill::Upper,
+                                                                bool unit_diagonal = false)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_triangular_inverse requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return matrix;
@@ -2956,16 +3003,16 @@ Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangl
 /// \param unit_diagonal Whether the triangular diagonal is implicitly unit.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_triangular_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
+Scalar real_triangular_one_norm_reciprocal_condition_number(detail::ColumnMajorLapackMatrix<Scalar> matrix,
                                                             MatrixFill triangle = MatrixFill::Upper,
                                                             bool unit_diagonal = false)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_triangular_one_norm_reciprocal_condition_number requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return Scalar{1};
@@ -2995,19 +3042,21 @@ Scalar real_triangular_one_norm_reciprocal_condition_number(Matrix<Scalar> matri
 /// \param transpose_right Operation applied to `B`.
 /// \return Dense Sylvester solution, scale factor, and perturbation diagnostic.
 template <uni20::LapackReal Scalar>
-RealSylvesterSolution<Scalar> real_sylvester_solve(Matrix<Scalar> left, Matrix<Scalar> right, Matrix<Scalar> rhs,
-                                                   int sign = 1, MatrixTranspose transpose_left = MatrixTranspose::None,
+RealSylvesterSolution<Scalar> real_sylvester_solve(detail::ColumnMajorLapackMatrix<Scalar> left,
+                                                   detail::ColumnMajorLapackMatrix<Scalar> right,
+                                                   detail::ColumnMajorLapackMatrix<Scalar> rhs, int sign = 1,
+                                                   MatrixTranspose transpose_left = MatrixTranspose::None,
                                                    MatrixTranspose transpose_right = MatrixTranspose::None)
 {
-  if (left.rows() != left.cols())
+  if (!std::cmp_equal(left.rows(), left.cols()))
   {
     throw std::invalid_argument("real_sylvester_solve requires a square left matrix");
   }
-  if (right.rows() != right.cols())
+  if (!std::cmp_equal(right.rows(), right.cols()))
   {
     throw std::invalid_argument("real_sylvester_solve requires a square right matrix");
   }
-  if (rhs.rows() != left.rows() || rhs.cols() != right.rows())
+  if (!std::cmp_equal(rhs.rows(), left.rows()) || !std::cmp_equal(rhs.cols(), right.rows()))
   {
     throw std::invalid_argument("real_sylvester_solve received incompatible right-hand side dimensions");
   }
@@ -3040,14 +3089,15 @@ RealSylvesterSolution<Scalar> real_sylvester_solve(Matrix<Scalar> left, Matrix<S
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to invert.
 /// \return Dense inverse matrix.
-template <uni20::LapackReal Scalar> Matrix<Scalar> real_dense_inverse(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+detail::ColumnMajorLapackMatrix<Scalar> real_dense_inverse(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_dense_inverse requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return matrix;
@@ -3077,28 +3127,30 @@ template <uni20::LapackReal Scalar> Matrix<Scalar> real_dense_inverse(Matrix<Sca
 /// \param right_hand_sides Dense right-hand-side matrix `B` with matching row count.
 /// \return Dense solution matrix `X`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar> real_least_squares(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                                           detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_least_squares received incompatible right-hand sides");
   }
 
-  std::size_t const rows = coefficients.rows();
-  std::size_t const cols = coefficients.cols();
-  std::size_t const rhs_count = right_hand_sides.cols();
-  Matrix<Scalar> solution(cols, rhs_count);
+  std::size_t const rows = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const cols = static_cast<std::size_t>(coefficients.cols());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
+  detail::ColumnMajorLapackMatrix<Scalar> solution(cols, rhs_count);
   if (cols == 0 || rhs_count == 0)
   {
     return solution;
   }
   if (rows == 0)
   {
+    std::fill_n(solution.data(), solution.size(), Scalar{});
     return solution;
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  detail::ColumnMajorLapackMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3142,28 +3194,34 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 /// \param rcond Relative singular-value threshold used by LAPACK to determine rank.
 /// \return Dense solution, numerical rank, and singular values of `A`.
 template <uni20::LapackReal Scalar>
-RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+RealSvdLeastSquares<Scalar> real_svd_least_squares(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                                   detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                                    Scalar rcond = Scalar{100} *
                                                                   uni20::numeric_limits<Scalar>::epsilon())
 {
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_svd_least_squares received incompatible right-hand sides");
   }
 
-  std::size_t const rows = coefficients.rows();
-  std::size_t const cols = coefficients.cols();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rows = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const cols = static_cast<std::size_t>(coefficients.cols());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSvdLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  detail::ColumnMajorLapackMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3216,27 +3274,33 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
 /// \return Dense solution, numerical rank, and singular values of `A`.
 template <uni20::LapackReal Scalar>
 RealSvdLeastSquares<Scalar>
-real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_divide_and_conquer_svd_least_squares(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                          detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                           Scalar rcond = Scalar{100} * uni20::numeric_limits<Scalar>::epsilon())
 {
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_divide_and_conquer_svd_least_squares received incompatible right-hand sides");
   }
 
-  std::size_t const rows = coefficients.rows();
-  std::size_t const cols = coefficients.cols();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rows = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const cols = static_cast<std::size_t>(coefficients.cols());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSvdLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.singular_values.resize(std::min(rows, cols));
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  detail::ColumnMajorLapackMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3291,28 +3355,34 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
 /// \return Dense solution, numerical rank, and column pivot order.
 template <uni20::LapackReal Scalar>
 RealRankRevealingLeastSquares<Scalar>
-real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_rank_revealing_least_squares(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                  detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                   Scalar rcond = Scalar{100} * uni20::numeric_limits<Scalar>::epsilon())
 {
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_rank_revealing_least_squares received incompatible right-hand sides");
   }
 
-  std::size_t const rows = coefficients.rows();
-  std::size_t const cols = coefficients.cols();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const rows = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const cols = static_cast<std::size_t>(coefficients.cols());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRankRevealingLeastSquares<Scalar> result;
-  result.solution = Matrix<Scalar>(cols, rhs_count);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(cols, rhs_count);
   result.pivot_columns.resize(cols);
   std::iota(result.pivot_columns.begin(), result.pivot_columns.end(), std::size_t{0});
-  if (cols == 0 || rhs_count == 0 || rows == 0)
+  if (cols == 0 || rhs_count == 0)
   {
+    return result;
+  }
+  if (rows == 0)
+  {
+    std::fill_n(result.solution.data(), result.solution.size(), Scalar{});
     return result;
   }
 
   std::size_t const workspace_rows = std::max(rows, cols);
-  Matrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
+  detail::ColumnMajorLapackMatrix<Scalar> rhs_workspace(workspace_rows, rhs_count);
   for (std::size_t row = 0; row < rows; ++row)
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
@@ -3374,19 +3444,21 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                                      MatrixFill triangle = MatrixFill::Upper)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_positive_definite_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                       detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                       MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
   if (n == 0 || right_hand_sides.cols() == 0)
   {
     return right_hand_sides;
@@ -3406,16 +3478,16 @@ Matrix<Scalar> real_symmetric_positive_definite_solve(Matrix<Scalar> coefficient
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
+detail::ColumnMajorLapackMatrix<Scalar>
 real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorization<Scalar> const& factorization,
-                                       Matrix<Scalar> right_hand_sides)
+                                       detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_solve requires square Cholesky factors");
   }
-  std::size_t const n = factorization.factors.rows();
-  if (right_hand_sides.rows() != n)
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
+  if (!std::cmp_equal(right_hand_sides.rows(), n))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_solve received incompatible right-hand sides");
   }
@@ -3424,7 +3496,7 @@ real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorizatio
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const uplo = detail::lapack_uplo(factorization.triangle);
@@ -3443,22 +3515,23 @@ real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorizatio
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Matrix<Scalar> coefficients,
-                                                                              Matrix<Scalar> right_hand_sides,
-                                                                              MatrixFill triangle = MatrixFill::Upper)
+RealRefinedLinearSolve<Scalar>
+real_symmetric_positive_definite_refined_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                               detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                               MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_refined_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -3468,7 +3541,7 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Ma
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   char const uplo = detail::lapack_uplo(triangle);
@@ -3497,23 +3570,24 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Ma
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealSymmetricPositiveDefiniteExpertLinearSolve<Scalar>
-real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_symmetric_positive_definite_expert_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                              detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                               MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_expert_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_expert_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSymmetricPositiveDefiniteExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(n, rhs_count);
+  result.factors = detail::ColumnMajorLapackMatrix<Scalar>(n, n);
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
   result.scale.assign(n, Scalar{1});
@@ -3549,16 +3623,17 @@ real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
-                                                                             MatrixFill triangle = MatrixFill::Upper)
+Scalar
+real_symmetric_positive_definite_one_norm_reciprocal_condition_number(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                                      MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_one_norm_reciprocal_condition_number requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return Scalar{1};
@@ -3584,7 +3659,7 @@ template <uni20::LapackReal Scalar>
 Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
     RealSymmetricPositiveDefiniteFactorization<Scalar> const& factorization, Scalar original_one_norm)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument(
         "real_symmetric_positive_definite_one_norm_reciprocal_condition_number requires square Cholesky factors");
@@ -3595,13 +3670,13 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
         "real_symmetric_positive_definite_one_norm_reciprocal_condition_number requires a nonnegative matrix norm");
   }
 
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   if (n == 0)
   {
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(factorization.triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
@@ -3618,14 +3693,16 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Dense symmetric inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_positive_definite_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_positive_definite_inverse(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                         MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_positive_definite_inverse requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return matrix;
@@ -3649,14 +3726,15 @@ Matrix<Scalar> real_symmetric_positive_definite_inverse(Matrix<Scalar> matrix, M
 /// \return Bunch-Kaufman factors, signed pivot blocks, and triangle metadata.
 template <uni20::LapackReal Scalar>
 RealSymmetricIndefiniteFactorization<Scalar>
-real_symmetric_indefinite_factorization(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+real_symmetric_indefinite_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                        MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_factorization requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricIndefiniteFactorization<Scalar> result;
   result.factors = std::move(matrix);
   result.pivot_blocks.resize(n);
@@ -3696,19 +3774,21 @@ real_symmetric_indefinite_factorization(Matrix<Scalar> matrix, MatrixFill triang
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
-                                               MatrixFill triangle = MatrixFill::Upper)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_indefinite_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
   if (n == 0 || right_hand_sides.cols() == 0)
   {
     return right_hand_sides;
@@ -3736,19 +3816,20 @@ Matrix<Scalar> real_symmetric_indefinite_solve(Matrix<Scalar> coefficients, Matr
 /// \param right_hand_sides Dense right-hand-side matrix with matching row count.
 /// \return Dense solution matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorization<Scalar> const& factorization,
-                                               Matrix<Scalar> right_hand_sides)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorization<Scalar> const& factorization,
+                                detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_solve requires square Bunch-Kaufman factors");
   }
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   if (factorization.pivot_blocks.size() != n)
   {
     throw std::invalid_argument("real_symmetric_indefinite_solve received inconsistent pivot metadata");
   }
-  if (right_hand_sides.rows() != n)
+  if (!std::cmp_equal(right_hand_sides.rows(), n))
   {
     throw std::invalid_argument("real_symmetric_indefinite_solve received incompatible right-hand sides");
   }
@@ -3757,7 +3838,7 @@ Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorizat
     return right_hand_sides;
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots = detail::checked_symmetric_indefinite_pivots(factorization);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
@@ -3777,21 +3858,22 @@ Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorizat
 /// \param triangle Triangle of \p coefficients supplied to LAPACK.
 /// \return Refined solution and LAPACK error estimates.
 template <uni20::LapackReal Scalar>
-RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Scalar> coefficients,
-                                                                       Matrix<Scalar> right_hand_sides,
-                                                                       MatrixFill triangle = MatrixFill::Upper)
+RealRefinedLinearSolve<Scalar>
+real_symmetric_indefinite_refined_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                        detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
+                                        MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_refined_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_refined_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealRefinedLinearSolve<Scalar> result;
   result.solution = right_hand_sides;
   result.forward_error_bounds.resize(rhs_count);
@@ -3801,7 +3883,7 @@ RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Sc
     return result;
   }
 
-  Matrix<Scalar> factors = coefficients;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = coefficients;
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   char const uplo = detail::lapack_uplo(triangle);
@@ -3834,14 +3916,16 @@ RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Sc
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Dense symmetric inverse matrix.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_indefinite_inverse(Matrix<Scalar> matrix, MatrixFill triangle = MatrixFill::Upper)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_indefinite_inverse(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                  MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_inverse requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return matrix;
@@ -3877,23 +3961,24 @@ Matrix<Scalar> real_symmetric_indefinite_inverse(Matrix<Scalar> matrix, MatrixFi
 /// \return Dense solution and LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 RealSymmetricIndefiniteExpertLinearSolve<Scalar>
-real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_hand_sides,
+real_symmetric_indefinite_expert_solve(detail::ColumnMajorLapackMatrix<Scalar> coefficients,
+                                       detail::ColumnMajorLapackMatrix<Scalar> right_hand_sides,
                                        MatrixFill triangle = MatrixFill::Upper)
 {
-  if (coefficients.rows() != coefficients.cols())
+  if (!std::cmp_equal(coefficients.rows(), coefficients.cols()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_expert_solve requires a square coefficient matrix");
   }
-  if (coefficients.rows() != right_hand_sides.rows())
+  if (!std::cmp_equal(coefficients.rows(), right_hand_sides.rows()))
   {
     throw std::invalid_argument("real_symmetric_indefinite_expert_solve received incompatible right-hand sides");
   }
 
-  std::size_t const n = coefficients.rows();
-  std::size_t const rhs_count = right_hand_sides.cols();
+  std::size_t const n = static_cast<std::size_t>(coefficients.rows());
+  std::size_t const rhs_count = static_cast<std::size_t>(right_hand_sides.cols());
   RealSymmetricIndefiniteExpertLinearSolve<Scalar> result;
-  result.solution = Matrix<Scalar>(n, rhs_count);
-  result.factors = Matrix<Scalar>(n, n);
+  result.solution = detail::ColumnMajorLapackMatrix<Scalar>(n, rhs_count);
+  result.factors = detail::ColumnMajorLapackMatrix<Scalar>(n, n);
   result.pivot_blocks.resize(n);
   result.forward_error_bounds.resize(rhs_count);
   result.backward_error_bounds.resize(rhs_count);
@@ -3941,16 +4026,16 @@ real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scala
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Estimated one-norm reciprocal condition number.
 template <uni20::LapackReal Scalar>
-Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(Matrix<Scalar> matrix,
+Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(detail::ColumnMajorLapackMatrix<Scalar> matrix,
                                                                       MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument(
         "real_symmetric_indefinite_one_norm_reciprocal_condition_number requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0)
   {
     return Scalar{1};
@@ -3986,7 +4071,7 @@ template <uni20::LapackReal Scalar>
 Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
     RealSymmetricIndefiniteFactorization<Scalar> const& factorization, Scalar original_one_norm)
 {
-  if (factorization.factors.rows() != factorization.factors.cols())
+  if (!std::cmp_equal(factorization.factors.rows(), factorization.factors.cols()))
   {
     throw std::invalid_argument(
         "real_symmetric_indefinite_one_norm_reciprocal_condition_number requires square Bunch-Kaufman factors");
@@ -3997,7 +4082,7 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
         "real_symmetric_indefinite_one_norm_reciprocal_condition_number requires a nonnegative matrix norm");
   }
 
-  std::size_t const n = factorization.factors.rows();
+  std::size_t const n = static_cast<std::size_t>(factorization.factors.rows());
   if (factorization.pivot_blocks.size() != n)
   {
     throw std::invalid_argument(
@@ -4008,7 +4093,7 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
     return Scalar{1};
   }
 
-  Matrix<Scalar> factors = factorization.factors;
+  detail::ColumnMajorLapackMatrix<Scalar> factors = factorization.factors;
   std::vector<blas_int> pivots = detail::checked_symmetric_indefinite_pivots(factorization);
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(factorization.triangle);
@@ -4029,20 +4114,21 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matrix, bool compute_vectors,
+RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                            bool compute_vectors,
                                                             MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_eigensystem requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricEigensystem<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4057,7 +4143,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   uni20::lapack::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4073,21 +4159,21 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
-                                                                               bool compute_vectors,
-                                                                               MatrixFill triangle = MatrixFill::Upper)
+RealSymmetricEigensystem<Scalar>
+real_symmetric_eigensystem_divide_and_conquer(detail::ColumnMajorLapackMatrix<Scalar> matrix, bool compute_vectors,
+                                              MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_eigensystem_divide_and_conquer requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricEigensystem<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4107,7 +4193,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
   uni20::lapack::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                        iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4125,16 +4211,17 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Selected eigenvalues and, optionally, selected eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, std::size_t first_index,
-                                                                        std::size_t last_index, bool compute_vectors,
+RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                                        std::size_t first_index, std::size_t last_index,
+                                                                        bool compute_vectors,
                                                                         MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_eigensystem_index_range requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0 || first_index > last_index || last_index >= n)
   {
     throw std::invalid_argument("real_symmetric_eigensystem_index_range received an invalid index range");
@@ -4150,7 +4237,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Scalar work_query{};
@@ -4175,7 +4262,7 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
     throw std::runtime_error("LAPACK syevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4192,29 +4279,30 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<Scalar> matrix, Matrix<Scalar> metric,
+RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                                        detail::ColumnMajorLapackMatrix<Scalar> metric,
                                                                         bool compute_vectors,
                                                                         MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricEigensystem<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4231,7 +4319,7 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
   uni20::lapack::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                       work.data(), lwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4250,30 +4338,31 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackReal Scalar>
 RealSymmetricEigensystem<Scalar>
-real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix, Matrix<Scalar> metric,
+real_generalized_symmetric_eigensystem_divide_and_conquer(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                          detail::ColumnMajorLapackMatrix<Scalar> metric,
                                                           bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem_divide_and_conquer requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument(
         "real_generalized_symmetric_eigensystem_divide_and_conquer requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument(
         "real_generalized_symmetric_eigensystem_divide_and_conquer received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricEigensystem<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -4293,7 +4382,7 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
   uni20::lapack::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                        work.data(), lwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4313,26 +4402,25 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Selected eigenvalues and, optionally, selected generalized eigenvectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricEigensystem<Scalar>
-real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix<Scalar> metric,
-                                                   std::size_t first_index, std::size_t last_index,
-                                                   bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
+RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem_index_range(
+    detail::ColumnMajorLapackMatrix<Scalar> matrix, detail::ColumnMajorLapackMatrix<Scalar> metric,
+    std::size_t first_index, std::size_t last_index, bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem_index_range requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem_index_range requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument(
         "real_generalized_symmetric_eigensystem_index_range received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0 || first_index > last_index || last_index >= n)
   {
     throw std::invalid_argument("real_generalized_symmetric_eigensystem_index_range received an invalid index range");
@@ -4348,7 +4436,7 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, 5 * order)), 0);
   std::vector<blas_int> ifail(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
@@ -4372,7 +4460,7 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
   }
 
   result.eigenvalues.resize(selected);
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -4386,22 +4474,22 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
 /// \param triangle Triangle of \p matrix supplied to LAPACK.
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackComplexReal Real>
-ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix,
-                                                                bool compute_vectors,
-                                                                MatrixFill triangle = MatrixFill::Upper)
+ComplexHermitianEigensystem<Real>
+complex_hermitian_eigensystem(detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix, bool compute_vectors,
+                              MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("complex_hermitian_eigensystem requires a square matrix");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexHermitianEigensystem<Real> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4419,7 +4507,7 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
   uni20::lapack::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                       rwork.data());
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4433,21 +4521,21 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
 /// \return Eigenvalues and, optionally, eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> matrix, bool compute_vectors,
-                                                 MatrixFill triangle = MatrixFill::Upper)
+complex_hermitian_eigensystem_divide_and_conquer(detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix,
+                                                 bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("complex_hermitian_eigensystem_divide_and_conquer requires a square matrix");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexHermitianEigensystem<Real> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4470,7 +4558,7 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
   uni20::lapack::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
                        rwork.data(), lrwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4486,17 +4574,17 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
 /// \return Selected eigenvalues and, optionally, selected eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, std::size_t first_index,
-                                          std::size_t last_index, bool compute_vectors,
+complex_hermitian_eigensystem_index_range(detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix,
+                                          std::size_t first_index, std::size_t last_index, bool compute_vectors,
                                           MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("complex_hermitian_eigensystem_index_range requires a square matrix");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0 || first_index > last_index || last_index >= n)
   {
     throw std::invalid_argument("complex_hermitian_eigensystem_index_range received an invalid index range");
@@ -4512,7 +4600,7 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Complex work_query{};
@@ -4540,7 +4628,7 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
     throw std::runtime_error("LAPACK heevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4556,29 +4644,30 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
 ComplexHermitianEigensystem<Real>
-complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, Matrix<uni20::complex<Real>> metric,
+complex_generalized_hermitian_eigensystem(detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix,
+                                          detail::ColumnMajorLapackMatrix<uni20::complex<Real>> metric,
                                           bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("complex_generalized_hermitian_eigensystem requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("complex_generalized_hermitian_eigensystem requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("complex_generalized_hermitian_eigensystem received incompatible matrix sizes");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexHermitianEigensystem<Real> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4596,7 +4685,7 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
   uni20::lapack::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                       work.data(), lwork, rwork.data());
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4610,34 +4699,34 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Eigenvalues and, optionally, generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
-ComplexHermitianEigensystem<Real>
-complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> matrix,
-                                                             Matrix<uni20::complex<Real>> metric, bool compute_vectors,
-                                                             MatrixFill triangle = MatrixFill::Upper)
+ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_divide_and_conquer(
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix,
+    detail::ColumnMajorLapackMatrix<uni20::complex<Real>> metric, bool compute_vectors,
+    MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument(
         "complex_generalized_hermitian_eigensystem_divide_and_conquer requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument(
         "complex_generalized_hermitian_eigensystem_divide_and_conquer requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument(
         "complex_generalized_hermitian_eigensystem_divide_and_conquer received incompatible matrix sizes");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexHermitianEigensystem<Real> result;
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Complex>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Complex>(0, 0);
     return result;
   }
 
@@ -4660,7 +4749,7 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
   uni20::lapack::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                        work.data(), lwork, rwork.data(), lrwork, iwork.data(), liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(matrix) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4676,27 +4765,29 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
 /// \param triangle Triangle of \p matrix and \p metric supplied to LAPACK.
 /// \return Selected eigenvalues and, optionally, selected generalized eigenvectors.
 template <uni20::LapackComplexReal Real>
-ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_index_range(
-    Matrix<uni20::complex<Real>> matrix, Matrix<uni20::complex<Real>> metric, std::size_t first_index,
-    std::size_t last_index, bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
+ComplexHermitianEigensystem<Real>
+complex_generalized_hermitian_eigensystem_index_range(detail::ColumnMajorLapackMatrix<uni20::complex<Real>> matrix,
+                                                      detail::ColumnMajorLapackMatrix<uni20::complex<Real>> metric,
+                                                      std::size_t first_index, std::size_t last_index,
+                                                      bool compute_vectors, MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("complex_generalized_hermitian_eigensystem_index_range requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument(
         "complex_generalized_hermitian_eigensystem_index_range requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument(
         "complex_generalized_hermitian_eigensystem_index_range received incompatible matrix sizes");
   }
 
   using Complex = uni20::complex<Real>;
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   if (n == 0 || first_index > last_index || last_index >= n)
   {
     throw std::invalid_argument(
@@ -4713,7 +4804,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   char const uplo = detail::lapack_uplo(triangle);
-  Matrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Complex> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<Real> rwork(static_cast<std::size_t>(std::max<blas_int>(1, 7 * order)), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, 5 * order)), 0);
@@ -4738,7 +4829,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
   }
 
   result.eigenvalues.resize(selected);
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Complex>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : detail::ColumnMajorLapackMatrix<Complex>(0, 0);
   return result;
 }
 
@@ -4750,10 +4841,10 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
 /// \param matrix Real matrix to factor.
 /// \return Compact QR reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactQrFactorization<Scalar> real_compact_qr_factorization(Matrix<Scalar> matrix)
+RealCompactQrFactorization<Scalar> real_compact_qr_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealCompactQrFactorization<Scalar> result;
@@ -4791,12 +4882,13 @@ RealCompactQrFactorization<Scalar> real_compact_qr_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Left,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& factorization,
+                                                             detail::ColumnMajorLapackMatrix<Scalar> target,
+                                                             MatrixSide side = MatrixSide::Left,
+                                                             MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const reflector_rows = factorization.reflectors.rows();
-  std::size_t const reflector_cols = factorization.reflectors.cols();
+  std::size_t const reflector_rows = static_cast<std::size_t>(factorization.reflectors.rows());
+  std::size_t const reflector_cols = static_cast<std::size_t>(factorization.reflectors.cols());
   if (factorization.rank > std::min(reflector_rows, reflector_cols))
   {
     throw std::invalid_argument("apply_real_qr_factor received inconsistent QR reflector dimensions");
@@ -4806,11 +4898,11 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
     throw std::invalid_argument("apply_real_qr_factor received too few QR scalar factors");
   }
 
-  if (side == MatrixSide::Left && target.rows() != reflector_rows)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), reflector_rows))
   {
     throw std::invalid_argument("apply_real_qr_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != reflector_rows)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), reflector_rows))
   {
     throw std::invalid_argument("apply_real_qr_factor right application requires matching target column count");
   }
@@ -4819,7 +4911,7 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -4848,16 +4940,17 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced QR factors.
-template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealQrFactorization<Scalar> real_qr_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
   auto compact = real_compact_qr_factorization(std::move(matrix));
-  std::size_t const rows = compact.reflectors.rows();
-  std::size_t const cols = compact.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(compact.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(compact.reflectors.cols());
   std::size_t const rank = compact.rank;
 
   RealQrFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.r = Matrix<Scalar>(rank, cols);
+  result.q = detail::ColumnMajorLapackMatrix<Scalar>(rows, rank);
+  result.r = detail::ColumnMajorLapackMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -4903,10 +4996,10 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact LQ reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactLqFactorization<Scalar> real_compact_lq_factorization(Matrix<Scalar> matrix)
+RealCompactLqFactorization<Scalar> real_compact_lq_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealCompactLqFactorization<Scalar> result;
@@ -4944,12 +5037,13 @@ RealCompactLqFactorization<Scalar> real_compact_lq_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Right,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& factorization,
+                                                             detail::ColumnMajorLapackMatrix<Scalar> target,
+                                                             MatrixSide side = MatrixSide::Right,
+                                                             MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const reflector_rows = factorization.reflectors.rows();
-  std::size_t const reflector_cols = factorization.reflectors.cols();
+  std::size_t const reflector_rows = static_cast<std::size_t>(factorization.reflectors.rows());
+  std::size_t const reflector_cols = static_cast<std::size_t>(factorization.reflectors.cols());
   if (factorization.rank > std::min(reflector_rows, reflector_cols))
   {
     throw std::invalid_argument("apply_real_lq_factor received inconsistent LQ reflector dimensions");
@@ -4959,11 +5053,11 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
     throw std::invalid_argument("apply_real_lq_factor received too few LQ scalar factors");
   }
 
-  if (side == MatrixSide::Left && target.rows() != reflector_cols)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), reflector_cols))
   {
     throw std::invalid_argument("apply_real_lq_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != reflector_cols)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), reflector_cols))
   {
     throw std::invalid_argument("apply_real_lq_factor right application requires matching target column count");
   }
@@ -4972,7 +5066,7 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5001,16 +5095,17 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced LQ factors.
-template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealLqFactorization<Scalar> real_lq_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
   auto compact = real_compact_lq_factorization(std::move(matrix));
-  std::size_t const rows = compact.reflectors.rows();
-  std::size_t const cols = compact.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(compact.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(compact.reflectors.cols());
   std::size_t const rank = compact.rank;
 
   RealLqFactorization<Scalar> result;
-  result.l = Matrix<Scalar>(rows, rank);
-  result.q = Matrix<Scalar>(rank, cols);
+  result.l = detail::ColumnMajorLapackMatrix<Scalar>(rows, rank);
+  result.q = detail::ColumnMajorLapackMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5056,10 +5151,10 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact QL reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactQlFactorization<Scalar> real_compact_ql_factorization(Matrix<Scalar> matrix)
+RealCompactQlFactorization<Scalar> real_compact_ql_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealCompactQlFactorization<Scalar> result;
@@ -5097,12 +5192,13 @@ RealCompactQlFactorization<Scalar> real_compact_ql_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Left,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& factorization,
+                                                             detail::ColumnMajorLapackMatrix<Scalar> target,
+                                                             MatrixSide side = MatrixSide::Left,
+                                                             MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const reflector_rows = factorization.reflectors.rows();
-  std::size_t const reflector_cols = factorization.reflectors.cols();
+  std::size_t const reflector_rows = static_cast<std::size_t>(factorization.reflectors.rows());
+  std::size_t const reflector_cols = static_cast<std::size_t>(factorization.reflectors.cols());
   if (factorization.rank > std::min(reflector_rows, reflector_cols))
   {
     throw std::invalid_argument("apply_real_ql_factor received inconsistent QL reflector dimensions");
@@ -5112,11 +5208,11 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
     throw std::invalid_argument("apply_real_ql_factor received too few QL scalar factors");
   }
 
-  if (side == MatrixSide::Left && target.rows() != reflector_rows)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), reflector_rows))
   {
     throw std::invalid_argument("apply_real_ql_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != reflector_rows)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), reflector_rows))
   {
     throw std::invalid_argument("apply_real_ql_factor right application requires matching target column count");
   }
@@ -5125,7 +5221,7 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5154,16 +5250,17 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced QL factors.
-template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealQlFactorization<Scalar> real_ql_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
   auto compact = real_compact_ql_factorization(std::move(matrix));
-  std::size_t const rows = compact.reflectors.rows();
-  std::size_t const cols = compact.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(compact.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(compact.reflectors.cols());
   std::size_t const rank = compact.rank;
 
   RealQlFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.l = Matrix<Scalar>(rank, cols);
+  result.q = detail::ColumnMajorLapackMatrix<Scalar>(rows, rank);
+  result.l = detail::ColumnMajorLapackMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5213,10 +5310,10 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
 /// \param matrix Real matrix to factor.
 /// \return Compact RQ reflector data and scalar factors.
 template <uni20::LapackReal Scalar>
-RealCompactRqFactorization<Scalar> real_compact_rq_factorization(Matrix<Scalar> matrix)
+RealCompactRqFactorization<Scalar> real_compact_rq_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealCompactRqFactorization<Scalar> result;
@@ -5254,12 +5351,13 @@ RealCompactRqFactorization<Scalar> real_compact_rq_factorization(Matrix<Scalar> 
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& factorization, Matrix<Scalar> target,
-                                    MatrixSide side = MatrixSide::Right,
-                                    MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& factorization,
+                                                             detail::ColumnMajorLapackMatrix<Scalar> target,
+                                                             MatrixSide side = MatrixSide::Right,
+                                                             MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const reflector_rows = factorization.reflectors.rows();
-  std::size_t const reflector_cols = factorization.reflectors.cols();
+  std::size_t const reflector_rows = static_cast<std::size_t>(factorization.reflectors.rows());
+  std::size_t const reflector_cols = static_cast<std::size_t>(factorization.reflectors.cols());
   if (factorization.rank > std::min(reflector_rows, reflector_cols))
   {
     throw std::invalid_argument("apply_real_rq_factor received inconsistent RQ reflector dimensions");
@@ -5269,11 +5367,11 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
     throw std::invalid_argument("apply_real_rq_factor received too few RQ scalar factors");
   }
 
-  if (side == MatrixSide::Left && target.rows() != reflector_cols)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), reflector_cols))
   {
     throw std::invalid_argument("apply_real_rq_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != reflector_cols)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), reflector_cols))
   {
     throw std::invalid_argument("apply_real_rq_factor right application requires matching target column count");
   }
@@ -5282,7 +5380,7 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
     return target;
   }
 
-  Matrix<Scalar> reflectors = factorization.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = factorization.reflectors;
   std::vector<Scalar> tau = factorization.tau;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5311,16 +5409,17 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to factor.
 /// \return Reduced RQ factors.
-template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factorization(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealRqFactorization<Scalar> real_rq_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
   auto compact = real_compact_rq_factorization(std::move(matrix));
-  std::size_t const rows = compact.reflectors.rows();
-  std::size_t const cols = compact.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(compact.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(compact.reflectors.cols());
   std::size_t const rank = compact.rank;
 
   RealRqFactorization<Scalar> result;
-  result.r = Matrix<Scalar>(rows, rank);
-  result.q = Matrix<Scalar>(rank, cols);
+  result.r = detail::ColumnMajorLapackMatrix<Scalar>(rows, rank);
+  result.q = detail::ColumnMajorLapackMatrix<Scalar>(rank, cols);
   if (rank == 0)
   {
     return result;
@@ -5372,14 +5471,15 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real matrix to reduce.
 /// \return Bidiagonal form plus compact Householder reflectors.
-template <uni20::LapackReal Scalar> RealBidiagonalReduction<Scalar> real_bidiagonal_reduction(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealBidiagonalReduction<Scalar> real_bidiagonal_reduction(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealBidiagonalReduction<Scalar> result;
-  result.bidiagonal = Matrix<Scalar>(rows, cols);
+  result.bidiagonal = detail::ColumnMajorLapackMatrix<Scalar>(rows, cols);
   result.reflectors = std::move(matrix);
   result.diagonal.resize(rank);
   result.offdiagonal.resize(rank > 0 ? rank - 1 : 0);
@@ -5498,15 +5598,15 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd(std::vector<Scalar> diagonal, std:
   result.singular_values = std::move(diagonal);
   if (order == 0)
   {
-    result.u = Matrix<Scalar>(0, 0);
-    result.vt = Matrix<Scalar>(0, 0);
+    result.u = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.vt = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
   blas_int const n = detail::checked_blas_int(order);
   char const compq = compute_vectors ? 'I' : 'N';
-  Matrix<Scalar> u(compute_vectors ? order : 1, compute_vectors ? order : 1);
-  Matrix<Scalar> vt(compute_vectors ? order : 1, compute_vectors ? order : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> u(compute_vectors ? order : 1, compute_vectors ? order : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> vt(compute_vectors ? order : 1, compute_vectors ? order : 1);
   blas_int const leading_dimension = compute_vectors ? n : 1;
   Scalar dummy_subdiagonal{};
   Scalar* e = offdiagonal.empty() ? &dummy_subdiagonal : offdiagonal.data();
@@ -5518,8 +5618,8 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd(std::vector<Scalar> diagonal, std:
   uni20::lapack::bdsdc(upper ? 'U' : 'L', compq, n, result.singular_values.data(), e, u.data(), leading_dimension,
                        vt.data(), leading_dimension, q.data(), iq.data(), work.data(), iwork.data());
 
-  result.u = compute_vectors ? std::move(u) : Matrix<Scalar>(0, 0);
-  result.vt = compute_vectors ? std::move(vt) : Matrix<Scalar>(0, 0);
+  result.u = compute_vectors ? std::move(u) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+  result.vt = compute_vectors ? std::move(vt) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -5579,7 +5679,7 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
   // bdsvdx uses S(1:N) and up to N vector columns internally before discarding
   // unselected values.
   std::vector<Scalar> singular_values_workspace(order, Scalar{});
-  Matrix<Scalar> z(compute_vectors ? 2 * order : 1, compute_vectors ? order : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> z(compute_vectors ? 2 * order : 1, compute_vectors ? order : 1);
   blas_int const ldz = compute_vectors ? detail::checked_blas_int(2 * order) : 1;
   std::vector<Scalar> work(std::max<std::size_t>(1, 14 * order), Scalar{});
   std::vector<blas_int> iwork(std::max<std::size_t>(1, 12 * order), 0);
@@ -5596,13 +5696,13 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
 
   if (!compute_vectors)
   {
-    result.u = Matrix<Scalar>(0, 0);
-    result.vt = Matrix<Scalar>(0, 0);
+    result.u = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.vt = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
-  result.u = Matrix<Scalar>(order, selected);
-  result.vt = Matrix<Scalar>(selected, order);
+  result.u = detail::ColumnMajorLapackMatrix<Scalar>(order, selected);
+  result.vt = detail::ColumnMajorLapackMatrix<Scalar>(selected, order);
   for (std::size_t col = 0; col < selected; ++col)
   {
     for (std::size_t row = 0; row < order; ++row)
@@ -5637,15 +5737,13 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(RealBidiagonalReductio
 ///        `real_bidiagonal_reduction`.
 /// \return Full `Q` factor satisfying `A = Q * B * P^T`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Scalar> const& reduction)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Scalar> const& reduction)
 {
-  std::size_t const rows = reduction.reflectors.rows();
-  std::size_t const cols = reduction.reflectors.cols();
-  Matrix<Scalar> factor(rows, rows);
-  for (std::size_t index = 0; index < rows; ++index)
-  {
-    factor[index, index] = Scalar{1};
-  }
+  std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
+  detail::ColumnMajorLapackMatrix<Scalar> factor(rows, rows);
+  laset(factor, Scalar{1}, Scalar{}, MatrixFill::All);
   if (rows == 0 || cols == 0)
   {
     return factor;
@@ -5688,15 +5786,13 @@ Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Sc
 ///        `real_bidiagonal_reduction`.
 /// \return Full `P^T` factor satisfying `A = Q * B * P^T`.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalReduction<Scalar> const& reduction)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalReduction<Scalar> const& reduction)
 {
-  std::size_t const rows = reduction.reflectors.rows();
-  std::size_t const cols = reduction.reflectors.cols();
-  Matrix<Scalar> factor(cols, cols);
-  for (std::size_t index = 0; index < cols; ++index)
-  {
-    factor[index, index] = Scalar{1};
-  }
+  std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
+  detail::ColumnMajorLapackMatrix<Scalar> factor(cols, cols);
+  laset(factor, Scalar{1}, Scalar{}, MatrixFill::All);
   if (rows == 0 || cols == 0)
   {
     return factor;
@@ -5742,23 +5838,24 @@ Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalR
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar> const& reduction,
-                                                 Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                 MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar>
+apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar> const& reduction,
+                                  detail::ColumnMajorLapackMatrix<Scalar> target, MatrixSide side = MatrixSide::Left,
+                                  MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const rows = reduction.reflectors.rows();
-  std::size_t const cols = reduction.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
   std::size_t const rank = std::min(rows, cols);
   if (reduction.tauq.size() < rank)
   {
     throw std::invalid_argument("apply_real_bidiagonal_left_factor received too few Q scalar factors");
   }
-  if (side == MatrixSide::Left && target.rows() != rows)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), rows))
   {
     throw std::invalid_argument(
         "apply_real_bidiagonal_left_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != rows)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), rows))
   {
     throw std::invalid_argument(
         "apply_real_bidiagonal_left_factor right application requires matching target column count");
@@ -5768,7 +5865,7 @@ Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar>
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = reduction.reflectors;
   std::vector<Scalar> tau = reduction.tauq;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5801,23 +5898,24 @@ Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar>
 /// \param transpose Matrix operation applied to `P`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar> const& reduction,
-                                                  Matrix<Scalar> target, MatrixSide side = MatrixSide::Right,
-                                                  MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar>
+apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar> const& reduction,
+                                   detail::ColumnMajorLapackMatrix<Scalar> target, MatrixSide side = MatrixSide::Right,
+                                   MatrixTranspose transpose = MatrixTranspose::None)
 {
-  std::size_t const rows = reduction.reflectors.rows();
-  std::size_t const cols = reduction.reflectors.cols();
+  std::size_t const rows = static_cast<std::size_t>(reduction.reflectors.rows());
+  std::size_t const cols = static_cast<std::size_t>(reduction.reflectors.cols());
   std::size_t const rank = std::min(rows, cols);
   if (reduction.taup.size() < rank)
   {
     throw std::invalid_argument("apply_real_bidiagonal_right_factor received too few P scalar factors");
   }
-  if (side == MatrixSide::Left && target.rows() != cols)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), cols))
   {
     throw std::invalid_argument(
         "apply_real_bidiagonal_right_factor left application requires matching target row count");
   }
-  if (side == MatrixSide::Right && target.cols() != cols)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), cols))
   {
     throw std::invalid_argument(
         "apply_real_bidiagonal_right_factor right application requires matching target column count");
@@ -5827,7 +5925,7 @@ Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = reduction.reflectors;
   std::vector<Scalar> tau = reduction.taup;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
@@ -5858,22 +5956,23 @@ Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param matrix Real square matrix to reduce.
 /// \return Upper Hessenberg form plus compact Householder reflectors.
-template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenberg_reduction(Matrix<Scalar> matrix)
+template <uni20::LapackReal Scalar>
+RealHessenbergReduction<Scalar> real_hessenberg_reduction(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_hessenberg_reduction requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealHessenbergReduction<Scalar> result;
   result.first = 0;
   result.last_exclusive = n;
   result.tau.resize(n > 0 ? n - 1 : 0);
   if (n == 0)
   {
-    result.hessenberg = Matrix<Scalar>(0, 0);
-    result.reflectors = Matrix<Scalar>(0, 0);
+    result.hessenberg = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.reflectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -5911,14 +6010,15 @@ template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenb
 /// \param reduction Compact Hessenberg reduction returned by `real_hessenberg_reduction`.
 /// \return Dense orthogonal matrix represented by the compact Householder data.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction)
 {
-  if (reduction.reflectors.rows() != reduction.reflectors.cols())
+  if (!std::cmp_equal(reduction.reflectors.rows(), reduction.reflectors.cols()))
   {
     throw std::invalid_argument("real_hessenberg_orthogonal_factor requires square compact reflector storage");
   }
 
-  std::size_t const n = reduction.reflectors.rows();
+  std::size_t const n = static_cast<std::size_t>(reduction.reflectors.rows());
   if (reduction.tau.size() != (n > 0 ? n - 1 : 0))
   {
     throw std::invalid_argument("real_hessenberg_orthogonal_factor received inconsistent tau data");
@@ -5928,7 +6028,7 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
     throw std::invalid_argument("real_hessenberg_orthogonal_factor received invalid active interval");
   }
 
-  Matrix<Scalar> q(n, n);
+  detail::ColumnMajorLapackMatrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
     q[diagonal, diagonal] = Scalar{1};
@@ -5964,16 +6064,16 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar> const& reduction,
-                                                       Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                       MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_hessenberg_orthogonal_factor(
+    RealHessenbergReduction<Scalar> const& reduction, detail::ColumnMajorLapackMatrix<Scalar> target,
+    MatrixSide side = MatrixSide::Left, MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (reduction.reflectors.rows() != reduction.reflectors.cols())
+  if (!std::cmp_equal(reduction.reflectors.rows(), reduction.reflectors.cols()))
   {
     throw std::invalid_argument("apply_real_hessenberg_orthogonal_factor requires square compact reflector storage");
   }
 
-  std::size_t const order_size = reduction.reflectors.rows();
+  std::size_t const order_size = static_cast<std::size_t>(reduction.reflectors.rows());
   if (reduction.tau.size() != (order_size > 0 ? order_size - 1 : 0))
   {
     throw std::invalid_argument("apply_real_hessenberg_orthogonal_factor received inconsistent tau data");
@@ -5982,11 +6082,11 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
   {
     throw std::invalid_argument("apply_real_hessenberg_orthogonal_factor received invalid active interval");
   }
-  if (side == MatrixSide::Left && target.rows() != order_size)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), order_size))
   {
     throw std::invalid_argument("apply_real_hessenberg_orthogonal_factor left application requires matching rows");
   }
-  if (side == MatrixSide::Right && target.cols() != order_size)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), order_size))
   {
     throw std::invalid_argument("apply_real_hessenberg_orthogonal_factor right application requires matching columns");
   }
@@ -5995,7 +6095,7 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = reduction.reflectors;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
   blas_int const order = detail::checked_blas_int(order_size);
@@ -6030,16 +6130,17 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
 /// \param triangle Which triangle of \p matrix contains the symmetric input.
 /// \return Tridiagonal form plus compact Householder reflectors.
 template <uni20::LapackReal Scalar>
-RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(Matrix<Scalar> matrix,
-                                                                               MatrixFill triangle = MatrixFill::Upper)
+RealSymmetricTridiagonalReduction<Scalar>
+real_symmetric_tridiagonal_reduction(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                     MatrixFill triangle = MatrixFill::Upper)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_symmetric_tridiagonal_reduction requires a square matrix");
   }
 
   char const uplo = detail::lapack_uplo(triangle);
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealSymmetricTridiagonalReduction<Scalar> result;
   result.triangle = triangle;
   result.diagonal.resize(n);
@@ -6047,8 +6148,8 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
   result.tau.resize(n > 0 ? n - 1 : 0);
   if (n == 0)
   {
-    result.tridiagonal = Matrix<Scalar>(0, 0);
-    result.reflectors = Matrix<Scalar>(0, 0);
+    result.tridiagonal = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.reflectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6064,7 +6165,7 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
                        result.tau.data(), work.data(), lwork);
 
   result.reflectors = matrix;
-  result.tridiagonal = Matrix<Scalar>(n, n);
+  result.tridiagonal = detail::ColumnMajorLapackMatrix<Scalar>(n, n);
   laset(result.tridiagonal, Scalar{}, Scalar{}, MatrixFill::All);
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -6086,22 +6187,23 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
 ///        `real_symmetric_tridiagonal_reduction`.
 /// \return Dense orthogonal matrix represented by the compact Householder data.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction)
+detail::ColumnMajorLapackMatrix<Scalar>
+real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction)
 {
-  if (reduction.reflectors.rows() != reduction.reflectors.cols())
+  if (!std::cmp_equal(reduction.reflectors.rows(), reduction.reflectors.cols()))
   {
     throw std::invalid_argument(
         "real_symmetric_tridiagonal_orthogonal_factor requires square compact reflector storage");
   }
 
-  std::size_t const n = reduction.reflectors.rows();
+  std::size_t const n = static_cast<std::size_t>(reduction.reflectors.rows());
   if (reduction.diagonal.size() != n || reduction.offdiagonal.size() != (n > 0 ? n - 1 : 0) ||
       reduction.tau.size() != (n > 0 ? n - 1 : 0))
   {
     throw std::invalid_argument("real_symmetric_tridiagonal_orthogonal_factor received inconsistent reduction data");
   }
 
-  Matrix<Scalar> q(n, n);
+  detail::ColumnMajorLapackMatrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
     q[diagonal, diagonal] = Scalar{1};
@@ -6137,18 +6239,17 @@ Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiag
 /// \param transpose Matrix operation applied to `Q`.
 /// \return Matrix after applying the encoded orthogonal factor.
 template <uni20::LapackReal Scalar>
-Matrix<Scalar>
-apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduction<Scalar> const& reduction,
-                                                   Matrix<Scalar> target, MatrixSide side = MatrixSide::Left,
-                                                   MatrixTranspose transpose = MatrixTranspose::None)
+detail::ColumnMajorLapackMatrix<Scalar> apply_real_symmetric_tridiagonal_orthogonal_factor(
+    RealSymmetricTridiagonalReduction<Scalar> const& reduction, detail::ColumnMajorLapackMatrix<Scalar> target,
+    MatrixSide side = MatrixSide::Left, MatrixTranspose transpose = MatrixTranspose::None)
 {
-  if (reduction.reflectors.rows() != reduction.reflectors.cols())
+  if (!std::cmp_equal(reduction.reflectors.rows(), reduction.reflectors.cols()))
   {
     throw std::invalid_argument(
         "apply_real_symmetric_tridiagonal_orthogonal_factor requires square compact reflector storage");
   }
 
-  std::size_t const order_size = reduction.reflectors.rows();
+  std::size_t const order_size = static_cast<std::size_t>(reduction.reflectors.rows());
   if (reduction.diagonal.size() != order_size ||
       reduction.offdiagonal.size() != (order_size > 0 ? order_size - 1 : 0) ||
       reduction.tau.size() != (order_size > 0 ? order_size - 1 : 0))
@@ -6156,12 +6257,12 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
     throw std::invalid_argument(
         "apply_real_symmetric_tridiagonal_orthogonal_factor received inconsistent reduction data");
   }
-  if (side == MatrixSide::Left && target.rows() != order_size)
+  if (side == MatrixSide::Left && !std::cmp_equal(target.rows(), order_size))
   {
     throw std::invalid_argument(
         "apply_real_symmetric_tridiagonal_orthogonal_factor left application requires matching rows");
   }
-  if (side == MatrixSide::Right && target.cols() != order_size)
+  if (side == MatrixSide::Right && !std::cmp_equal(target.cols(), order_size))
   {
     throw std::invalid_argument(
         "apply_real_symmetric_tridiagonal_orthogonal_factor right application requires matching columns");
@@ -6171,7 +6272,7 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
     return target;
   }
 
-  Matrix<Scalar> reflectors = reduction.reflectors;
+  detail::ColumnMajorLapackMatrix<Scalar> reflectors = reduction.reflectors;
   blas_int const m = detail::checked_blas_int(target.rows());
   blas_int const n = detail::checked_blas_int(target.cols());
   blas_int const order = detail::checked_blas_int(order_size);
@@ -6201,15 +6302,15 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
 /// \param matrix Real matrix to factor.
 /// \return Reduced pivoted QR factors and column pivot order.
 template <uni20::LapackReal Scalar>
-RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> matrix)
+RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(detail::ColumnMajorLapackMatrix<Scalar> matrix)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const rank = std::min(rows, cols);
 
   RealPivotedQrFactorization<Scalar> result;
-  result.q = Matrix<Scalar>(rows, rank);
-  result.r = Matrix<Scalar>(rank, cols);
+  result.q = detail::ColumnMajorLapackMatrix<Scalar>(rows, rank);
+  result.r = detail::ColumnMajorLapackMatrix<Scalar>(rank, cols);
   result.pivot_columns.resize(cols);
   std::iota(result.pivot_columns.begin(), result.pivot_columns.end(), std::size_t{0});
   if (rank == 0)
@@ -6279,18 +6380,21 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
 /// \param compute_vectors Whether to compute full left and right singular vectors.
 /// \return Singular values and, optionally, full singular-vector matrices.
 template <uni20::LapackReal Scalar>
-RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<Scalar> matrix, bool compute_vectors)
+RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                                         bool compute_vectors)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const singular_value_count = std::min(rows, cols);
 
   RealSingularValueDecomposition<Scalar> result;
   result.singular_values.resize(singular_value_count);
   if (singular_value_count == 0)
   {
-    result.left_singular_vectors = compute_vectors ? Matrix<Scalar>(rows, rows) : Matrix<Scalar>(0, 0);
-    result.right_singular_vectors_transpose = compute_vectors ? Matrix<Scalar>(cols, cols) : Matrix<Scalar>(0, 0);
+    result.left_singular_vectors = compute_vectors ? detail::ColumnMajorLapackMatrix<Scalar>(rows, rows)
+                                                   : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.right_singular_vectors_transpose = compute_vectors ? detail::ColumnMajorLapackMatrix<Scalar>(cols, cols)
+                                                              : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6299,8 +6403,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
   blas_int const lda = std::max<blas_int>(1, m);
   char const jobu = compute_vectors ? 'A' : 'N';
   char const jobvt = compute_vectors ? 'A' : 'N';
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? std::max<blas_int>(1, n) : 1;
 
@@ -6314,8 +6418,9 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
   uni20::lapack::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
                        right_transpose.data(), ldvt, work.data(), lwork);
 
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6330,19 +6435,22 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
 /// \param compute_vectors Whether to compute full left and right singular vectors.
 /// \return Singular values and, optionally, full singular-vector matrices.
 template <uni20::LapackReal Scalar>
-RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_and_conquer(Matrix<Scalar> matrix,
-                                                                                            bool compute_vectors)
+RealSingularValueDecomposition<Scalar>
+real_singular_value_decomposition_divide_and_conquer(detail::ColumnMajorLapackMatrix<Scalar> matrix,
+                                                     bool compute_vectors)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const singular_value_count = std::min(rows, cols);
 
   RealSingularValueDecomposition<Scalar> result;
   result.singular_values.resize(singular_value_count);
   if (singular_value_count == 0)
   {
-    result.left_singular_vectors = compute_vectors ? Matrix<Scalar>(rows, rows) : Matrix<Scalar>(0, 0);
-    result.right_singular_vectors_transpose = compute_vectors ? Matrix<Scalar>(cols, cols) : Matrix<Scalar>(0, 0);
+    result.left_singular_vectors = compute_vectors ? detail::ColumnMajorLapackMatrix<Scalar>(rows, rows)
+                                                   : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+    result.right_singular_vectors_transpose = compute_vectors ? detail::ColumnMajorLapackMatrix<Scalar>(cols, cols)
+                                                              : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
@@ -6350,8 +6458,8 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
   blas_int const n = detail::checked_blas_int(cols);
   blas_int const lda = std::max<blas_int>(1, m);
   char const jobz = compute_vectors ? 'A' : 'N';
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? rows : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> right_transpose(compute_vectors ? cols : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? std::max<blas_int>(1, n) : 1;
   std::vector<blas_int> iwork(
@@ -6367,8 +6475,9 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
   uni20::lapack::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
                        right_transpose.data(), ldvt, work.data(), lwork, iwork.data());
 
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6386,11 +6495,11 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
 /// \return Selected singular values and, optionally, selected singular-vector matrices.
 template <uni20::LapackReal Scalar>
 RealSingularValueDecomposition<Scalar>
-real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t first_index, std::size_t last_index,
-                                              bool compute_vectors)
+real_singular_value_decomposition_index_range(detail::ColumnMajorLapackMatrix<Scalar> matrix, std::size_t first_index,
+                                              std::size_t last_index, bool compute_vectors)
 {
-  std::size_t const rows = matrix.rows();
-  std::size_t const cols = matrix.cols();
+  std::size_t const rows = static_cast<std::size_t>(matrix.rows());
+  std::size_t const cols = static_cast<std::size_t>(matrix.cols());
   std::size_t const singular_value_count = std::min(rows, cols);
   if (singular_value_count == 0 || first_index > last_index || last_index >= singular_value_count)
   {
@@ -6409,8 +6518,8 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
   char const jobvt = compute_vectors ? 'V' : 'N';
   char const range = 'I';
   std::vector<Scalar> singular_values_workspace(singular_value_count, Scalar{});
-  Matrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? selected : 1);
-  Matrix<Scalar> right_transpose(compute_vectors ? selected : 1, compute_vectors ? cols : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> left(compute_vectors ? rows : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> right_transpose(compute_vectors ? selected : 1, compute_vectors ? cols : 1);
   blas_int const ldu = compute_vectors ? std::max<blas_int>(1, m) : 1;
   blas_int const ldvt = compute_vectors ? detail::checked_blas_int(selected) : 1;
   std::vector<blas_int> iwork(
@@ -6435,8 +6544,9 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
   }
 
   result.singular_values.assign(singular_values_workspace.begin(), singular_values_workspace.begin() + selected_count);
-  result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
-  result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
+  result.left_singular_vectors = compute_vectors ? std::move(left) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
+  result.right_singular_vectors_transpose =
+      compute_vectors ? std::move(right_transpose) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6465,13 +6575,13 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conq
   result.eigenvalues = std::move(diagonal);
   if (n == 0)
   {
-    result.eigenvectors = Matrix<Scalar>(0, 0);
+    result.eigenvectors = detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
     return result;
   }
 
   blas_int const order = detail::checked_blas_int(n);
   char const jobz = compute_vectors ? 'V' : 'N';
-  Matrix<Scalar> z(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> z(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   Scalar dummy_subdiagonal{};
   Scalar* e = subdiagonal.empty() ? &dummy_subdiagonal : subdiagonal.data();
@@ -6489,7 +6599,7 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conq
   uni20::lapack::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, work.data(), lwork, iwork.data(),
                        liwork);
 
-  result.eigenvectors = compute_vectors ? std::move(z) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(z) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6531,7 +6641,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
   blas_int const last = detail::checked_blas_int(last_index + 1);
   char const jobz = compute_vectors ? 'V' : 'N';
   char const range = 'I';
-  Matrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
+  detail::ColumnMajorLapackMatrix<Scalar> eigenvectors(compute_vectors ? n : 1, compute_vectors ? selected : 1);
   blas_int const ldz = compute_vectors ? order : 1;
   std::vector<blas_int> support(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), 0);
   Scalar dummy_subdiagonal{};
@@ -6558,7 +6668,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
     throw std::runtime_error("LAPACK stevr returned an unexpected number of eigenvalues");
   }
 
-  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : Matrix<Scalar>(0, 0);
+  result.eigenvectors = compute_vectors ? std::move(eigenvectors) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   return result;
 }
 
@@ -6566,7 +6676,7 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
 ///
 /// \details The public wrapper accepts the prototype row-major `RightMatrix`
 ///          used by the mdspan-facing LAPACK layer. Internally it copies to
-///          the current column-major Krylov matrix before calling Fortran
+///          a column-major DenseMatrix before calling Fortran
 ///          LAPACK, so the returned Schur vectors correspond to the logical
 ///          input matrix rather than its transpose.
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
@@ -6575,12 +6685,12 @@ template <uni20::LapackReal Scalar>
 RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecomposition<Scalar> decomposition,
                                                                std::vector<std::size_t> const& selected_blocks)
 {
-  if (decomposition.schur_form.rows() != decomposition.schur_form.cols())
+  if (!std::cmp_equal(decomposition.schur_form.rows(), decomposition.schur_form.cols()))
   {
     throw std::invalid_argument("real_schur_selected_subspace requires a square Schur form");
   }
 
-  std::size_t const n = decomposition.schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.schur_form.rows());
   RealSchurSelectedSubspace<Scalar> result;
   if (n == 0 || selected_blocks.empty())
   {
@@ -6592,7 +6702,8 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
     throw std::invalid_argument("real_schur_selected_subspace received inconsistent Schur eigenvalue data");
   }
   bool const update_vectors = decomposition.schur_vectors.rows() != 0 || decomposition.schur_vectors.cols() != 0;
-  if (update_vectors && (decomposition.schur_vectors.rows() != n || decomposition.schur_vectors.cols() != n))
+  if (update_vectors && (!std::cmp_equal(decomposition.schur_vectors.rows(), n) ||
+                         !std::cmp_equal(decomposition.schur_vectors.cols(), n)))
   {
     throw std::invalid_argument("real_schur_selected_subspace received inconsistent Schur vectors");
   }
@@ -6627,8 +6738,9 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
     expected_selected_dimension += block.size;
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> schur_vectors = update_vectors ? std::move(decomposition.schur_vectors) : Matrix<Scalar>(1, 1);
+  detail::ColumnMajorLapackMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  detail::ColumnMajorLapackMatrix<Scalar> schur_vectors =
+      update_vectors ? std::move(decomposition.schur_vectors) : detail::ColumnMajorLapackMatrix<Scalar>(1, 1);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const ldq = update_vectors ? order : 1;
   char const job = 'B';
@@ -6661,7 +6773,8 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
   }
 
   decomposition.schur_form = std::move(schur_form);
-  decomposition.schur_vectors = update_vectors ? std::move(schur_vectors) : Matrix<Scalar>(0, 0);
+  decomposition.schur_vectors =
+      update_vectors ? std::move(schur_vectors) : detail::ColumnMajorLapackMatrix<Scalar>(0, 0);
   decomposition.eigenvalues.clear();
   decomposition.eigenvalues.reserve(n);
   for (std::size_t index = 0; index < n; ++index)
@@ -6688,14 +6801,14 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
 template <uni20::LapackReal Scalar>
 RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomposition<Scalar> decomposition)
 {
-  if (decomposition.schur_form.rows() != decomposition.schur_form.cols())
+  if (!std::cmp_equal(decomposition.schur_form.rows(), decomposition.schur_form.cols()))
   {
     throw std::invalid_argument("real_schur_right_eigenvectors requires a square Schur form");
   }
 
-  std::size_t const n = decomposition.schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.schur_form.rows());
   RealSchurRightEigenvectors<Scalar> result;
-  result.right_eigenvectors = Matrix<uni20::complex<Scalar>>(n, n);
+  result.right_eigenvectors = detail::ColumnMajorLapackMatrix<uni20::complex<Scalar>>(n, n);
   if (n == 0)
   {
     return result;
@@ -6705,9 +6818,9 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
     throw std::invalid_argument("real_schur_right_eigenvectors received inconsistent Schur eigenvalue data");
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> left_vectors(1, 1);
-  Matrix<Scalar> right_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  detail::ColumnMajorLapackMatrix<Scalar> left_vectors(1, 1);
+  detail::ColumnMajorLapackMatrix<Scalar> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Scalar> work(3 * n, Scalar{});
   blas_int const order = detail::checked_blas_int(n);
@@ -6778,12 +6891,12 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
 template <uni20::LapackReal Scalar>
 RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDecomposition<Scalar> decomposition)
 {
-  if (decomposition.schur_form.rows() != decomposition.schur_form.cols())
+  if (!std::cmp_equal(decomposition.schur_form.rows(), decomposition.schur_form.cols()))
   {
     throw std::invalid_argument("real_schur_condition_estimates requires a square Schur form");
   }
 
-  std::size_t const n = decomposition.schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.schur_form.rows());
   RealSchurConditionEstimates<Scalar> result;
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
@@ -6796,9 +6909,9 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
     throw std::invalid_argument("real_schur_condition_estimates received inconsistent Schur eigenvalue data");
   }
 
-  Matrix<Scalar> schur_form = std::move(decomposition.schur_form);
-  Matrix<Scalar> left_vectors(n, n);
-  Matrix<Scalar> right_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Scalar> schur_form = std::move(decomposition.schur_form);
+  detail::ColumnMajorLapackMatrix<Scalar> left_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Scalar> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Scalar> trevc_work(3 * n, Scalar{});
   blas_int const order = detail::checked_blas_int(n);
@@ -6842,14 +6955,15 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
 
 template <uni20::LapackReal Real>
 RealNonsymmetricBalance<Real>
-real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
+real_nonsymmetric_balance(detail::ColumnMajorLapackMatrix<Real> matrix,
+                          RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_nonsymmetric_balance requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealNonsymmetricBalance<Real> result;
   result.balanced_matrix = std::move(matrix);
   result.scale.resize(n);
@@ -6884,13 +6998,13 @@ real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = 
 /// \param job The same balancing operation used for the matrix.
 /// \return Real right eigenvector columns backtransformed to the original matrix.
 template <uni20::LapackReal Real>
-Matrix<Real>
-real_nonsymmetric_balance_backtransform_right_vectors(Matrix<Real> vectors,
+detail::ColumnMajorLapackMatrix<Real>
+real_nonsymmetric_balance_backtransform_right_vectors(detail::ColumnMajorLapackMatrix<Real> vectors,
                                                       RealNonsymmetricBalance<Real> const& balance,
                                                       RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
   std::size_t const n = balance.scale.size();
-  if (vectors.rows() != n)
+  if (!std::cmp_equal(vectors.rows(), n))
   {
     throw std::invalid_argument("real_nonsymmetric_balance_backtransform_right_vectors received incompatible vectors");
   }
@@ -6926,23 +7040,24 @@ real_nonsymmetric_balance_backtransform_right_vectors(Matrix<Real> vectors,
 /// \return Balanced pencil, LAPACK left/right scale data, and balanced active interval.
 template <uni20::LapackReal Real>
 RealGeneralizedNonsymmetricBalance<Real>
-real_generalized_nonsymmetric_balance(Matrix<Real> matrix, Matrix<Real> metric,
+real_generalized_nonsymmetric_balance(detail::ColumnMajorLapackMatrix<Real> matrix,
+                                      detail::ColumnMajorLapackMatrix<Real> metric,
                                       RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_balance requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_balance requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_balance received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealGeneralizedNonsymmetricBalance<Real> result;
   result.balanced_matrix = std::move(matrix);
   result.balanced_metric = std::move(metric);
@@ -6981,8 +7096,8 @@ real_generalized_nonsymmetric_balance(Matrix<Real> matrix, Matrix<Real> metric,
 /// \param job The same balancing operation used for the pencil.
 /// \return Real right eigenvector columns backtransformed to the original pencil.
 template <uni20::LapackReal Real>
-Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
-    Matrix<Real> vectors, RealGeneralizedNonsymmetricBalance<Real> const& balance,
+detail::ColumnMajorLapackMatrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
+    detail::ColumnMajorLapackMatrix<Real> vectors, RealGeneralizedNonsymmetricBalance<Real> const& balance,
     RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
 {
   std::size_t const n = balance.left_scale.size();
@@ -6991,7 +7106,7 @@ Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
     throw std::invalid_argument(
         "real_generalized_nonsymmetric_balance_backtransform_right_vectors received inconsistent balance data");
   }
-  if (vectors.rows() != n)
+  if (!std::cmp_equal(vectors.rows(), n))
   {
     throw std::invalid_argument(
         "real_generalized_nonsymmetric_balance_backtransform_right_vectors received incompatible vectors");
@@ -7030,22 +7145,24 @@ Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
 /// \return Generalized upper Hessenberg forms and optional orthogonal factors.
 template <uni20::LapackReal Real>
 RealGeneralizedHessenbergReduction<Real>
-real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_triangular_metric, bool compute_vectors)
+real_generalized_hessenberg_reduction(detail::ColumnMajorLapackMatrix<Real> matrix,
+                                      detail::ColumnMajorLapackMatrix<Real> upper_triangular_metric,
+                                      bool compute_vectors)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_reduction requires a square matrix");
   }
-  if (upper_triangular_metric.rows() != upper_triangular_metric.cols())
+  if (!std::cmp_equal(upper_triangular_metric.rows(), upper_triangular_metric.cols()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_reduction requires a square metric matrix");
   }
-  if (matrix.rows() != upper_triangular_metric.rows())
+  if (!std::cmp_equal(matrix.rows(), upper_triangular_metric.rows()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_reduction received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   for (std::size_t col = 0; col < n; ++col)
   {
     for (std::size_t row = col + 1; row < n; ++row)
@@ -7062,15 +7179,15 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
   result.last_exclusive = n;
   if (n == 0)
   {
-    result.matrix_hessenberg_form = Matrix<Real>(0, 0);
-    result.metric_triangular_form = Matrix<Real>(0, 0);
-    result.left_orthogonal_vectors = Matrix<Real>(0, 0);
-    result.right_orthogonal_vectors = Matrix<Real>(0, 0);
+    result.matrix_hessenberg_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.metric_triangular_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.left_orthogonal_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.right_orthogonal_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
     return result;
   }
 
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const order = detail::checked_blas_int(n);
   blas_int const first = 1;
   blas_int const last = order;
@@ -7084,8 +7201,10 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
 
   result.matrix_hessenberg_form = std::move(matrix);
   result.metric_triangular_form = std::move(upper_triangular_metric);
-  result.left_orthogonal_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_orthogonal_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_orthogonal_vectors =
+      compute_vectors ? std::move(left_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
+  result.right_orthogonal_vectors =
+      compute_vectors ? std::move(right_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
   return result;
 }
 
@@ -7102,22 +7221,23 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
 /// \return Generalized Schur forms, optional Schur vectors, and projective eigenvalue data.
 template <uni20::LapackReal Real>
 RealGeneralizedSchurDecomposition<Real>
-real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_triangular_metric, bool compute_vectors)
+real_generalized_hessenberg_schur(detail::ColumnMajorLapackMatrix<Real> hessenberg,
+                                  detail::ColumnMajorLapackMatrix<Real> upper_triangular_metric, bool compute_vectors)
 {
-  if (hessenberg.rows() != hessenberg.cols())
+  if (!std::cmp_equal(hessenberg.rows(), hessenberg.cols()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_schur requires a square Hessenberg matrix");
   }
-  if (upper_triangular_metric.rows() != upper_triangular_metric.cols())
+  if (!std::cmp_equal(upper_triangular_metric.rows(), upper_triangular_metric.cols()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_schur requires a square metric matrix");
   }
-  if (hessenberg.rows() != upper_triangular_metric.rows())
+  if (!std::cmp_equal(hessenberg.rows(), upper_triangular_metric.rows()))
   {
     throw std::invalid_argument("real_generalized_hessenberg_schur received incompatible matrix sizes");
   }
 
-  std::size_t const n = hessenberg.rows();
+  std::size_t const n = static_cast<std::size_t>(hessenberg.rows());
   for (std::size_t col = 0; col < n; ++col)
   {
     for (std::size_t row = col + 2; row < n; ++row)
@@ -7142,10 +7262,10 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.matrix_schur_form = Matrix<Real>(0, 0);
-    result.metric_schur_form = Matrix<Real>(0, 0);
-    result.left_schur_vectors = Matrix<Real>(0, 0);
-    result.right_schur_vectors = Matrix<Real>(0, 0);
+    result.matrix_schur_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.metric_schur_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.left_schur_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.right_schur_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
     return result;
   }
 
@@ -7153,8 +7273,8 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldq = compute_vectors ? order : 1;
   blas_int const ldz = compute_vectors ? order : 1;
   blas_int const first = 1;
@@ -7177,8 +7297,8 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
 
   result.matrix_schur_form = std::move(hessenberg);
   result.metric_schur_form = std::move(upper_triangular_metric);
-  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
+  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
   for (std::size_t i = 0; i < n; ++i)
   {
     result.alpha[i] = uni20::complex<Real>{alphar[i], alphai[i]};
@@ -7201,33 +7321,34 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
 /// \param compute_vectors Whether to compute left and right generalized Schur vectors.
 /// \return Generalized Schur forms, optional Schur vectors, and projective eigenvalue data.
 template <uni20::LapackReal Real>
-RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matrix, Matrix<Real> metric,
+RealGeneralizedSchurDecomposition<Real> real_generalized_schur(detail::ColumnMajorLapackMatrix<Real> matrix,
+                                                               detail::ColumnMajorLapackMatrix<Real> metric,
                                                                bool compute_vectors)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_schur requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_schur requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("real_generalized_schur received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealGeneralizedSchurDecomposition<Real> result;
   result.alpha.resize(n);
   result.beta.resize(n);
   result.eigenvalues.resize(n);
   if (n == 0)
   {
-    result.matrix_schur_form = Matrix<Real>(0, 0);
-    result.metric_schur_form = Matrix<Real>(0, 0);
-    result.left_schur_vectors = Matrix<Real>(0, 0);
-    result.right_schur_vectors = Matrix<Real>(0, 0);
+    result.matrix_schur_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.metric_schur_form = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.left_schur_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
+    result.right_schur_vectors = detail::ColumnMajorLapackMatrix<Real>(0, 0);
     return result;
   }
 
@@ -7235,8 +7356,8 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  Matrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
   blas_int const ldvsl = compute_vectors ? order : 1;
   blas_int const ldvsr = compute_vectors ? order : 1;
   char const jobvsl = compute_vectors ? 'V' : 'N';
@@ -7259,8 +7380,8 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
 
   result.matrix_schur_form = std::move(matrix);
   result.metric_schur_form = std::move(metric);
-  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  result.left_schur_vectors = compute_vectors ? std::move(left_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
+  result.right_schur_vectors = compute_vectors ? std::move(right_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
   result.selected_dimension = static_cast<std::size_t>(selected_dimension);
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -7287,22 +7408,23 @@ RealGeneralizedSchurDecomposition<Real>
 reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposition,
                                std::vector<std::size_t> const& leading_block_order)
 {
-  if (decomposition.matrix_schur_form.rows() != decomposition.matrix_schur_form.cols())
+  if (!std::cmp_equal(decomposition.matrix_schur_form.rows(), decomposition.matrix_schur_form.cols()))
   {
     throw std::invalid_argument("reorder_real_generalized_schur requires a square matrix Schur form");
   }
-  if (decomposition.metric_schur_form.rows() != decomposition.metric_schur_form.cols())
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), decomposition.metric_schur_form.cols()))
   {
     throw std::invalid_argument("reorder_real_generalized_schur requires a square metric Schur form");
   }
 
-  std::size_t const n = decomposition.matrix_schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.matrix_schur_form.rows());
   if (n == 0 || leading_block_order.empty())
   {
     return decomposition;
   }
-  if (decomposition.metric_schur_form.rows() != n || decomposition.matrix_schur_form.cols() != n ||
-      decomposition.metric_schur_form.cols() != n)
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), n) ||
+      !std::cmp_equal(decomposition.matrix_schur_form.cols(), n) ||
+      !std::cmp_equal(decomposition.metric_schur_form.cols(), n))
   {
     throw std::invalid_argument("reorder_real_generalized_schur received inconsistent Schur form sizes");
   }
@@ -7319,9 +7441,10 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
     throw std::invalid_argument("reorder_real_generalized_schur requires both Schur vector sets or neither");
   }
   bool const update_vectors = has_left_vectors;
-  if (update_vectors &&
-      (decomposition.left_schur_vectors.rows() != n || decomposition.left_schur_vectors.cols() != n ||
-       decomposition.right_schur_vectors.rows() != n || decomposition.right_schur_vectors.cols() != n))
+  if (update_vectors && (!std::cmp_equal(decomposition.left_schur_vectors.rows(), n) ||
+                         !std::cmp_equal(decomposition.left_schur_vectors.cols(), n) ||
+                         !std::cmp_equal(decomposition.right_schur_vectors.rows(), n) ||
+                         !std::cmp_equal(decomposition.right_schur_vectors.cols(), n)))
   {
     throw std::invalid_argument("reorder_real_generalized_schur received inconsistent Schur vectors");
   }
@@ -7335,8 +7458,10 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
   blas_int const order = detail::checked_blas_int(n);
   blas_int const ldq = update_vectors ? order : 1;
   blas_int const ldz = update_vectors ? order : 1;
-  Matrix<Real> left_vectors = update_vectors ? std::move(decomposition.left_schur_vectors) : Matrix<Real>(1, 1);
-  Matrix<Real> right_vectors = update_vectors ? std::move(decomposition.right_schur_vectors) : Matrix<Real>(1, 1);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors =
+      update_vectors ? std::move(decomposition.left_schur_vectors) : detail::ColumnMajorLapackMatrix<Real>(1, 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors =
+      update_vectors ? std::move(decomposition.right_schur_vectors) : detail::ColumnMajorLapackMatrix<Real>(1, 1);
   blas_int const lwork = std::max<blas_int>(1, 4 * order + 16);
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
 
@@ -7366,8 +7491,10 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
     current_blocks = detail::ordered_schur_blocks(decomposition.blocks, current_order);
   }
 
-  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  decomposition.left_schur_vectors =
+      update_vectors ? std::move(left_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
+  decomposition.right_schur_vectors =
+      update_vectors ? std::move(right_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
   decomposition.alpha = detail::ordered_schur_block_values(decomposition.alpha, decomposition.blocks, current_order);
   decomposition.beta = detail::ordered_schur_block_values(decomposition.beta, decomposition.blocks, current_order);
   decomposition.blocks = detail::ordered_schur_blocks(decomposition.blocks, current_order);
@@ -7389,24 +7516,25 @@ RealGeneralizedSchurSelectedSubspace<Real>
 real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real> decomposition,
                                          std::vector<std::size_t> const& selected_blocks)
 {
-  if (decomposition.matrix_schur_form.rows() != decomposition.matrix_schur_form.cols())
+  if (!std::cmp_equal(decomposition.matrix_schur_form.rows(), decomposition.matrix_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_selected_subspace requires a square matrix Schur form");
   }
-  if (decomposition.metric_schur_form.rows() != decomposition.metric_schur_form.cols())
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), decomposition.metric_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_selected_subspace requires a square metric Schur form");
   }
 
-  std::size_t const n = decomposition.matrix_schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.matrix_schur_form.rows());
   RealGeneralizedSchurSelectedSubspace<Real> result;
   if (n == 0 || selected_blocks.empty())
   {
     result.decomposition = std::move(decomposition);
     return result;
   }
-  if (decomposition.metric_schur_form.rows() != n || decomposition.matrix_schur_form.cols() != n ||
-      decomposition.metric_schur_form.cols() != n)
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), n) ||
+      !std::cmp_equal(decomposition.matrix_schur_form.cols(), n) ||
+      !std::cmp_equal(decomposition.metric_schur_form.cols(), n))
   {
     throw std::invalid_argument("real_generalized_schur_selected_subspace received inconsistent Schur form sizes");
   }
@@ -7423,9 +7551,10 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
     throw std::invalid_argument("real_generalized_schur_selected_subspace requires both Schur vector sets or neither");
   }
   bool const update_vectors = has_left_vectors;
-  if (update_vectors &&
-      (decomposition.left_schur_vectors.rows() != n || decomposition.left_schur_vectors.cols() != n ||
-       decomposition.right_schur_vectors.rows() != n || decomposition.right_schur_vectors.cols() != n))
+  if (update_vectors && (!std::cmp_equal(decomposition.left_schur_vectors.rows(), n) ||
+                         !std::cmp_equal(decomposition.left_schur_vectors.cols(), n) ||
+                         !std::cmp_equal(decomposition.right_schur_vectors.rows(), n) ||
+                         !std::cmp_equal(decomposition.right_schur_vectors.cols(), n)))
   {
     throw std::invalid_argument("real_generalized_schur_selected_subspace received inconsistent Schur vectors");
   }
@@ -7460,10 +7589,12 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
     expected_selected_dimension += block.size;
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors = update_vectors ? std::move(decomposition.left_schur_vectors) : Matrix<Real>(1, 1);
-  Matrix<Real> right_vectors = update_vectors ? std::move(decomposition.right_schur_vectors) : Matrix<Real>(1, 1);
+  detail::ColumnMajorLapackMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors =
+      update_vectors ? std::move(decomposition.left_schur_vectors) : detail::ColumnMajorLapackMatrix<Real>(1, 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors =
+      update_vectors ? std::move(decomposition.right_schur_vectors) : detail::ColumnMajorLapackMatrix<Real>(1, 1);
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
@@ -7500,8 +7631,10 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
 
   decomposition.matrix_schur_form = std::move(matrix_schur_form);
   decomposition.metric_schur_form = std::move(metric_schur_form);
-  decomposition.left_schur_vectors = update_vectors ? std::move(left_vectors) : Matrix<Real>(0, 0);
-  decomposition.right_schur_vectors = update_vectors ? std::move(right_vectors) : Matrix<Real>(0, 0);
+  decomposition.left_schur_vectors =
+      update_vectors ? std::move(left_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
+  decomposition.right_schur_vectors =
+      update_vectors ? std::move(right_vectors) : detail::ColumnMajorLapackMatrix<Real>(0, 0);
   for (std::size_t i = 0; i < n; ++i)
   {
     decomposition.alpha[i] = uni20::complex<Real>{alphar[i], alphai[i]};
@@ -7531,24 +7664,25 @@ template <uni20::LapackReal Real>
 RealGeneralizedSchurRightEigenvectors<Real>
 real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real> decomposition)
 {
-  if (decomposition.matrix_schur_form.rows() != decomposition.matrix_schur_form.cols())
+  if (!std::cmp_equal(decomposition.matrix_schur_form.rows(), decomposition.matrix_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_right_eigenvectors requires a square matrix Schur form");
   }
-  if (decomposition.metric_schur_form.rows() != decomposition.metric_schur_form.cols())
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), decomposition.metric_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_right_eigenvectors requires a square metric Schur form");
   }
 
-  std::size_t const n = decomposition.matrix_schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.matrix_schur_form.rows());
   RealGeneralizedSchurRightEigenvectors<Real> result;
-  result.right_eigenvectors = Matrix<uni20::complex<Real>>(n, n);
+  result.right_eigenvectors = detail::ColumnMajorLapackMatrix<uni20::complex<Real>>(n, n);
   if (n == 0)
   {
     return result;
   }
-  if (decomposition.metric_schur_form.rows() != n || decomposition.matrix_schur_form.cols() != n ||
-      decomposition.metric_schur_form.cols() != n)
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), n) ||
+      !std::cmp_equal(decomposition.matrix_schur_form.cols(), n) ||
+      !std::cmp_equal(decomposition.metric_schur_form.cols(), n))
   {
     throw std::invalid_argument("real_generalized_schur_right_eigenvectors received inconsistent Schur form sizes");
   }
@@ -7557,10 +7691,10 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
     throw std::invalid_argument("real_generalized_schur_right_eigenvectors received inconsistent eigenvalue data");
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors(1, 1);
-  Matrix<Real> right_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors(1, 1);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Real> work(6 * n, Real{});
   blas_int const order = detail::checked_blas_int(n);
@@ -7633,16 +7767,16 @@ template <uni20::LapackReal Real>
 RealGeneralizedSchurConditionEstimates<Real>
 real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Real> decomposition)
 {
-  if (decomposition.matrix_schur_form.rows() != decomposition.matrix_schur_form.cols())
+  if (!std::cmp_equal(decomposition.matrix_schur_form.rows(), decomposition.matrix_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_condition_estimates requires a square matrix Schur form");
   }
-  if (decomposition.metric_schur_form.rows() != decomposition.metric_schur_form.cols())
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), decomposition.metric_schur_form.cols()))
   {
     throw std::invalid_argument("real_generalized_schur_condition_estimates requires a square metric Schur form");
   }
 
-  std::size_t const n = decomposition.matrix_schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(decomposition.matrix_schur_form.rows());
   RealGeneralizedSchurConditionEstimates<Real> result;
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
@@ -7650,8 +7784,9 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
   {
     return result;
   }
-  if (decomposition.metric_schur_form.rows() != n || decomposition.matrix_schur_form.cols() != n ||
-      decomposition.metric_schur_form.cols() != n)
+  if (!std::cmp_equal(decomposition.metric_schur_form.rows(), n) ||
+      !std::cmp_equal(decomposition.matrix_schur_form.cols(), n) ||
+      !std::cmp_equal(decomposition.metric_schur_form.cols(), n))
   {
     throw std::invalid_argument("real_generalized_schur_condition_estimates received inconsistent Schur form sizes");
   }
@@ -7660,10 +7795,10 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
     throw std::invalid_argument("real_generalized_schur_condition_estimates received inconsistent eigenvalue data");
   }
 
-  Matrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
-  Matrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
-  Matrix<Real> left_vectors(n, n);
-  Matrix<Real> right_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Real> matrix_schur_form = std::move(decomposition.matrix_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> metric_schur_form = std::move(decomposition.metric_schur_form);
+  detail::ColumnMajorLapackMatrix<Real> left_vectors(n, n);
+  detail::ColumnMajorLapackMatrix<Real> right_vectors(n, n);
   std::vector<blas_int> select(n, 1);
   std::vector<Real> tgevc_work(6 * n, Real{});
   blas_int const order = detail::checked_blas_int(n);
@@ -7709,19 +7844,19 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
 /// \return Complex eigenvalues and, optionally, right eigenvectors.
 
 template <uni20::LapackReal Real>
-RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Matrix<Real> matrix,
-                                                                             bool compute_right_vectors)
+RealNonsymmetricExpertEigensystem<Real>
+real_nonsymmetric_expert_eigensystem(detail::ColumnMajorLapackMatrix<Real> matrix, bool compute_right_vectors)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_nonsymmetric_expert_eigensystem requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealNonsymmetricExpertEigensystem<Real> result;
   result.eigenvalues.resize(n);
-  result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+  result.right_eigenvectors = detail::ColumnMajorLapackMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0,
+                                                                                    compute_right_vectors ? n : 0);
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
   result.balance_scale.resize(n);
@@ -7733,8 +7868,8 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
   blas_int const order = detail::checked_blas_int(n);
   std::vector<Real> wr(n, Real{});
   std::vector<Real> wi(n, Real{});
-  Matrix<Real> vl(n, n);
-  Matrix<Real> vr(n, n);
+  detail::ColumnMajorLapackMatrix<Real> vl(n, n);
+  detail::ColumnMajorLapackMatrix<Real> vr(n, n);
   blas_int const ldvl = order;
   blas_int const ldvr = order;
   char const balanc = 'B';
@@ -7820,28 +7955,29 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
 /// \return Projective eigenvalue data and, optionally, right eigenvectors.
 template <uni20::LapackReal Real>
 RealGeneralizedNonsymmetricEigensystem<Real>
-real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metric, bool compute_right_vectors)
+real_generalized_nonsymmetric_eigensystem(detail::ColumnMajorLapackMatrix<Real> matrix,
+                                          detail::ColumnMajorLapackMatrix<Real> metric, bool compute_right_vectors)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_eigensystem requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_eigensystem requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_eigensystem received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealGeneralizedNonsymmetricEigensystem<Real> result;
   result.alpha.resize(n);
   result.beta.resize(n);
   result.eigenvalues.resize(n);
-  result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+  result.right_eigenvectors = detail::ColumnMajorLapackMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0,
+                                                                                    compute_right_vectors ? n : 0);
   if (n == 0)
   {
     return result;
@@ -7852,7 +7988,7 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
   std::vector<Real> vl(1, Real{});
-  Matrix<Real> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
+  detail::ColumnMajorLapackMatrix<Real> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
   blas_int const ldvl = 1;
   blas_int const ldvr = compute_right_vectors ? order : 1;
   char const jobvl = 'N';
@@ -7925,28 +8061,30 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
 ///         data, and reciprocal condition estimates.
 template <uni20::LapackReal Real>
 RealGeneralizedNonsymmetricExpertEigensystem<Real>
-real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Real> metric, bool compute_right_vectors)
+real_generalized_nonsymmetric_expert_eigensystem(detail::ColumnMajorLapackMatrix<Real> matrix,
+                                                 detail::ColumnMajorLapackMatrix<Real> metric,
+                                                 bool compute_right_vectors)
 {
-  if (matrix.rows() != matrix.cols())
+  if (!std::cmp_equal(matrix.rows(), matrix.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_expert_eigensystem requires a square matrix");
   }
-  if (metric.rows() != metric.cols())
+  if (!std::cmp_equal(metric.rows(), metric.cols()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_expert_eigensystem requires a square metric matrix");
   }
-  if (matrix.rows() != metric.rows())
+  if (!std::cmp_equal(matrix.rows(), metric.rows()))
   {
     throw std::invalid_argument("real_generalized_nonsymmetric_expert_eigensystem received incompatible matrix sizes");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealGeneralizedNonsymmetricExpertEigensystem<Real> result;
   result.alpha.resize(n);
   result.beta.resize(n);
   result.eigenvalues.resize(n);
-  result.right_eigenvectors =
-      Matrix<uni20::complex<Real>>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
+  result.right_eigenvectors = detail::ColumnMajorLapackMatrix<uni20::complex<Real>>(compute_right_vectors ? n : 0,
+                                                                                    compute_right_vectors ? n : 0);
   result.reciprocal_eigenvalue_condition_numbers.resize(n);
   result.reciprocal_eigenvector_condition_numbers.resize(n);
   result.left_balance_scale.resize(n);
@@ -7960,8 +8098,8 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
   std::vector<Real> alphar(n, Real{});
   std::vector<Real> alphai(n, Real{});
   std::vector<Real> beta(n, Real{});
-  Matrix<Real> vl(n, n);
-  Matrix<Real> vr(n, n);
+  detail::ColumnMajorLapackMatrix<Real> vl(n, n);
+  detail::ColumnMajorLapackMatrix<Real> vr(n, n);
   blas_int const ldvl = order;
   blas_int const ldvr = order;
   char const balanc = 'B';

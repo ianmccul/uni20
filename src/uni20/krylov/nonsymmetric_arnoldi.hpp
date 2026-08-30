@@ -23,7 +23,7 @@ namespace uni20::krylov
 template <uni20::RealOrComplex Scalar, typename Vector> struct ArnoldiFactorization
 {
     std::vector<Vector> basis;
-    Matrix<Scalar> hessenberg;
+    uni20::DenseMatrix<Scalar> hessenberg;
     int step_count = 0;
     int op_count = 0;
     uni20::make_real_t<Scalar> residual_norm = uni20::make_real_t<Scalar>{};
@@ -37,7 +37,7 @@ template <uni20::Real Scalar> struct ArnoldiRitzExtraction
     std::vector<uni20::complex<Scalar>> ritz_values;
     std::vector<Scalar> residual_bounds;
     std::vector<RitzReality> reality;
-    Matrix<uni20::complex<Scalar>> projected_right_eigenvectors;
+    uni20::DenseMatrix<uni20::complex<Scalar>> projected_right_eigenvectors;
 };
 
 /// \brief Block-aware selection result for real Schur restart.
@@ -62,7 +62,7 @@ template <uni20::LapackReal Scalar, typename Vector> struct RealSchurCompressedA
 {
     std::vector<Vector> basis;
     Vector residual;
-    Matrix<Scalar> schur_form;
+    uni20::DenseMatrix<Scalar> schur_form;
     std::vector<Scalar> residual_coupling;
     std::vector<uni20::complex<Scalar>> eigenvalues;
     std::vector<RealSchurBlock<Scalar>> blocks;
@@ -85,7 +85,7 @@ template <uni20::LapackComplexReal Real, typename Vector> struct ComplexSchurCom
 
     std::vector<Vector> basis;
     Vector residual;
-    Matrix<Complex> schur_form;
+    uni20::DenseMatrix<Complex> schur_form;
     std::vector<Complex> residual_coupling;
     std::vector<Complex> eigenvalues;
     Real residual_norm = Real{};
@@ -118,8 +118,8 @@ template <uni20::Real Scalar> Scalar arnoldi_breakdown_threshold(Scalar toleranc
 }
 
 template <uni20::RealOrComplex Scalar>
-uni20::make_real_t<Scalar> arnoldi_hessenberg_column_scale(Matrix<Scalar> const& hessenberg, std::size_t column,
-                                                           std::size_t coefficient_count,
+uni20::make_real_t<Scalar> arnoldi_hessenberg_column_scale(uni20::DenseMatrix<Scalar> const& hessenberg,
+                                                           std::size_t column, std::size_t coefficient_count,
                                                            uni20::make_real_t<Scalar> residual_norm)
 {
   using Real = uni20::make_real_t<Scalar>;
@@ -132,7 +132,7 @@ uni20::make_real_t<Scalar> arnoldi_hessenberg_column_scale(Matrix<Scalar> const&
 }
 
 template <uni20::RealOrComplex Scalar>
-uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(Matrix<Scalar> const& schur_form,
+uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(uni20::DenseMatrix<Scalar> const& schur_form,
                                                              std::vector<Scalar> const& residual_coupling,
                                                              uni20::make_real_t<Scalar> residual_norm)
 {
@@ -154,7 +154,7 @@ uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(Matrix<Scalar> cons
 
 template <uni20::RealOrComplex Scalar, typename Vector, typename Ops>
 uni20::make_real_t<Scalar> orthogonalize_arnoldi_residual(Ops& ops, std::vector<Vector> const& basis,
-                                                          Matrix<Scalar>& hessenberg, std::size_t column,
+                                                          uni20::DenseMatrix<Scalar>& hessenberg, std::size_t column,
                                                           Vector& residual)
 {
   using Real = uni20::make_real_t<Scalar>;
@@ -428,7 +428,7 @@ NonsymmetricEigenResult<Real, Vector> make_complex_nonsymmetric_arnoldi_result(
 /// \param matrix Square projected matrix.
 /// \return Scale-normalized Frobenius departure from normality.
 template <uni20::RealOrComplex Scalar>
-uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> const& matrix)
+uni20::make_real_t<Scalar> projected_departure_from_normality(uni20::DenseMatrix<Scalar> const& matrix)
 {
   if (matrix.rows() != matrix.cols())
   {
@@ -508,7 +508,7 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
 
   ArnoldiFactorization<Scalar, Vector> factorization;
   factorization.hessenberg =
-      Matrix<Scalar>(static_cast<std::size_t>(max_steps) + 1, static_cast<std::size_t>(max_steps));
+      uni20::DenseMatrix<Scalar>(static_cast<std::size_t>(max_steps) + 1, static_cast<std::size_t>(max_steps));
   laset(factorization.hessenberg, Scalar{}, Scalar{}, MatrixFill::All);
   factorization.basis.push_back(std::move(q0));
 
@@ -545,7 +545,7 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
 /// \param factorization Arnoldi factorization to extract from.
 /// \return The leading `m`-by-`m` projected Hessenberg matrix.
 template <uni20::RealOrComplex Scalar, typename Vector>
-Matrix<Scalar> arnoldi_projected_hessenberg(ArnoldiFactorization<Scalar, Vector> const& factorization)
+uni20::DenseMatrix<Scalar> arnoldi_projected_hessenberg(ArnoldiFactorization<Scalar, Vector> const& factorization)
 {
   if (factorization.step_count <= 0)
   {
@@ -559,7 +559,7 @@ Matrix<Scalar> arnoldi_projected_hessenberg(ArnoldiFactorization<Scalar, Vector>
     throw std::invalid_argument("arnoldi_projected_hessenberg received an inconsistent Hessenberg projection");
   }
 
-  Matrix<Scalar> projected(projected_dimension, projected_dimension);
+  uni20::DenseMatrix<Scalar> projected(projected_dimension, projected_dimension);
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
     for (std::size_t row = 0; row < projected_dimension; ++row)
@@ -599,7 +599,7 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
     throw std::invalid_argument("extract_arnoldi_ritz received an inconsistent Hessenberg projection");
   }
 
-  Matrix<Scalar> projected = arnoldi_projected_hessenberg(factorization);
+  uni20::DenseMatrix<Scalar> projected = arnoldi_projected_hessenberg(factorization);
   Scalar hessenberg_scale = Scalar{1};
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
@@ -673,7 +673,7 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
     throw std::invalid_argument("extract_complex_arnoldi_ritz received an inconsistent Hessenberg projection");
   }
 
-  Matrix<Complex> projected = arnoldi_projected_hessenberg(factorization);
+  uni20::DenseMatrix<Complex> projected = arnoldi_projected_hessenberg(factorization);
   Real hessenberg_scale = Real{1};
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
@@ -886,7 +886,7 @@ compress_real_schur_arnoldi_restart(Ops& ops, ArnoldiFactorization<Scalar, Vecto
     throw std::invalid_argument("real Schur Arnoldi compression received an inconsistent basis");
   }
 
-  Matrix<Scalar> projected = arnoldi_projected_hessenberg(factorization);
+  uni20::DenseMatrix<Scalar> projected = arnoldi_projected_hessenberg(factorization);
   auto schur = real_schur(std::move(projected), true);
   RealSchurRestartSelection<Scalar> selection = select_real_schur_restart_blocks(schur.blocks, params);
   if (selection.scalar_count == 0 || selection.scalar_count > order)
@@ -913,7 +913,7 @@ compress_real_schur_arnoldi_restart(Ops& ops, ArnoldiFactorization<Scalar, Vecto
   RealSchurCompressedArnoldiFactorization<Scalar, Vector> result{
       .basis = {},
       .residual = ops.allocate_like(factorization.basis.front()),
-      .schur_form = Matrix<Scalar>(retained_count, retained_count),
+      .schur_form = uni20::DenseMatrix<Scalar>(retained_count, retained_count),
       .residual_coupling = std::vector<Scalar>(retained_count, Scalar{}),
       .eigenvalues = {},
       .blocks = {},
@@ -1010,7 +1010,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
   }
 
   ArnoldiFactorization<Scalar, Vector> factorization;
-  factorization.hessenberg = Matrix<Scalar>(target_step_count + 1, target_step_count);
+  factorization.hessenberg = uni20::DenseMatrix<Scalar>(target_step_count + 1, target_step_count);
   laset(factorization.hessenberg, Scalar{}, Scalar{}, MatrixFill::All);
   factorization.basis.reserve(target_step_count + 1);
   for (auto const& vector : compressed.basis)
@@ -1112,7 +1112,7 @@ compress_complex_schur_arnoldi_restart(Ops& ops,
     throw std::invalid_argument("complex Schur Arnoldi compression received an inconsistent basis");
   }
 
-  Matrix<Complex> projected = arnoldi_projected_hessenberg(factorization);
+  uni20::DenseMatrix<Complex> projected = arnoldi_projected_hessenberg(factorization);
   auto schur = complex_schur<Real>(std::move(projected), true);
   std::vector<std::size_t> const retained_indices = select_nonsymmetric_restart_indices(schur.eigenvalues, params);
   if (retained_indices.empty() || retained_indices.size() > order)
@@ -1139,7 +1139,7 @@ compress_complex_schur_arnoldi_restart(Ops& ops,
   ComplexSchurCompressedArnoldiFactorization<Real, Vector> result{
       .basis = {},
       .residual = ops.allocate_like(factorization.basis.front()),
-      .schur_form = Matrix<Complex>(retained_count, retained_count),
+      .schur_form = uni20::DenseMatrix<Complex>(retained_count, retained_count),
       .residual_coupling = std::vector<Complex>(retained_count, Complex{}),
       .eigenvalues = {},
       .residual_norm = Real{},
@@ -1224,7 +1224,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
   }
 
   ArnoldiFactorization<Complex, Vector> factorization;
-  factorization.hessenberg = Matrix<Complex>(target_step_count + 1, target_step_count);
+  factorization.hessenberg = uni20::DenseMatrix<Complex>(target_step_count + 1, target_step_count);
   laset(factorization.hessenberg, Complex{}, Complex{}, MatrixFill::All);
   factorization.basis.reserve(target_step_count + 1);
   for (auto const& vector : compressed.basis)

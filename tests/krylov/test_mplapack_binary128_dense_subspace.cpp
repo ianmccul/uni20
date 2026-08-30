@@ -19,7 +19,15 @@ namespace
 {
 
 using Binary128 = mplapack_binary128_t;
-template <typename Scalar> using DenseMatrix = uni20::linalg::backends::cpu::DenseMatrix<Scalar>;
+template <typename Scalar> using DenseMatrix = uni20::DenseMatrix<Scalar>;
+
+template <typename Scalar, std::integral Rows, std::integral Columns>
+DenseMatrix<Scalar> zero_matrix(Rows rows, Columns columns)
+{
+  DenseMatrix<Scalar> result(rows, columns);
+  std::fill_n(result.data(), result.size(), Scalar{});
+  return result;
+}
 
 Binary128 abs_error(Binary128 actual, Binary128 expected) { return std::abs(actual - expected); }
 
@@ -33,10 +41,10 @@ Binary128 schur_right_eigenvector_residual_max(DenseMatrix<Binary128> const& sch
                                                std::size_t column)
 {
   Binary128 residual_max{};
-  for (std::size_t row = 0; row < schur_form.rows(); ++row)
+  for (uni20::index_type row = 0; row < schur_form.rows(); ++row)
   {
     uni20::complex<Binary128> applied{};
-    for (std::size_t inner = 0; inner < schur_form.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < schur_form.cols(); ++inner)
     {
       applied += uni20::complex<Binary128>{schur_form[row, inner], Binary128{}} * eigenvectors[inner, column];
     }
@@ -52,11 +60,11 @@ Binary128 generalized_schur_right_eigenvector_residual_max(DenseMatrix<Binary128
                                                            std::size_t column)
 {
   Binary128 residual_max{};
-  for (std::size_t row = 0; row < matrix_schur_form.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix_schur_form.rows(); ++row)
   {
     uni20::complex<Binary128> matrix_applied{};
     uni20::complex<Binary128> metric_applied{};
-    for (std::size_t inner = 0; inner < matrix_schur_form.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < matrix_schur_form.cols(); ++inner)
     {
       matrix_applied +=
           uni20::complex<Binary128>{matrix_schur_form[row, inner], Binary128{}} * eigenvectors[inner, column];
@@ -85,13 +93,13 @@ DenseMatrix<Binary128> multiply_for_test(DenseMatrix<Binary128> const& lhs, Dens
     throw std::invalid_argument("test matrix dimensions do not agree");
   }
 
-  DenseMatrix<Binary128> result(lhs.rows(), rhs.cols());
-  for (std::size_t row = 0; row < lhs.rows(); ++row)
+  auto result = zero_matrix<Binary128>(lhs.rows(), rhs.cols());
+  for (uni20::index_type row = 0; row < lhs.rows(); ++row)
   {
-    for (std::size_t inner = 0; inner < lhs.cols(); ++inner)
+    for (uni20::index_type inner = 0; inner < lhs.cols(); ++inner)
     {
       Binary128 const factor = lhs[row, inner];
-      for (std::size_t col = 0; col < rhs.cols(); ++col)
+      for (uni20::index_type col = 0; col < rhs.cols(); ++col)
       {
         result[row, col] += factor * rhs[inner, col];
       }
@@ -102,10 +110,10 @@ DenseMatrix<Binary128> multiply_for_test(DenseMatrix<Binary128> const& lhs, Dens
 
 DenseMatrix<Binary128> transpose(DenseMatrix<Binary128> const& matrix)
 {
-  DenseMatrix<Binary128> result(matrix.cols(), matrix.rows());
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  auto result = zero_matrix<Binary128>(matrix.cols(), matrix.rows());
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       result[col, row] = matrix[row, col];
     }
@@ -115,7 +123,7 @@ DenseMatrix<Binary128> transpose(DenseMatrix<Binary128> const& matrix)
 
 DenseMatrix<Binary128> identity_matrix(std::size_t order)
 {
-  DenseMatrix<Binary128> result(order, order);
+  auto result = zero_matrix<Binary128>(order, order);
   for (std::size_t index = 0; index < order; ++index)
   {
     result[index, index] = Binary128{1};
@@ -182,7 +190,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexNonsymmetricEigensystemResolvesG
   EXPECT_EQ(static_cast<double>(second.real()), 1.0);
   EXPECT_EQ(static_cast<double>(second.imag()), 1.0);
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = first;
   matrix[0, 1] = Complex{delta, -delta};
   matrix[1, 1] = second;
@@ -207,7 +215,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexSchurResolvesGapBelowDoublePreci
   Complex const first{Binary128{1} + delta, Binary128{1} + delta};
   Complex const second{Binary128{1} + Binary128{2} * delta, Binary128{1} + Binary128{2} * delta};
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = first;
   matrix[0, 1] = Complex{delta, -delta};
   matrix[1, 1] = second;
@@ -235,7 +243,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexSchurReordersBinary128SeparatedE
   Complex const second{Binary128{1} + Binary128{2} * delta, Binary128{1} + Binary128{2} * delta};
   Complex const third{Binary128{1} + Binary128{3} * delta, Binary128{1} + Binary128{3} * delta};
 
-  DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = first;
   matrix[1, 1] = second;
   matrix[2, 2] = third;
@@ -268,7 +276,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexHermitianEigensystemResolvesGapB
   Binary128 const offdiagonal = delta / Binary128{4};
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[0, 1] = Complex{Binary128{}, offdiagonal};
   matrix[1, 1] = Complex{Binary128{1} + delta, Binary128{}};
@@ -289,7 +297,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexHermitianEigensystemResolvesGapB
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -308,7 +316,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexHermitianDivideAndConquerEigensy
   Binary128 const offdiagonal = delta / Binary128{4};
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[0, 1] = Complex{Binary128{}, offdiagonal};
   matrix[1, 1] = Complex{Binary128{1} + delta, Binary128{}};
@@ -337,7 +345,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedComplexHermitianEigensystemReso
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[1, 1] = Complex{Binary128{1} + delta, Binary128{}};
   matrix[2, 2] = Complex{Binary128{2}, Binary128{}};
@@ -363,13 +371,13 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexGeneralizedHermitianEigensystemR
   Binary128 const root_two = std::sqrt(Binary128{2});
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[0, 1] = Complex{Binary128{}, root_two * offdiagonal};
   matrix[1, 1] = Complex{Binary128{2} * (Binary128{1} + delta), Binary128{}};
   EXPECT_EQ(static_cast<double>(matrix[1, 1].real()), 2.0);
 
-  DenseMatrix<Complex> metric(2, 2);
+  auto metric = zero_matrix<Complex>(2, 2);
   metric[0, 0] = Complex{Binary128{1}, Binary128{}};
   metric[1, 1] = Complex{Binary128{2}, Binary128{}};
 
@@ -389,7 +397,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ComplexGeneralizedHermitianEigensystemR
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= Binary128{1000} * tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= Binary128{1000} * tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Complex const x0 = result.eigenvectors[0, col];
@@ -413,13 +421,13 @@ TEST(MplapackBinary128DenseSubspaceTest,
   Binary128 const root_two = std::sqrt(Binary128{2});
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(2, 2);
+  auto matrix = zero_matrix<Complex>(2, 2);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[0, 1] = Complex{Binary128{}, root_two * offdiagonal};
   matrix[1, 1] = Complex{Binary128{2} * (Binary128{1} + delta), Binary128{}};
   EXPECT_EQ(static_cast<double>(matrix[1, 1].real()), 2.0);
 
-  DenseMatrix<Complex> metric(2, 2);
+  auto metric = zero_matrix<Complex>(2, 2);
   metric[0, 0] = Complex{Binary128{1}, Binary128{}};
   metric[1, 1] = Complex{Binary128{2}, Binary128{}};
 
@@ -449,13 +457,13 @@ TEST(MplapackBinary128DenseSubspaceTest,
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Complex> matrix(3, 3);
+  auto matrix = zero_matrix<Complex>(3, 3);
   matrix[0, 0] = Complex{Binary128{1}, Binary128{}};
   matrix[1, 1] = Complex{Binary128{2} * (Binary128{1} + delta), Binary128{}};
   matrix[2, 2] = Complex{Binary128{6}, Binary128{}};
   EXPECT_EQ(static_cast<double>(matrix[1, 1].real()), 2.0);
 
-  DenseMatrix<Complex> metric(3, 3);
+  auto metric = zero_matrix<Complex>(3, 3);
   metric[0, 0] = Complex{Binary128{1}, Binary128{}};
   metric[1, 1] = Complex{Binary128{2}, Binary128{}};
   metric[2, 2] = Complex{Binary128{3}, Binary128{}};
@@ -479,7 +487,7 @@ TEST(MplapackBinary128DenseSubspaceTest, MatrixNormsPreserveBinary128OnlyIncreme
   expect_gap_is_binary128_only(delta);
   Binary128 const one_plus_delta = Binary128{1} + delta;
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = one_plus_delta;
   matrix[1, 1] = Binary128{1};
 
@@ -495,7 +503,7 @@ TEST(MplapackBinary128DenseSubspaceTest, MatrixFrobeniusNormScalesAboveDoubleRan
   Binary128 const huge = binary_power_of_two(1200);
   EXPECT_TRUE(std::isinf(static_cast<double>(huge)));
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = huge;
   matrix[1, 1] = huge;
 
@@ -512,7 +520,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricMatrixNormPreservesBinary128On
   expect_gap_is_binary128_only(delta);
   Binary128 const expected = Binary128{1} + Binary128{2} * delta;
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[0, 1] = delta;
   matrix[1, 0] = binary_power_of_two(800);
@@ -532,7 +540,7 @@ TEST(MplapackBinary128DenseSubspaceTest, TriangularMatrixNormPreservesBinary128O
   expect_gap_is_binary128_only(delta);
   Binary128 const stored_diagonal_max = Binary128{1} + Binary128{3} * delta;
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1} + Binary128{2} * delta;
   matrix[0, 1] = delta;
   matrix[1, 0] = binary_power_of_two(800);
@@ -554,7 +562,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandMatrixNormPreservesValuesBel
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[1, 0] = Binary128{0.5} * tiny;
   matrix[2, 0] = binary_power_of_two(800);
@@ -576,7 +584,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandSolveAcceptsPivotsBelowDoubl
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[1, 0] = Binary128{0.5} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
@@ -585,19 +593,19 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandSolveAcceptsPivotsBelowDoubl
   matrix[1, 2] = Binary128{-0.25} * tiny;
   matrix[2, 2] = Binary128{4} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
 
   auto direct_solution = uni20::krylov::real_general_band_solve(
       uni20::krylov::real_general_band_from_dense(matrix, 1, 1), right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(direct_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -605,7 +613,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandSolveAcceptsPivotsBelowDoubl
   auto factorization =
       uni20::krylov::real_general_band_factorization(uni20::krylov::real_general_band_from_dense(matrix, 1, 1));
   auto factorized_solution = uni20::krylov::real_general_band_solve(factorization, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(factorized_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -616,7 +624,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalSolveAcceptsPivotingB
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{0.25} * tiny;
   matrix[0, 1] = Binary128{2} * tiny;
   matrix[1, 0] = Binary128{3} * tiny;
@@ -642,18 +650,18 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalSolveAcceptsPivotingB
     expect_value_underflows_to_double_zero(std::abs(value));
   }
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
 
   auto direct_solution = uni20::krylov::real_general_tridiagonal_solve(tridiagonal, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(direct_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -662,7 +670,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalSolveAcceptsPivotingB
   ASSERT_EQ(factorization.pivot_rows.size(), 3);
   EXPECT_EQ(factorization.pivot_rows[0], 1);
   auto factorized_solution = uni20::krylov::real_general_tridiagonal_solve(factorization, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(factorized_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -673,7 +681,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalConditionEstimateStay
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
@@ -698,7 +706,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalRefinedSolveUsesMplap
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{0.25} * tiny;
   matrix[0, 1] = Binary128{2} * tiny;
   matrix[1, 0] = Binary128{3} * tiny;
@@ -707,12 +715,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalRefinedSolveUsesMplap
   matrix[2, 1] = Binary128{0.5} * tiny;
   matrix[2, 2] = Binary128{5} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -726,13 +734,13 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalRefinedSolveUsesMplap
   ASSERT_EQ(result.backward_error_bounds.size(), 1);
   EXPECT_GE(result.forward_error_bounds[0], Binary128{});
   EXPECT_GE(result.backward_error_bounds[0], Binary128{});
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
 
   auto reconstructed = multiply_for_test(matrix, result.solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], right_hand_side[row, 0]) <= tiny * Binary128{1000} * tolerance());
   }
@@ -743,11 +751,11 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalExpertSolveUsesMplapa
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> expected_solution(2, 1);
+  auto expected_solution = zero_matrix<Binary128>(2, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{2};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
@@ -765,7 +773,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralTridiagonalExpertSolveUsesMplapa
   EXPECT_TRUE(result.reciprocal_condition_below_machine_precision);
   expect_value_underflows_to_double_zero(result.reciprocal_condition);
   EXPECT_TRUE(abs_error(result.reciprocal_condition / tiny, Binary128{1}) <= Binary128{1000} * tolerance());
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -776,7 +784,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandReciprocalConditionNumberSta
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
@@ -800,7 +808,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandRefinedSolveUsesMplapackGbrf
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[1, 0] = Binary128{0.5} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
@@ -809,12 +817,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandRefinedSolveUsesMplapackGbrf
   matrix[1, 2] = Binary128{-0.25} * tiny;
   matrix[2, 2] = Binary128{4} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -828,13 +836,13 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandRefinedSolveUsesMplapackGbrf
   ASSERT_EQ(result.backward_error_bounds.size(), 1);
   EXPECT_GE(result.forward_error_bounds[0], Binary128{});
   EXPECT_GE(result.backward_error_bounds[0], Binary128{});
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
 
   auto reconstructed = multiply_for_test(matrix, result.solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], right_hand_side[row, 0]) <= tiny * Binary128{1000} * tolerance());
   }
@@ -845,11 +853,11 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandExpertSolveUsesMplapackGbsvx
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> right_hand_side(2, 1);
+  auto right_hand_side = zero_matrix<Binary128>(2, 1);
   right_hand_side[0, 0] = Binary128{1};
   right_hand_side[1, 0] = tiny;
   expect_value_underflows_to_double_zero(right_hand_side[1, 0]);
@@ -881,7 +889,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralBandEquilibrationPreservesBinary
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -930,7 +938,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralEquilibrationPreservesBinary128O
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -954,11 +962,11 @@ TEST(MplapackBinary128DenseSubspaceTest, RefinedLinearSolvePreservesBinary128Onl
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -981,7 +989,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSymmetricEigensystemResolvesDenseGa
   Binary128 const offdiagonal = delta / Binary128{4};
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = offdiagonal;
   matrix[1, 0] = Binary128{};
@@ -1003,7 +1011,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSymmetricEigensystemResolvesDenseGa
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -1021,7 +1029,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSymmetricDivideAndConquerEigensyste
   Binary128 const offdiagonal = delta / Binary128{4};
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = offdiagonal;
   matrix[1, 0] = Binary128{};
@@ -1043,7 +1051,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSymmetricDivideAndConquerEigensyste
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -1060,7 +1068,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedRealSymmetricEigensystemResolve
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};
@@ -1076,12 +1084,12 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedRealSymmetricEigensystemResolve
   EXPECT_TRUE(abs_error(result.eigenvalues[0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], Binary128{1} + delta) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 residual_norm{};
     Binary128 vector_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Binary128 const diagonal = row == 0 ? Binary128{1} : (row == 1 ? Binary128{1} + delta : Binary128{2});
       Binary128 const residual = diagonal * result.eigenvectors[row, col] - lambda * result.eigenvectors[row, col];
@@ -1098,12 +1106,12 @@ TEST(MplapackBinary128DenseSubspaceTest, RealGeneralizedSymmetricEigensystemReso
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  DenseMatrix<Binary128> metric(2, 2);
+  auto metric = zero_matrix<Binary128>(2, 2);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
 
@@ -1119,7 +1127,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealGeneralizedSymmetricEigensystemReso
   EXPECT_TRUE(abs_error(result.eigenvalues[0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], Binary128{1} + delta) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -1139,12 +1147,12 @@ TEST(MplapackBinary128DenseSubspaceTest,
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  DenseMatrix<Binary128> metric(2, 2);
+  auto metric = zero_matrix<Binary128>(2, 2);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
 
@@ -1160,7 +1168,7 @@ TEST(MplapackBinary128DenseSubspaceTest,
   EXPECT_TRUE(abs_error(result.eigenvalues[0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], Binary128{1} + delta) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -1180,13 +1188,13 @@ TEST(MplapackBinary128DenseSubspaceTest,
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  DenseMatrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
   metric[2, 2] = Binary128{3};
@@ -1203,12 +1211,12 @@ TEST(MplapackBinary128DenseSubspaceTest,
   EXPECT_TRUE(abs_error(result.eigenvalues[0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], Binary128{1} + delta) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 residual_norm{};
     Binary128 metric_norm{};
-    for (std::size_t row = 0; row < result.eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.eigenvectors.rows(); ++row)
     {
       Binary128 const matrix_diagonal =
           row == 0 ? Binary128{1} : (row == 1 ? Binary128{2} * (Binary128{1} + delta) : Binary128{6});
@@ -1228,7 +1236,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSingularValueDecompositionResolvesG
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 1] = Binary128{1};
 
@@ -1246,14 +1254,14 @@ TEST(MplapackBinary128DenseSubspaceTest, RealSingularValueDecompositionResolvesG
   EXPECT_TRUE(abs_error(result.singular_values[0], Binary128{1} + delta) <= tolerance());
   EXPECT_TRUE(abs_error(result.singular_values[1], Binary128{1}) <= tolerance());
 
-  DenseMatrix<Binary128> sigma(2, 2);
+  auto sigma = zero_matrix<Binary128>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto reconstructed = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
                                          result.right_singular_vectors_transpose);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(reconstructed[row, col], matrix[row, col]) <= tolerance());
     }
@@ -1265,7 +1273,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealDivideAndConquerSvdResolvesGapBelow
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 1] = Binary128{1};
 
@@ -1283,14 +1291,14 @@ TEST(MplapackBinary128DenseSubspaceTest, RealDivideAndConquerSvdResolvesGapBelow
   EXPECT_TRUE(abs_error(result.singular_values[0], Binary128{1} + delta) <= tolerance());
   EXPECT_TRUE(abs_error(result.singular_values[1], Binary128{1}) <= tolerance());
 
-  DenseMatrix<Binary128> sigma(2, 2);
+  auto sigma = zero_matrix<Binary128>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto reconstructed = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
                                          result.right_singular_vectors_transpose);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(reconstructed[row, col], matrix[row, col]) <= tolerance());
     }
@@ -1302,7 +1310,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedRealSvdResolvesGapBelowDoublePr
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};
@@ -1328,7 +1336,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedRealSvdResolvesGapBelowDoublePr
   EXPECT_TRUE(result.singular_values[0] > result.singular_values[1]);
   EXPECT_TRUE(abs_error(result.singular_values[0] - result.singular_values[1], delta) <= tolerance());
 
-  DenseMatrix<Binary128> sigma(2, 2);
+  auto sigma = zero_matrix<Binary128>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto selected_contribution = multiply_for_test(multiply_for_test(result.left_singular_vectors, sigma),
@@ -1349,11 +1357,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteSolveAcceptsPi
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2} * tiny;
 
@@ -1370,11 +1378,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteFactorizationS
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2} * tiny;
 
@@ -1395,7 +1403,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandSolveAccep
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
   matrix[1, 0] = matrix[0, 1];
@@ -1404,12 +1412,12 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandSolveAccep
   matrix[2, 1] = matrix[1, 2];
   matrix[2, 2] = Binary128{4} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -1417,7 +1425,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandSolveAccep
   auto upper_band =
       uni20::krylov::real_symmetric_positive_definite_band_from_dense(matrix, 1, uni20::krylov::MatrixFill::Upper);
   auto direct_solution = uni20::krylov::real_symmetric_positive_definite_band_solve(upper_band, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(direct_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1426,7 +1434,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandSolveAccep
       uni20::krylov::real_symmetric_positive_definite_band_from_dense(matrix, 1, uni20::krylov::MatrixFill::Lower));
   auto factorized_solution =
       uni20::krylov::real_symmetric_positive_definite_band_solve(lower_factorization, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(factorized_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1437,7 +1445,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandConditionE
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
@@ -1462,7 +1470,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandRefinedSol
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
   matrix[1, 0] = matrix[0, 1];
@@ -1471,12 +1479,12 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandRefinedSol
   matrix[2, 1] = matrix[1, 2];
   matrix[2, 2] = Binary128{4} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(3, 1);
+  auto expected_solution = zero_matrix<Binary128>(3, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -1490,13 +1498,13 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandRefinedSol
   ASSERT_EQ(result.backward_error_bounds.size(), 1);
   EXPECT_GE(result.forward_error_bounds[0], Binary128{});
   EXPECT_GE(result.backward_error_bounds[0], Binary128{});
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
 
   auto reconstructed = multiply_for_test(matrix, result.solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], right_hand_side[row, 0]) <= tiny * Binary128{1000} * tolerance());
   }
@@ -1507,11 +1515,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandExpertSolv
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> expected_solution(2, 1);
+  auto expected_solution = zero_matrix<Binary128>(2, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{2};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
@@ -1532,7 +1540,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteBandExpertSolv
   EXPECT_TRUE(result.reciprocal_condition_below_machine_precision);
   expect_value_underflows_to_double_zero(result.reciprocal_condition);
   EXPECT_TRUE(abs_error(result.reciprocal_condition / tiny, Binary128{1}) <= Binary128{1000} * tolerance());
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1543,7 +1551,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalSol
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(4, 4);
+  auto matrix = zero_matrix<Binary128>(4, 4);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
   matrix[1, 0] = matrix[0, 1];
@@ -1555,13 +1563,13 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalSol
   matrix[3, 2] = matrix[2, 3];
   matrix[3, 3] = Binary128{5} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(4, 1);
+  auto expected_solution = zero_matrix<Binary128>(4, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   expected_solution[3, 0] = Binary128{-4};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -1572,7 +1580,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalSol
 
   auto direct_solution =
       uni20::krylov::real_symmetric_positive_definite_tridiagonal_solve(tridiagonal, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(direct_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1580,7 +1588,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalSol
   auto factorization = uni20::krylov::real_symmetric_positive_definite_tridiagonal_factorization(tridiagonal);
   auto factorized_solution =
       uni20::krylov::real_symmetric_positive_definite_tridiagonal_solve(factorization, right_hand_side);
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(factorized_solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1591,7 +1599,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalCon
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
@@ -1617,7 +1625,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalRef
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(4, 4);
+  auto matrix = zero_matrix<Binary128>(4, 4);
   matrix[0, 0] = Binary128{2} * tiny;
   matrix[0, 1] = Binary128{0.25} * tiny;
   matrix[1, 0] = matrix[0, 1];
@@ -1629,13 +1637,13 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalRef
   matrix[3, 2] = matrix[2, 3];
   matrix[3, 3] = Binary128{5} * tiny;
 
-  DenseMatrix<Binary128> expected_solution(4, 1);
+  auto expected_solution = zero_matrix<Binary128>(4, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{-2};
   expected_solution[2, 0] = Binary128{3};
   expected_solution[3, 0] = Binary128{-4};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     expect_value_underflows_to_double_zero(std::abs(right_hand_side[row, 0]));
   }
@@ -1649,13 +1657,13 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalRef
   ASSERT_EQ(result.backward_error_bounds.size(), 1);
   EXPECT_GE(result.forward_error_bounds[0], Binary128{});
   EXPECT_GE(result.backward_error_bounds[0], Binary128{});
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
 
   auto reconstructed = multiply_for_test(matrix, result.solution);
-  for (std::size_t row = 0; row < right_hand_side.rows(); ++row)
+  for (uni20::index_type row = 0; row < right_hand_side.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], right_hand_side[row, 0]) <= tiny * Binary128{1000} * tolerance());
   }
@@ -1666,11 +1674,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalExp
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
-  DenseMatrix<Binary128> expected_solution(2, 1);
+  auto expected_solution = zero_matrix<Binary128>(2, 1);
   expected_solution[0, 0] = Binary128{1};
   expected_solution[1, 0] = Binary128{2};
   DenseMatrix<Binary128> right_hand_side = multiply_for_test(matrix, expected_solution);
@@ -1689,7 +1697,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteTridiagonalExp
   EXPECT_TRUE(result.reciprocal_condition_below_machine_precision);
   expect_value_underflows_to_double_zero(result.reciprocal_condition);
   EXPECT_TRUE(abs_error(result.reciprocal_condition / tiny, Binary128{1}) <= Binary128{1000} * tolerance());
-  for (std::size_t row = 0; row < expected_solution.rows(); ++row)
+  for (uni20::index_type row = 0; row < expected_solution.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(result.solution[row, 0], expected_solution[row, 0]) <= Binary128{1000} * tolerance());
   }
@@ -1702,7 +1710,7 @@ TEST(MplapackBinary128DenseSubspaceTest, PivotedCholeskyKeepsPivotBelowDoubleMin
   expect_value_underflows_to_double_zero(tiny);
   expect_value_underflows_to_double_zero(tinier);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tinier;
 
@@ -1721,7 +1729,7 @@ TEST(MplapackBinary128DenseSubspaceTest, PivotedCholeskyKeepsPivotBelowDoubleMin
   EXPECT_EQ(static_cast<double>(small_factor), 0.0);
   EXPECT_TRUE(abs_error(small_factor * small_factor, tinier) <= tinier * Binary128{1000} * tolerance());
 
-  DenseMatrix<Binary128> upper(2, 2);
+  auto upper = zero_matrix<Binary128>(2, 2);
   upper[0, 0] = factorization.factors[0, 0];
   upper[0, 1] = factorization.factors[0, 1];
   upper[1, 1] = factorization.factors[1, 1];
@@ -1737,11 +1745,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteExpertSolveUse
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -1769,7 +1777,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteEquilibrationP
   Binary128 const tinier = tiny * tiny;
   expect_value_underflows_to_double_zero(tinier);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tinier;
   matrix[1, 1] = Binary128{1};
 
@@ -1789,11 +1797,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteRefinedSolvePr
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -1815,7 +1823,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteConditionEstim
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -1831,7 +1839,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteFactorizedCond
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -1849,7 +1857,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricPositiveDefiniteInverseAccepts
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -1871,11 +1879,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteSolveAcceptsPivotsBe
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = -tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = -Binary128{2} * tiny;
 
@@ -1892,11 +1900,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteFactorizationSolveAc
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = -tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = -Binary128{2} * tiny;
 
@@ -1918,11 +1926,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteRefinedSolvePreserve
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{-1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{-2};
 
@@ -1944,7 +1952,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteInverseAcceptsPivotB
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = -tiny;
 
@@ -1968,11 +1976,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteExpertSolveUsesMplap
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = -tiny;
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = -tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -1998,7 +2006,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteConditionEstimateSta
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = -tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -2014,7 +2022,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricIndefiniteFactorizedConditionE
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = -tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -2032,11 +2040,11 @@ TEST(MplapackBinary128DenseSubspaceTest, TriangularSolveAcceptsDiagonalBelowDoub
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -2053,11 +2061,11 @@ TEST(MplapackBinary128DenseSubspaceTest, TriangularRefinedSolveAcceptsDiagonalBe
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2};
 
@@ -2078,7 +2086,7 @@ TEST(MplapackBinary128DenseSubspaceTest, TriangularInverseAcceptsDiagonalBelowDo
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -2101,7 +2109,7 @@ TEST(MplapackBinary128DenseSubspaceTest, TriangularConditionEstimateStaysInBinar
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -2117,13 +2125,13 @@ TEST(MplapackBinary128DenseSubspaceTest, SylvesterSolvePreservesRightHandSideBel
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> left(1, 1);
+  auto left = zero_matrix<Binary128>(1, 1);
   left[0, 0] = Binary128{1};
 
-  DenseMatrix<Binary128> right(1, 1);
+  auto right = zero_matrix<Binary128>(1, 1);
   right[0, 0] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(1, 1);
+  auto rhs = zero_matrix<Binary128>(1, 1);
   rhs[0, 0] = tiny;
   EXPECT_EQ(static_cast<double>(rhs[0, 0]), 0.0);
 
@@ -2141,7 +2149,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQrFactorizationPreservesColumnNormB
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 1);
+  auto matrix = zero_matrix<Binary128>(2, 1);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{-1};
 
@@ -2160,7 +2168,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQrFactorizationPreservesColumnNormB
   EXPECT_TRUE(abs_error(q_norm, Binary128{1}) <= tolerance());
 
   auto reconstructed = multiply_for_test(result.q, result.r);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], matrix[row, 0]) <= tolerance());
   }
@@ -2171,7 +2179,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQrFactorApplicationPreservesColumnN
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 1);
+  auto matrix = zero_matrix<Binary128>(2, 1);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{-1};
 
@@ -2192,9 +2200,9 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQrFactorApplicationPreservesColumnN
   auto q = uni20::krylov::apply_real_qr_factor(compact, identity, uni20::krylov::MatrixSide::Left);
   auto recovered_identity = uni20::krylov::apply_real_qr_factor(compact, q, uni20::krylov::MatrixSide::Left,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  for (std::size_t row = 0; row < identity.rows(); ++row)
+  for (uni20::index_type row = 0; row < identity.rows(); ++row)
   {
-    for (std::size_t col = 0; col < identity.cols(); ++col)
+    for (uni20::index_type col = 0; col < identity.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_identity[row, col], identity[row, col]) <= tolerance());
     }
@@ -2206,7 +2214,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLqFactorizationPreservesRowNormBelo
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(1, 2);
+  auto matrix = zero_matrix<Binary128>(1, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[0, 1] = Binary128{-1};
 
@@ -2225,7 +2233,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLqFactorizationPreservesRowNormBelo
   EXPECT_TRUE(abs_error(q_norm, Binary128{1}) <= tolerance());
 
   auto reconstructed = multiply_for_test(result.l, result.q);
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     EXPECT_TRUE(abs_error(reconstructed[0, col], matrix[0, col]) <= tolerance());
   }
@@ -2236,7 +2244,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLqFactorApplicationPreservesRowNorm
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(1, 2);
+  auto matrix = zero_matrix<Binary128>(1, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[0, 1] = Binary128{-1};
 
@@ -2257,9 +2265,9 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLqFactorApplicationPreservesRowNorm
   auto q = uni20::krylov::apply_real_lq_factor(compact, identity, uni20::krylov::MatrixSide::Right);
   auto recovered_identity = uni20::krylov::apply_real_lq_factor(compact, q, uni20::krylov::MatrixSide::Right,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  for (std::size_t row = 0; row < identity.rows(); ++row)
+  for (uni20::index_type row = 0; row < identity.rows(); ++row)
   {
-    for (std::size_t col = 0; col < identity.cols(); ++col)
+    for (uni20::index_type col = 0; col < identity.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_identity[row, col], identity[row, col]) <= tolerance());
     }
@@ -2271,7 +2279,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQlFactorizationPreservesColumnNormB
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 1);
+  auto matrix = zero_matrix<Binary128>(2, 1);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{-1};
 
@@ -2290,7 +2298,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQlFactorizationPreservesColumnNormB
   EXPECT_TRUE(abs_error(q_norm, Binary128{1}) <= tolerance());
 
   auto reconstructed = multiply_for_test(result.q, result.l);
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
     EXPECT_TRUE(abs_error(reconstructed[row, 0], matrix[row, 0]) <= tolerance());
   }
@@ -2301,7 +2309,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQlFactorApplicationPreservesColumnN
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 1);
+  auto matrix = zero_matrix<Binary128>(2, 1);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{-1};
 
@@ -2322,9 +2330,9 @@ TEST(MplapackBinary128DenseSubspaceTest, RealQlFactorApplicationPreservesColumnN
   auto q = uni20::krylov::apply_real_ql_factor(compact, identity, uni20::krylov::MatrixSide::Left);
   auto recovered_identity = uni20::krylov::apply_real_ql_factor(compact, q, uni20::krylov::MatrixSide::Left,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  for (std::size_t row = 0; row < identity.rows(); ++row)
+  for (uni20::index_type row = 0; row < identity.rows(); ++row)
   {
-    for (std::size_t col = 0; col < identity.cols(); ++col)
+    for (uni20::index_type col = 0; col < identity.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_identity[row, col], identity[row, col]) <= tolerance());
     }
@@ -2336,7 +2344,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealRqFactorizationPreservesRowNormBelo
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(1, 2);
+  auto matrix = zero_matrix<Binary128>(1, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[0, 1] = Binary128{-1};
 
@@ -2355,7 +2363,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealRqFactorizationPreservesRowNormBelo
   EXPECT_TRUE(abs_error(q_norm, Binary128{1}) <= tolerance());
 
   auto reconstructed = multiply_for_test(result.r, result.q);
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     EXPECT_TRUE(abs_error(reconstructed[0, col], matrix[0, col]) <= tolerance());
   }
@@ -2366,7 +2374,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealRqFactorApplicationPreservesRowNorm
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(1, 2);
+  auto matrix = zero_matrix<Binary128>(1, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[0, 1] = Binary128{-1};
 
@@ -2387,9 +2395,9 @@ TEST(MplapackBinary128DenseSubspaceTest, RealRqFactorApplicationPreservesRowNorm
   auto q = uni20::krylov::apply_real_rq_factor(compact, identity, uni20::krylov::MatrixSide::Right);
   auto recovered_identity = uni20::krylov::apply_real_rq_factor(compact, q, uni20::krylov::MatrixSide::Right,
                                                                 uni20::krylov::MatrixTranspose::Transpose);
-  for (std::size_t row = 0; row < identity.rows(); ++row)
+  for (uni20::index_type row = 0; row < identity.rows(); ++row)
   {
-    for (std::size_t col = 0; col < identity.cols(); ++col)
+    for (uni20::index_type col = 0; col < identity.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_identity[row, col], identity[row, col]) <= tolerance());
     }
@@ -2401,7 +2409,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BidiagonalReductionReconstructsEntryBel
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 2);
+  auto matrix = zero_matrix<Binary128>(3, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{2};
   matrix[2, 0] = Binary128{-1};
@@ -2421,9 +2429,9 @@ TEST(MplapackBinary128DenseSubspaceTest, BidiagonalReductionReconstructsEntryBel
   EXPECT_TRUE(reduction.upper);
   EXPECT_EQ(static_cast<double>(reconstructed[0, 0]), 1.0);
   EXPECT_TRUE((reconstructed[0, 0] > Binary128{1}));
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(reconstructed[row, col], matrix[row, col]) <= Binary128{1000} * tolerance());
     }
@@ -2435,7 +2443,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BidiagonalFactorApplicationPreservesEnt
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 2);
+  auto matrix = zero_matrix<Binary128>(3, 2);
   matrix[0, 0] = Binary128{1} + delta;
   matrix[1, 0] = Binary128{2};
   matrix[2, 0] = Binary128{-1};
@@ -2456,23 +2464,23 @@ TEST(MplapackBinary128DenseSubspaceTest, BidiagonalFactorApplicationPreservesEnt
 
   EXPECT_EQ(static_cast<double>(reconstructed[0, 0]), 1.0);
   EXPECT_TRUE((reconstructed[0, 0] > Binary128{1}));
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(reconstructed[row, col], matrix[row, col]) <= Binary128{1000} * tolerance());
     }
   }
-  for (std::size_t row = 0; row < recovered_q.rows(); ++row)
+  for (uni20::index_type row = 0; row < recovered_q.rows(); ++row)
   {
-    for (std::size_t col = 0; col < recovered_q.cols(); ++col)
+    for (uni20::index_type col = 0; col < recovered_q.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_q[row, col], identity_q[row, col]) <= Binary128{1000} * tolerance());
     }
   }
-  for (std::size_t row = 0; row < recovered_p.rows(); ++row)
+  for (uni20::index_type row = 0; row < recovered_p.rows(); ++row)
   {
-    for (std::size_t col = 0; col < recovered_p.cols(); ++col)
+    for (uni20::index_type col = 0; col < recovered_p.cols(); ++col)
     {
       EXPECT_TRUE(abs_error(recovered_p[row, col], identity_p[row, col]) <= Binary128{1000} * tolerance());
     }
@@ -2525,7 +2533,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BidiagonalDivideAndConquerSvdResolvesGa
   EXPECT_TRUE(result.singular_values[0] > result.singular_values[1]);
   EXPECT_TRUE(abs_error(result.singular_values[0] - result.singular_values[1], delta) <= tolerance());
 
-  DenseMatrix<Binary128> sigma(2, 2);
+  auto sigma = zero_matrix<Binary128>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto reconstructed = multiply_for_test(multiply_for_test(result.u, sigma), result.vt);
@@ -2564,7 +2572,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedBidiagonalSvdResolvesGapBelowDo
   EXPECT_TRUE(result.singular_values[0] > result.singular_values[1]);
   EXPECT_TRUE(abs_error(result.singular_values[0] - result.singular_values[1], delta) <= tolerance());
 
-  DenseMatrix<Binary128> sigma(2, 2);
+  auto sigma = zero_matrix<Binary128>(2, 2);
   sigma[0, 0] = result.singular_values[0];
   sigma[1, 1] = result.singular_values[1];
   auto selected_contribution = multiply_for_test(multiply_for_test(result.u, sigma), result.vt);
@@ -2584,7 +2592,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergReductionPreservesBinary128On
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 0] = Binary128{2};
   matrix[2, 0] = Binary128{1} / Binary128{5};
@@ -2626,7 +2634,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergOrthogonalFactorApplicationPr
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 0] = Binary128{2};
   matrix[2, 0] = Binary128{1} / Binary128{5};
@@ -2640,7 +2648,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergOrthogonalFactorApplicationPr
   auto reduction = uni20::krylov::real_hessenberg_reduction(matrix);
   auto q = uni20::krylov::real_hessenberg_orthogonal_factor(reduction);
 
-  DenseMatrix<Binary128> target(3, 1);
+  auto target = zero_matrix<Binary128>(3, 1);
   target[1, 0] = tiny;
   target[2, 0] = Binary128{2} * tiny;
 
@@ -2651,7 +2659,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergOrthogonalFactorApplicationPr
 
   ASSERT_EQ(applied.rows(), 3);
   ASSERT_EQ(applied.cols(), 1);
-  for (std::size_t row = 0; row < target.rows(); ++row)
+  for (uni20::index_type row = 0; row < target.rows(); ++row)
   {
     Binary128 const scale = std::max(tiny, std::abs(expected[row, 0]));
     EXPECT_EQ(static_cast<double>(expected[row, 0]), 0.0);
@@ -2666,7 +2674,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricTridiagonalReductionPreservesT
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 0] = tiny;
   matrix[0, 1] = tiny;
@@ -2694,7 +2702,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricTridiagonalOrthogonalFactorApp
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 0] = Binary128{-1};
   matrix[2, 0] = Binary128{2};
@@ -2708,7 +2716,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricTridiagonalOrthogonalFactorApp
   auto reduction = uni20::krylov::real_symmetric_tridiagonal_reduction(matrix);
   auto q = uni20::krylov::real_symmetric_tridiagonal_orthogonal_factor(reduction);
 
-  DenseMatrix<Binary128> target(3, 1);
+  auto target = zero_matrix<Binary128>(3, 1);
   target[1, 0] = tiny;
   target[2, 0] = Binary128{2} * tiny;
 
@@ -2719,7 +2727,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SymmetricTridiagonalOrthogonalFactorApp
 
   ASSERT_EQ(applied.rows(), 3);
   ASSERT_EQ(applied.cols(), 1);
-  for (std::size_t row = 0; row < target.rows(); ++row)
+  for (uni20::index_type row = 0; row < target.rows(); ++row)
   {
     Binary128 const scale = std::max(tiny, std::abs(expected[row, 0]));
     EXPECT_EQ(static_cast<double>(expected[row, 0]), 0.0);
@@ -2734,7 +2742,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealPivotedQrFactorizationPreservesColu
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = tiny;
   matrix[1, 1] = Binary128{1};
 
@@ -2749,10 +2757,10 @@ TEST(MplapackBinary128DenseSubspaceTest, RealPivotedQrFactorizationPreservesColu
   EXPECT_EQ(result.pivot_columns[1], 0);
 
   auto pivoted_reconstructed = multiply_for_test(result.q, result.r);
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     std::size_t const original_col = result.pivot_columns[col];
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       Binary128 const expected = matrix[row, original_col];
       Binary128 const scale = std::max(tiny, std::abs(expected));
@@ -2768,11 +2776,11 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLeastSquaresPreservesSolutionBelowD
   Binary128 const one_plus_delta = Binary128{1} + delta;
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> coefficients(2, 1);
+  auto coefficients = zero_matrix<Binary128>(2, 1);
   coefficients[0, 0] = Binary128{1};
   coefficients[1, 0] = Binary128{1};
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = one_plus_delta;
   rhs[1, 0] = one_plus_delta;
   EXPECT_EQ(static_cast<double>(rhs[0, 0]), 1.0);
@@ -2792,11 +2800,11 @@ TEST(MplapackBinary128DenseSubspaceTest, SvdLeastSquaresKeepsTinyBinary128Singul
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> coefficients(2, 2);
+  auto coefficients = zero_matrix<Binary128>(2, 2);
   coefficients[0, 0] = Binary128{1};
   coefficients[1, 1] = tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{1};
   rhs[1, 0] = tiny;
 
@@ -2825,11 +2833,11 @@ TEST(MplapackBinary128DenseSubspaceTest, DivideAndConquerSvdLeastSquaresKeepsTin
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> coefficients(2, 2);
+  auto coefficients = zero_matrix<Binary128>(2, 2);
   coefficients[0, 0] = Binary128{1};
   coefficients[1, 1] = tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{1};
   rhs[1, 0] = tiny;
 
@@ -2858,11 +2866,11 @@ TEST(MplapackBinary128DenseSubspaceTest, RankRevealingLeastSquaresKeepsTinyBinar
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> coefficients(2, 2);
+  auto coefficients = zero_matrix<Binary128>(2, 2);
   coefficients[0, 0] = Binary128{1};
   coefficients[1, 1] = tiny;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{1};
   rhs[1, 0] = tiny;
 
@@ -2888,14 +2896,14 @@ TEST(MplapackBinary128DenseSubspaceTest, RealDenseSolveUsesMplapackGesvBelowDoub
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 1.0);
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{2};
   rhs[1, 0] = Binary128{2} + delta;
 
@@ -2912,14 +2920,14 @@ TEST(MplapackBinary128DenseSubspaceTest, ExpertDenseSolveUsesMplapackGesvxBelowD
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 1.0);
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{2};
   rhs[1, 0] = Binary128{2} + delta;
 
@@ -2948,14 +2956,14 @@ TEST(MplapackBinary128DenseSubspaceTest, RealLuSolveUsesMplapackGetrsBelowDouble
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 1.0);
 
-  DenseMatrix<Binary128> rhs(2, 2);
+  auto rhs = zero_matrix<Binary128>(2, 2);
   rhs[0, 0] = Binary128{2};
   rhs[1, 0] = Binary128{2} + delta;
   rhs[0, 1] = Binary128{1};
@@ -2980,7 +2988,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealReciprocalConditionNumberStaysInBin
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = tiny;
 
@@ -3000,7 +3008,7 @@ TEST(MplapackBinary128DenseSubspaceTest, RealDenseInverseAcceptsPivotGapBelowDou
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
@@ -3033,7 +3041,7 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   uni20::krylov::axpy(mutable_span(axpy_destination), Binary128{1}, const_span(axpy_source));
   EXPECT_TRUE(abs_error(axpy_destination[0], one_plus_delta) <= tolerance());
 
-  uni20::krylov::Matrix<Binary128> matrix(1, 2);
+  auto matrix = zero_matrix<Binary128>(1, 2);
   matrix[0, 0] = one_plus_delta;
   matrix[0, 1] = Binary128{-1};
   std::vector<Binary128> vector{Binary128{1}, Binary128{1}};
@@ -3041,7 +3049,7 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   uni20::krylov::gemv(mutable_span(output), Binary128{1}, matrix, const_span(vector), Binary128{});
   EXPECT_TRUE(abs_error(output[0], delta) <= tolerance());
 
-  uni20::krylov::Matrix<Binary128> rank_one(1, 1);
+  auto rank_one = zero_matrix<Binary128>(1, 1);
   std::vector<Binary128> left{one_plus_delta};
   std::vector<Binary128> right{Binary128{1}};
   uni20::krylov::geru(rank_one, Binary128{1}, const_span(left), const_span(right));
@@ -3059,7 +3067,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SolvesSymmetricTridiagonalEigenvectors)
   EXPECT_TRUE(abs_error(result.eigenvalues[0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], Binary128{3}) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -3120,7 +3128,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesSymmetricTridiagonalGapBelowDou
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -3156,7 +3164,7 @@ TEST(MplapackBinary128DenseSubspaceTest, DivideAndConquerSymmetricTridiagonalRes
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -3195,7 +3203,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedSymmetricTridiagonalResolvesGap
   EXPECT_TRUE(abs_error(result.eigenvalues[0], expected_low) <= tolerance());
   EXPECT_TRUE(abs_error(result.eigenvalues[1], expected_high) <= tolerance());
 
-  for (std::size_t col = 0; col < result.eigenvectors.cols(); ++col)
+  for (uni20::index_type col = 0; col < result.eigenvectors.cols(); ++col)
   {
     Binary128 const lambda = result.eigenvalues[col];
     Binary128 const x0 = result.eigenvectors[0, col];
@@ -3213,7 +3221,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedSymmetricTridiagonalResolvesGap
 
 TEST(MplapackBinary128DenseSubspaceTest, ComputesRealSchurDecomposition)
 {
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[1, 0] = Binary128{-2};
   matrix[0, 1] = Binary128{2};
@@ -3237,7 +3245,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergSchurResolvesDiagonalGapBelow
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> hessenberg(3, 3);
+  auto hessenberg = zero_matrix<Binary128>(3, 3);
   hessenberg[0, 0] = Binary128{1};
   hessenberg[1, 1] = Binary128{1} + delta;
   hessenberg[2, 2] = Binary128{2};
@@ -3262,7 +3270,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HessenbergSchurResolvesDiagonalGapBelow
 
 TEST(MplapackBinary128DenseSubspaceTest, SolvesRealNonsymmetricEigenvalues)
 {
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 1] = Binary128{-1};
   matrix[2, 2] = Binary128{2};
@@ -3285,7 +3293,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesRealNonsymmetricEigenvalueGapBe
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
@@ -3309,7 +3317,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ExpertRealNonsymmetricEigensystemReport
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
@@ -3344,7 +3352,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealNonsymmetricMatrixWithTinyB
   Binary128 const tiny = binary_power_of_two(-8000);
   expect_value_underflows_to_double_zero(tiny);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 1] = tiny;
   matrix[1, 0] = Binary128{1};
 
@@ -3359,7 +3367,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealNonsymmetricMatrixWithTinyB
   EXPECT_EQ(static_cast<double>(result.balanced_matrix[0, 1]), 0.0);
   EXPECT_TRUE((result.balanced_matrix[1, 0] > Binary128{}));
 
-  uni20::krylov::Matrix<Binary128> vectors(2, 1);
+  auto vectors = zero_matrix<Binary128>(2, 1);
   vectors[0, 0] = Binary128{1};
   auto transformed = uni20::krylov::real_nonsymmetric_balance_backtransform_right_vectors(
       vectors, result, uni20::krylov::RealNonsymmetricBalanceJob::Scale);
@@ -3374,11 +3382,11 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealGeneralizedNonsymmetricPenc
   Binary128 const tiny = binary_power_of_two(-8000);
   expect_value_underflows_to_double_zero(tiny);
 
-  uni20::krylov::Matrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 1] = tiny;
   matrix[1, 0] = Binary128{1};
 
-  uni20::krylov::Matrix<Binary128> metric(2, 2);
+  auto metric = zero_matrix<Binary128>(2, 2);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
 
@@ -3397,7 +3405,7 @@ TEST(MplapackBinary128DenseSubspaceTest, BalancesRealGeneralizedNonsymmetricPenc
   EXPECT_EQ(static_cast<double>(result.balanced_matrix[0, 1]), 0.0);
   EXPECT_TRUE((result.balanced_matrix[1, 0] > Binary128{}));
 
-  uni20::krylov::Matrix<Binary128> vectors(2, 1);
+  auto vectors = zero_matrix<Binary128>(2, 1);
   vectors[0, 0] = Binary128{1};
   auto transformed = uni20::krylov::real_generalized_nonsymmetric_balance_backtransform_right_vectors(
       vectors, result, uni20::krylov::RealNonsymmetricBalanceJob::Scale);
@@ -3412,7 +3420,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedHessenbergReductionPreserves
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{3};
   matrix[1, 0] = Binary128{2};
   matrix[2, 0] = Binary128{-1};
@@ -3424,7 +3432,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedHessenbergReductionPreserves
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 1.0);
 
-  DenseMatrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{2};
   metric[0, 1] = Binary128{-1};
   metric[1, 1] = Binary128{3};
@@ -3472,14 +3480,14 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedHessenbergSchurResolvesMetri
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> hessenberg(3, 3);
+  auto hessenberg = zero_matrix<Binary128>(3, 3);
   hessenberg[0, 0] = Binary128{1};
   hessenberg[0, 1] = delta / Binary128{4};
   hessenberg[1, 1] = Binary128{1};
   hessenberg[1, 2] = Binary128{3} * delta;
   hessenberg[2, 2] = Binary128{2};
 
-  DenseMatrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[0, 2] = delta / Binary128{8};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
@@ -3528,13 +3536,13 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesRealGeneralizedNonsymmetricEige
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
   metric[2, 2] = Binary128{3};
@@ -3562,7 +3570,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ResolvesRealGeneralizedNonsymmetricEige
 
     auto const lambda = result.eigenvalues[col];
     Binary128 residual_norm{};
-    for (std::size_t row = 0; row < result.right_eigenvectors.rows(); ++row)
+    for (uni20::index_type row = 0; row < result.right_eigenvectors.rows(); ++row)
     {
       Binary128 const matrix_diagonal =
           row == 0 ? Binary128{1} : (row == 1 ? Binary128{2} * (Binary128{1} + delta) : Binary128{6});
@@ -3581,13 +3589,13 @@ TEST(MplapackBinary128DenseSubspaceTest, ExpertRealGeneralizedNonsymmetricEigens
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{2} * (Binary128{1} + delta);
   matrix[2, 2] = Binary128{6};
   EXPECT_EQ(static_cast<double>(matrix[1, 1]), 2.0);
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{2};
   metric[2, 2] = Binary128{3};
@@ -3628,12 +3636,12 @@ TEST(MplapackBinary128DenseSubspaceTest, RealGeneralizedSchurResolvesMetricGapBe
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3666,12 +3674,12 @@ TEST(MplapackBinary128DenseSubspaceTest, ReordersGeneralizedSchurBlockSeparatedO
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3704,12 +3712,12 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedGeneralizedSchurSubspaceKeepsBi
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3746,12 +3754,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurRightEigenvectorsUseBin
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3784,12 +3792,12 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionEstimatesUseBi
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1};
   matrix[2, 2] = Binary128{2};
 
-  uni20::krylov::Matrix<Binary128> metric(3, 3);
+  auto metric = zero_matrix<Binary128>(3, 3);
   metric[0, 0] = Binary128{1};
   metric[1, 1] = Binary128{1} / (Binary128{1} + delta);
   metric[2, 2] = Binary128{1};
@@ -3822,7 +3830,7 @@ TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionEstimatesUseBi
 
 TEST(MplapackBinary128DenseSubspaceTest, ReordersRealSchurBlocks)
 {
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{3};
   matrix[2, 2] = Binary128{2};
@@ -3849,7 +3857,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ReordersSchurBlockSeparatedOnlyInBinary
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};
@@ -3878,7 +3886,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SelectedSchurSubspaceKeepsBinary128Sepa
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  uni20::krylov::Matrix<Binary128> matrix(3, 3);
+  auto matrix = zero_matrix<Binary128>(3, 3);
   matrix[0, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
   matrix[2, 2] = Binary128{2};
@@ -3911,7 +3919,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SchurRightEigenvectorsUseBinary128OnlyG
   expect_gap_is_binary128_only(delta);
 
   uni20::krylov::RealSchurDecomposition<Binary128> schur;
-  schur.schur_form = DenseMatrix<Binary128>(2, 2);
+  schur.schur_form = zero_matrix<Binary128>(2, 2);
   schur.schur_form[0, 0] = Binary128{1};
   schur.schur_form[0, 1] = Binary128{1};
   schur.schur_form[1, 1] = Binary128{1} + delta;
@@ -3954,7 +3962,7 @@ TEST(MplapackBinary128DenseSubspaceTest, SchurConditionEstimatesUseBinary128Only
   expect_gap_is_binary128_only(delta);
 
   uni20::krylov::RealSchurDecomposition<Binary128> schur;
-  schur.schur_form = DenseMatrix<Binary128>(2, 2);
+  schur.schur_form = zero_matrix<Binary128>(2, 2);
   schur.schur_form[0, 0] = Binary128{1};
   schur.schur_form[0, 1] = Binary128{1};
   schur.schur_form[1, 1] = Binary128{1} + delta;
@@ -4357,17 +4365,17 @@ TEST(MplapackBinary128DenseSubspaceTest, SolvesNearlySingularDenseSystemBelowDou
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 0] = Binary128{1};
   matrix[1, 1] = Binary128{1} + delta;
 
-  DenseMatrix<Binary128> rhs(2, 1);
+  auto rhs = zero_matrix<Binary128>(2, 1);
   rhs[0, 0] = Binary128{2};
   rhs[1, 0] = Binary128{2} + delta;
 
-  auto solution = uni20::linalg::backends::cpu::solve_linear_system(std::move(matrix), std::move(rhs));
+  auto solution = uni20::linalg::solve(uni20::linalg::CpuReferenceBackend{}, matrix, rhs);
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 1);
@@ -4380,7 +4388,7 @@ TEST(MplapackBinary128DenseSubspaceTest, ScalarMatrixExponentialResolvesBelowDou
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(1, 1);
+  auto matrix = zero_matrix<Binary128>(1, 1);
   matrix[0, 0] = delta;
 
   auto result = uni20::linalg::backends::cpu::matrix_exponential(matrix, Binary128{1});
@@ -4397,7 +4405,7 @@ TEST(MplapackBinary128DenseSubspaceTest, UpperTriangularMatrixExponentialPreserv
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = delta;
   matrix[0, 1] = delta;
   matrix[1, 0] = Binary128{};
@@ -4422,7 +4430,7 @@ TEST(MplapackBinary128DenseSubspaceTest, HighNormMatrixExponentialPreservesSmall
   Binary128 const delta = below_double_resolution_gap();
   expect_gap_is_binary128_only(delta);
 
-  DenseMatrix<Binary128> matrix(2, 2);
+  auto matrix = zero_matrix<Binary128>(2, 2);
   matrix[0, 0] = Binary128{6};
   matrix[0, 1] = Binary128{};
   matrix[1, 0] = Binary128{};

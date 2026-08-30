@@ -103,6 +103,35 @@ struct ReadOnlyImmediateStorage
     }
 };
 
+template <typename ElementType> struct PassthroughAccessor
+{
+    using offset_policy = PassthroughAccessor;
+    using element_type = ElementType;
+    using reference = element_type&;
+    using data_handle_type = element_type*;
+
+    [[nodiscard]] reference access(data_handle_type handle, std::size_t offset) const noexcept
+    {
+      return handle[offset];
+    }
+
+    [[nodiscard]] data_handle_type offset(data_handle_type handle, std::size_t value) const noexcept
+    {
+      return handle + value;
+    }
+};
+
+struct PassthroughAccessorFactory
+{
+    template <typename ElementType> using accessor_t = PassthroughAccessor<ElementType>;
+
+    template <typename ElementType, typename Storage>
+    [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
+    {
+      return accessor_t<ElementType>{};
+    }
+};
+
 class StorageFreeTensorView {
   public:
     using extents_type = extents_2d;
@@ -283,6 +312,7 @@ using instrumented_write_tensor_lease =
 
 using immediate_and_descriptor_tensor = Tensor<int, 2, ImmediateAndDescriptorStorage>;
 using read_only_tensor = Tensor<int, 2, ReadOnlyImmediateStorage>;
+using semantic_accessor_tensor = Tensor<int, 2, HostStorage, ColumnMajor, PassthroughAccessorFactory>;
 
 using read_lease_type = decltype(acquire_host_read_access_sync(std::declval<tensor_type const&>()));
 using write_lease_type = decltype(acquire_host_write_access_sync(std::declval<tensor_type&>()));
@@ -295,6 +325,16 @@ template <class T>
 concept HasStorageObserver = requires(T& value) { value.storage(); };
 
 template <class T>
+concept HasMutableData = requires(T& value) {
+  { value.data() } -> std::same_as<typename T::element_type*>;
+};
+
+template <class T>
+concept HasConstData = requires(T const& value) {
+  { value.data() } -> std::same_as<typename T::element_type const*>;
+};
+
+template <class T>
 concept CanBorrowReadFromRvalue = requires(T&& value) { acquire_host_read_access_sync(std::move(value)); };
 
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, HostStorage, ColumnMajor>>);
@@ -303,6 +343,16 @@ static_assert(std::same_as<RowMajorTensor<int, 2>, Tensor<int, 2, HostStorage, R
 static_assert(std::same_as<strided_tensor_type, Tensor<int, 2, HostStorage, stdex::layout_stride>>);
 static_assert(!std::constructible_from<tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
 static_assert(std::constructible_from<strided_tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
+static_assert(HasMutableData<tensor_type>);
+static_assert(HasConstData<tensor_type>);
+static_assert(HasMutableData<RowMajorTensor<int, 2>>);
+static_assert(HasConstData<RowMajorTensor<int, 2>>);
+static_assert(!HasMutableData<strided_tensor_type>);
+static_assert(!HasConstData<strided_tensor_type>);
+static_assert(!HasMutableData<read_only_tensor>);
+static_assert(HasConstData<read_only_tensor>);
+static_assert(!HasMutableData<semantic_accessor_tensor>);
+static_assert(!HasConstData<semantic_accessor_tensor>);
 
 static_assert(ImmediateTensorView<tensor_type>);
 static_assert(TensorView<tensor_type>);
@@ -535,6 +585,17 @@ TEST(TensorTest, StridesUseNormalizedImmediateAndDeferredMetadata)
 
   EXPECT_EQ(strides(immediate), (std::array<index_t, 2>{1, 5}));
   EXPECT_EQ(strides(deferred), (std::array<index_t, 2>{7, 2}));
+}
+
+TEST(TensorTest, CanonicalDefaultAccessorStorageExposesData)
+{
+  tensor_type column_major(2, 3);
+  RowMajorTensor<int, 2> row_major(2, 3);
+
+  EXPECT_EQ(column_major.data(), column_major.mdspan().data_handle());
+  EXPECT_EQ(std::as_const(column_major).data(), std::as_const(column_major).mdspan().data_handle());
+  EXPECT_EQ(row_major.data(), row_major.mdspan().data_handle());
+  EXPECT_EQ(std::as_const(row_major).data(), std::as_const(row_major).mdspan().data_handle());
 }
 
 TEST(TensorTest, ImmediateHandlePrecedesAvailableDescriptor)

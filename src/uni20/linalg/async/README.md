@@ -12,8 +12,12 @@ linear-algebra operations over `Async<Tensor>` values.
   provide a deferred task through `try_make_kernel_task`.
 - `kernel_task.hpp`: clean-decline, completed-success, or deferred-task result
   returned by an optional coroutine backend implementation.
+- `lq.hpp`: preserving and consuming reduced real LQ wrappers with independent
+  async factor outputs.
 - `reductions.hpp`: full and axis-selective async sums with storage-preserving
   or host-scalar results.
+- `qr.hpp`: preserving and consuming reduced real QR wrappers with independent
+  async factor outputs.
 - `self_adjoint_eigh.hpp`: preserving and consuming `eigh` wrappers with
   independent async eigenvalue and eigenvector outputs.
 - `svd.hpp`: preserving and consuming exact `singular_values`, `svd_left`,
