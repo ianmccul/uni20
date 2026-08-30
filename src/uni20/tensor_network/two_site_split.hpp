@@ -76,8 +76,9 @@ concept SplitPhysicalSpace =
     !BlockTensorSpaceTraits<std::remove_cvref_t<Space>>::has_dense_axis;
 
 template <class Storage, class Scalar>
-concept ImmediateMpsSiteStorage = SparseBlockStorage<Storage> && !DiagonalBlockStorage<Storage> &&
-                                  ImmediateLocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 3, 2>;
+concept MpsSiteStorage = SparseBlockStorage<Storage> && !DiagonalBlockStorage<Storage> &&
+                         LocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 3, 2> &&
+                         !AsyncLocalBlockStorageFor<Storage, std::remove_cv_t<Scalar>, 3, 2>;
 
 template <class Tensor, std::size_t Index>
 using split_domain_space_t = typename block_tensor_domain_t<Tensor>::template space_type<Index>;
@@ -86,13 +87,12 @@ template <class Tensor, std::size_t Index>
 using split_codomain_space_t = typename block_tensor_codomain_t<Tensor>::template space_type<Index>;
 
 template <class Tensor>
-concept ImmediateHostTwoSiteCenter =
-    ImmediateBlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
+concept TwoSiteSvdCenter =
+    BlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
     (block_tensor_codomain_t<Tensor>::size() == 1) && (block_tensor_type_t<Tensor>::key_coordinate_count() == 4) &&
     (block_tensor_type_t<Tensor>::dense_block_order() == 2) && SplitBondSpace<split_domain_space_t<Tensor, 0>> &&
     SplitPhysicalSpace<split_domain_space_t<Tensor, 1>> && SplitPhysicalSpace<split_domain_space_t<Tensor, 2>> &&
-    SplitBondSpace<split_codomain_space_t<Tensor, 0>> &&
-    HostAccessibleMdspan<immediate_tensor_mdspan_t<block_tensor_const_block_t<Tensor>>>;
+    SplitBondSpace<split_codomain_space_t<Tensor, 0>>;
 
 template <SparseBlockStorage OutputStorage, BlockTensorView Source>
 auto materialize_block_tensor_copy(Source const& source)
@@ -101,8 +101,22 @@ auto materialize_block_tensor_copy(Source const& source)
                                   block_tensor_codomain_t<Source>, OutputStorage>;
   using key_type = typename output_type::key_type;
   std::vector<key_type> keys(source.stored_keys().begin(), source.stored_keys().end());
-  output_type result(source.symmetry(), source.domain(), source.codomain(), std::move(keys));
-  uni20::copy(result, source);
+  auto result = [&] {
+    if constexpr (requires {
+                    output_type(source.symmetry(), source.domain(), source.codomain(), keys,
+                                source.allocation_context());
+                  })
+      return output_type(source.symmetry(), source.domain(), source.codomain(), std::move(keys),
+                         source.allocation_context());
+    else
+      return output_type(source.symmetry(), source.domain(), source.codomain(), std::move(keys));
+  }();
+  for (std::size_t ordinal = 0; ordinal < result.stored_block_count(); ++ordinal)
+  {
+    auto output_block = result.block_by_ordinal(ordinal);
+    auto input_block = source.block_by_ordinal(ordinal);
+    uni20::copy(output_block, input_block);
+  }
   return result;
 }
 
@@ -114,12 +128,12 @@ auto materialize_block_tensor_copy(Source const& source)
 ///          A zero-copy repartition presents the matrix boundary
 ///          `Domain<left bond, left physical> -> Codomain<right bond, Dual<right physical>>`
 ///          to the staged block-SVD implementation.
-/// \param center Immediate host two-site center.
+/// \param center Two-site center supported by the selected block-SVD implementation.
 /// \param options Dense SVD vector options applied independently by charge.
 /// \param measurements Explicit measurement policy or collector.
 /// \param batch_event Event identifying the per-charge factorization batch.
 /// \return Reusable decomposition whose spectrum may be selected repeatedly.
-template <detail::ImmediateHostTwoSiteCenter Center, class Measurements, class Event>
+template <detail::TwoSiteSvdCenter Center, class Measurements, class Event>
   requires uni20::LapackScalar<block_tensor_value_t<Center>> && performance::BatchMeasurementPolicy<Measurements, Event>
 [[nodiscard]] auto decompose_two_site_center(Center const& center, linalg::SvdOptions options,
                                              Measurements& measurements, Event batch_event)
@@ -130,10 +144,10 @@ template <detail::ImmediateHostTwoSiteCenter Center, class Measurements, class E
 
 /// \brief Factorize a canonical two-site MPS center by its internal cut.
 /// \details This ordinary overload instantiates no performance measurements.
-/// \param center Immediate host two-site center.
+/// \param center Two-site center supported by the selected block-SVD implementation.
 /// \param options Dense SVD vector options applied independently by charge.
 /// \return Reusable decomposition whose spectrum may be selected repeatedly.
-template <detail::ImmediateHostTwoSiteCenter Center>
+template <detail::TwoSiteSvdCenter Center>
   requires uni20::LapackScalar<block_tensor_value_t<Center>>
 [[nodiscard]] auto decompose_two_site_center(Center const& center, linalg::SvdOptions options = {})
 {
@@ -146,7 +160,7 @@ template <detail::ImmediateHostTwoSiteCenter Center>
 ///          `right_singular_vectors_adjoint * singular_values * left_singular_vectors`.
 ///          A left-to-right split absorbs the singular values into the second
 ///          site; a right-to-left split absorbs them into the first site.
-/// \tparam OutputStorage Sparse immediate-host storage for both returned sites.
+/// \tparam OutputStorage Sparse local storage for both returned sites.
 /// \param decomposition Reusable decomposition from `decompose_two_site_center()`.
 /// \param selection Nonempty selected singular-state set.
 /// \param direction Side that receives the singular values.
@@ -155,7 +169,7 @@ template <detail::ImmediateHostTwoSiteCenter Center>
 ///         exact truncation statistics.
 /// \throws std::invalid_argument If the selection is empty or the sweep direction is invalid.
 template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class Decomposition>
-  requires detail::ImmediateMpsSiteStorage<OutputStorage, typename Decomposition::scalar_type>
+  requires detail::MpsSiteStorage<OutputStorage, typename Decomposition::scalar_type>
 [[nodiscard]] auto materialize_two_site_mps_split(Decomposition const& decomposition,
                                                   BlockSvdSelection<typename Decomposition::real_type> const& selection,
                                                   MpsSweepDirection direction,
@@ -167,12 +181,14 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class
   if (direction != MpsSweepDirection::left_to_right && direction != MpsSweepDirection::right_to_left)
     throw std::invalid_argument("two-site MPS split has an invalid sweep direction");
 
-  auto factors = materialize_svd(decomposition, selection, std::move(options));
+  bool const absorb_left = direction == MpsSweepDirection::left_to_right;
+  bool const absorb_right = direction == MpsSweepDirection::right_to_left;
+  auto factors = uni20::detail::materialize_svd_with_absorption(decomposition, selection, std::move(options),
+                                                                absorb_left, absorb_right);
   if (direction == MpsSweepDirection::left_to_right)
   {
     auto first_site = detail::materialize_block_tensor_copy<OutputStorage>(factors.right_singular_vectors_adjoint);
-    auto absorbed_second = contract_adjacent<1>(factors.singular_values, factors.left_singular_vectors);
-    auto second_view = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(absorbed_second);
+    auto second_view = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(factors.left_singular_vectors);
     auto second_site = detail::materialize_block_tensor_copy<OutputStorage>(second_view);
     return TwoSiteMpsSplit{.first_site = std::move(first_site),
                            .second_site = std::move(second_site),
@@ -181,8 +197,7 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class
                            .direction = direction};
   }
 
-  auto absorbed_first = contract_adjacent<1>(factors.right_singular_vectors_adjoint, factors.singular_values);
-  auto first_site = detail::materialize_block_tensor_copy<OutputStorage>(absorbed_first);
+  auto first_site = detail::materialize_block_tensor_copy<OutputStorage>(factors.right_singular_vectors_adjoint);
   auto second_view = repartition<MorphismSide::Codomain, BoundaryEnd::Right>(factors.left_singular_vectors);
   auto second_site = detail::materialize_block_tensor_copy<OutputStorage>(second_view);
   return TwoSiteMpsSplit{.first_site = std::move(first_site),
@@ -205,7 +220,7 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, class
 /// \param options Selected internal-bond label.
 /// \return Installed bond spectrum and truncation statistics.
 template <typename Scalar, Space Bond, Space Physical, BlockTensorStorage SiteStorage, class Decomposition>
-  requires std::same_as<Bond, BlockSpace> && detail::ImmediateMpsSiteStorage<SiteStorage, Scalar>
+  requires std::same_as<Bond, BlockSpace> && detail::MpsSiteStorage<SiteStorage, Scalar>
 [[nodiscard]] auto replace_two_site_from_svd(FiniteMps<Scalar, Bond, Physical, SiteStorage>& mps,
                                              std::size_t first_index, Decomposition const& decomposition,
                                              BlockSvdSelection<typename Decomposition::real_type> const& selection,

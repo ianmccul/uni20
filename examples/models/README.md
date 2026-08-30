@@ -5,6 +5,13 @@ product MPS and reduced-boundary Heisenberg MPO, then runs alternating two-site
 DMRG sweeps. It prints one summary per directional traversal, elapsed time, and
 the difference from a registered reference energy when one is available.
 
+`--execution=cpu` is the default. A CUDA build with the CUDA, cuBLAS, and
+cuSOLVER backends also supports `--execution=cuda`. The MPS, environments,
+two-site centers, Krylov vectors, and SVD factors then remain on the selected
+device; the MPO coefficients and compact singular-value selection data remain
+on the host. CUDA DMRG currently supports real `float` or `double`, and this
+example uses `double`.
+
 The default four-site calculation can verify the exact open-chain energy
 
 ```text
@@ -54,13 +61,25 @@ output blocks execute as synchronous lightweight batch items. Dense BLAS should
 normally remain single-threaded when block-level concurrency is greater than
 one.
 
-`--mps-storage=packed` retains the default serial packed storage for MPS sites.
+For CUDA execution, `--cuda-submitters=N` independently limits the number of
+lightweight batch runners that may submit device work. It defaults to one and
+is bounded by `--block-threads`; `--cuda-streams=N` separately controls the
+number of device streams available to those runners. The cuBLAS pool defaults
+to one handle per stream and the cuSOLVER pool defaults to two handles, capped
+by the stream count. `--cuda-cublas-handles=N` and
+`--cuda-cusolver-handles=N` override those provider capacities. CPU execution
+leaves lightweight batch concurrency uncapped within the scheduler arena.
+
+On CPU, `--mps-storage=packed` retains the default serial packed storage for
+MPS sites.
 `--mps-storage=parallel-packed` enables scheduler batches while retaining one
 packed site allocation. `--mps-storage=parallel-aligned-packed` pads each block
 start to a 64-byte boundary within that allocation, while
 `--mps-storage=parallel-separate` gives every dense site block an independently
 aligned allocation. The environment and transient center policies are
 unchanged, so these modes isolate MPS-site storage and execution effects.
+CUDA execution currently selects parallel packed CUDA storage for the MPS,
+environments, and transient centers independently of `--mps-storage`.
 
 `--measurements=coarse` records and prints inclusive DMRG phase wall times.
 `--measurements=detailed` additionally times every per-charge block-SVD item
@@ -68,6 +87,39 @@ and reports aggregate overlap and scheduler-tail fields. The default is
 `--measurements=off`, which selects the compile-time disabled library path.
 Detailed measurements intentionally perturb fine-grained work and should be
 used for attribution, not final benchmark numbers.
+
+`--steady-sweeps=N` selects the fixed-dimension benchmark path instead of the
+energy-convergence path. Starting from the same rank-one Néel state, it runs
+unmeasured alternating growth traversals until a completed traversal actually
+reports `max-m` equal to `--max-states`. That traversal remains part of warm-up.
+It then times `N` additional traversals and reports growth, steady, and combined
+wall time separately. For spin one-half, the bond dimension can grow by at most
+a factor of two per directional traversal, so `m=128`, `256`, and `512`
+normally require seven, eight, and nine growth traversals respectively. The
+example allows two additional growth traversals before reporting that the
+requested dimension is not reachable for the selected fixture. `--max-sweeps`
+is used only by the convergence path.
+
+For example, the following commands compare the same optimized executable and
+initial state after reaching `m=512`:
+
+```bash
+MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+spin_half_heisenberg_dmrg_example \
+    --execution=cpu --sites=100 --max-states=512 --steady-sweeps=2 \
+    --local-matvecs=4 --block-threads=8
+
+MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+spin_half_heisenberg_dmrg_example \
+    --execution=cuda --cuda-device=0 --cuda-streams=4 --cuda-submitters=1 \
+    --sites=100 --max-states=512 --steady-sweeps=2 \
+    --local-matvecs=4 --block-threads=8
+```
+
+The CUDA runtime, initial host-to-device MPS transfer, MPO construction, and
+environment-cache construction occur before either reported timer. CUDA stream
+work is synchronized at every traversal boundary so each wall time includes
+completion of the submitted device work.
 
 The first end-to-end scaling tables, local Matrix Product Toolkit orientation,
 and exact current parallel boundary are recorded in

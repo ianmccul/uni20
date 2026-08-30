@@ -2,6 +2,7 @@
 #include <uni20/async/debug_cuda_scheduler.hpp>
 #include <uni20/backend/cublas/cublas_error_presentation.hpp>
 #include <uni20/backend/cublas/gemm.hpp>
+#include <uni20/backend/cublas/level1.hpp>
 #include <uni20/backend/cublas/task_awaiters.hpp>
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/common/presentation.hpp>
@@ -13,6 +14,7 @@
 #include <uni20/linalg/ops/contract.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/tensor/conjugate.hpp>
+#include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include "../../linalg/gemm_conformance.hpp"
@@ -21,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -327,6 +330,20 @@ TEST(CublasErrorTest, CheckedProviderFailureRaisesStructuredException)
     ADD_FAILURE() << "failed cuBLAS status raised the wrong exception type";
   }
   trace::get_formatting_options().set_errors_abort(previous_errors_abort);
+}
+
+TEST_F(CublasExecutionTest, CanonicalExecutionPoolDefaultsToStreamCapacityAndSupportsConfiguration)
+{
+  uni20::cuda::DeviceResources default_resources({.device = uni20::cuda::Device::get(device_), .stream_count = 3});
+  EXPECT_EQ(uni20::cublas::execution_pool(default_resources).handle_count(), 3);
+
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 4});
+
+  auto& configured = uni20::cublas::execution_pool(resources, 2);
+  auto& reused = uni20::cublas::execution_pool(resources);
+
+  EXPECT_EQ(configured.handle_count(), 2);
+  EXPECT_EQ(&reused, &configured);
 }
 
 template <class Scalar> void check_column_major_gemm(int device)
@@ -822,6 +839,9 @@ TEST_F(CublasExecutionTest, ZeroInnerExtentScalesOutputWithNullInputs)
   execution.stream().synchronize();
 
   EXPECT_EQ(result, (std::array<double, 4>{3.0, 6.0, 9.0, 12.0}));
+
+  execution.release();
+  resources.streams().synchronize();
 }
 
 TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaTensorViews)
@@ -1211,6 +1231,75 @@ TEST_F(CublasExecutionTest, TensorGemmScalesOutputForZeroInnerExtent)
 
   uni20::linalg::gemm(output, 1.0, lhs, rhs, 3.0);
   EXPECT_EQ(download_tensor(output), (std::vector<double>{3.0, 6.0, 9.0, 12.0}));
+}
+
+TEST_F(CublasExecutionTest, TensorReductionsReturnHostScalars)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  uni20::CudaTensor<double, 1> lhs(resources, 4);
+  uni20::CudaTensor<double, 1> rhs(resources, 4);
+  std::array<double, 4> const lhs_values{1.0, -2.0, 3.0, -4.0};
+  std::array<double, 4> const rhs_values{5.0, 6.0, -7.0, 8.0};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  EXPECT_DOUBLE_EQ(uni20::inner_product_host(lhs, rhs), -60.0);
+  EXPECT_DOUBLE_EQ(uni20::norm_host(lhs), std::sqrt(30.0));
+}
+
+TEST_F(CublasExecutionTest, ComplexTensorReductionsUseConjugateLinearConvention)
+{
+  using scalar_type = uni20::cdouble;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  uni20::CudaTensor<scalar_type, 1> lhs(resources, 2);
+  uni20::CudaTensor<scalar_type, 1> rhs(resources, 2);
+  std::array<scalar_type, 2> const lhs_values{scalar_type{1, 2}, scalar_type{3, -1}};
+  std::array<scalar_type, 2> const rhs_values{scalar_type{2, -1}, scalar_type{-1, 4}};
+  upload_tensor(lhs, std::span<scalar_type const>{lhs_values});
+  upload_tensor(rhs, std::span<scalar_type const>{rhs_values});
+
+  EXPECT_EQ(uni20::inner_product_host(lhs, rhs), scalar_type(-7, 6));
+  EXPECT_DOUBLE_EQ(uni20::norm_host(lhs), std::sqrt(15.0));
+}
+
+TEST_F(CublasExecutionTest, TensorReductionsSupportSinglePrecisionScalars)
+{
+  using scalar_type = uni20::cfloat;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  uni20::CudaTensor<float, 1> real_lhs(resources, 4);
+  uni20::CudaTensor<float, 1> real_rhs(resources, 4);
+  std::array<float, 4> const real_lhs_values{1.0F, -2.0F, 3.0F, -4.0F};
+  std::array<float, 4> const real_rhs_values{5.0F, 6.0F, -7.0F, 8.0F};
+  upload_tensor(real_lhs, std::span<float const>{real_lhs_values});
+  upload_tensor(real_rhs, std::span<float const>{real_rhs_values});
+
+  EXPECT_FLOAT_EQ(uni20::inner_product_host(real_lhs, real_rhs), -60.0F);
+  EXPECT_FLOAT_EQ(uni20::norm_host(real_lhs), std::sqrt(30.0F));
+
+  uni20::CudaTensor<scalar_type, 1> complex_lhs(resources, 2);
+  uni20::CudaTensor<scalar_type, 1> complex_rhs(resources, 2);
+  std::array<scalar_type, 2> const complex_lhs_values{scalar_type{1, 2}, scalar_type{3, -1}};
+  std::array<scalar_type, 2> const complex_rhs_values{scalar_type{2, -1}, scalar_type{-1, 4}};
+  upload_tensor(complex_lhs, std::span<scalar_type const>{complex_lhs_values});
+  upload_tensor(complex_rhs, std::span<scalar_type const>{complex_rhs_values});
+
+  EXPECT_EQ(uni20::inner_product_host(complex_lhs, complex_rhs), scalar_type(-7, 6));
+  EXPECT_FLOAT_EQ(uni20::norm_host(complex_lhs), std::sqrt(15.0F));
+}
+
+TEST_F(CublasExecutionTest, InnerProductDeclinesDifferentLogicalStorageOrders)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  uni20::CudaTensor<double, 2, uni20::ColumnMajor> lhs(resources, 2, 3);
+  uni20::CudaTensor<double, 2, uni20::RowMajor> rhs(resources, 2, 3);
+  auto lhs_span = uni20::mdspec_of(std::as_const(lhs));
+  auto rhs_span = uni20::mdspec_of(std::as_const(rhs));
+  double output = 17.0;
+
+  EXPECT_EQ(uni20::linalg::try_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::inner_product_op{}, output,
+                                      lhs_span, rhs_span),
+            uni20::linalg::KernelAttempt::unsupported_layout);
+  EXPECT_DOUBLE_EQ(output, 17.0);
 }
 
 } // namespace

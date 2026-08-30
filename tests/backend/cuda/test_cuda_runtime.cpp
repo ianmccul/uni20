@@ -162,14 +162,14 @@ TEST_F(CudaDeviceTest, ScopedRuntimeInstallsCanonicalDeviceResources)
     EXPECT_EQ(&uni20::cuda::device_resources(), &resources);
     EXPECT_EQ(resources.device().ordinal(), 0);
     EXPECT_EQ(resources.streams().size(), 3);
-    EXPECT_EQ(resources.live_buffer_count(), 0);
+    EXPECT_EQ(resources.live_allocation_count(), 0);
 
     {
       uni20::cuda::CudaBuffer<double> buffer(4);
       EXPECT_EQ(&buffer.resources(), &resources);
-      EXPECT_EQ(resources.live_buffer_count(), 1);
+      EXPECT_EQ(resources.live_allocation_count(), 1);
     }
-    EXPECT_EQ(resources.live_buffer_count(), 0);
+    EXPECT_EQ(resources.live_allocation_count(), 0);
   }
   EXPECT_FALSE(uni20::cuda::is_initialized());
 }
@@ -207,7 +207,7 @@ TEST_F(CudaDeviceTest, RejectsShutdownWhileExternalBuffersRemainAlive)
         auto* leaked_buffer = new uni20::cuda::CudaBuffer<double>(4);
         (void)leaked_buffer;
       },
-      "buffers still borrow");
+      "allocations still borrow");
 }
 
 TEST_F(CudaDeviceTest, DiscoversAndCachesCapabilities)

@@ -111,6 +111,35 @@ TEST(TbbScheduler, LightweightBatchExecutesEveryIndexExactlyOnce)
     EXPECT_EQ(count.load(std::memory_order_relaxed), 1);
 }
 
+TEST(TbbScheduler, LightweightBatchConcurrencyCanBeLimitedIndependentlyOfArena)
+{
+  TbbScheduler scheduler{4, {}, {.maximum_concurrency = 2}};
+  std::array<std::atomic<int>, 8> counts{};
+  std::atomic<std::size_t> active{0};
+  std::atomic<std::size_t> peak{0};
+  std::latch first_runners{2};
+
+  scheduler.execute_batch(counts.size(), [&](std::size_t index) {
+    counts[index].fetch_add(1, std::memory_order_relaxed);
+    std::size_t const current = active.fetch_add(1, std::memory_order_relaxed) + 1;
+    std::size_t observed = peak.load(std::memory_order_relaxed);
+    while (observed < current &&
+           !peak.compare_exchange_weak(observed, current, std::memory_order_relaxed, std::memory_order_relaxed))
+    {}
+
+    if (index < 2)
+    {
+      first_runners.count_down();
+      first_runners.wait();
+    }
+    active.fetch_sub(1, std::memory_order_relaxed);
+  });
+
+  EXPECT_EQ(peak.load(std::memory_order_relaxed), 2);
+  for (auto const& count : counts)
+    EXPECT_EQ(count.load(std::memory_order_relaxed), 1);
+}
+
 TEST(TbbScheduler, EmptyLightweightBatchDoesNotInvokeCallable)
 {
   TbbScheduler scheduler{4};

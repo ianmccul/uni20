@@ -15,8 +15,9 @@ Keep this inventory synchronized with provider declarations and with any
 helpers promoted from the quarantined survey into operation-tag linalg
 backends.
 
-CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM` has a
-checked provider wrapper and a Tensor-facing `CublasBackend`. Ordinary
+CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM`, conjugate
+dot products, and Euclidean norms have checked provider wrappers and a
+Tensor-facing `CublasBackend`. Ordinary
 async `gemm`, `assign_product`, and `add_product` resolve `CudaTensor` operands
 through their deferred `mdspec()` descriptors. Their `CudaTask` awaits a
 provider-handle/stream execution lease from the device resource set before
@@ -33,6 +34,20 @@ leading dimensions, and lazy conjugation. CUDA-specific cases additionally
 cover nonzero buffer offsets, transpose and conjugate-transpose subviews,
 clean unsupported-layout decline before resource admission, cross-device
 rejection, and exact or partial output/input alias rejection.
+
+Full CUDA inner products and norms accept exhaustive raw CUDA mdspecs for all
+four ordinary scalar families and return host scalars. The provider stream is
+synchronized before return. Packed BlockTensor tests cover nonzero descriptor
+offsets. General strided reductions and accessor transformations remain for a
+CUDA reference reduction backend.
+
+The optional cuSOLVER backend provides blocking exact SVD through
+`cusolverDnSgesvd` and `cusolverDnDgesvd`. Its first operation accepts destructive
+tall column-major CUDA-buffer matrices, real `float` or `double`, and reduced or
+full left and right vectors. It acquires a device-local handle/stream lease,
+allocates stream-ordered workspace, checks `devInfo` on host, and synchronizes
+the operation stream before return. Complex scalars, wide matrices, other SVD
+forms, and asynchronous completion remain outside this checkpoint.
 
 Fixed-output dense Tensor contraction has direct and residual-axis host BLAS
 lowerings for `s/d/c/z` scalars. They jointly merge the logical M, N, and K

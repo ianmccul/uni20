@@ -78,6 +78,15 @@ template <class Real> [[nodiscard]] auto to_cuda_execution_value(uni20::complex<
   return ::cuda::std::complex<Real>{value.real(), value.imag()};
 }
 
+template <class Scalar, class Plan>
+void enqueue_elementwise_fill_impl(Scalar* output, Scalar value, Plan const& plan, cudaStream_t stream, int device)
+{
+  using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
+  auto operation = uni20::linalg::constant{to_cuda_execution_value(value)};
+  launch_elementwise_kernel<false>(plan, operation, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                   "launch CUDA reference elementwise fill");
+}
+
 template <class Scalar, class Factor, class Plan>
 void enqueue_elementwise_scale_impl(Scalar* output, Scalar const* input, Factor factor, Plan const& plan,
                                     cudaStream_t stream, int device)
@@ -101,7 +110,50 @@ void enqueue_elementwise_binary_impl(Scalar* output, Scalar const* lhs, Scalar c
                                    ElementwiseOperand{rhs, input_accessor{}});
 }
 
+template <class Scalar, class Factor, class Plan>
+void enqueue_elementwise_inplace_scale_impl(Scalar* output, Factor factor, Plan const& plan, cudaStream_t stream,
+                                            int device)
+{
+  using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
+  auto operation = uni20::linalg::scale{to_cuda_execution_value(factor)};
+  launch_elementwise_kernel<true>(plan, operation, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                  "launch CUDA reference in-place scaling");
+}
+
+template <class Scalar, class Operation, class Plan>
+void enqueue_elementwise_inplace_binary_impl(Scalar* output, Scalar const* input, Operation operation, Plan const& plan,
+                                             cudaStream_t stream, int device)
+{
+  using output_accessor = uni20::cuda::CudaPointerAccessor<Scalar>;
+  using input_accessor = uni20::cuda::CudaPointerAccessor<Scalar const>;
+  launch_elementwise_kernel<true>(plan, operation, ElementwiseOperand{output, output_accessor{}}, stream, device,
+                                  "launch CUDA reference in-place binary arithmetic",
+                                  ElementwiseOperand{input, input_accessor{}});
+}
+
+template <class Scalar, class Factor, class Plan>
+void enqueue_elementwise_add_scaled_impl(Scalar* output, Scalar const* input, Factor factor, Plan const& plan,
+                                         cudaStream_t stream, int device)
+{
+  auto operation = uni20::linalg::add_scaled{to_cuda_execution_value(factor)};
+  enqueue_elementwise_inplace_binary_impl(output, input, operation, plan, stream, device);
+}
+
 } // namespace
+
+template <class Scalar>
+void enqueue_elementwise_fill(Scalar* output, Scalar value, ElementwiseFillPlan32 const& plan, cudaStream_t stream,
+                              int device)
+{
+  enqueue_elementwise_fill_impl(output, value, plan, stream, device);
+}
+
+template <class Scalar>
+void enqueue_elementwise_fill(Scalar* output, Scalar value, ElementwiseFillPlan64 const& plan, cudaStream_t stream,
+                              int device)
+{
+  enqueue_elementwise_fill_impl(output, value, plan, stream, device);
+}
 
 template <class Function, class Scalar>
 void enqueue_elementwise_unary(Scalar* output, Scalar const* input, Function function,
@@ -125,6 +177,50 @@ void enqueue_elementwise_binary(Scalar* output, Scalar const* lhs, Scalar const*
 {
   static_assert(RegisteredStatelessBinary<Function>);
   enqueue_elementwise_binary_impl(output, lhs, rhs, function, plan, stream, device);
+}
+
+template <class Scalar, class Factor>
+void enqueue_elementwise_inplace_scale(Scalar* output, Factor factor, ElementwiseInplaceUnaryPlan32 const& plan,
+                                       cudaStream_t stream, int device)
+{
+  enqueue_elementwise_inplace_scale_impl(output, factor, plan, stream, device);
+}
+
+template <class Scalar, class Factor>
+void enqueue_elementwise_inplace_scale(Scalar* output, Factor factor, ElementwiseInplaceUnaryPlan64 const& plan,
+                                       cudaStream_t stream, int device)
+{
+  enqueue_elementwise_inplace_scale_impl(output, factor, plan, stream, device);
+}
+
+template <class Function, class Scalar>
+void enqueue_elementwise_inplace_binary(Scalar* output, Scalar const* input, Function function,
+                                        ElementwiseInplaceBinaryPlan32 const& plan, cudaStream_t stream, int device)
+{
+  static_assert(RegisteredStatelessBinary<Function>);
+  enqueue_elementwise_inplace_binary_impl(output, input, function, plan, stream, device);
+}
+
+template <class Function, class Scalar>
+void enqueue_elementwise_inplace_binary(Scalar* output, Scalar const* input, Function function,
+                                        ElementwiseInplaceBinaryPlan64 const& plan, cudaStream_t stream, int device)
+{
+  static_assert(RegisteredStatelessBinary<Function>);
+  enqueue_elementwise_inplace_binary_impl(output, input, function, plan, stream, device);
+}
+
+template <class Scalar, class Factor>
+void enqueue_elementwise_add_scaled(Scalar* output, Scalar const* input, Factor factor,
+                                    ElementwiseInplaceBinaryPlan32 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_add_scaled_impl(output, input, factor, plan, stream, device);
+}
+
+template <class Scalar, class Factor>
+void enqueue_elementwise_add_scaled(Scalar* output, Scalar const* input, Factor factor,
+                                    ElementwiseInplaceBinaryPlan64 const& plan, cudaStream_t stream, int device)
+{
+  enqueue_elementwise_add_scaled_impl(output, input, factor, plan, stream, device);
 }
 
 template <class Function, class Scalar>
@@ -195,6 +291,47 @@ UNI20_DEFINE_ELEMENTWISE_SCALE(uni20::cdouble, uni20::cdouble)
 
 #undef UNI20_DEFINE_ELEMENTWISE_SCALE
 
+#define UNI20_INSTANTIATE_FILL(Scalar)                                                                                 \
+  template void enqueue_elementwise_fill(Scalar*, Scalar, ElementwiseFillPlan32 const&, cudaStream_t, int);            \
+  template void enqueue_elementwise_fill(Scalar*, Scalar, ElementwiseFillPlan64 const&, cudaStream_t, int)
+
+UNI20_INSTANTIATE_FILL(float);
+UNI20_INSTANTIATE_FILL(double);
+UNI20_INSTANTIATE_FILL(uni20::cfloat);
+UNI20_INSTANTIATE_FILL(uni20::cdouble);
+
+#undef UNI20_INSTANTIATE_FILL
+
+#define UNI20_INSTANTIATE_INPLACE_SCALE(Scalar, Factor)                                                                \
+  template void enqueue_elementwise_inplace_scale(Scalar*, Factor, ElementwiseInplaceUnaryPlan32 const&, cudaStream_t, \
+                                                  int);                                                                \
+  template void enqueue_elementwise_inplace_scale(Scalar*, Factor, ElementwiseInplaceUnaryPlan64 const&, cudaStream_t, \
+                                                  int)
+
+UNI20_INSTANTIATE_INPLACE_SCALE(float, float);
+UNI20_INSTANTIATE_INPLACE_SCALE(double, double);
+UNI20_INSTANTIATE_INPLACE_SCALE(uni20::cfloat, float);
+UNI20_INSTANTIATE_INPLACE_SCALE(uni20::cfloat, uni20::cfloat);
+UNI20_INSTANTIATE_INPLACE_SCALE(uni20::cdouble, double);
+UNI20_INSTANTIATE_INPLACE_SCALE(uni20::cdouble, uni20::cdouble);
+
+#undef UNI20_INSTANTIATE_INPLACE_SCALE
+
+#define UNI20_INSTANTIATE_ADD_SCALED(Scalar, Factor)                                                                   \
+  template void enqueue_elementwise_add_scaled(Scalar*, Scalar const*, Factor, ElementwiseInplaceBinaryPlan32 const&,  \
+                                               cudaStream_t, int);                                                     \
+  template void enqueue_elementwise_add_scaled(Scalar*, Scalar const*, Factor, ElementwiseInplaceBinaryPlan64 const&,  \
+                                               cudaStream_t, int)
+
+UNI20_INSTANTIATE_ADD_SCALED(float, float);
+UNI20_INSTANTIATE_ADD_SCALED(double, double);
+UNI20_INSTANTIATE_ADD_SCALED(uni20::cfloat, float);
+UNI20_INSTANTIATE_ADD_SCALED(uni20::cfloat, uni20::cfloat);
+UNI20_INSTANTIATE_ADD_SCALED(uni20::cdouble, double);
+UNI20_INSTANTIATE_ADD_SCALED(uni20::cdouble, uni20::cdouble);
+
+#undef UNI20_INSTANTIATE_ADD_SCALED
+
 #define UNI20_INSTANTIATE_UNARY(Function, Scalar)                                                                      \
   template void enqueue_elementwise_unary(Scalar*, Scalar const*, Function, ElementwiseUnaryPlan32 const&,             \
                                           cudaStream_t, int);                                                          \
@@ -233,5 +370,25 @@ UNI20_INSTANTIATE_BINARY_SCALARS(uni20::linalg::divide);
 
 #undef UNI20_INSTANTIATE_BINARY_SCALARS
 #undef UNI20_INSTANTIATE_BINARY
+
+#define UNI20_INSTANTIATE_INPLACE_BINARY(Function, Scalar)                                                             \
+  template void enqueue_elementwise_inplace_binary(Scalar*, Scalar const*, Function,                                   \
+                                                   ElementwiseInplaceBinaryPlan32 const&, cudaStream_t, int);          \
+  template void enqueue_elementwise_inplace_binary(Scalar*, Scalar const*, Function,                                   \
+                                                   ElementwiseInplaceBinaryPlan64 const&, cudaStream_t, int)
+
+#define UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS(Function)                                                             \
+  UNI20_INSTANTIATE_INPLACE_BINARY(Function, float);                                                                   \
+  UNI20_INSTANTIATE_INPLACE_BINARY(Function, double);                                                                  \
+  UNI20_INSTANTIATE_INPLACE_BINARY(Function, uni20::cfloat);                                                           \
+  UNI20_INSTANTIATE_INPLACE_BINARY(Function, uni20::cdouble)
+
+UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS(uni20::linalg::add);
+UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS(uni20::linalg::subtract);
+UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS(uni20::linalg::multiply);
+UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS(uni20::linalg::divide);
+
+#undef UNI20_INSTANTIATE_INPLACE_BINARY_SCALARS
+#undef UNI20_INSTANTIATE_INPLACE_BINARY
 
 } // namespace uni20::linalg::detail::cuda_reference

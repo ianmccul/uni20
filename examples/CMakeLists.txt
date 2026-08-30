@@ -27,6 +27,8 @@ uni20_add_example(spin_half_heisenberg_dmrg_example models/spin_half_heisenberg_
 add_test(NAME SpinHalfHeisenbergDmrgExample COMMAND spin_half_heisenberg_dmrg_example --check)
 add_test(NAME SpinHalfHeisenbergDmrgComplexExample
          COMMAND spin_half_heisenberg_dmrg_example --scalar=complex --check)
+add_test(NAME SpinHalfHeisenbergDmrgSteadySweepExample
+         COMMAND spin_half_heisenberg_dmrg_example --sites=4 --max-states=4 --steady-sweeps=2)
 add_test(NAME SpinHalfHeisenbergDmrgFloat32Example
          COMMAND spin_half_heisenberg_dmrg_example --precision=fp32 --check)
 add_test(NAME SpinHalfHeisenbergDmrgComplexFloat32Example

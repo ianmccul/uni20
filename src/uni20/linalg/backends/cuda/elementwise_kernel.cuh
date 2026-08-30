@@ -31,7 +31,10 @@ template <class Accessor> struct ElementwiseOperand
     {
       auto&& reference = this->access(offset);
       using reference_type = std::remove_cvref_t<decltype(reference)>;
-      return static_cast<reference_type>(reference);
+      if constexpr (requires { typename reference_type::execution_type; })
+        return static_cast<typename reference_type::execution_type>(reference);
+      else
+        return static_cast<reference_type>(reference);
     }
 };
 

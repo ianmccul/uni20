@@ -114,7 +114,9 @@ struct TbbCudaSchedulerOptions
     /// Maximum participation in the host arena.
     int host_max_concurrency = oneapi::tbb::task_arena::automatic;
     /// Maximum worker participation in each CUDA device arena.
-    int cuda_max_concurrency_per_device = oneapi::tbb::task_arena::automatic;
+    /// CUDA submission defaults to one worker per device; callers may opt into
+    /// concurrent submission independently of stream and provider capacity.
+    int cuda_max_concurrency_per_device = 1;
     /// Device used to route CUDA tasks that have not established affinity.
     /// The first enrolled device is used when this is empty.
     std::optional<int> default_cuda_device{};

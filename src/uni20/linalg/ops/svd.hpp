@@ -14,6 +14,10 @@
 #include <uni20/tensor/output.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#if UNI20_BACKEND_CUSOLVER
+#include <uni20/linalg/backends/cusolver/svd.hpp>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <concepts>

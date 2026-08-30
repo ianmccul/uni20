@@ -49,6 +49,13 @@ struct TbbSchedulerWaitOptions
 #endif
 };
 
+/// \brief Runtime policy for synchronous lightweight batches executed by a TBB scheduler.
+struct TbbSchedulerBatchOptions
+{
+    /// Maximum number of concurrently executing batch runners; null uses ordinary `parallel_for` partitioning.
+    std::optional<std::size_t> maximum_concurrency{std::nullopt};
+};
+
 /// \brief Scheduler backend that uses Intel oneTBB to resume coroutines.
 ///
 /// Tasks scheduled on this scheduler are submitted to a task_group inside a
@@ -75,22 +82,29 @@ class TbbScheduler : public IAsyncScheduler {
     /// \param max_concurrency Maximum arena participation, including application threads.
     ///                        Use task_arena::automatic for the oneTBB default.
     /// \param wait_options Blocking-wait watchdog policy.
+    /// \param batch_options Lightweight-batch concurrency policy.
     explicit TbbScheduler(int max_concurrency = oneapi::tbb::task_arena::automatic,
-                          TbbSchedulerWaitOptions wait_options = {})
-        : arena_(max_concurrency, /*reserved_for_application_threads=*/1), wait_options_(std::move(wait_options)),
-          paused_(false)
+                          TbbSchedulerWaitOptions wait_options = {}, TbbSchedulerBatchOptions batch_options = {})
+        : arena_(max_concurrency, /*reserved_for_application_threads=*/1, oneapi::tbb::task_arena::priority::normal,
+                 oneapi::tbb::task_arena::leave_policy::fast),
+          wait_options_(std::move(wait_options)), batch_options_(std::move(batch_options)), paused_(false)
     {
       CHECK(!wait_options_.watchdog_timeout || wait_options_.watchdog_timeout->count() > 0);
+      CHECK(!batch_options_.maximum_concurrency || *batch_options_.maximum_concurrency > 0);
     }
 
     /// \brief Construct a TBB scheduler constrained to a specific NUMA node.
     /// \param constraints Binding constraints applied to the underlying arena.
     /// \param wait_options Blocking-wait watchdog policy.
-    explicit TbbScheduler(oneapi::tbb::task_arena::constraints constraints, TbbSchedulerWaitOptions wait_options = {})
-        : arena_(constraints, /*reserved_for_application_threads=*/1), wait_options_(std::move(wait_options)),
-          paused_(false)
+    /// \param batch_options Lightweight-batch concurrency policy.
+    explicit TbbScheduler(oneapi::tbb::task_arena::constraints constraints, TbbSchedulerWaitOptions wait_options = {},
+                          TbbSchedulerBatchOptions batch_options = {})
+        : arena_(constraints, /*reserved_for_application_threads=*/1, oneapi::tbb::task_arena::priority::normal,
+                 oneapi::tbb::task_arena::leave_policy::fast),
+          wait_options_(std::move(wait_options)), batch_options_(std::move(batch_options)), paused_(false)
     {
       CHECK(!wait_options_.watchdog_timeout || wait_options_.watchdog_timeout->count() > 0);
+      CHECK(!batch_options_.maximum_concurrency || *batch_options_.maximum_concurrency > 0);
     }
 
     ~TbbScheduler() noexcept override
@@ -184,8 +198,34 @@ class TbbScheduler : public IAsyncScheduler {
         return;
       }
 
-      arena_.execute(
-          [&] { oneapi::tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t index) { batch(index); }); });
+      arena_.execute([&] {
+        if (!batch_options_.maximum_concurrency)
+        {
+          oneapi::tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t index) { batch(index); });
+          return;
+        }
+
+        std::size_t const runner_count =
+            std::min(*batch_options_.maximum_concurrency, static_cast<std::size_t>(arena_.max_concurrency()));
+        if (runner_count >= batch.size())
+        {
+          oneapi::tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t index) { batch(index); });
+          return;
+        }
+
+        std::atomic<std::size_t> next_index{0};
+        oneapi::tbb::parallel_for(
+            std::size_t{0}, runner_count,
+            [&](std::size_t) {
+              while (true)
+              {
+                std::size_t const index = next_index.fetch_add(1, std::memory_order_relaxed);
+                if (index >= batch.size()) return;
+                batch(index);
+              }
+            },
+            oneapi::tbb::simple_partitioner{});
+      });
     }
 
     bool accepts_route(TaskRoute route) const noexcept override
@@ -549,6 +589,7 @@ class TbbScheduler : public IAsyncScheduler {
     oneapi::tbb::task_arena arena_;
     oneapi::tbb::task_group tg_;
     TbbSchedulerWaitOptions wait_options_;
+    TbbSchedulerBatchOptions batch_options_;
     std::atomic<bool> paused_;
     std::mutex pause_mutex_;
     oneapi::tbb::concurrent_queue<TaskHandle> queue_;

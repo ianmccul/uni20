@@ -1,6 +1,15 @@
 # Directional Two-Site DMRG Sweeps
 
-**Status:** implemented immediate-host finite-chain ground-state run.
+**Status:** implemented finite-chain ground-state run for immediate host or
+single-device packed CUDA MPS and environment storage.
+
+In the resident CUDA path, MPS sites, cached environments, two-site centers,
+Krylov vectors, R/A/B/C intermediates, charge-sector SVD matrices, and selected
+U/Vh factors remain in CUDA storage across bonds and sweeps. MPO coefficient
+blocks remain immediately host-readable and are compiled into the sparse
+effective-Hamiltonian plan. The compact singular-value spectrum is copied to
+the host for global truncation selection and for the returned diagonal bond
+diagnostic; it is not used as a host mirror of the active MPS state.
 
 The first sweep API combines the existing finite-chain components without
 introducing a new tensor representation:
@@ -54,6 +63,10 @@ This does not change the persistent MPS or MPO storage. With an active
 lightweight task batches, while every contribution to one output block remains
 serial within its batch item. The environment cache has its own storage-policy
 template parameter and may select the same execution policy independently.
+`ParallelPackedCompleteBlockStorage<CudaStorage>` selects a packed CUDA center
+and CUDA Krylov vectors. A CUDA-resident run also uses packed CUDA policies for
+the persistent MPS and environment cache; storage domains are never changed
+implicitly by the center policy.
 
 ## Performance Measurements
 
@@ -94,21 +107,20 @@ generic measurement levels, batch fields, and overhead contract are in
 `optimize_two_site_dmrg_bond()` applies this sequence to adjacent sites `i`
 and `i+1`:
 
-1. Contract the two current MPS sites over their shared bond using the selected
-   immediate local center storage with ordinary dense blocks. A complete policy
-   allocates every symmetry-legal center block directly and zeros blocks without
-   a contribution. For compatibility, a sparse center policy is widened once
-   into an explicitly complete sparse key set. Async and generalized-diagonal
-   center policies are not accepted by this synchronous solver. Blocks absent
-   from the current MPS are exact zero but remain available to the local
-   Hamiltonian.
+1. Contract the two current MPS sites over their shared bond directly in the
+   selected local leaf memory domain. A complete policy allocates every
+   symmetry-legal center block and zeros blocks without a contribution. A
+   sparse center policy is widened once into an explicitly complete sparse key
+   set. Per-block async and generalized-diagonal center policies are not
+   accepted by this synchronous solver.
 2. Obtain `left[i]` and `right[i+2]` from the attached
-   `MpoEnvironmentCache`.
+   `MpoEnvironmentCache`. If their leaf memory domain differs from the center,
+   materialize owned packed sparse copies in the center domain.
 3. Compile a fixed-center `TwoSiteEffectiveHamiltonian` from those
-   environments and the two MPO sites. This also prepares the host R/A/B/C
-   grouping, output order, and reusable intermediate workspace. The sweep
-   retains zero-copy identity views for the local solve rather than copying the
-   owning BlockTensor payloads.
+   environments and the two MPO sites. This also prepares the R/A/B/C
+   grouping, output order, and reusable intermediate workspace. Same-domain
+   environments remain zero-copy identity views. Transferred environments are
+   owned by the effective-Hamiltonian object for the complete local solve.
 4. Perform the configured fixed number of three-term Lanczos steps and use the
    smallest Ritz vector of that local projection.
 5. Apply the staged block SVD and global charge-sector truncation policy.
@@ -248,14 +260,16 @@ Selected-factor construction remains serial and is the next parallel checkpoint.
 
 ## Current Limits
 
-This checkpoint is synchronous and immediate-host. It requires `BlockSpace`
-MPS bonds, `LocalSpace` MPO auxiliaries, bosonic Abelian symmetry, LAPACK scalar
-support and the current sparse MPO effective-Hamiltonian planner.
+This checkpoint is synchronous and supports immediate host or single-device
+packed CUDA MPS and environment blocks. It requires `BlockSpace` MPS bonds,
+`LocalSpace` MPO auxiliaries, bosonic Abelian symmetry, real `float` or `double`
+for the CUDA SVD path, and the current sparse MPO effective-Hamiltonian planner.
 
 It does not yet provide energy or variance measurement after truncation,
 generic canonicalization of an arbitrary initial MPS, adaptive local-work
 schedules, noise or subspace expansion, excited-state projection, per-bond
-truncation policies, async block solves, CUDA, MPI, or checkpoint/restart.
+truncation policies, async block solves, multi-device CUDA, MPI, or
+checkpoint/restart.
 Those are separate layers over the verified directional state transition.
 Legal center keys are initially found by scanning the Cartesian product of
 key-bearing factors; a charge-indexed planner can replace that structural setup

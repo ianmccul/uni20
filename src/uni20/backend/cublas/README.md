@@ -11,6 +11,8 @@ policy.
 - `execution.hpp`: reusable handle slots and dynamic handle-plus-stream leases.
 - `task_awaiters.hpp`: non-blocking CUDA-task acquisition of an execution lease.
 - `gemm.hpp`: checked column-major `S/D/C/ZGEMM` wrappers.
+- `level1.hpp`: checked `S/D/C/Z` dot-product and Euclidean-norm wrappers with
+  host scalar results.
 
 ## Ownership
 
@@ -21,7 +23,9 @@ returned at the submitted stream tail. The stream independently returns to its
 pool when its final reference is released and the stream becomes idle.
 
 `cublas::execution_pool(resources)` lazily constructs one pool owned by the CUDA
-device resources. Async Tensor matrix products use
+device resources, defaulting to one handle per stream. An application may call
+`cublas::execution_pool(resources, count)` before first provider use to select a
+smaller handle count; later configuration must match. Async Tensor matrix products use
 `co_await cublas::acquire_execution(pool)` so exhausted resource admission
 suspends rather than occupying a scheduler participant. Ordinary
 `CublasBackend` calls the blocking `acquire()` path. Checked provider wrappers

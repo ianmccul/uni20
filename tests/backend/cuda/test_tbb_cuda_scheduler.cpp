@@ -40,6 +40,12 @@ concept PubliclySchedulesOnDevice =
 static_assert(PubliclySchedules<TbbCudaScheduler, AsyncTask>);
 static_assert(PubliclySchedules<TbbCudaScheduler, CudaTask>);
 static_assert(PubliclySchedulesOnDevice<TbbCudaScheduler, CudaTask>);
+static_assert(TbbCudaSchedulerOptions{}.cuda_max_concurrency_per_device == 1);
+
+TEST(TbbCudaSchedulerOptionsTest, DefaultsToOneCudaSubmitterPerDevice)
+{
+  EXPECT_EQ(TbbCudaSchedulerOptions{}.cuda_max_concurrency_per_device, 1);
+}
 
 struct CudaTaskTestError
 {};

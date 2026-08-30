@@ -53,6 +53,8 @@ static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>)
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
 static_assert(BlockTensorStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);
+static_assert(LocalBlockStorageFor<PackedCompleteBlockStorage<>, double, 2, 2>);
+static_assert(LocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 2, 2>);
@@ -583,6 +585,10 @@ TEST(BlockTensorTest, AlignedPackedStoragePadsBlockStartsWithinOneBuffer)
   EXPECT_EQ(offsets[1], 16);
   EXPECT_EQ(offsets[2], 20);
   EXPECT_EQ(tensor.storage().buffer().size(), 20);
+  EXPECT_TRUE(tensor.storage().has_padding());
+  EXPECT_TRUE(std::ranges::equal(tensor.storage().block_ends(), std::array<std::size_t, 2>{9, 20}));
+  for (std::size_t offset = 9; offset < 16; ++offset)
+    EXPECT_DOUBLE_EQ(tensor.storage().buffer().data()[offset], 0.0);
   EXPECT_EQ(reinterpret_cast<std::uintptr_t>(tensor.block_by_ordinal(0).mdspan().data_handle()) % 64, 0);
   EXPECT_EQ(reinterpret_cast<std::uintptr_t>(tensor.block_by_ordinal(1).mdspan().data_handle()) % 64, 0);
 }

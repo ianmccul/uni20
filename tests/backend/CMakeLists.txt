@@ -11,3 +11,7 @@ endif()
 if(TARGET uni20_backend_cublas)
   add_subdirectory(cublas)
 endif()
+
+if(TARGET uni20_backend_cusolver)
+  add_subdirectory(cusolver)
+endif()

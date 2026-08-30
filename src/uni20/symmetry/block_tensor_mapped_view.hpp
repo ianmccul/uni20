@@ -13,6 +13,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -226,12 +227,35 @@ template <TensorView Block> auto make_read_only_block_view(Block const& block)
   return MdspecTensorView<mdspec_type, mdspec_type, storage_policy>{const_mdspec, const_mdspec};
 }
 
+template <class SourceTensor, class = void> class BlockTensorAllocationContextBinding {
+  public:
+    explicit BlockTensorAllocationContextBinding(SourceTensor&) noexcept {}
+};
+
+template <class SourceTensor>
+class BlockTensorAllocationContextBinding<
+    SourceTensor, std::void_t<decltype(std::declval<SourceTensor const&>().allocation_context())>> {
+  public:
+    using context_type = std::remove_reference_t<decltype(std::declval<SourceTensor const&>().allocation_context())>;
+
+    explicit BlockTensorAllocationContextBinding(SourceTensor& source) noexcept
+        : context_(std::addressof(source.allocation_context()))
+    {}
+
+    [[nodiscard]] auto get() const noexcept -> context_type& { return *context_; }
+
+  private:
+    context_type* context_;
+};
+
 /// \brief Shared implementation of a zero-copy BlockTensor metadata and axis view.
 /// \details The transformed boundary and permutations must describe a bijection
 ///          of the source factors. The view retains direct dense-block
-///          descriptors, so a temporary intermediate mapped view need not
-///          outlive it. Replacing or structurally modifying the ultimate
-///          payload owner invalidates every view over that payload.
+///          descriptors and the ultimate leaf-allocation context, so a
+///          temporary intermediate mapped view need not outlive it and an empty
+///          view still retains placement identity. Replacing or structurally
+///          modifying the ultimate payload owner invalidates every view over
+///          that payload and context.
 template <class SourceTensor, class DomainType, class CodomainType, auto KeyPermutation, auto DensePermutation>
 class BlockTensorMappedView {
   public:
@@ -241,6 +265,7 @@ class BlockTensorMappedView {
     using element_type = typename source_tensor_type::element_type;
     using value_type = typename source_tensor_type::value_type;
     using storage_policy = typename source_tensor_type::storage_policy;
+    using storage_type = typename source_tensor_type::storage_type;
     using backend_selector_type = typename source_tensor_type::backend_selector_type;
     using key_type = typename source_tensor_type::key_type;
     using domain_type = DomainType;
@@ -250,6 +275,7 @@ class BlockTensorMappedView {
     using mutable_block_type = decltype(permute_block(std::declval<source_mutable_access_block_type>(),
                                                       std::declval<decltype(DensePermutation) const&>()));
     using const_block_type = decltype(make_read_only_block_view(std::declval<mutable_block_type const&>()));
+    using allocation_context_binding_type = BlockTensorAllocationContextBinding<SourceTensor>;
 
     static constexpr std::size_t static_order = source_tensor_type::order();
     static constexpr std::size_t static_key_coordinate_count = source_tensor_type::key_coordinate_count();
@@ -279,7 +305,8 @@ class BlockTensorMappedView {
     /// \param domain Transformed ordered domain.
     /// \param codomain Transformed ordered codomain.
     explicit BlockTensorMappedView(SourceTensor& source, domain_type domain, codomain_type codomain)
-        : symmetry_(source.symmetry()), domain_(std::move(domain)), codomain_(std::move(codomain))
+        : symmetry_(source.symmetry()), domain_(std::move(domain)), codomain_(std::move(codomain)),
+          allocation_context_(source)
     {
       this->build_key_index(source);
     }
@@ -405,6 +432,13 @@ class BlockTensorMappedView {
       return source_tensor_type::backend_selector();
     }
 
+    /// \brief Return the ultimate source leaf context for compatible allocations.
+    decltype(auto) allocation_context() const noexcept
+      requires requires(allocation_context_binding_type const& binding) { binding.get(); }
+    {
+      return allocation_context_.get();
+    }
+
   private:
     struct KeyBinding
     {
@@ -469,6 +503,7 @@ class BlockTensorMappedView {
     Symmetry symmetry_;
     domain_type domain_;
     codomain_type codomain_;
+    [[no_unique_address]] allocation_context_binding_type allocation_context_;
     std::vector<key_type> keys_;
     std::vector<mutable_block_type> blocks_;
 };
