@@ -3,6 +3,7 @@
 #include <uni20/symmetry/block_tensor_repartition.hpp>
 
 #include <uni20/async/debug_scheduler.hpp>
+#include <uni20/tensor/transform.hpp>
 
 #include <cstddef>
 #include <iostream>
@@ -31,6 +32,8 @@ int main()
 
   using Matrix = BlockTensor<double, Domain<BlockSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
   Matrix matrix(sym, Domain{left}, Codomain{left}, {Matrix::key_type{{0, 0}}, Matrix::key_type{{1, 1}}});
+  uni20::fill(matrix.block(Matrix::key_type{{0, 0}}), 0.0);
+  uni20::fill(matrix.block(Matrix::key_type{{1, 1}}), 0.0);
   matrix.block(Matrix::key_type{{1, 1}})[2, 2] = 1.0;
   auto matrix_squared = contract<1, 0>(matrix, matrix);
 
@@ -38,6 +41,7 @@ int main()
   AsyncMatrix async_matrix(sym, Domain{left}, Codomain{left}, {AsyncMatrix::key_type{{1, 1}}});
   using AsyncDenseBlock = typename AsyncMatrix::storage_type::block_value_type;
   AsyncDenseBlock async_dense_block(3, 3);
+  uni20::fill(async_dense_block, 0.0);
   async_dense_block[2, 2] = 2.0;
   async_matrix.async_block(AsyncMatrix::key_type{{1, 1}}) = std::move(async_dense_block);
   async::DebugScheduler scheduler;
@@ -49,6 +53,8 @@ int main()
       BlockTensor<double, Domain<BlockSpace, LocalSpace>, Codomain<BlockSpace>, SeparateSparseBlockStorage<>>;
   MpsSite mps_site(sym, Domain{left, physical}, Codomain{right},
                    {MpsSite::key_type{{0, 1, 1}}, MpsSite::key_type{{1, 1, 2}}});
+  uni20::fill(mps_site.block(MpsSite::key_type{{0, 1, 1}}), 0.0);
+  uni20::fill(mps_site.block(MpsSite::key_type{{1, 1, 2}}), 0.0);
   mps_site.block(MpsSite::key_type{{1, 1, 2}})[2, 5] = 2.0;
   auto permuted_mps = permute<1, 0, 2>(mps_site);
   auto bent_mps = repartition<MorphismSide::Domain, BoundaryEnd::Right>(mps_site);
@@ -57,6 +63,7 @@ int main()
       BlockTensor<double, Domain<LocalSpace, LocalSpace>, Codomain<LocalSpace, LocalSpace>, PackedSparseBlockStorage<>>;
   MpoSite mpo_site(sym, Domain{auxiliary, physical}, Codomain{auxiliary, physical},
                    {MpoSite::key_type{{0, 0, 0, 0}}, MpoSite::key_type{{0, 1, 0, 1}}});
+  mpo_site.block(MpoSite::key_type{{0, 0, 0, 0}})[] = 0.0;
   mpo_site.block(MpoSite::key_type{{0, 1, 0, 1}})[] = 3.0;
 
   print_summary("matrix", matrix);

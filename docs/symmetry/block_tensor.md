@@ -614,6 +614,10 @@ sector factorization. It is stable for the lifetime of the decomposition and
 does not depend on the globally sorted spectrum position. A selection is an
 owning set of these identifiers plus statistics for that set. It may therefore
 be retained, complemented, partitioned, and materialized more than once.
+Materialization canonicalizes those identities against its target decomposition
+and derives the returned truncation statistics from that target spectrum. A
+selection may therefore be reused with a structurally compatible decomposition
+without carrying stale statistics from the spectrum that created it.
 
 The ordinary spectrum contains paired singular triplets. When full left or
 right vectors are requested, a rectangular sector may additionally have

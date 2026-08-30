@@ -1329,8 +1329,10 @@ materialize_svd_with_absorption(Decomposition const& decomposition,
                                 BlockSvdSelection<typename Decomposition::real_type> const& selection,
                                 BlockSvdMaterializationOptions options, bool absorb_left, bool absorb_right)
 {
+  auto [state_ids, selected] = canonical_svd_selection(decomposition.spectrum(), selection.state_ids());
+  auto truncation = summarize_svd_selection(decomposition.spectrum(), std::span<unsigned char const>{selected});
   auto plan = make_block_svd_selection_plan(
-      decomposition, selection.state_ids(), std::move(options.bond_label),
+      decomposition, state_ids, std::move(options.bond_label),
       [](auto const& sector) { return static_cast<std::size_t>(sector.singular_values.extent(0)); });
   auto left = make_left_singular_vectors(decomposition, plan, absorb_left);
   auto values = make_block_singular_values(decomposition, plan);
@@ -1340,12 +1342,16 @@ materialize_svd_with_absorption(Decomposition const& decomposition,
       .left_singular_vectors = std::move(left),
       .singular_values = std::move(values),
       .right_singular_vectors_adjoint = std::move(right),
-      .truncation = selection.truncation()};
+      .truncation = std::move(truncation)};
 }
 
 } // namespace detail
 
 /// \brief Materialize paired left, singular-value, and right-adjoint factors.
+/// \details Selection identities are canonicalized against this decomposition.
+///          Returned truncation statistics are derived from this decomposition's
+///          spectrum, even when the selection was created from a compatible
+///          decomposition with different singular values.
 template <class Decomposition>
 [[nodiscard]] auto materialize_svd(Decomposition const& decomposition,
                                    BlockSvdSelection<typename Decomposition::real_type> const& selection,
