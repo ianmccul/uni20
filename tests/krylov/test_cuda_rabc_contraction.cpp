@@ -254,8 +254,11 @@ TEST_F(CudaRabcContractionTest, FixedStepDmrgLanczosKeepsLocalVectorsAndMatvecsO
 
 TEST_F(CudaRabcContractionTest, WideBlockSvdRetainsFactorsOnCudaAndReconstructsTheSector)
 {
-  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
-  uni20::cuda::ScopedDevice scoped_device(0);
+  std::vector<int> devices{0};
+  if (device_count_ > 1) devices.push_back(1);
+  auto runtime = uni20::cuda::initialize({.device_ordinals = devices, .default_device = 0, .streams_per_device = 2});
+  int const operand_device = device_count_ > 1 ? 1 : 0;
+  uni20::cuda::ScopedDevice scoped_device(operand_device);
 
   using device_storage = uni20::PackedCompleteBlockStorage<uni20::CudaStorage>;
   using device_matrix =
@@ -276,18 +279,27 @@ TEST_F(CudaRabcContractionTest, WideBlockSvdRetainsFactorsOnCudaAndReconstructsT
   host_block[1, 1] = 0.5;
   host_block[2, 1] = 4.0;
 
-  device_matrix device(symmetry, uni20::Domain{domain_space}, uni20::Codomain{codomain_space});
+  auto& context = runtime.device_resources(operand_device);
+  device_matrix device(symmetry, uni20::Domain{domain_space}, uni20::Codomain{codomain_space}, context);
   uni20::copy(device.block_by_ordinal(0), host_block);
   auto decomposition = uni20::block_svd(device);
+  EXPECT_EQ(&decomposition.allocation_context(), &context);
   ASSERT_EQ(decomposition.sectors().size(), 1U);
   auto const& sector = decomposition.sectors()[0];
-  EXPECT_EQ(sector.left_singular_vectors.storage().device().ordinal(), 0);
-  EXPECT_EQ(sector.singular_values.storage().device().ordinal(), 0);
-  EXPECT_EQ(sector.right_singular_vectors_adjoint.storage().device().ordinal(), 0);
+  EXPECT_EQ(sector.left_singular_vectors.storage().device().ordinal(), operand_device);
+  EXPECT_EQ(sector.singular_values.storage().device().ordinal(), operand_device);
+  EXPECT_EQ(sector.right_singular_vectors_adjoint.storage().device().ordinal(), operand_device);
   EXPECT_EQ(sector.left_singular_vectors.extent(0), 2);
   EXPECT_EQ(sector.left_singular_vectors.extent(1), 2);
   EXPECT_EQ(sector.right_singular_vectors_adjoint.extent(0), 2);
   EXPECT_EQ(sector.right_singular_vectors_adjoint.extent(1), 3);
+
+  auto selection = uni20::select_svd_states(decomposition.spectrum());
+  auto materialized = uni20::materialize_svd(decomposition, selection);
+  EXPECT_EQ(&materialized.left_singular_vectors.allocation_context(), &context);
+  EXPECT_EQ(&materialized.right_singular_vectors_adjoint.allocation_context(), &context);
+  expect_cuda_blocks_on_device(materialized.left_singular_vectors, operand_device);
+  expect_cuda_blocks_on_device(materialized.right_singular_vectors_adjoint, operand_device);
 
   uni20::ColumnMajorTensor<double, 2> left(2, 2);
   uni20::ColumnMajorTensor<double, 1> values(2);
@@ -365,6 +377,29 @@ TEST_F(CudaRabcContractionTest, DefaultContractionPreservesCudaAllocationContext
   uni20::ColumnMajorTensor<double, 2> host_result(1, 1);
   uni20::copy(host_result, result.block_by_ordinal(0));
   EXPECT_DOUBLE_EQ((host_result[0, 0]), 6.0);
+}
+
+TEST_F(CudaRabcContractionTest, SparseMaterializationPreservesCudaAllocationContext)
+{
+  std::vector<int> devices{0};
+  if (device_count_ > 1) devices.push_back(1);
+  auto runtime = uni20::cuda::initialize({.device_ordinals = devices, .default_device = 0, .streams_per_device = 2});
+  int const operand_device = device_count_ > 1 ? 1 : 0;
+  uni20::cuda::ScopedDevice scoped_device(operand_device);
+
+  using sparse_storage = uni20::ParallelPackedSparseBlockStorage<uni20::CudaStorage>;
+  using sparse_matrix = matrix_blocks<sparse_storage>;
+  uni20::Symmetry const symmetry{"N:U(1)"};
+  auto const q0 = uni20::QNum::identity(symmetry);
+  auto const q1 = uni20::make_qnum(symmetry, {{"N", 1}});
+  uni20::BlockSpace const space(symmetry, {{q0, 1}, {q1, 1}}, "space");
+  auto& context = runtime.device_resources(operand_device);
+  sparse_matrix input(symmetry, domain_type{space}, codomain_type{space}, {key_type{{0, 0}}}, context);
+
+  auto widened = uni20::tensor_network::detail::materialize_local_block_tensor<sparse_storage, true>(input);
+  EXPECT_EQ(widened.stored_block_count(), 2U);
+  EXPECT_EQ(&widened.allocation_context(), &context);
+  expect_cuda_blocks_on_device(widened, operand_device);
 }
 
 TEST_F(CudaRabcContractionTest, TwoSiteDmrgStepKeepsStateAndEnvironmentsOnCuda)
@@ -455,8 +490,11 @@ TEST_F(CudaRabcContractionTest, TwoSiteDmrgStepKeepsStateAndEnvironmentsOnCuda)
 
 TEST_F(CudaRabcContractionTest, DirectionalDmrgSweepsKeepMpsAndEnvironmentBlocksOnCuda)
 {
-  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 4});
-  uni20::cuda::ScopedDevice scoped_device(0);
+  std::vector<int> devices{0};
+  if (device_count_ > 1) devices.push_back(1);
+  auto runtime = uni20::cuda::initialize({.device_ordinals = devices, .default_device = 0, .streams_per_device = 4});
+  int const operand_device = device_count_ > 1 ? 1 : 0;
+  uni20::cuda::ScopedDevice scoped_device(operand_device);
   uni20::async::DebugScheduler scheduler;
   uni20::async::ScopedScheduler scoped_scheduler(&scheduler);
 
@@ -491,10 +529,14 @@ TEST_F(CudaRabcContractionTest, DirectionalDmrgSweepsKeepMpsAndEnvironmentBlocks
   };
   std::vector<site_type> sites;
   sites.reserve(3);
+  auto& context = runtime.device_resources(operand_device);
   for (std::size_t site = 0; site < 3; ++site)
   {
     auto host_site = make_host_site(site, static_cast<double>(site + 2));
-    sites.push_back(uni20::tensor_network::detail::materialize_local_block_tensor<site_storage, false>(host_site));
+    std::vector<typename site_type::key_type> keys(host_site.stored_keys().begin(), host_site.stored_keys().end());
+    site_type device_site(symmetry, host_site.domain(), host_site.codomain(), std::move(keys), context);
+    copy_blocks(device_site, host_site);
+    sites.push_back(std::move(device_site));
   }
   mps_type mps(std::move(sites));
 
@@ -525,12 +567,14 @@ TEST_F(CudaRabcContractionTest, DirectionalDmrgSweepsKeepMpsAndEnvironmentBlocks
   EXPECT_EQ(leftward[1].first_site, 0);
 
   for (std::size_t site = 0; site < mps.size(); ++site)
-    expect_cuda_blocks_on_device(mps.site(site), 0);
+    expect_cuda_blocks_on_device(mps.site(site), operand_device);
   cache.build_all();
   for (std::size_t bond = 0; bond <= mps.size(); ++bond)
   {
-    expect_cuda_blocks_on_device(cache.left_environment(bond), 0);
-    expect_cuda_blocks_on_device(cache.right_environment(bond), 0);
+    EXPECT_EQ(&cache.left_environment(bond).allocation_context(), &context);
+    EXPECT_EQ(&cache.right_environment(bond).allocation_context(), &context);
+    expect_cuda_blocks_on_device(cache.left_environment(bond), operand_device);
+    expect_cuda_blocks_on_device(cache.right_environment(bond), operand_device);
   }
   EXPECT_EQ(mps.site(0).codomain().template space<0>().label(), "b1");
   EXPECT_EQ(mps.site(1).codomain().template space<0>().label(), "b2");

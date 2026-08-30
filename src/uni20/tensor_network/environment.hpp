@@ -62,6 +62,34 @@ concept EnvironmentStorageFor =
     SparseBlockStorage<Storage> && !DiagonalBlockStorage<Storage> && LocalBlockStorageFor<Storage, Value, 3, 2> &&
     !AsyncLocalBlockStorageFor<Storage, Value, 3, 2>;
 
+template <class Result>
+auto make_identity_environment_keys(BlockSpace const& bond,
+                                    std::size_t auxiliary_index) -> std::vector<typename Result::key_type>
+{
+  std::vector<typename Result::key_type> keys;
+  keys.reserve(bond.size());
+  for (std::size_t sector = 0; sector < bond.size(); ++sector)
+    keys.push_back(typename Result::key_type{{sector, auxiliary_index, sector}});
+  return keys;
+}
+
+template <class Result> void initialize_identity_environment(Result& result)
+{
+  using value_type = typename Result::value_type;
+  for (std::size_t ordinal = 0; ordinal < result.stored_block_count(); ++ordinal)
+  {
+    auto block = result.block_by_ordinal(ordinal);
+    ColumnMajorTensor<value_type, 2> identity(block.extent(0), block.extent(1));
+    auto identity_span = identity.mdspan();
+    for (index_type column = 0; column < identity.extent(1); ++column)
+    {
+      for (index_type row = 0; row < identity.extent(0); ++row)
+        identity_span[row, column] = row == column ? value_type{1} : value_type{};
+    }
+    uni20::copy(block, identity);
+  }
+}
+
 template <class Tensor>
 concept EnvironmentMatrixView =
     BlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 2) &&
@@ -321,25 +349,46 @@ template <typename Value, SparseBlockStorage Storage = SeparateSparseBlockStorag
     throw std::invalid_argument("identity MPO environment requires an identity-charge auxiliary state");
 
   using result_type = MpoEnvironment<Value, BlockSpace, LocalSpace, BlockSpace, Storage>;
-  using key_type = typename result_type::key_type;
-  std::vector<key_type> keys;
-  keys.reserve(bond.size());
-  for (std::size_t sector = 0; sector < bond.size(); ++sector)
-    keys.push_back(key_type{{sector, auxiliary_index, sector}});
-
+  auto keys = detail::make_identity_environment_keys<result_type>(bond, auxiliary_index);
   result_type result(bond.symmetry(), Domain{bond, auxiliary}, Codomain{bond}, std::move(keys));
-  for (std::size_t ordinal = 0; ordinal < result.stored_block_count(); ++ordinal)
-  {
-    auto block = result.block_by_ordinal(ordinal);
-    ColumnMajorTensor<Value, 2> identity(block.extent(0), block.extent(1));
-    auto identity_span = identity.mdspan();
-    for (index_type column = 0; column < identity.extent(1); ++column)
-    {
-      for (index_type row = 0; row < identity.extent(0); ++row)
-        identity_span[row, column] = row == column ? Value{1} : Value{};
-    }
-    uni20::copy(block, identity);
-  }
+  detail::initialize_identity_environment(result);
+  return result;
+}
+
+/// \brief Construct an identity MPO environment in an explicit leaf allocation context.
+/// \tparam Context Leaf allocation context accepted by the selected storage.
+/// \param bond Exact bra and ket bond space.
+/// \param auxiliary MPO boundary auxiliary space.
+/// \param auxiliary_index Identity-charge auxiliary state to activate.
+/// \param context Allocation context retained by the result storage.
+/// \return Identity environment allocated through \p context.
+/// \throws std::invalid_argument If symmetries differ, the index is invalid,
+///         or the selected auxiliary state is not the identity charge.
+template <typename Value, SparseBlockStorage Storage = SeparateSparseBlockStorage<>, class Context>
+  requires Scalar<Value> && detail::EnvironmentStorageFor<Storage, Value> &&
+               requires(
+                   BlockSpace const& bond, LocalSpace const& auxiliary,
+                   std::vector<typename MpoEnvironment<Value, BlockSpace, LocalSpace, BlockSpace, Storage>::key_type>
+                       keys,
+                   Context& context) {
+                 MpoEnvironment<Value, BlockSpace, LocalSpace, BlockSpace, Storage>(
+                     bond.symmetry(), Domain{bond, auxiliary}, Codomain{bond}, std::move(keys), context);
+               }
+[[nodiscard]] auto
+make_identity_mpo_environment(BlockSpace const& bond, LocalSpace const& auxiliary, std::size_t auxiliary_index,
+                              Context& context) -> MpoEnvironment<Value, BlockSpace, LocalSpace, BlockSpace, Storage>
+{
+  if (bond.symmetry() != auxiliary.symmetry())
+    throw std::invalid_argument("identity MPO environment spaces require one symmetry");
+  if (auxiliary_index >= auxiliary.size())
+    throw std::invalid_argument("identity MPO environment auxiliary index is out of range");
+  if (!is_identity(auxiliary[auxiliary_index]))
+    throw std::invalid_argument("identity MPO environment requires an identity-charge auxiliary state");
+
+  using result_type = MpoEnvironment<Value, BlockSpace, LocalSpace, BlockSpace, Storage>;
+  auto keys = detail::make_identity_environment_keys<result_type>(bond, auxiliary_index);
+  result_type result(bond.symmetry(), Domain{bond, auxiliary}, Codomain{bond}, std::move(keys), context);
+  detail::initialize_identity_environment(result);
   return result;
 }
 
@@ -368,9 +417,18 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, detai
   detail::validate_environment_update<detail::EnvironmentUpdateDirection::left>(environment, bra_site, mpo, ket_site);
   auto plan = detail::make_environment_update_plan<detail::EnvironmentUpdateDirection::left>(environment, bra_site, mpo,
                                                                                              ket_site);
-  result_type result(environment.symmetry(),
-                     Domain{bra_site.codomain().template space<0>(), mpo.codomain().template space<0>()},
-                     Codomain{ket_site.codomain().template space<0>()}, std::move(plan.output_keys));
+  auto result = [&] {
+    auto domain = Domain{bra_site.codomain().template space<0>(), mpo.codomain().template space<0>()};
+    auto codomain = Codomain{ket_site.codomain().template space<0>()};
+    if constexpr (requires {
+                    result_type(environment.symmetry(), domain, codomain, plan.output_keys,
+                                environment.allocation_context());
+                  })
+      return result_type(environment.symmetry(), std::move(domain), std::move(codomain), std::move(plan.output_keys),
+                         environment.allocation_context());
+    else
+      return result_type(environment.symmetry(), std::move(domain), std::move(codomain), std::move(plan.output_keys));
+  }();
   detail::execute_environment_update<detail::EnvironmentUpdateDirection::left>(result, plan, environment, bra_site, mpo,
                                                                                ket_site);
   return result;
@@ -412,9 +470,18 @@ template <SparseBlockStorage OutputStorage = SeparateSparseBlockStorage<>, detai
   detail::validate_environment_update<detail::EnvironmentUpdateDirection::right>(environment, bra_site, mpo, ket_site);
   auto plan = detail::make_environment_update_plan<detail::EnvironmentUpdateDirection::right>(environment, bra_site,
                                                                                               mpo, ket_site);
-  result_type result(environment.symmetry(),
-                     Domain{bra_site.domain().template space<0>(), mpo.domain().template space<0>()},
-                     Codomain{ket_site.domain().template space<0>()}, std::move(plan.output_keys));
+  auto result = [&] {
+    auto domain = Domain{bra_site.domain().template space<0>(), mpo.domain().template space<0>()};
+    auto codomain = Codomain{ket_site.domain().template space<0>()};
+    if constexpr (requires {
+                    result_type(environment.symmetry(), domain, codomain, plan.output_keys,
+                                environment.allocation_context());
+                  })
+      return result_type(environment.symmetry(), std::move(domain), std::move(codomain), std::move(plan.output_keys),
+                         environment.allocation_context());
+    else
+      return result_type(environment.symmetry(), std::move(domain), std::move(codomain), std::move(plan.output_keys));
+  }();
   detail::execute_environment_update<detail::EnvironmentUpdateDirection::right>(result, plan, environment, bra_site,
                                                                                 mpo, ket_site);
   return result;

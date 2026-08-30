@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <ranges>
@@ -39,6 +40,24 @@
 
 namespace uni20
 {
+
+namespace detail
+{
+template <class Context> class BlockSvdAllocationContextBinding {
+  public:
+    explicit BlockSvdAllocationContextBinding(Context& context) noexcept : context_(std::addressof(context)) {}
+
+    [[nodiscard]] auto get() const noexcept -> Context& { return *context_; }
+
+  private:
+    Context* context_;
+};
+
+template <> class BlockSvdAllocationContextBinding<void> {
+  public:
+    BlockSvdAllocationContextBinding() noexcept = default;
+};
+} // namespace detail
 
 /// \brief Stable identity of one paired or side-specific block-SVD state.
 /// \details The index is local to one charge-sector factorization and does not
@@ -399,9 +418,10 @@ template <class Exact> [[nodiscard]] auto retain_host_svd_result(Exact exact)
 /// \tparam BlockExecutionPolicy Execution policy inherited from the factorized tensor view.
 /// \tparam MatrixTensor Owning storage type retained for left and right provider factors.
 /// \tparam SingularValueTensor Owning storage type retained for provider singular values.
+/// \tparam AllocationContext Optional allocation context retained for factor materialization.
 template <uni20::LapackScalar Scalar, class DomainType, class CodomainType, class BlockExecutionPolicy,
           class MatrixTensor = ColumnMajorTensor<Scalar, 2>,
-          class SingularValueTensor = ColumnMajorTensor<uni20::make_real_t<Scalar>, 1>>
+          class SingularValueTensor = ColumnMajorTensor<uni20::make_real_t<Scalar>, 1>, class AllocationContext = void>
 class BlockSvdDecomposition {
   public:
     using scalar_type = Scalar;
@@ -418,6 +438,7 @@ class BlockSvdDecomposition {
     using source_key_type = BlockKey<domain_shape::key_coordinate_count + codomain_shape::key_coordinate_count>;
     using matrix_type = MatrixTensor;
     using singular_value_tensor_type = SingularValueTensor;
+    using allocation_context_type = AllocationContext;
 
     static_assert(domain_type::size() + 1 <= 4, "block-SVD right factor exceeds the first BlockTensor order limit");
     static_assert(codomain_type::size() + 1 <= 4, "block-SVD left factor exceeds the first BlockTensor order limit");
@@ -438,8 +459,33 @@ class BlockSvdDecomposition {
     /// \brief Construct a completed decomposition from sector provider results.
     BlockSvdDecomposition(Symmetry symmetry, domain_type domain, codomain_type codomain, linalg::SvdOptions options,
                           std::vector<Sector> sectors)
+      requires std::same_as<allocation_context_type, void>
         : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)), options_(options),
           sectors_(std::move(sectors))
+    {
+      this->build_spectrum();
+    }
+
+    /// \brief Construct a completed decomposition retaining an explicit factor allocation context.
+    template <class Context = allocation_context_type>
+    BlockSvdDecomposition(Symmetry symmetry, domain_type domain, codomain_type codomain, linalg::SvdOptions options,
+                          std::vector<Sector> sectors, Context& allocation_context)
+      requires(!std::same_as<Context, void>) && std::same_as<Context, allocation_context_type>
+        : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)), options_(options),
+          sectors_(std::move(sectors)), allocation_context_(allocation_context)
+    {
+      this->build_spectrum();
+    }
+
+    /// \brief Return the factor allocation context retained from the source tensor.
+    decltype(auto) allocation_context() const noexcept
+      requires(!std::same_as<allocation_context_type, void>)
+    {
+      return allocation_context_.get();
+    }
+
+  private:
+    void build_spectrum()
     {
       for (Sector const& sector : sectors_)
       {
@@ -459,6 +505,7 @@ class BlockSvdDecomposition {
       });
     }
 
+  public:
     /// \brief Return the symmetry shared by the input and every sector.
     auto symmetry() const noexcept -> Symmetry { return symmetry_; }
 
@@ -512,6 +559,7 @@ class BlockSvdDecomposition {
     linalg::SvdOptions options_;
     std::vector<Sector> sectors_;
     std::vector<BlockSvdState<real_type>> spectrum_;
+    [[no_unique_address]] detail::BlockSvdAllocationContextBinding<allocation_context_type> allocation_context_;
 };
 
 /// \brief Factorize an immediate BlockTensorView independently by conserved charge with performance measurements.
@@ -911,7 +959,8 @@ template <BlockTensorView Tensor, class Measurements, class Event>
   using block_execution_policy = typename block_tensor_type_t<Tensor>::storage_policy::block_execution_policy;
   using decomposition_type =
       BlockSvdDecomposition<scalar_type, block_tensor_domain_t<Tensor>, block_tensor_codomain_t<Tensor>,
-                            block_execution_policy, CudaMatrix<scalar_type>, CudaTensor<scalar_type, 1>>;
+                            block_execution_policy, CudaMatrix<scalar_type>, CudaTensor<scalar_type, 1>,
+                            cuda::DeviceResources>;
   using sector_type = typename decomposition_type::Sector;
 
   auto& resources = tensor.allocation_context();
@@ -1004,7 +1053,8 @@ template <BlockTensorView Tensor, class Measurements, class Event>
   sectors.reserve(sector_results.size());
   for (auto& sector : sector_results)
     sectors.push_back(std::move(sector).value());
-  return decomposition_type{tensor.symmetry(), tensor.domain(), tensor.codomain(), options, std::move(sectors)};
+  return decomposition_type{tensor.symmetry(), tensor.domain(), tensor.codomain(), options, std::move(sectors),
+                            resources};
 }
 
 /// \brief Factorize a packed CUDA BlockTensor without measurements.
@@ -1138,7 +1188,16 @@ auto make_left_singular_vectors(Decomposition const& decomposition, BlockSvdSele
     }
   }
 
-  output_type result(decomposition.symmetry(), Domain{plan.bond_space}, decomposition.codomain(), std::move(keys));
+  auto result = [&] {
+    if constexpr (requires {
+                    output_type(decomposition.symmetry(), Domain{plan.bond_space}, decomposition.codomain(), keys,
+                                decomposition.allocation_context());
+                  })
+      return output_type(decomposition.symmetry(), Domain{plan.bond_space}, decomposition.codomain(), std::move(keys),
+                         decomposition.allocation_context());
+    else
+      return output_type(decomposition.symmetry(), Domain{plan.bond_space}, decomposition.codomain(), std::move(keys));
+  }();
   for (std::size_t sector = 0; sector < decomposition.sectors().size(); ++sector)
   {
     if (!plan.bond_coordinates[sector]) continue;
@@ -1228,7 +1287,16 @@ auto make_right_singular_vectors_adjoint(Decomposition const& decomposition,
     }
   }
 
-  output_type result(decomposition.symmetry(), decomposition.domain(), Codomain{plan.bond_space}, std::move(keys));
+  auto result = [&] {
+    if constexpr (requires {
+                    output_type(decomposition.symmetry(), decomposition.domain(), Codomain{plan.bond_space}, keys,
+                                decomposition.allocation_context());
+                  })
+      return output_type(decomposition.symmetry(), decomposition.domain(), Codomain{plan.bond_space}, std::move(keys),
+                         decomposition.allocation_context());
+    else
+      return output_type(decomposition.symmetry(), decomposition.domain(), Codomain{plan.bond_space}, std::move(keys));
+  }();
   for (std::size_t sector = 0; sector < decomposition.sectors().size(); ++sector)
   {
     if (!plan.bond_coordinates[sector]) continue;

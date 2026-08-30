@@ -593,6 +593,12 @@ canonical charge order. Selected output blocks are still populated serially;
 their parallelization plan is specified in
 [DMRG Performance Baselines](../tensor_network/dmrg_performance_baselines.md#7-block-svd-parallelization).
 
+The CUDA decomposition additionally retains the source tensor's leaf allocation
+context independently of its sector list. Materialized left and right factors
+therefore remain on the source device, including for an empty decomposition or
+when the runtime default device differs. The retained context must outlive the
+decomposition and every materialized tensor that uses it.
+
 The initial API follows this value-oriented form:
 
 ```cpp

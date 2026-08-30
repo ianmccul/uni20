@@ -78,12 +78,27 @@ class MpoEnvironmentCache {
         mpo_revisions_[index] = mpo_->revision(index);
       }
 
-      left_[0].emplace(make_identity_mpo_environment<value_type, EnvironmentStorage>(
-          mps_->site(0).domain().template space<0>(), mpo_->site(0).domain().template space<0>(),
-          left_auxiliary_index));
-      right_[this->size()].emplace(make_identity_mpo_environment<value_type, EnvironmentStorage>(
-          mps_->site(this->size() - 1).codomain().template space<0>(),
-          mpo_->site(this->size() - 1).codomain().template space<0>(), right_auxiliary_index));
+      left_[0].emplace([&] {
+        auto const& site = mps_->site(0);
+        if constexpr (requires { site.allocation_context(); })
+          return make_identity_mpo_environment<value_type, EnvironmentStorage>(
+              site.domain().template space<0>(), mpo_->site(0).domain().template space<0>(), left_auxiliary_index,
+              site.allocation_context());
+        else
+          return make_identity_mpo_environment<value_type, EnvironmentStorage>(
+              site.domain().template space<0>(), mpo_->site(0).domain().template space<0>(), left_auxiliary_index);
+      }());
+      right_[this->size()].emplace([&] {
+        auto const& site = mps_->site(this->size() - 1);
+        if constexpr (requires { site.allocation_context(); })
+          return make_identity_mpo_environment<value_type, EnvironmentStorage>(
+              site.codomain().template space<0>(), mpo_->site(this->size() - 1).codomain().template space<0>(),
+              right_auxiliary_index, site.allocation_context());
+        else
+          return make_identity_mpo_environment<value_type, EnvironmentStorage>(
+              site.codomain().template space<0>(), mpo_->site(this->size() - 1).codomain().template space<0>(),
+              right_auxiliary_index);
+      }());
     }
 
     /// \brief Return the number of physical sites.

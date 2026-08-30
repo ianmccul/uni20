@@ -246,7 +246,12 @@ template <BlockTensorStorage OutputStorage, bool StoreAllLegalBlocks, BlockTenso
   auto output = [&] {
     if constexpr (CompleteBlockStorage<OutputStorage>)
     {
-      return output_type(input.symmetry(), input.domain(), input.codomain());
+      if constexpr (requires {
+                      output_type(input.symmetry(), input.domain(), input.codomain(), input.allocation_context());
+                    })
+        return output_type(input.symmetry(), input.domain(), input.codomain(), input.allocation_context());
+      else
+        return output_type(input.symmetry(), input.domain(), input.codomain());
     }
     else
     {
@@ -257,7 +262,13 @@ template <BlockTensorStorage OutputStorage, bool StoreAllLegalBlocks, BlockTenso
         else
           return std::vector<key_type>(input.stored_keys().begin(), input.stored_keys().end());
       }();
-      return output_type(input.symmetry(), input.domain(), input.codomain(), std::move(keys));
+      if constexpr (requires {
+                      output_type(input.symmetry(), input.domain(), input.codomain(), keys, input.allocation_context());
+                    })
+        return output_type(input.symmetry(), input.domain(), input.codomain(), std::move(keys),
+                           input.allocation_context());
+      else
+        return output_type(input.symmetry(), input.domain(), input.codomain(), std::move(keys));
     }
   }();
   using value_type = block_tensor_value_t<Input>;

@@ -150,7 +150,11 @@ end-to-end resident bond and directional-sweep updates. The MPS and environment
 cache use packed CUDA storage. Center contraction, the right-first R/A/B/C
 workspace, fixed local Krylov solve, selected site factors, and completed-side
 environment updates remain in that memory domain. MPO scalar coefficient tables
-remain on the host and are no longer retained after plan construction.
+remain on the host and are no longer retained after plan construction. Boundary
+and derived environments, widened local tensors, SVD decompositions, selected
+factors, and installed sites preserve an explicit leaf allocation context. The
+CUDA test exercises this on a non-default enrolled device when two devices are
+available.
 
 The native cuSOLVER Tensor SVD backend supports blocking real tall-matrix
 factorizations. Its CUDA BlockTensor bridge assembles charge-sector matrices on

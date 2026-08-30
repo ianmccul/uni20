@@ -808,7 +808,10 @@ primitives. They join only stored environment, MPS, and MPO keys, allocate the
 reachable output pattern, and lower each dense contribution through ordinary
 tensor contraction dispatch. The bra MPS site is conjugated lazily. Primary
 overloads permit distinct bra and ket sites; convenience overloads use one MPS
-site for both.
+site for both. An explicit-context identity constructor supports
+descriptor-backed storage. Derived environments inherit the prior environment's
+allocation context whenever the result storage accepts it, so an enrolled
+non-default CUDA device is not replaced by the runtime default.
 
 ## 13. Deferred Extensions
 

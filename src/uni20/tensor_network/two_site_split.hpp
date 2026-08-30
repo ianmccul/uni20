@@ -101,7 +101,16 @@ auto materialize_block_tensor_copy(Source const& source)
                                   block_tensor_codomain_t<Source>, OutputStorage>;
   using key_type = typename output_type::key_type;
   std::vector<key_type> keys(source.stored_keys().begin(), source.stored_keys().end());
-  output_type result(source.symmetry(), source.domain(), source.codomain(), std::move(keys));
+  auto result = [&] {
+    if constexpr (requires {
+                    output_type(source.symmetry(), source.domain(), source.codomain(), keys,
+                                source.allocation_context());
+                  })
+      return output_type(source.symmetry(), source.domain(), source.codomain(), std::move(keys),
+                         source.allocation_context());
+    else
+      return output_type(source.symmetry(), source.domain(), source.codomain(), std::move(keys));
+  }();
   for (std::size_t ordinal = 0; ordinal < result.stored_block_count(); ++ordinal)
   {
     auto output_block = result.block_by_ordinal(ordinal);
