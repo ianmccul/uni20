@@ -21,6 +21,13 @@ using Key = MatrixBlocks::key_type;
 using Term = uni20::tensor_network::RabcTerm<double>;
 using RabcPlan = uni20::tensor_network::RabcContractionPlan<double, Key, Key, Key, Key>;
 
+template <class Scalar>
+concept RabcCoefficient = requires { typename uni20::tensor_network::RabcTerm<Scalar>; };
+
+static_assert(RabcCoefficient<double>);
+static_assert(RabcCoefficient<uni20::complex<double>>);
+static_assert(!RabcCoefficient<int>);
+
 struct NoContractBackend
 {
     static constexpr std::string_view name = "no_contract";

@@ -23,8 +23,8 @@ namespace uni20::tensor_network
 /// \brief One nonzero coefficient in `R_r += f(r,a,b,c) A_a B_b transpose(C_c)`.
 /// \details Each index addresses an immutable logical-key table owned by the
 ///          surrounding `RabcContractionPlan`; it is not a storage ordinal.
-/// \tparam Scalar Scalar coefficient type.
-template <uni20::Scalar Scalar> struct RabcTerm
+/// \tparam Scalar Real or complex coefficient type.
+template <uni20::RealOrComplex Scalar> struct RabcTerm
 {
     std::size_t r_key_index;
     std::size_t a_key_index;
@@ -36,7 +36,7 @@ template <uni20::Scalar Scalar> struct RabcTerm
 namespace detail
 {
 
-template <uni20::Scalar Scalar> [[nodiscard]] constexpr auto rabc_term_key(RabcTerm<Scalar> const& term) noexcept
+template <uni20::RealOrComplex Scalar> [[nodiscard]] constexpr auto rabc_term_key(RabcTerm<Scalar> const& term) noexcept
 {
   return std::tuple{term.r_key_index, term.a_key_index, term.b_key_index, term.c_key_index};
 }
@@ -60,12 +60,12 @@ template <class Key> void require_canonical_rabc_keys(std::vector<Key> const& ke
 ///          with different symmetry or boundary semantics violates the
 ///          contraction precondition; the plan deliberately does not retain or
 ///          compare that metadata at runtime.
-/// \tparam Scalar Scalar coefficient type.
+/// \tparam Scalar Real or complex coefficient type.
 /// \tparam RKey Output logical block-key type.
 /// \tparam AKey Left-environment logical block-key type.
 /// \tparam BKey Input-center logical block-key type.
 /// \tparam CKey Right-environment logical block-key type.
-template <uni20::Scalar Scalar, class RKey, class AKey, class BKey, class CKey> class RabcContractionPlan {
+template <uni20::RealOrComplex Scalar, class RKey, class AKey, class BKey, class CKey> class RabcContractionPlan {
   public:
     using scalar_type = Scalar;
     using r_key_type = RKey;
@@ -148,7 +148,7 @@ template <uni20::Scalar Scalar, class RKey, class AKey, class BKey, class CKey> 
 
 template <class T> inline constexpr bool is_rabc_contraction_plan = false;
 
-template <uni20::Scalar Scalar, class RKey, class AKey, class BKey, class CKey>
+template <uni20::RealOrComplex Scalar, class RKey, class AKey, class BKey, class CKey>
 inline constexpr bool is_rabc_contraction_plan<RabcContractionPlan<Scalar, RKey, AKey, BKey, CKey>> = true;
 
 /// \brief Concrete logical R/A/B/C coefficient-plan type.
