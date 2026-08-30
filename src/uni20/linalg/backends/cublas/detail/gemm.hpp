@@ -6,6 +6,7 @@
  * \brief CUDA-mdspan preparation and buffer-ledger execution for CublasBackend GEMM.
  */
 
+#include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/linalg/cublas/gemm.hpp>
 #include <uni20/linalg/kernel_attempt.hpp>
@@ -253,6 +254,11 @@ void execute_gemm(uni20::cublas::ExecutionLease& execution, GemmPlan<Scalar> con
   auto const raw_lhs = with_data(plan.lhs, offset_pointer(lhs_access.data(), plan.lhs.data.element_offset()));
   auto const raw_rhs = with_data(plan.rhs, offset_pointer(rhs_access.data(), plan.rhs.data.element_offset()));
   uni20::linalg::cublas::gemm(execution, raw_output, alpha, raw_lhs, raw_rhs, beta);
+
+  uni20::cuda::AccessCompletion completion(execution.stream());
+  completion.release(output_access);
+  completion.release(lhs_access);
+  completion.release(rhs_access);
 }
 
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>

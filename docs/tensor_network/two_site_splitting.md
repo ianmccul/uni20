@@ -1,7 +1,7 @@
 # Directional Two-Site MPS Splitting
 
-**Status:** implemented immediate-host block-SVD and finite-chain replacement
-checkpoint.
+**Status:** implemented immediate-host and packed CUDA block-SVD finite-chain
+replacement checkpoint.
 
 The two-site split keeps Uni20's staged truncation model. Factorization and
 selection remain separate:
@@ -39,7 +39,7 @@ Domain<left bond, left physical>
     -> Codomain<right bond, Dual<right physical>>
 ```
 
-and passes that immediate view to `block_svd()`. No whole-tensor dense or
+and passes that view to `block_svd()`. No whole-tensor dense or
 symmetry-erasing projection is introduced. As in `block_svd`, one assembled
 dense matrix is factorized independently per conserved charge.
 
@@ -80,9 +80,10 @@ the direction of travel carries the canonical center.
 ## Materialization And Installation
 
 `materialize_two_site_mps_split()` constructs two owning `MpsSite` values in a
-selected immediate sparse storage policy with ordinary dense blocks. Async,
-complete, and generalized-diagonal site policies are not materialization targets
-for this synchronous path. The operation also returns the real diagonal
+selected local sparse storage policy with ordinary dense blocks. Async,
+complete, and generalized-diagonal site policies are not materialization
+targets for this synchronous path. Host and CUDA factor storage are preserved
+when gathering the selected states. The operation also returns the real diagonal
 `singular_values` tensor, exact truncation statistics, and the absorption
 direction. The selected state set must be nonempty; an empty internal MPS bond
 is rejected even though empty selections remain useful for other block-SVD
@@ -103,15 +104,16 @@ destroyed before replacement.
 
 ## Current Limits
 
-The first path is synchronous and immediate-host. It uses the existing LAPACK
-block-SVD, sparse BlockTensor contractions, and explicit owning materialization
-of the two replacement sites. It supports real and complex LAPACK scalars, with
-the real singular values multiplied into complex factors through ordinary
-BlockTensor contraction.
+The path is synchronous and supports immediate-host LAPACK or packed CUDA
+cuSOLVER factorization. Both use sparse BlockTensor operations and explicit
+owning materialization of the two replacement sites. The host path supports
+real and complex LAPACK scalars. The CUDA path currently supports real `float`
+and `double`; it applies selected singular values to the resident factor through
+a CUDA transform.
 
-Move-aware materialization, per-block async factorization, cuSOLVER, distributed
-sector selection, normalization policy, and canonical-form diagnostics remain
-later work. The immediate-host ground-state DMRG path now composes this split
-with cached environments, the effective Hamiltonian, native Lanczos, pair
-replacement, and incremental cache refresh. See
+Move-aware materialization, per-block async factorization, CUDA complex
+factorization, distributed sector selection, normalization policy, and
+canonical-form diagnostics remain later work. The ground-state DMRG path
+composes this split with cached environments, the effective Hamiltonian, native
+Lanczos, pair replacement, and incremental cache refresh. See
 [Directional Two-Site DMRG Sweeps](two_site_dmrg_sweeps.md).

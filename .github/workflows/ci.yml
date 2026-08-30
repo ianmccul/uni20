@@ -117,6 +117,58 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  ubuntu-mplapack-binary128:
+    name: Ubuntu MPLAPACK Binary128
+    runs-on: ubuntu-24.04
+
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            g++ \
+            libopenblas-dev \
+            liblapack-dev \
+            libgtest-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DUNI20_BLAS_VENDOR=OpenBLAS \
+            -DUNI20_BUILD_COMBINED_TESTS=OFF \
+            -DUNI20_BUILD_BENCH=OFF \
+            -DUNI20_BUILD_ASM=OFF \
+            -DUNI20_BUILD_PYTHON=OFF \
+            -DUNI20_ENABLE_MPLAPACK=ON \
+            -DUNI20_USE_SYSTEM_MPLAPACK=OFF \
+            -DUNI20_USE_SYSTEM_TBB=OFF \
+            -DUNI20_USE_SYSTEM_FMT=OFF \
+            -DUNI20_USE_SYSTEM_GTEST=ON \
+            -DUNI20_FETCHCONTENT_SOURCE=OFF
+
+      - name: Build binary128 validation targets
+        run: |
+          cmake --build build --parallel 2 --target \
+            uni20_mplapack_binary128_tests \
+            uni20_linalg_mplapack_binary128_tests \
+            uni20_krylov_mplapack_binary128_tests \
+            spin_half_heisenberg_dmrg_example
+
+      - name: Test binary128 provider and DMRG paths
+        run: |
+          ctest --test-dir build --output-on-failure \
+            -R "MplapackBinary128|SpinHalfHeisenbergDmrg.*Float128"
+
   ubuntu-clang-debug:
     name: Ubuntu Clang 19 Debug
     runs-on: ubuntu-24.04

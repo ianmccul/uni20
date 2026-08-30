@@ -1,7 +1,7 @@
 /**
  * \file block_tensor_storage.hpp
  * \ingroup symmetry
- * \brief Defines host sparse and packed-complete BlockTensor storage policies.
+ * \brief Defines local sparse and packed-complete BlockTensor storage policies.
  */
 
 #pragma once
@@ -106,6 +106,17 @@ concept BlockTensorStorageFor =
                      T, KeyCoordinateCount, DenseBlockOrder>::const_block_type>::element_type,
                  T const>;
 
+/// \brief BlockTensor storage whose blocks reside within one local process.
+/// \details This refinement is independent of immediate versus descriptor-backed
+///          access and of inline versus independently scheduled block execution.
+/// \tparam Storage Candidate block storage policy.
+/// \tparam T Numerical block element type.
+/// \tparam KeyCoordinateCount Number of stored block-selection coordinates.
+/// \tparam DenseBlockOrder Number of numerical axes in each dense block.
+template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
+concept LocalBlockStorageFor =
+    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed;
+
 /// \brief Local BlockTensor storage whose block TensorViews are immediately accessible.
 /// \tparam Storage Candidate block storage policy.
 /// \tparam T Numerical block element type.
@@ -113,7 +124,7 @@ concept BlockTensorStorageFor =
 /// \tparam DenseBlockOrder Number of numerical axes in each dense block.
 template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
 concept ImmediateLocalBlockStorageFor =
-    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed &&
+    LocalBlockStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> &&
     MutableRankedImmediateTensorView<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::mutable_block_type,
         DenseBlockOrder> &&
@@ -128,7 +139,7 @@ concept ImmediateLocalBlockStorageFor =
 /// \tparam DenseBlockOrder Number of numerical axes in each dense block.
 template <class Storage, typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder>
 concept AsyncLocalBlockStorageFor =
-    BlockTensorStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> && !Storage::is_distributed &&
+    LocalBlockStorageFor<Storage, T, KeyCoordinateCount, DenseBlockOrder> &&
     requires(typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>& storage,
              typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder> const& const_storage) {
       typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::block_value_type;
@@ -140,7 +151,7 @@ concept AsyncLocalBlockStorageFor =
       {
         const_storage.async_block(std::size_t{})
       } -> std::same_as<
-          typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type const&>;
+            typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type const&>;
     } &&
     std::same_as<
         typename Storage::template storage_t<T, KeyCoordinateCount, DenseBlockOrder>::async_block_type,
@@ -232,6 +243,100 @@ template <class Storage, class T> auto make_storage(std::size_t size) -> typenam
   }
 }
 
+template <class Storage, class T>
+auto make_storage_like(typename Storage::template storage_t<T> const& prototype, std::size_t size) ->
+    typename Storage::template storage_t<T>
+{
+  if constexpr (requires {
+                  {
+                    Storage::template make_storage_like<T>(prototype, size)
+                  } -> std::same_as<typename Storage::template storage_t<T>>;
+                })
+  {
+    return Storage::template make_storage_like<T>(prototype, size);
+  }
+  else
+  {
+    return make_storage<Storage, T>(size);
+  }
+}
+
+template <class Storage, class T, class = void> struct PackedStorageType
+{
+    using type = typename Storage::template storage_t<T>;
+};
+
+template <class Storage, class T>
+struct PackedStorageType<Storage, T, std::void_t<typename Storage::template packed_storage_t<T>>>
+{
+    using type = typename Storage::template packed_storage_t<T>;
+};
+
+template <class Storage, class T> using packed_storage_t = typename PackedStorageType<Storage, T>::type;
+
+template <class Storage, class T>
+auto make_packed_storage(std::size_t size, std::span<std::size_t const> offsets) -> packed_storage_t<Storage, T>
+{
+  if constexpr (requires {
+                  {
+                    Storage::template make_packed_storage<T>(size, offsets)
+                  } -> std::same_as<packed_storage_t<Storage, T>>;
+                })
+  {
+    return Storage::template make_packed_storage<T>(size, offsets);
+  }
+  else
+  {
+    return make_storage<Storage, T>(size);
+  }
+}
+
+template <class Storage, class T>
+auto make_packed_storage_like(packed_storage_t<Storage, T> const& prototype, std::size_t size,
+                              std::span<std::size_t const> offsets) -> packed_storage_t<Storage, T>
+{
+  if constexpr (requires {
+                  {
+                    Storage::template make_packed_storage_like<T>(prototype, size, offsets)
+                  } -> std::same_as<packed_storage_t<Storage, T>>;
+                })
+  {
+    return Storage::template make_packed_storage_like<T>(prototype, size, offsets);
+  }
+  else
+  {
+    return make_storage_like<Storage, T>(prototype, size);
+  }
+}
+
+template <class Storage, class Buffer>
+decltype(auto) make_packed_data_descriptor(Buffer& buffer, std::size_t ordinal, std::size_t offset)
+{
+  if constexpr (requires { Storage::make_packed_data_descriptor(buffer, ordinal); })
+    return Storage::make_packed_data_descriptor(buffer, ordinal);
+  else
+    return Storage::make_data_descriptor(buffer).offset_by(offset);
+}
+
+template <class Storage, class T, class Buffer>
+void initialize_packed_padding(Buffer& buffer, std::span<std::size_t const> offsets,
+                               std::span<std::size_t const> block_ends)
+{
+  if constexpr (requires { Storage::initialize_packed_padding(buffer, offsets, block_ends); })
+  {
+    Storage::initialize_packed_padding(buffer, offsets, block_ends);
+  }
+  else
+  {
+    static_assert(
+        requires { Storage::make_handle(buffer); },
+        "aligned packed storage must provide immediate access or initialize_packed_padding");
+    auto* data = Storage::make_handle(buffer);
+    for (std::size_t ordinal = 0; ordinal < block_ends.size(); ++ordinal)
+      std::fill(data + block_ends[ordinal], data + offsets[ordinal + 1], T{});
+  }
+}
+
 template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage>
 class SeparateSparseBlockStorageData {
   public:
@@ -275,40 +380,153 @@ class SeparateSparseBlockStorageData {
     std::vector<block_type> blocks_;
 };
 
+template <class LeafStorage, typename T>
+concept ImmediatePackedLeafStorage =
+    std::default_initializable<tensor_accessor_factory_t<LeafStorage>> &&
+    requires(typename LeafStorage::template storage_t<T>& buffer,
+             typename LeafStorage::template storage_t<T> const& const_buffer,
+             tensor_accessor_factory_t<LeafStorage> const& accessor_factory) {
+      {
+        LeafStorage::make_handle(buffer)
+      }
+      -> std::convertible_to<typename tensor_accessor_factory_t<LeafStorage>::template accessor_t<T>::data_handle_type>;
+      {
+        LeafStorage::make_handle(const_buffer)
+      } -> std::convertible_to<
+            typename tensor_accessor_factory_t<LeafStorage>::template accessor_t<T const>::data_handle_type>;
+      {
+        accessor_factory.template make_accessor<T>(buffer)
+      } -> std::same_as<typename tensor_accessor_factory_t<LeafStorage>::template accessor_t<T>>;
+      {
+        accessor_factory.template make_accessor<T const>(const_buffer)
+      } -> std::same_as<typename tensor_accessor_factory_t<LeafStorage>::template accessor_t<T const>>;
+    };
+
+template <typename T, std::size_t DenseBlockOrder, class LeafStorage,
+          bool Immediate = ImmediatePackedLeafStorage<LeafStorage, T>>
+struct PackedBlockViewTraits;
+
+template <typename T, std::size_t DenseBlockOrder, class LeafStorage>
+struct PackedBlockViewTraits<T, DenseBlockOrder, LeafStorage, true>
+{
+    using buffer_type = packed_storage_t<LeafStorage, T>;
+    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
+    using mapping_type = typename ColumnMajor::template mapping<extents_type>;
+    using accessor_factory_type = tensor_accessor_factory_t<LeafStorage>;
+    using accessor_type = typename accessor_factory_type::template accessor_t<T>;
+    using const_accessor_type = typename accessor_factory_type::template accessor_t<T const>;
+    using mutable_mdspec_type = stdex::mdspan<T, extents_type, ColumnMajor, accessor_type>;
+    using const_mdspec_type = stdex::mdspan<T const, extents_type, ColumnMajor, const_accessor_type>;
+    using mutable_block_type = MdspecTensorView<mutable_mdspec_type, const_mdspec_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspec_type, const_mdspec_type, LeafStorage>;
+
+    static auto mutable_block(buffer_type& buffer, std::size_t offset,
+                              extents_type const& extents) -> mutable_block_type
+    {
+      accessor_factory_type accessor_factory;
+      auto accessor = accessor_factory.template make_accessor<T>(buffer);
+      auto const_accessor = accessor_factory.template make_accessor<T const>(std::as_const(buffer));
+      auto mutable_handle = accessor.offset(LeafStorage::make_handle(buffer), offset);
+      auto const_handle = const_accessor.offset(LeafStorage::make_handle(std::as_const(buffer)), offset);
+      return mutable_block_type{mutable_mdspec_type{mutable_handle, mapping_type(extents), accessor},
+                                const_mdspec_type{const_handle, mapping_type(extents), const_accessor}};
+    }
+
+    static auto const_block(buffer_type const& buffer, std::size_t offset,
+                            extents_type const& extents) -> const_block_type
+    {
+      accessor_factory_type accessor_factory;
+      auto accessor = accessor_factory.template make_accessor<T const>(buffer);
+      auto handle = accessor.offset(LeafStorage::make_handle(buffer), offset);
+      auto span = const_mdspec_type{handle, mapping_type(extents), accessor};
+      return const_block_type{span, span};
+    }
+};
+
+template <typename T, std::size_t DenseBlockOrder, class LeafStorage>
+struct PackedBlockViewTraits<T, DenseBlockOrder, LeafStorage, false>
+{
+    using buffer_type = packed_storage_t<LeafStorage, T>;
+    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
+    using mapping_type = typename ColumnMajor::template mapping<extents_type>;
+    using accessor_factory_type = tensor_accessor_factory_t<LeafStorage>;
+    using accessor_type = tensor_device_accessor_t<accessor_factory_type, T>;
+    using const_accessor_type = tensor_device_accessor_t<accessor_factory_type, T const>;
+    using descriptor_type =
+        decltype(make_packed_data_descriptor<LeafStorage>(std::declval<buffer_type&>(), std::size_t{}, std::size_t{}));
+    using const_descriptor_type = decltype(make_packed_data_descriptor<LeafStorage>(std::declval<buffer_type const&>(),
+                                                                                    std::size_t{}, std::size_t{}));
+    using mutable_mdspec_type = mdspec<T, extents_type, ColumnMajor, accessor_type, descriptor_type>;
+    using const_mdspec_type = mdspec<T const, extents_type, ColumnMajor, const_accessor_type, const_descriptor_type>;
+    using mutable_block_type = MdspecTensorView<mutable_mdspec_type, const_mdspec_type, LeafStorage>;
+    using const_block_type = MdspecTensorView<const_mdspec_type, const_mdspec_type, LeafStorage>;
+
+    static_assert(std::default_initializable<accessor_factory_type>,
+                  "packed descriptor-backed storage requires a default-constructible accessor factory");
+    template <class ElementType>
+    static auto
+    device_accessor(buffer_type const& buffer) -> tensor_device_accessor_t<accessor_factory_type, ElementType>
+    {
+      accessor_factory_type accessor_factory;
+      if constexpr (requires { accessor_factory.template make_device_accessor<ElementType>(buffer); })
+        return accessor_factory.template make_device_accessor<ElementType>(buffer);
+      else
+        return accessor_factory.template make_accessor<ElementType>(buffer);
+    }
+
+    static auto mutable_block(buffer_type& buffer, std::size_t offset, extents_type const& extents,
+                              std::size_t ordinal) -> mutable_block_type
+    {
+      auto descriptor = make_packed_data_descriptor<LeafStorage>(buffer, ordinal, offset);
+      auto const_descriptor = make_packed_data_descriptor<LeafStorage>(std::as_const(buffer), ordinal, offset);
+      return mutable_block_type{
+          mutable_mdspec_type{std::move(descriptor), mapping_type(extents), device_accessor<T>(buffer)},
+          const_mdspec_type{std::move(const_descriptor), mapping_type(extents), device_accessor<T const>(buffer)}};
+    }
+
+    static auto const_block(buffer_type const& buffer, std::size_t offset, extents_type const& extents,
+                            std::size_t ordinal) -> const_block_type
+    {
+      auto descriptor = make_packed_data_descriptor<LeafStorage>(buffer, ordinal, offset);
+      auto span = const_mdspec_type{std::move(descriptor), mapping_type(extents), device_accessor<T const>(buffer)};
+      return const_block_type{span, span};
+    }
+};
+
 template <typename T, std::size_t KeyCoordinateCount, std::size_t DenseBlockOrder, class LeafStorage,
           std::size_t BlockAlignment>
 class PackedBlockStorageData {
   public:
     using key_type = BlockKey<KeyCoordinateCount>;
-    using buffer_type = typename LeafStorage::template storage_t<T>;
-    using extents_type = stdex::dextents<index_type, DenseBlockOrder>;
-    using mapping_type = typename ColumnMajor::template mapping<extents_type>;
-    using accessor_type = stdex::default_accessor<T>;
-    using const_accessor_type = stdex::default_accessor<T const>;
-    using mutable_mdspan_type = stdex::mdspan<T, extents_type, ColumnMajor, accessor_type>;
-    using const_mdspan_type = stdex::mdspan<T const, extents_type, ColumnMajor, const_accessor_type>;
-    using mutable_block_type = MdspecTensorView<mutable_mdspan_type, const_mdspan_type, LeafStorage>;
-    using const_block_type = MdspecTensorView<const_mdspan_type, const_mdspan_type, LeafStorage>;
+    using buffer_type = packed_storage_t<LeafStorage, T>;
+    using view_traits = PackedBlockViewTraits<T, DenseBlockOrder, LeafStorage>;
+    using extents_type = typename view_traits::extents_type;
+    using mutable_block_type = typename view_traits::mutable_block_type;
+    using const_block_type = typename view_traits::const_block_type;
 
-    static_assert(std::same_as<detail::tensor_accessor_factory_t<LeafStorage>, DefaultAccessorFactory>,
-                  "packed block storage currently requires default-accessor leaf storage");
     static_assert(BlockAlignment > 0, "packed block alignment must be positive");
-    static_assert([] {
-      if constexpr (BlockAlignment == 1)
-        return true;
-      else if constexpr (requires { LeafStorage::allocation_alignment; })
-        return LeafStorage::allocation_alignment % BlockAlignment == 0;
-      else
-        return false;
-    }(), "nontrivial packed block alignment must divide the leaf allocation alignment");
     static_assert(
-        requires(buffer_type& buffer, buffer_type const& const_buffer) {
-          { LeafStorage::make_handle(buffer) } -> std::same_as<T*>;
-          { LeafStorage::make_handle(const_buffer) } -> std::same_as<T const*>;
-        }, "packed block storage currently requires immediate contiguous host leaf storage");
-
+        [] {
+          if constexpr (BlockAlignment == 1)
+            return true;
+          else if constexpr (requires { LeafStorage::allocation_alignment; })
+            return LeafStorage::allocation_alignment % BlockAlignment == 0;
+          else
+            return false;
+        }(),
+        "nontrivial packed block alignment must divide the leaf allocation alignment");
     explicit PackedBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs)
         : PackedBlockStorageData(make_layout(specs))
+    {}
+
+    /// \brief Construct packed storage in an explicit leaf allocation context.
+    template <class Context>
+      requires requires(Context& context, std::size_t size, std::span<std::size_t const> offsets) {
+        { LeafStorage::template make_packed_storage<T>(context, size, offsets) } -> std::same_as<buffer_type>;
+      }
+    explicit PackedBlockStorageData(std::vector<BlockSpec<KeyCoordinateCount, DenseBlockOrder>> const& specs,
+                                    Context& context)
+        : PackedBlockStorageData(make_layout(specs), context)
     {}
 
     auto size() const noexcept -> std::size_t { return keys_.size(); }
@@ -316,32 +534,50 @@ class PackedBlockStorageData {
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) -> mutable_block_type
     {
-      auto const block_extents = make_extents<extents_type>(extents);
-      auto const mutable_handle = accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
-      auto const const_handle =
-          const_accessor_type{}.offset(LeafStorage::make_handle(std::as_const(buffer_)), offsets_[ordinal]);
-      return mutable_block_type{mutable_mdspan_type{mutable_handle, mapping_type(block_extents)},
-                                const_mdspan_type{const_handle, mapping_type(block_extents)}};
+      if constexpr (ImmediatePackedLeafStorage<LeafStorage, T>)
+        return view_traits::mutable_block(buffer_, offsets_[ordinal], make_extents<extents_type>(extents));
+      else
+        return view_traits::mutable_block(buffer_, offsets_[ordinal], make_extents<extents_type>(extents), ordinal);
     }
 
     auto block(std::size_t ordinal, std::array<std::size_t, DenseBlockOrder> const& extents) const -> const_block_type
     {
-      auto const block_extents = make_extents<extents_type>(extents);
-      auto const handle = const_accessor_type{}.offset(LeafStorage::make_handle(buffer_), offsets_[ordinal]);
-      auto span = const_mdspan_type{handle, mapping_type(block_extents)};
-      return const_block_type{span, span};
+      if constexpr (ImmediatePackedLeafStorage<LeafStorage, T>)
+        return view_traits::const_block(buffer_, offsets_[ordinal], make_extents<extents_type>(extents));
+      else
+        return view_traits::const_block(buffer_, offsets_[ordinal], make_extents<extents_type>(extents), ordinal);
     }
 
     auto buffer() noexcept -> buffer_type& { return buffer_; }
     auto buffer() const noexcept -> buffer_type const& { return buffer_; }
     auto offsets() const noexcept -> std::span<std::size_t const> { return offsets_; }
 
+    /// \brief Return the leaf context used for compatible result allocations.
+    decltype(auto) allocation_context() const noexcept
+      requires requires(buffer_type const& buffer) { LeafStorage::allocation_context(buffer); }
+    {
+      return LeafStorage::allocation_context(buffer_);
+    }
+
+    /// \brief Return the exclusive payload end of each stored block.
+    /// \details The difference between one payload end and the next block
+    ///          offset is zero-initialized alignment padding.
+    auto block_ends() const noexcept -> std::span<std::size_t const> { return block_ends_; }
+
+    /// \brief Return whether alignment inserted elements between block payloads.
+    [[nodiscard]] bool has_padding() const noexcept
+    {
+      for (std::size_t ordinal = 0; ordinal < block_ends_.size(); ++ordinal)
+        if (block_ends_[ordinal] != offsets_[ordinal + 1]) return true;
+      return false;
+    }
+
     /// \brief Allocate storage with the same packed block layout.
     /// \details Numerical values are unspecified until an operation writes them.
     /// \return Independent storage retaining the canonical keys and offsets.
     [[nodiscard]] auto allocate_like() const -> PackedBlockStorageData
     {
-      return PackedBlockStorageData(Layout{.keys = keys_, .offsets = offsets_});
+      return PackedBlockStorageData(Layout{.keys = keys_, .offsets = offsets_, .block_ends = block_ends_}, buffer_);
     }
 
   private:
@@ -349,6 +585,7 @@ class PackedBlockStorageData {
     {
         std::vector<key_type> keys;
         std::vector<std::size_t> offsets;
+        std::vector<std::size_t> block_ends;
     };
 
     static constexpr std::size_t alignment_elements = BlockAlignment / std::gcd(BlockAlignment, sizeof(T));
@@ -368,6 +605,7 @@ class PackedBlockStorageData {
       Layout layout;
       layout.keys.reserve(specs.size());
       layout.offsets.reserve(specs.size() + 1);
+      layout.block_ends.reserve(specs.size());
 
       std::size_t end_offset = 0;
 
@@ -382,18 +620,40 @@ class PackedBlockStorageData {
           throw std::length_error("packed BlockTensor size overflows size_t");
         }
         end_offset = block_offset + block_size;
+        layout.block_ends.push_back(end_offset);
       }
       layout.offsets.push_back(end_offset);
       return layout;
     }
 
     explicit PackedBlockStorageData(Layout layout)
-        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)),
-          buffer_(make_storage<LeafStorage, T>(offsets_.back()))
-    {}
+        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)), block_ends_(std::move(layout.block_ends)),
+          buffer_(make_packed_storage<LeafStorage, T>(offsets_.back(), offsets_))
+    {
+      if constexpr (BlockAlignment > 1) initialize_packed_padding<LeafStorage, T>(buffer_, offsets_, block_ends_);
+    }
+
+    PackedBlockStorageData(Layout layout, buffer_type const& prototype)
+        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)), block_ends_(std::move(layout.block_ends)),
+          buffer_(make_packed_storage_like<LeafStorage, T>(prototype, offsets_.back(), offsets_))
+    {
+      if constexpr (BlockAlignment > 1) initialize_packed_padding<LeafStorage, T>(buffer_, offsets_, block_ends_);
+    }
+
+    template <class Context>
+      requires requires(Context& context, std::size_t size, std::span<std::size_t const> offsets) {
+        { LeafStorage::template make_packed_storage<T>(context, size, offsets) } -> std::same_as<buffer_type>;
+      }
+    PackedBlockStorageData(Layout layout, Context& context)
+        : keys_(std::move(layout.keys)), offsets_(std::move(layout.offsets)), block_ends_(std::move(layout.block_ends)),
+          buffer_(LeafStorage::template make_packed_storage<T>(context, offsets_.back(), offsets_))
+    {
+      if constexpr (BlockAlignment > 1) initialize_packed_padding<LeafStorage, T>(buffer_, offsets_, block_ends_);
+    }
 
     std::vector<key_type> keys_;
     std::vector<std::size_t> offsets_;
+    std::vector<std::size_t> block_ends_;
     buffer_type buffer_;
 };
 
@@ -650,7 +910,7 @@ template <class LeafStorage = HostStorage> struct ParallelSeparateSparseBlockSto
 /// \brief Sparse storage packing every stored dense block into one leaf buffer.
 /// \details A `BlockAlignment` greater than one pads block starts to that byte
 ///          alignment while preserving a single allocation.
-/// \tparam LeafStorage Immediate host Tensor storage policy used by the packed buffer.
+/// \tparam LeafStorage Tensor storage policy used by the packed buffer.
 /// \tparam BlockAlignment Required byte alignment of every block start.
 template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct PackedSparseBlockStorage
 {
@@ -676,7 +936,7 @@ template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struc
 ///          the same batch item, so concurrently written block ranges are
 ///          disjoint. The batch call is synchronous. A `BlockAlignment` greater
 ///          than one pads block starts to that byte alignment.
-/// \tparam LeafStorage Immediate host storage used by the packed buffer.
+/// \tparam LeafStorage Tensor storage policy used by the packed buffer.
 /// \tparam BlockAlignment Required byte alignment of every block start.
 template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct ParallelPackedSparseBlockStorage
 {
@@ -701,7 +961,7 @@ template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struc
 ///          its boundaries. Fixed packed offsets make block placement stable
 ///          for the lifetime of the tensor. A `BlockAlignment` greater than one
 ///          pads block starts to that byte alignment.
-/// \tparam LeafStorage Immediate host Tensor storage policy used by the packed buffer.
+/// \tparam LeafStorage Tensor storage policy used by the packed buffer.
 /// \tparam BlockAlignment Required byte alignment of every block start.
 template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct PackedCompleteBlockStorage
 {
@@ -726,7 +986,7 @@ template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struc
 ///          Algorithms must place all writes to one logical output block in
 ///          the same synchronous batch item. A `BlockAlignment` greater than
 ///          one pads block starts to that byte alignment.
-/// \tparam LeafStorage Immediate host storage used by the packed buffer.
+/// \tparam LeafStorage Tensor storage policy used by the packed buffer.
 /// \tparam BlockAlignment Required byte alignment of every block start.
 template <class LeafStorage = HostStorage, std::size_t BlockAlignment = 1> struct ParallelPackedCompleteBlockStorage
 {
@@ -812,6 +1072,8 @@ static_assert(BlockTensorStorageFor<ParallelPackedCompleteBlockStorage<>, double
 static_assert(BlockTensorStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 2, 2>);
 static_assert(BlockTensorStorageFor<PackedDiagonalBlockStorage<>, double, 0, 3>);
+static_assert(LocalBlockStorageFor<PackedCompleteBlockStorage<>, double, 4, 0>);
+static_assert(LocalBlockStorageFor<AsyncSeparateSparseBlockStorage<>, double, 4, 0>);
 static_assert(ImmediateLocalBlockStorageFor<SeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<ParallelSeparateSparseBlockStorage<>, double, 2, 2>);
 static_assert(ImmediateLocalBlockStorageFor<PackedSparseBlockStorage<>, double, 4, 0>);

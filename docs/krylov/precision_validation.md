@@ -17,9 +17,9 @@ tuning values, see [Krylov Algorithms](algorithms.md).
 | `f128` | `uni20::float128`, when `UNI20_HAS_FLOAT128=1` |
 | `cf128` | `uni20::complex<uni20::float128>`, also spelled `uni20::complex256`, when `UNI20_HAS_FLOAT128=1` |
 
-Experimental binary128 validation is gated by `UNI20_ENABLE_MPLAPACK=ON` and
-requires an external MPLAPACK package configured with the binary128 backend.
-Uni20 does not download or build MPLAPACK. The optional validation currently
+Binary128 validation is gated by `UNI20_ENABLE_MPLAPACK=ON`. CMake resolves an
+installed MPLAPACK 3.0.0 or newer package with the binary128 component, or
+fetches the pinned 3.0.0 release. The optional validation currently
 covers scalar aliases and I/O, BLAS/LAPACK wrapper surfaces, tensor linear
 algebra probes, broad dense projected helper coverage, real and complex
 matrix-free eigensolvers, and projected exponential action. The gated probes
@@ -178,6 +178,7 @@ that provider/helper inventory.
 | Dense matrix exponential prescaling | yes | no | `MplapackBinary128CpuOpsTest.MatrixExponentialPrescalesWithinBinary128` |
 | Exact Tensor SVD | yes | yes | `MplapackBinary128CpuOpsTest.ExactSvdPreservesRealAndComplexBinary128Values`, `AsyncSvdTest.SupportsConfiguredFloat128Backend` |
 | Reduced Tensor QR and LQ | yes | n/a | `MplapackBinary128CpuOpsTest.ReducedQrAndLqPreserveBinary128Values` |
+| BlockTensor SVD and finite two-site DMRG | yes | yes | `SpinHalfHeisenbergDmrgFloat128Example`, `SpinHalfHeisenbergDmrgComplexFloat128Example`; the analytic four-site energy check requires fp128 agreement beyond double precision. |
 | Broad dense projected real helper inventory | regression | n/a | Quarantined API inventory exercised by `MplapackBinary128DenseSubspaceTest.*`. |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | regression | Quarantined API inventory exercised by `MplapackBinary128DenseSubspaceTest.*`. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |

@@ -2,9 +2,11 @@
 
 **Status:** active architecture informed by the separate TensorContraction
 prototype. Pure Uni20 now has a neutral sparse `f(r,a,b,c)` plan, a dispatched
-R/A/B/C operation, and a host right-first backend with prepared `(B,C)` reuse.
-Left-first/hybrid selection, CUDA/MPI placement, and the cost model described
-below remain future work.
+R/A/B/C operation, and a right-first backend with prepared `(B,C)` reuse. The
+backend preserves the packed leaf storage of its operands, covering immediate
+host storage and single-device CUDA storage. Left-first/hybrid selection,
+multi-device/MPI placement, and the cost model described below remain future
+work.
 
 ## Current Pure-Uni20 Reference Path
 
@@ -30,7 +32,7 @@ preparation. The logical plan is an execution-order-neutral hypergraph: it
 contains no left-first, right-first, placement, or communication choice.
 
 Backend selection occurs while the output BlockTensor storage policy remains
-visible. The current `HostRightFirstRabcBackend` derives unique `(b,c)` groups
+visible. The current `RightFirstRabcBackend` derives unique `(b,c)` groups
 and evaluates:
 
 ```text
@@ -45,7 +47,7 @@ Repeated applications reuse that schedule and workspace. Distinct
 intermediates and output blocks use the output storage's synchronous block-batch
 policy, while each output block's contributions remain serial. Dense
 contractions retain the operation-specific nested selector, so direct/looped
-GEMM and reference fallback remain available. A prepared host executor is tied
+GEMM and reference fallback remain available. A prepared executor is tied
 to one plan and block structure and must not be invoked concurrently.
 
 `rabc_contract` is an overwrite operation. Every stored output block is

@@ -1,7 +1,7 @@
 /**
  * \file two_site_effective_hamiltonian.hpp
  * \ingroup tensor_network
- * \brief Defines the first host two-site effective-Hamiltonian apply objects.
+ * \brief Defines two-site effective-Hamiltonian apply objects.
  */
 
 #pragma once
@@ -31,7 +31,7 @@ namespace detail
 {
 
 template <class Tensor>
-concept TwoSiteCenterView = ImmediateBlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
+concept TwoSiteCenterView = BlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
                             (block_tensor_codomain_t<Tensor>::size() == 1);
 
 template <class Tensor>
@@ -47,13 +47,13 @@ concept CompatibleTwoSiteCenters = TwoSiteCenterView<Output> && TwoSiteCenterVie
 
 template <class Tensor>
 concept MpoEffectiveCenter =
-    ImmediateBlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
+    BlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 3) &&
     (block_tensor_codomain_t<Tensor>::size() == 1) && (block_tensor_type_t<Tensor>::key_coordinate_count() == 4) &&
     (block_tensor_type_t<Tensor>::dense_block_order() == 2);
 
 template <class Tensor>
 concept MpoEffectiveEnvironment =
-    ImmediateBlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 2) &&
+    BlockTensorView<Tensor> && (block_tensor_domain_t<Tensor>::size() == 2) &&
     (block_tensor_codomain_t<Tensor>::size() == 1) && (block_tensor_type_t<Tensor>::key_coordinate_count() == 3) &&
     (block_tensor_type_t<Tensor>::dense_block_order() == 2);
 
@@ -202,7 +202,7 @@ class TwoSiteEffectiveHamiltonian {
     /// \details The sparse R/A/B/C kernel backend owns contraction ordering,
     ///          intermediate reuse, batching, placement, and communication.
     /// \pre Distinct input and output views do not overlap numerical storage.
-    template <MutableImmediateBlockTensorView Output, detail::MpoEffectiveCenter Input>
+    template <MutableBlockTensorView Output, detail::MpoEffectiveCenter Input>
       requires detail::CompatibleTwoSiteCenters<Output, Input> &&
                std::same_as<block_tensor_value_t<Output>, scalar_type> &&
                std::same_as<block_tensor_key_t<Output>, key_type> &&
@@ -227,12 +227,9 @@ class TwoSiteEffectiveHamiltonian {
     [[nodiscard]] auto term_count() const noexcept -> std::size_t { return prepared_rabc_->plan().term_count(); }
 
     /// \brief Return the immutable sparse coefficient plan used by the prepared backend.
-    [[nodiscard]] auto plan() const noexcept -> plan_type const&
-    {
-      return prepared_rabc_->plan();
-    }
+    [[nodiscard]] auto plan() const noexcept -> plan_type const& { return prepared_rabc_->plan(); }
 
-    /// \brief Return the number of retained host right-first intermediate blocks.
+    /// \brief Return the number of retained right-first intermediate blocks.
     [[nodiscard]] auto prepared_intermediate_count() const noexcept -> std::size_t
     {
       return prepared_rabc_->intermediate_count();
@@ -272,8 +269,7 @@ class TwoSiteEffectiveHamiltonian {
       return static_cast<std::size_t>(found - stored_keys_.begin());
     }
 
-    [[nodiscard]] auto make_plan(first_mpo_type const& first_mpo, second_mpo_type const& second_mpo) const
-        -> plan_type
+    [[nodiscard]] auto make_plan(first_mpo_type const& first_mpo, second_mpo_type const& second_mpo) const -> plan_type
     {
       std::map<std::size_t, std::vector<std::size_t>> left_by_input_bond;
       for (std::size_t ordinal = 0; ordinal < left_environment_.stored_block_count(); ++ordinal)
@@ -349,13 +345,12 @@ class TwoSiteEffectiveHamiltonian {
       }
       using a_key_type = typename plan_type::a_key_type;
       using c_key_type = typename plan_type::c_key_type;
-      return plan_type(stored_keys_,
-                       std::vector<a_key_type>(left_environment_.stored_keys().begin(),
-                                               left_environment_.stored_keys().end()),
-                       stored_keys_,
-                       std::vector<c_key_type>(right_environment_.stored_keys().begin(),
-                                               right_environment_.stored_keys().end()),
-                       std::move(terms));
+      return plan_type(
+          stored_keys_,
+          std::vector<a_key_type>(left_environment_.stored_keys().begin(), left_environment_.stored_keys().end()),
+          stored_keys_,
+          std::vector<c_key_type>(right_environment_.stored_keys().begin(), right_environment_.stored_keys().end()),
+          std::move(terms));
     }
 
     template <BlockTensorView Tensor> void require_center(Tensor const& center) const
@@ -374,9 +369,8 @@ class TwoSiteEffectiveHamiltonian {
     left_environment_type left_environment_;
     right_environment_type right_environment_;
     using prepared_rabc_type = decltype(prepare_rabc_contract(
-        std::declval<center_type const&>(), std::declval<plan_type>(),
-        std::declval<left_environment_type const&>(), std::declval<center_type const&>(),
-        std::declval<right_environment_type const&>()));
+        std::declval<center_type const&>(), std::declval<plan_type>(), std::declval<left_environment_type const&>(),
+        std::declval<center_type const&>(), std::declval<right_environment_type const&>()));
     std::optional<prepared_rabc_type> prepared_rabc_;
 };
 

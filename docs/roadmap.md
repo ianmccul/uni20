@@ -144,7 +144,7 @@ See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 - Dense projected subspace work uses `DenseMatrix` and the normal linalg
   dispatch layer rather than a private dense algebra stack.
 - Matrix Market fixtures, convergence/residual tests, provider comparisons,
-  and optional MPLAPACK binary128 probes exercise precision-sensitive paths.
+  and the optional MPLAPACK binary128 backend exercise precision-sensitive paths.
 
 See [Krylov Algorithms](krylov/algorithms.md) and
 [Krylov Precision Validation](krylov/precision_validation.md).
@@ -241,9 +241,12 @@ that path without weakening its symmetry metadata contract.
   selections, exact selected bond spaces, and independent kept, discarded, and
   null-space materializations.
 - The implemented block SVD parallelizes independent charge sectors with
-  descending estimated-cost scheduling and single-threaded LAPACK inside each
-  task. Next, parallelize selected-factor population over disjoint output
-  blocks after the output structure and packed allocation have been established.
+  descending estimated-cost scheduling. Immediate storage uses single-threaded
+  LAPACK inside each task. The first packed CUDA bridge transfers blocks to a
+  host mirror and runs supported tall real sectors through independent blocking
+  cuSOLVER calls. Next, keep sector assembly and selected-factor population in
+  device storage after the output structure and packed allocation have been
+  established.
 
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
@@ -258,9 +261,9 @@ resident CUDA execution, and MPI-aware block placement. The goal is behavioral
 and performance parity through Uni20's current architecture without retaining
 the external TensorContraction implementation.
 
-- Extend the implemented dispatched sparse R/A/B/C plan and host right-first
-  `(B,C)` reuse with persistent scratch and backend-aware left-first/hybrid
-  selection.
+- Extend the implemented dispatched sparse R/A/B/C plan and host/CUDA
+  right-first `(B,C)` reuse with backend-aware left-first/hybrid selection and
+  multi-device placement.
 - Extend the implemented finite-chain owners, revision-aware directional
   environment caches, selected-SVD factor absorption, and directional sweep
   traversal with post-truncation measurement and general initial-state
@@ -276,8 +279,10 @@ the external TensorContraction implementation.
   Fermi-Hubbard numerical checks and sweep diagnostics.
 - Extend the kernel-dispatched effective-Hamiltonian R/A/B/C operation through
   placement, device-completion, and communication abstractions.
-- Recover resident CUDA and MPI execution incrementally, using captured
-  R/A/B/C fixtures and branch benchmark results as regression evidence.
+- Extend the implemented resident CUDA local eigensolver through center and
+  environment construction, block SVD, and MPS installation; recover MPI
+  execution incrementally using captured R/A/B/C fixtures and branch benchmark
+  results as regression evidence.
 - Treat successful parity as migration of capability, not a source-level port:
   reuse algorithms and validated conventions while replacing the bridge's
   scheduler, ownership, storage, and backend boundaries.
@@ -315,6 +320,8 @@ motivate these constraints.
 
 - Bring up one operation at a time through the same capability and runtime
   attempt mechanism used by host kernels.
+- Extend the implemented blocking real tall-matrix cuSOLVER exact SVD with wide
+  and complex lowering, then add an asynchronous completion boundary.
 - Use the current `Async<CudaTensor>` matrix-product path as the non-blocking
   correctness baseline. Keep resource admission in the CUDA coroutine and
   provider submission in the non-suspending backend leaf.

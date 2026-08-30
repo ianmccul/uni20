@@ -38,3 +38,8 @@ if(UNI20_BACKEND_CUBLAS)
   add_subdirectory(cublas)
   target_link_libraries(uni20_backend INTERFACE uni20_backend_cublas)
 endif()
+
+if(UNI20_BACKEND_CUSOLVER)
+  add_subdirectory(cusolver)
+  target_link_libraries(uni20_backend INTERFACE uni20_backend_cusolver)
+endif()

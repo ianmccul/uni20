@@ -404,6 +404,9 @@ rightmost factor. It owns a transformed canonical key index which maps to the
 source tensor's unchanged physical block bindings. The view stores direct
 dense-block descriptors rather than a reference to an intermediate mapped view,
 so mapped permutations and repartitions compose without copying payload. A
+mappable storage's leaf-allocation context is retained separately from those
+descriptors, so an empty mapped view still carries CUDA device or future
+placement identity needed to allocate compatible results. A
 moved dense axis is a `layout_stride` permutation over the same data handle. Its
 numerical factor is one; later categorical factors belong beside that
 key/binding metadata rather than in rewritten payload values. Existing payload
@@ -589,6 +592,12 @@ decomposition type retains that execution policy and keeps provider results in
 canonical charge order. Selected output blocks are still populated serially;
 their parallelization plan is specified in
 [DMRG Performance Baselines](../tensor_network/dmrg_performance_baselines.md#7-block-svd-parallelization).
+
+The CUDA decomposition additionally retains the source tensor's leaf allocation
+context independently of its sector list. Materialized left and right factors
+therefore remain on the source device, including for an empty decomposition or
+when the runtime default device differs. The retained context must outlive the
+decomposition and every materialized tensor that uses it.
 
 The initial API follows this value-oriented form:
 

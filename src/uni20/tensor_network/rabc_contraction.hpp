@@ -9,7 +9,7 @@
 #include <uni20/linalg/backend_selector.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/symmetry/block_tensor_concepts.hpp>
-#include <uni20/tensor_network/backends/host_right_first_rabc.hpp>
+#include <uni20/tensor_network/backends/right_first_rabc.hpp>
 #include <uni20/tensor_network/rabc_contraction_plan.hpp>
 #include <uni20/tensor_network/rabc_operation.hpp>
 
@@ -28,15 +28,17 @@ template <class StoragePolicy> [[nodiscard]] auto make_rabc_backend_selector()
 {
   using leaf_storage_policy = typename StoragePolicy::leaf_storage_policy;
   auto contraction_selector = linalg::select_backend_for_storage<leaf_storage_policy>(contract_op<2, 2, 1>{});
-  return backend_list{tensor_network::HostRightFirstRabcBackend{std::move(contraction_selector)}};
+  using contraction_selector_type = std::remove_cvref_t<decltype(contraction_selector)>;
+  return backend_list{tensor_network::RightFirstRabcBackend<leaf_storage_policy, contraction_selector_type>{
+      std::move(contraction_selector)}};
 }
 
 } // namespace detail
 
-/// \brief Install the host right-first R/A/B/C strategy around a block storage selector.
+/// \brief Install the storage-domain right-first R/A/B/C strategy around a block storage selector.
 /// \details The supplied selector is retained for nested dense contractions.
-///          Future storage-specific defaults may add CUDA, hybrid, or
-///          distributed candidates ahead of this host implementation.
+///          Retained intermediates use the block policy's leaf storage and
+///          inherit placement from the center blocks.
 template <class StoragePolicy> struct backend_selector_default<tensor_network::rabc_contract_op, StoragePolicy>
 {
     template <class StorageSelector>
@@ -65,13 +67,13 @@ template <class Output, class B> [[nodiscard]] constexpr bool is_obvious_rabc_al
 
 } // namespace detail
 
-/// \brief Prepare the single host right-first backend selected for fixed R/A/B/C operands.
+/// \brief Prepare the single right-first backend selected for fixed R/A/B/C operands.
 /// \details Preparation validates the fixed block structures, derives the
 ///          backend-specific schedule, and allocates reusable intermediate
 ///          storage. This overload intentionally accepts the currently
 ///          supported one-entry prepared selector; future backend lists must
 ///          define how preparation chooses and retains one accepted backend.
-/// \param selector Selected host R/A/B/C backend and nested dense selector.
+/// \param selector Selected R/A/B/C backend and nested dense selector.
 /// \param output Prototype fixed output structure.
 /// \param plan Execution-neutral coefficient plan transferred into the executor.
 /// \param a Prototype left block family.
@@ -79,16 +81,17 @@ template <class Output, class B> [[nodiscard]] constexpr bool is_obvious_rabc_al
 /// \param c Prototype right block family.
 /// \pre The plan's coordinate keys were constructed for the symmetry, domain,
 ///      and codomain semantics of these four operand families.
-/// \return Prepared host executor owning the plan, schedule, and workspace.
-template <class ContractionSelector, detail::HostWritableRabcTensor Output, RabcPlan Plan,
-          detail::HostReadableRabcTensor A, detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
-[[nodiscard]] auto prepare_rabc_contract(linalg::backend_list<HostRightFirstRabcBackend<ContractionSelector>> selector,
-                                         Output const& output, Plan plan, A const& a, B const& b, C const& c)
+/// \return Prepared executor owning the plan, schedule, and workspace.
+template <class IntermediateStorage, class ContractionSelector, detail::WritableRabcTensor Output, RabcPlan Plan,
+          detail::ReadableRabcTensor A, detail::ReadableRabcTensor B, detail::ReadableRabcTensor C>
+  requires detail::CompatibleRabcOperands<Output, Plan, A, B, C>
+[[nodiscard]] auto
+prepare_rabc_contract(linalg::backend_list<RightFirstRabcBackend<IntermediateStorage, ContractionSelector>> selector,
+                      Output const& output, Plan plan, A const& a, B const& b, C const& c)
 {
   auto backend = std::move(std::get<0>(selector.entries));
-  return PreparedHostRightFirstRabcContraction(std::move(backend.contraction_selector), output, std::move(plan), a, b,
-                                               c);
+  return PreparedRightFirstRabcContraction<IntermediateStorage, std::remove_cvref_t<Plan>, ContractionSelector>(
+      std::move(backend.contraction_selector), output, std::move(plan), a, b, c);
 }
 
 /// \brief Select and prepare the R/A/B/C backend for one fixed block structure.
@@ -100,9 +103,9 @@ template <class ContractionSelector, detail::HostWritableRabcTensor Output, Rabc
 /// \pre The plan's coordinate keys were constructed for the symmetry, domain,
 ///      and codomain semantics of these four operand families.
 /// \return Prepared executor selected from the output storage policy.
-template <detail::HostWritableRabcTensor Output, RabcPlan Plan, detail::HostReadableRabcTensor A,
-          detail::HostReadableRabcTensor B, detail::HostReadableRabcTensor C>
-  requires detail::CompatibleHostRabcOperands<Output, Plan, A, B, C>
+template <detail::WritableRabcTensor Output, RabcPlan Plan, detail::ReadableRabcTensor A, detail::ReadableRabcTensor B,
+          detail::ReadableRabcTensor C>
+  requires detail::CompatibleRabcOperands<Output, Plan, A, B, C>
 [[nodiscard]] auto prepare_rabc_contract(Output const& output, Plan plan, A const& a, B const& b, C const& c)
 {
   auto selector = linalg::select_backend(rabc_contract_op{}, output);

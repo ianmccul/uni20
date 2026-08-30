@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -80,12 +81,17 @@ class CudaBufferTest : public ::testing::Test {
 
 static_assert(!std::is_copy_constructible_v<uni20::cuda::CudaBuffer<>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::CudaBuffer<>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::PartitionedCudaBuffer<std::byte>>);
+static_assert(std::is_move_constructible_v<uni20::cuda::PartitionedCudaBuffer<std::byte>>);
+static_assert(std::is_move_assignable_v<uni20::cuda::PartitionedCudaBuffer<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::ReadAccess<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::ReadAccess<std::byte>>);
 static_assert(std::is_move_assignable_v<uni20::cuda::ReadAccess<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::WriteAccess<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::WriteAccess<std::byte>>);
 static_assert(std::is_move_assignable_v<uni20::cuda::WriteAccess<std::byte>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::AccessCompletion>);
+static_assert(std::is_move_constructible_v<uni20::cuda::AccessCompletion>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingReadAccess<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::BlockingReadAccess<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingWriteAccess<std::byte>>);
@@ -122,6 +128,105 @@ TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
   EXPECT_TRUE(source.empty());
 }
 
+TEST_F(CudaBufferTest, DestructionQueuesStreamOrderedDeallocationWithoutWaiting)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  if (!resources.device().capabilities().memory_pools_supported)
+  {
+    GTEST_SKIP() << "device does not support stream-ordered allocation";
+  }
+
+  BufferGate gate;
+  auto buffer = std::make_unique<uni20::cuda::CudaBuffer<int>>(resources, 1);
+  auto stream = resources.streams().acquire();
+  {
+    auto write = buffer->write_synchronized_with(stream);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), wait_for_buffer_gate, &gate),
+                       "cudaLaunchHostFunc asynchronous buffer destruction gate", 0);
+  }
+  ASSERT_TRUE(wait_until(gate.entered));
+
+  auto destruction = std::async(std::launch::async, [&buffer] { buffer.reset(); });
+  auto const status = destruction.wait_for(1s);
+  gate.open.store(true, std::memory_order_release);
+
+  EXPECT_EQ(status, std::future_status::ready);
+  destruction.get();
+  EXPECT_EQ(resources.live_allocation_count(), 0U);
+  stream.synchronize();
+}
+
+TEST_F(CudaBufferTest, PartitionCreatesIndependentLedgersOverOneAllocation)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  std::array<uni20::cuda::CudaBufferRange, 2> const ranges{uni20::cuda::CudaBufferRange{.offset = 0, .size = 4},
+                                                           uni20::cuda::CudaBufferRange{.offset = 4, .size = 4}};
+
+  {
+    uni20::cuda::PartitionedCudaBuffer<std::byte> partition(resources, 8, ranges);
+    ASSERT_EQ(partition.buffer_count(), 2U);
+    EXPECT_EQ(resources.live_allocation_count(), 1U);
+    EXPECT_TRUE(partition.buffer(0).shares_allocation_with(partition.buffer(1)));
+    EXPECT_EQ(partition.buffer(0).allocation_offset(), 0U);
+    EXPECT_EQ(partition.buffer(1).allocation_offset(), 4U);
+
+    auto first_stream = resources.streams().acquire();
+    auto second_stream = resources.streams().acquire();
+    auto first = partition.buffer(0).write_synchronized_with(first_stream);
+    auto second = partition.buffer(1).write_synchronized_with(second_stream);
+    ASSERT_NE(first.data(), nullptr);
+    EXPECT_EQ(second.data(), first.data() + 4);
+    uni20::cuda::check(cudaMemsetAsync(first.data(), 0x11, first.size_bytes(), first_stream.native_handle()),
+                       "cudaMemsetAsync first partition", 0);
+    uni20::cuda::check(cudaMemsetAsync(second.data(), 0x22, second.size_bytes(), second_stream.native_handle()),
+                       "cudaMemsetAsync second partition", 0);
+  }
+
+  EXPECT_EQ(resources.live_allocation_count(), 0U);
+}
+
+TEST_F(CudaBufferTest, AggregatePartitionAccessPublishesToEveryChildLedger)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  std::array<uni20::cuda::CudaBufferRange, 2> const ranges{uni20::cuda::CudaBufferRange{.offset = 0, .size = 4},
+                                                           uni20::cuda::CudaBufferRange{.offset = 4, .size = 4}};
+  uni20::cuda::PartitionedCudaBuffer<std::byte> partition(resources, 8, ranges);
+
+  {
+    auto stream = resources.streams().acquire();
+    auto access = partition.write_synchronized_with(stream);
+    ASSERT_NE(access.data(), nullptr);
+    EXPECT_EQ(access.size(), 8U);
+    uni20::cuda::check(cudaMemsetAsync(access.data(), 0x5a, access.size(), stream.native_handle()),
+                       "cudaMemsetAsync aggregate partition", 0);
+  }
+
+  for (std::size_t ordinal = 0; ordinal < partition.buffer_count(); ++ordinal)
+  {
+    auto access = partition.buffer(ordinal).blocking_read_access();
+    std::array<std::byte, 4> host{};
+    uni20::cuda::check(cudaMemcpy(host.data(), access.data(), host.size(), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy aggregate partition result", 0);
+    for (auto const value : host)
+      EXPECT_EQ(value, std::byte{0x5a});
+  }
+}
+
+TEST_F(CudaBufferTest, MovingPartitionClearsSourceMetadata)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  std::array<uni20::cuda::CudaBufferRange, 2> const ranges{uni20::cuda::CudaBufferRange{.offset = 0, .size = 4},
+                                                           uni20::cuda::CudaBufferRange{.offset = 4, .size = 4}};
+  uni20::cuda::PartitionedCudaBuffer<std::byte> source(resources, 8, ranges);
+
+  auto destination = std::move(source);
+
+  EXPECT_EQ(source.size(), 0U);
+  EXPECT_EQ(source.buffer_count(), 0U);
+  EXPECT_EQ(destination.size(), 8U);
+  EXPECT_EQ(destination.buffer_count(), 2U);
+}
+
 TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
 {
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
@@ -156,6 +261,47 @@ TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
   gate.open.store(true, std::memory_order_release);
   resources.streams().synchronize();
   EXPECT_TRUE(consumer_completed.load(std::memory_order_acquire));
+}
+
+TEST_F(CudaBufferTest, SharedAccessCompletionOrdersEveryParticipatingBuffer)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 3});
+  uni20::cuda::CudaBuffer<> first_buffer(resources, 4096);
+  uni20::cuda::CudaBuffer<> second_buffer(resources, 4096);
+
+  BufferGate gate;
+  auto producer_stream = resources.streams().acquire();
+  auto first_producer = first_buffer.write_synchronized_with(producer_stream);
+  auto second_producer = second_buffer.write_synchronized_with(producer_stream);
+  uni20::cuda::check(cudaLaunchHostFunc(producer_stream.native_handle(), wait_for_buffer_gate, &gate),
+                     "cudaLaunchHostFunc shared completion gate", 0);
+  uni20::cuda::AccessCompletion completion(producer_stream);
+  completion.release(first_producer);
+  completion.release(second_producer);
+
+  std::atomic<bool> first_completed = false;
+  std::atomic<bool> second_completed = false;
+  auto first_consumer_stream = resources.streams().acquire();
+  auto second_consumer_stream = resources.streams().acquire();
+  {
+    auto first_consumer = first_buffer.write_synchronized_with(first_consumer_stream);
+    auto second_consumer = second_buffer.write_synchronized_with(second_consumer_stream);
+    uni20::cuda::check(cudaLaunchHostFunc(first_consumer_stream.native_handle(), set_buffer_flag, &first_completed),
+                       "cudaLaunchHostFunc first shared-completion consumer", 0);
+    uni20::cuda::check(cudaLaunchHostFunc(second_consumer_stream.native_handle(), set_buffer_flag, &second_completed),
+                       "cudaLaunchHostFunc second shared-completion consumer", 0);
+  }
+
+  bool const producer_entered = wait_until(gate.entered);
+  if (!producer_entered) gate.open.store(true, std::memory_order_release);
+  ASSERT_TRUE(producer_entered);
+  EXPECT_FALSE(first_completed.load(std::memory_order_acquire));
+  EXPECT_FALSE(second_completed.load(std::memory_order_acquire));
+
+  gate.open.store(true, std::memory_order_release);
+  resources.streams().synchronize();
+  EXPECT_TRUE(first_completed.load(std::memory_order_acquire));
+  EXPECT_TRUE(second_completed.load(std::memory_order_acquire));
 }
 
 TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
@@ -304,7 +450,7 @@ TEST_F(CudaBufferTest, OwningBlockingReadAccessMovesWithItsAllocation)
                        "cudaMemcpy owning buffer read setup", 0);
   }
 
-  EXPECT_EQ(resources.live_buffer_count(), 1U);
+  EXPECT_EQ(resources.live_allocation_count(), 1U);
   int result = 0;
   {
     auto access = std::move(buffer).into_blocking_read_access();
@@ -317,11 +463,11 @@ TEST_F(CudaBufferTest, OwningBlockingReadAccessMovesWithItsAllocation)
                        "cudaMemcpy owning buffer read", 0);
     moved_access.release();
     EXPECT_EQ(moved_access.data(), nullptr);
-    EXPECT_EQ(resources.live_buffer_count(), 0U);
+    EXPECT_EQ(resources.live_allocation_count(), 0U);
   }
 
   EXPECT_EQ(result, expected);
-  EXPECT_EQ(resources.live_buffer_count(), 0U);
+  EXPECT_EQ(resources.live_allocation_count(), 0U);
 }
 
 TEST_F(CudaBufferTest, BlockingWritePublishesDefaultStreamCompletion)

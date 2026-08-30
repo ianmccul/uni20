@@ -193,6 +193,51 @@ TEST_F(CudaTransformTest, ScalesByRetainedFactor)
   EXPECT_DOUBLE_EQ(result[2], 8.75);
 }
 
+TEST_F(CudaTransformTest, FillsRealAndComplexStridedTensors)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::CudaTensor<double, 2> real(runtime.device_resources(0), 2, 3);
+  uni20::CudaTensor<uni20::cfloat, 2> complex(runtime.device_resources(0), 2, 3);
+
+  uni20::fill(real, 2.5);
+  uni20::fill(complex, uni20::cfloat{-1.0F, 3.0F});
+
+  auto real_result = uni20::to_host(real);
+  auto complex_result = uni20::to_host(complex);
+  for (uni20::index_type column = 0; column < 3; ++column)
+  {
+    for (uni20::index_type row = 0; row < 2; ++row)
+    {
+      EXPECT_DOUBLE_EQ((real_result[row, column]), 2.5);
+      EXPECT_EQ((complex_result[row, column]), (uni20::cfloat{-1.0F, 3.0F}));
+    }
+  }
+}
+
+TEST_F(CudaTransformTest, UpdatesScaleAddAndAxpyInPlace)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::Tensor<double, 1> host_lhs(3);
+  uni20::Tensor<double, 1> host_rhs(3);
+  host_lhs[0] = 1.0;
+  host_lhs[1] = -2.0;
+  host_lhs[2] = 3.0;
+  host_rhs[0] = 4.0;
+  host_rhs[1] = 5.0;
+  host_rhs[2] = -6.0;
+  auto lhs = uni20::to_device(host_lhs, 0);
+  auto rhs = uni20::to_device(host_rhs, 0);
+
+  uni20::transform_inplace(lhs, uni20::linalg::scale{2.0});
+  uni20::transform_inplace(lhs, uni20::linalg::add{}, rhs);
+  uni20::transform_inplace(lhs, uni20::linalg::add_scaled{-0.5}, rhs);
+
+  auto result = uni20::to_host(lhs);
+  EXPECT_DOUBLE_EQ(result[0], 4.0);
+  EXPECT_DOUBLE_EQ(result[1], -1.5);
+  EXPECT_DOUBLE_EQ(result[2], 3.0);
+}
+
 TEST_F(CudaTransformTest, ScalesComplexValuesByRealAndComplexFactors)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});

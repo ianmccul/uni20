@@ -389,6 +389,9 @@ template <class Scalar> void enqueue_device_copy(CopyPlan<Scalar> const& plan, u
   auto output = plan.output_buffer->write_synchronized_with(stream);
   auto input = plan.input_buffer->read_synchronized_with(stream);
   enqueue(output.data() + plan.output_offset, input.data() + plan.input_offset);
+  uni20::cuda::AccessCompletion completion(stream);
+  completion.release(output);
+  completion.release(input);
 }
 
 template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)

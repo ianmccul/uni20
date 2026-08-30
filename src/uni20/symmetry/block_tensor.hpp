@@ -195,6 +195,19 @@ class BlockTensor {
           storage_(this->make_storage(std::move(stored_keys)))
     {}
 
+    /// \brief Construct a sparse tensor in an explicit leaf allocation context.
+    template <class Context>
+    BlockTensor(Symmetry symmetry, domain_type domain, codomain_type codomain, std::vector<key_type> stored_keys,
+                Context& context)
+      requires SparseBlockStorage<storage_policy> &&
+                   std::constructible_from<
+                       storage_type,
+                       std::vector<detail::BlockSpec<static_key_coordinate_count, static_dense_block_order>> const&,
+                       Context&>
+        : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)),
+          storage_(this->make_storage(std::move(stored_keys), context))
+    {}
+
     /// \brief Construct a sparse tensor from an initializer list of stored keys.
     /// \param symmetry Explicit tensor symmetry context.
     /// \param domain Ordered domain spaces.
@@ -214,6 +227,18 @@ class BlockTensor {
       requires CompleteBlockStorage<storage_policy>
         : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)),
           storage_(this->make_complete_storage())
+    {}
+
+    /// \brief Construct a complete tensor in an explicit leaf allocation context.
+    template <class Context>
+    BlockTensor(Symmetry symmetry, domain_type domain, codomain_type codomain, Context& context)
+      requires CompleteBlockStorage<storage_policy> &&
+                   std::constructible_from<
+                       storage_type,
+                       std::vector<detail::BlockSpec<static_key_coordinate_count, static_dense_block_order>> const&,
+                       Context&>
+        : symmetry_(symmetry), domain_(std::move(domain)), codomain_(std::move(codomain)),
+          storage_(this->make_complete_storage(context))
     {}
 
     /// \brief Return the explicit symmetry context.
@@ -440,6 +465,13 @@ class BlockTensor {
     /// \brief Return the concrete storage value.
     auto storage() const noexcept -> storage_type const& { return storage_; }
 
+    /// \brief Return the leaf context used for compatible result allocations.
+    decltype(auto) allocation_context() const noexcept
+      requires requires(storage_type const& storage) { storage.allocation_context(); }
+    {
+      return storage_.allocation_context();
+    }
+
     /// \brief Allocate a tensor with identical validated structure.
     /// \details This operation is available when the storage implementation can
     ///          reproduce its block placement without rebuilding it from the
@@ -469,7 +501,25 @@ class BlockTensor {
       return this->make_storage_from_validated_keys(std::move(stored_keys));
     }
 
+    template <class Context> auto make_storage(std::vector<key_type> stored_keys, Context& context) -> storage_type
+    {
+      this->validate_boundaries();
+      return this->make_storage_from_validated_keys(std::move(stored_keys), context);
+    }
+
     auto make_storage_from_validated_keys(std::vector<key_type> stored_keys) -> storage_type
+    {
+      return storage_type(this->make_block_specs(std::move(stored_keys)));
+    }
+
+    template <class Context>
+    auto make_storage_from_validated_keys(std::vector<key_type> stored_keys, Context& context) -> storage_type
+    {
+      return storage_type(this->make_block_specs(std::move(stored_keys)), context);
+    }
+
+    auto make_block_specs(std::vector<key_type> stored_keys)
+        -> std::vector<detail::BlockSpec<static_key_coordinate_count, static_dense_block_order>>
     {
       std::sort(stored_keys.begin(), stored_keys.end());
       if (std::adjacent_find(stored_keys.begin(), stored_keys.end()) != stored_keys.end())
@@ -486,7 +536,7 @@ class BlockTensor {
         static_cast<void>(detail::checked_block_size(extents));
         specs.push_back({key, extents});
       }
-      return storage_type(specs);
+      return specs;
     }
 
     auto make_complete_storage() -> storage_type
@@ -497,6 +547,16 @@ class BlockTensor {
         if (this->is_legal(key)) stored_keys.push_back(key);
       });
       return this->make_storage_from_validated_keys(std::move(stored_keys));
+    }
+
+    template <class Context> auto make_complete_storage(Context& context) -> storage_type
+    {
+      this->validate_boundaries();
+      std::vector<key_type> stored_keys;
+      this->for_each_possible_key([&](key_type const& key) {
+        if (this->is_legal(key)) stored_keys.push_back(key);
+      });
+      return this->make_storage_from_validated_keys(std::move(stored_keys), context);
     }
 
     void validate_boundaries() const

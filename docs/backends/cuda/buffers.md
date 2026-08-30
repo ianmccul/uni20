@@ -48,6 +48,38 @@ it, with `cudaMalloc` as the fallback. `CudaBuffer<T>` is move-only. Direct
 construction from an explicit `DeviceResources&` selects another enrolled
 device or an isolated resource set used by tests.
 
+Each device resource set also owns a dedicated allocation-reclamation stream.
+Destroying a buffer transfers its outstanding completion events to the shared
+allocation. The last logical owner makes the reclamation stream wait on those
+events and enqueues `cudaFreeAsync`; it does not borrow an operation-stream slot
+or wait for device completion on the calling host thread. Runtime shutdown
+drains the reclamation stream. Devices without stream-ordered allocator support
+retain the blocking `cudaFree` fallback.
+
+## Disjoint Logical Buffers
+
+One physical allocation may contain several statically disjoint logical
+values. `PartitionedCudaBuffer<T>` represents that case. Construction validates
+the ordered, non-overlapping ranges once and consumes the whole-allocation
+buffer into one `CudaBuffer<T>` per range. The children share allocation
+lifetime and device resources, but each has its own reader/writer completion
+ledger.
+
+This distinction lets packed BlockTensor storage preserve one allocation while
+scheduler items submit independent blocks to different CUDA streams. There is
+no surviving whole-allocation buffer through which code can bypass the child
+ledgers. Creating overlapping aliases remains a different operation and must
+not use this partition API.
+
+Allocation-wide operations use `PartitionedReadAccess<T>` or
+`PartitionedWriteAccess<T>`. These aggregate guards acquire every child ledger
+on one stream before exposing the physical allocation start. Release records
+one completion and publishes that same shared token to every child. This keeps
+later block-local scheduling correct without recording one equivalent event per
+block. Aggregate access requires the logical ranges to cover the complete
+allocation contiguously; it is not an alias around an arbitrary subset of
+children.
+
 ## Tensor Storage
 
 `CudaTensor<T, Rank>` is the owning Tensor form for CUDA device storage:
@@ -60,8 +92,8 @@ uni20::CudaTensor<float, 2> matrix(32, 48);
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
 metadata. Its unresolved mdspec contains a non-owning
-`cuda::CudaBufferView<float>` descriptor with buffer identity and an element
-offset; it provides no indexed access. A CUDA operation must lower the view
+`cuda::CudaBufferView<float>` descriptor with logical completion-domain identity
+and an element offset; it provides no indexed access. A CUDA operation must lower the view
 through `read_synchronized_with(stream)` or
 `write_synchronized_with(stream)` before a leaf backend receives a raw pointer.
 
@@ -126,13 +158,14 @@ launch_read_only_kernel(access.data(), 1024, stream.native_handle());
 `OwningReadAccess<T>` stores the moved `CudaBuffer<T>` directly. Unlike
 `ReadAccess<T>`, it has no back-pointer to a separately owned buffer and remains
 valid when the access state itself moves. Its `release()` or destruction
-publishes the stream-ordered read completion, waits for outstanding work that
-still uses the allocation, and then frees the owned allocation.
+publishes the stream-ordered read completion and queues allocation reclamation
+after that completion. It does not wait for outstanding device work.
 
 `std::move(values).into_blocking_read_access()` provides the corresponding
 host-synchronized form. It waits for the prior writer before exposing the
-pointer. Both forms require exclusive ownership transfer: an ordinary borrowed
-access guard must not be live when the buffer is consumed.
+pointer and retains blocking deallocation semantics. Both forms require
+exclusive ownership transfer: an ordinary borrowed access guard must not be
+live when the buffer is consumed.
 
 ## Several Operands
 
@@ -146,15 +179,22 @@ auto b = rhs.read_synchronized_with(stream);
 
 launch_product(out.data(), a.data(), b.data(), stream.native_handle());
 
-a.release();
-b.release();
-out.release();
+AccessCompletion completion(stream);
+completion.release(out);
+completion.release(a);
+completion.release(b);
 ```
 
-Explicit `release()` is an idempotent early cleanup operation. Lexical
-destruction has the same effect and is usually simpler. Early release is useful
-when the caller wants to submit a causally later operation before leaving the
-current scope.
+`AccessCompletion` records one event at the operation tail and publishes that
+same completion to every participating buffer ledger. Backend operations with
+several operands should use it rather than allowing each guard destructor to
+record an equivalent event. If the operation already synchronized its stream,
+release each guard with `release_after_synchronization()` and record no event.
+
+Explicit `release()` remains an idempotent cleanup operation for a single
+guard. Lexical destruction has the same effect, but each independently released
+guard records its own completion. Use either form only where there is no
+operation-level group to coalesce.
 
 An in-place operation uses one `WriteAccess<T>` for the mutated buffer. Do not
 acquire a separate read access to the same buffer.
@@ -180,7 +220,7 @@ layer has already established.
 
 ## What Release Means
 
-Releasing an access object:
+Releasing an access object independently:
 
 1. records a CUDA event at the retained stream's current tail;
 2. publishes that completion to the buffer;
@@ -193,6 +233,10 @@ even when their GPU work is still running. The writer's stream waits on the
 published reader completions. If event recording or publication fails during
 cleanup, the implementation synchronizes the retained stream before returning
 the live token rather than publishing a false dependency.
+
+`AccessCompletion` has the same failure contract. It attempts to record one
+operation-tail event; if that fails, it synchronizes the stream and releases
+every participating guard through the already-synchronized path.
 
 Use `buffer.synchronize()` only when the host genuinely needs all currently
 published work involving that buffer to finish. No access object may be live

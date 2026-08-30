@@ -16,13 +16,13 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | `f128` | optional `uni20::float128` |
 | `cf128` | optional `uni20::complex<uni20::float128>` |
 
-With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables optional experimental binary128
-probes for maintained matrix-free eigensolvers and exponential actions.
-MPLAPACK is an external package dependency; Uni20 does not download or build
-it. Ordinary typed tests focus on the stable `s`, `d`, `c`, and `z` paths,
-while maintained `MplapackBinary128*` targets cover selected binary128 stress
-cases. See [Krylov Precision Validation](precision_validation.md) for the
-test-level `f128` and `cf128` validation matrix.
+With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables the optional MPLAPACK binary128
+backend for maintained matrix-free eigensolvers and exponential actions. CMake
+prefers a compatible installed MPLAPACK package and otherwise fetches the pinned
+3.0.0 release. Ordinary typed tests focus on the stable `s`, `d`, `c`, and `z`
+paths, while maintained `MplapackBinary128*` targets cover selected binary128
+stress cases. See [Krylov Precision Validation](precision_validation.md) for
+the test-level `f128` and `cf128` validation matrix.
 
 Dense provider and quarantined helper coverage is tracked separately in
 [Dense BLAS/LAPACK Wrapper Coverage](../linalg/dense_blas_lapack_coverage.md).
@@ -46,6 +46,13 @@ an output-first callable, validates both vectors against the frozen structure,
 and then invokes `operation(output, input)`. The callable may retain immutable
 Hamiltonian and environment state. Its application must overwrite the existing
 output value rather than replace the output's fixed block structure.
+
+Packed CUDA BlockTensor vectors use the same interface. Allocation preserves
+the prototype's CUDA resources; fixed vector updates dispatch per-block CUDA
+kernels; and full inner products and norms use cuBLAS over exhaustive raw CUDA
+descriptors, synchronizing only the host scalar result. The Krylov algorithm
+does not branch on storage. Its small projected tridiagonal eigensystem remains
+host-resident and uses the ordinary LAPACK path.
 
 Generalized symmetric paths may additionally use `metric_inner_product(x, y)`.
 When it is absent, the current wrapper applies `B*y` into backend-owned scratch

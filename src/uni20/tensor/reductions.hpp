@@ -17,6 +17,10 @@
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#if UNI20_BACKEND_CUBLAS
+#include <uni20/linalg/backends/cublas/reductions.hpp>
+#endif
+
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -389,8 +393,8 @@ template <class LhsTensor, class RhsTensor>
 /// \brief Return a Tensor inner product as a host C++ scalar through an explicit selector.
 template <class BackendSelector, class LhsTensor, class RhsTensor>
   requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor>
-[[nodiscard]] auto inner_product_host(BackendSelector&& selector, LhsTensor const& lhs, RhsTensor const& rhs)
-    -> tensor_element_t<LhsTensor>
+[[nodiscard]] auto inner_product_host(BackendSelector&& selector, LhsTensor const& lhs,
+                                      RhsTensor const& rhs) -> tensor_element_t<LhsTensor>
 {
   detail::require_reduction_extents(lhs, rhs);
   using result_type = tensor_element_t<LhsTensor>;
@@ -428,8 +432,8 @@ void norm(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
 /// \brief Return an mdspan Euclidean norm as a host C++ scalar.
 template <class BackendSelector, MdspanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type>
-[[nodiscard]] auto norm_host(BackendSelector&& selector, InputSpan&& input)
-    -> make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>
+[[nodiscard]] auto norm_host(BackendSelector&& selector,
+                             InputSpan&& input) -> make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>
 {
   using result_type = make_real_t<typename std::remove_cvref_t<InputSpan>::value_type>;
   result_type result{};
@@ -486,8 +490,8 @@ template <TensorView InputTensor>
 /// \brief Return a Tensor Euclidean norm as a host C++ scalar through an explicit selector.
 template <class BackendSelector, TensorView InputTensor>
   requires RealOrComplex<tensor_element_t<InputTensor>>
-[[nodiscard]] auto norm_host(BackendSelector&& selector, InputTensor const& input)
-    -> make_real_t<tensor_element_t<InputTensor>>
+[[nodiscard]] auto norm_host(BackendSelector&& selector,
+                             InputTensor const& input) -> make_real_t<tensor_element_t<InputTensor>>
 {
   using result_type = make_real_t<tensor_element_t<InputTensor>>;
   result_type result{};
