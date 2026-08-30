@@ -30,7 +30,7 @@ The larger reference case is
 spin_half_heisenberg_dmrg_example \
     --sites=20 --max-states=64 --max-sweeps=8 \
     --energy-tol=1e-10 --local-matvecs=4 \
-    --scalar=real --block-threads=1 --check
+    --scalar=real --precision=fp64 --block-threads=1 --check
 ```
 
 `--local-matvecs=N` selects the fixed number of effective-Hamiltonian
@@ -38,9 +38,21 @@ applications requested for each local update. It defaults to four. This is a
 local work budget, not a convergence tolerance; sweep-level environment and
 energy convergence remain the controlling DMRG criteria.
 
-`--scalar=complex` runs the same calculation with
-`uni20::complex<double>` storage and arithmetic. This is useful for controlled
-comparisons with implementations that do not provide a real-scalar path.
+`--energy-tol=VALUE` overrides the sweep-level energy tolerance. Its default is
+zero, which selects `100 * numeric_limits<Real>::epsilon()` after applying the
+chosen scalar precision.
+
+`--scalar=complex` runs the same calculation with `uni20::complex<Real>`
+storage and arithmetic. This is useful for controlled comparisons with
+implementations that do not provide a real-scalar path.
+`--precision=fp32|fp64` selects `Real` independently; the default is `fp64`.
+Reference checks use precision-specific tolerances; the four-site fp32 real and
+complex paths are registered CTests with a `1e-6` analytic-energy tolerance.
+
+In an MPLAPACK-enabled build, `--precision=fp128` runs the same U(1)
+BlockTensor DMRG path with `uni20::float128` or
+`uni20::complex<uni20::float128>` storage. Precision selection does not change
+the symmetry or block-sparse model.
 
 `--block-threads=N` installs a `TbbScheduler` with concurrency `N`. Sparse
 environments use `ParallelPackedSparseBlockStorage`; transient two-site centers

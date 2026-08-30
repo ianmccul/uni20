@@ -1,22 +1,47 @@
 # MPLAPACK Binary128 Setup
 
-Uni20 can optionally use MPLAPACK as an experimental binary128 backend for
-selected scalar, dense projected linear algebra, Krylov, and exponential-action
-tests. This is an opt-in developer configuration. Uni20 does not download or
-build MPLAPACK during its own configure step.
+Uni20 can optionally use MPLAPACK 3.0.0 or newer as its binary128 BLAS/LAPACK
+backend. This enables `uni20::float128`, its complex counterpart, and the
+scalar-generic tensor, BlockTensor, Krylov, and tensor-network paths backed by
+those provider operations.
 
-The recommended workflow is:
+The default dependency mode is `AUTO`: CMake prefers a compatible installed
+MPLAPACK package with the `binary128` component and otherwise fetches the
+MPLAPACK 3.0.0 release. Configure the ordinary fetched path with:
 
-1. Build MPLAPACK once as a separate GNU++23 package with only the binary128
-   backend enabled.
-2. Install that package into a local prefix.
-3. Configure Uni20 with `UNI20_ENABLE_MPLAPACK=ON` and point CMake at the
-   installed MPLAPACK package.
+```bash
+cmake -S . -B ./build_codex/build_gcc13_debug_mplapack \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DUNI20_ENABLE_MPLAPACK=ON
+```
 
-## Build MPLAPACK
+The fetched build enables only the reference binary128 backend. MPLAPACK's
+other scalar backends, optimized duplicate library, examples, tests,
+benchmarks, CUDA, and OpenCL targets remain disabled.
 
-From a Uni20 checkout with an MPLAPACK checkout next to it, build current
-MPLAPACK master or a release containing the binary128 CMake detection fixes:
+## Dependency Selection
+
+Use `UNI20_USE_SYSTEM_MPLAPACK` to select the normal Uni20 dependency modes:
+
+| value | behavior |
+| --- | --- |
+| `AUTO` | Prefer an installed MPLAPACK 3.0.0 or newer package with `binary128`; otherwise fetch `v3.0.0`. |
+| `ON` | Require a compatible installed package and fail if it is unavailable. |
+| `OFF` | Always fetch the pinned `v3.0.0` source. |
+
+MPLAPACK 3.0.0 exposes one self-contained library per precision. Uni20 consumes:
+
+```text
+mplapack::mplapack_binary128
+```
+
+The pre-release split between separate `mpblas_binary128` and
+`mplapack_binary128` libraries is not part of the supported package contract.
+
+## Optional System Build
+
+To provide a system package explicitly, build MPLAPACK 3.0.0 or newer as
+GNU++23 with only the required backend:
 
 ```bash
 cmake -S ../mplapack -B ./build_codex/mplapack_binary128 \
@@ -31,6 +56,9 @@ cmake -S ../mplapack -B ./build_codex/mplapack_binary128 \
   -DMPLAPACK_ENABLE_DD=OFF \
   -DMPLAPACK_ENABLE_BINARY80=OFF \
   -DMPLAPACK_ENABLE_BINARY128=ON \
+  -DMPLAPACK_ENABLE_OPT=OFF \
+  -DMPLAPACK_ENABLE_CUDA=OFF \
+  -DMPLAPACK_ENABLE_OPENCL=OFF \
   -DMPLAPACK_BUILD_EXAMPLES=OFF \
   -DMPLAPACK_BUILD_TESTS=OFF \
   -DMPLAPACK_BUILD_BENCHMARKS=OFF
@@ -45,14 +73,13 @@ The configure output should report a real binary128 backend, for example:
 binary128: _Float128 + strfromf128
 ```
 
-## Configure Uni20
-
-Use the installed MPLAPACK prefix:
+Then require that installed package when configuring Uni20:
 
 ```bash
 cmake -S . -B ./build_codex/build_gcc13_debug_mplapack \
   -DCMAKE_BUILD_TYPE=Debug \
   -DUNI20_ENABLE_MPLAPACK=ON \
+  -DUNI20_USE_SYSTEM_MPLAPACK=ON \
   -DCMAKE_PREFIX_PATH="$PWD/build_codex/mplapack_binary128_install"
 ```
 
@@ -63,14 +90,8 @@ MPLAPACK itself:
 cmake -S . -B ./build_codex/build_gcc13_debug_mplapack \
   -DCMAKE_BUILD_TYPE=Debug \
   -DUNI20_ENABLE_MPLAPACK=ON \
+  -DUNI20_USE_SYSTEM_MPLAPACK=ON \
   -Dmplapack_DIR="$PWD/build_codex/mplapack_binary128"
-```
-
-The package must provide both CMake targets:
-
-```text
-mplapack::mpblas_binary128
-mplapack::mplapack_binary128
 ```
 
 ## Validate
@@ -82,31 +103,32 @@ cmake --build ./build_codex/build_gcc13_debug_mplapack --parallel 36 \
   --target \
     uni20_mplapack_binary128_tests \
     uni20_linalg_mplapack_binary128_tests \
-    uni20_krylov_mplapack_binary128_tests
+    uni20_krylov_mplapack_binary128_tests \
+    spin_half_heisenberg_dmrg_example
 
 ctest --test-dir ./build_codex/build_gcc13_debug_mplapack \
   --output-on-failure \
   --parallel 36 \
-  -R "MplapackBinary128"
+  -R "MplapackBinary128|SpinHalfHeisenbergDmrg.*Float128"
 ```
 
-## Validated Upstream State
+## Supported Upstream State
 
-On 2026-06-30 in the Asia/Taipei timezone, Uni20 was validated against
-MPLAPACK master commit `308abcccd5798f56a5a3cb033a8af035886b8823`.
-That checkout configured, built, installed, and passed Uni20's MPLAPACK-gated
-binary128 tests without any local MPLAPACK patch.
+Uni20 requires the public MPLAPACK 3.0.0 package surface. The fetched dependency
+is pinned to tag `v3.0.0`; compatible installed packages must report version
+3.0.0 or newer and provide the `binary128` component.
 
-Do not build MPLAPACK for Uni20 in GNU++17 mode. Current upstream autoconf and
-the current CMake detector may build successfully in GNU++17 mode, but the
+Do not build a system MPLAPACK package for Uni20 in GNU++17 mode. The package
+may build successfully in GNU++17 mode, but the
 installed headers can record GNU++17 feature-test results. When those headers
 are later consumed from Uni20's C++23 build, fallback overload decisions may not
 match the consuming translation unit. Building MPLAPACK itself as GNU++23 keeps
-the installed configuration aligned with Uni20.
+the installed configuration aligned with Uni20. The fetched configuration sets
+this automatically.
 
 ## Troubleshooting
 
-If Uni20 cannot find MPLAPACK, check the package path:
+If `UNI20_USE_SYSTEM_MPLAPACK=ON` cannot find MPLAPACK, check the package path:
 
 ```bash
 find ./build_codex/mplapack_binary128_install -name mplapackConfig.cmake
@@ -124,5 +146,5 @@ rg "MPLAPACK_BINARY128_MODE" \
   ./build_codex/mplapack_binary128_install/include/mplapack/mplapack_config.h
 ```
 
-For the current Uni20 probes, `MPLAPACK_BINARY128_MODE_LDBL` is not useful; use
-a real binary128 mode such as `_Float128` or quadmath.
+`MPLAPACK_BINARY128_MODE_LDBL` is not accepted as Uni20's binary128 backend;
+use a real binary128 mode such as `_Float128` or quadmath.

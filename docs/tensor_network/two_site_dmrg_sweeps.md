@@ -245,6 +245,11 @@ split preserves the mixed-canonical state needed by the next update.
 The registered `spin_half_heisenberg_dmrg_example` exercises this path on the
 length-four open chain. Without truncation it reaches the exact energy
 `-(3 + 2 sqrt(3))/4` while preserving U(1) block structure.
+MPLAPACK-enabled builds also register real and complex `uni20::float128` runs
+through the same BlockTensor contraction, fixed-step Lanczos, block-SVD, and
+materialization path. Their analytic energy check uses a decimal reference and
+tolerance beyond double precision, so this is execution coverage rather than
+only a template-instantiation probe.
 
 The first larger CPU scaling measurements, the exact block-level parallel
 boundary, and cross-library orientation points are recorded in

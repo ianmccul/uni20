@@ -5,6 +5,8 @@ This directory contains LAPACK operation-tag backend adapters.
 ## Contents
 
 - `common.hpp`: checked LAPACK workspace-query conversion helpers.
+- `matrix_norm.hpp`: general dense matrix norms through `lange`.
+- `linear_solve.hpp`: destructive dense general solves through `gesv`.
 - `tridiagonal_eigen.hpp`: symmetric tridiagonal eigenvalues and eigenvectors
   through `sterf` and `steqr`.
 - `nonsymmetric_eigen.hpp`: real and complex nonsymmetric eigensystems through
@@ -21,8 +23,8 @@ This directory contains LAPACK operation-tag backend adapters.
 ## Notes
 
 - Each operation should provide `kernel_accepts_types(LapackBackend, ...)` and
-  `try_kernel(LapackBackend, ...)` over normalized writable
-  `MdspecLike` operands. The backend acquires simultaneous host leases,
+  `try_kernel(LapackBackend, ...)` over normalized `MdspecLike` operands with
+  the mutability its provider call requires. The backend acquires host leases,
   then calls an ordinary operation-specific mdspan leaf and the raw wrappers
   under [the LAPACK provider layer](../../../backend/lapack/). Resolved mdspans
   are not redispatched through an operation tag.
@@ -31,6 +33,10 @@ This directory contains LAPACK operation-tag backend adapters.
   fallback.
 - Current update-matrix paths require a directly addressable column-major
   mdspan. Unsupported layouts decline before any operand is modified.
+- Read-only matrix norms additionally accept row-major storage by exchanging
+  one and infinity norms under the provider transpose. Complex non-Frobenius
+  forms decline because LAPACK's component-sum convention differs from
+  Uni20's mathematical complex magnitude.
 - Keep copy/materialization behavior explicit when adapting tensor views to
   LAPACK-compatible storage.
 

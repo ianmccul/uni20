@@ -41,8 +41,9 @@ before they lower to backend wrappers and kernels.
 - [`backends/looped_gemm/`](backends/looped_gemm/): residual-M/N tensor-contraction loops through a retained GEMM selector.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
 - [`backends/cublas/`](backends/cublas/): provider-ready cuBLAS backend adapters.
-- [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense matrix helpers, and
-  the current dense matrix exponential implementation.
+- [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense
+  matrix norms and solves, legacy dense matrix helpers, and the current dense
+  matrix exponential implementation.
 - [`backends/lapack/`](backends/lapack/): LAPACK-backed linalg entry points.
 - [`backends/cusolver/`](backends/cusolver/): cuSOLVER-backed linalg entry points.
 
@@ -80,6 +81,12 @@ before they lower to backend wrappers and kernels.
 - `sum_reduction_op<R, N>` carries normalized reduced and surviving axes.
   Tensor front ends remove the selected axes, preserve canonical result layout,
   and use the generic CPU reference executor when no earlier backend accepts.
+- `matrix_norm_op` computes maximum-entry, induced one/infinity, or Frobenius
+  norms. Complex norms use the mathematical complex magnitude; LAPACK handles
+  complex Frobenius norms but declines its incompatible component-sum forms.
+- `linear_solve_op` is the destructive general-system workspace operation.
+  `solve_inplace` exposes that contract directly, while `solve` preserves its
+  inputs by materializing column-major host work matrices.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Default selector resolution gives a user `backend_selector_override` complete

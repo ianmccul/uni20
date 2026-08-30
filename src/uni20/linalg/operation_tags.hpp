@@ -100,6 +100,33 @@ struct norm_op
     static constexpr std::string_view name = "norm";
 };
 
+/// \brief Matrix norm selected by `matrix_norm_op`.
+enum class MatrixNorm
+{
+  MaxAbs,
+  One,
+  Infinity,
+  Frobenius
+};
+
+/// \brief Dense rank-two matrix norm operation tag.
+/// \details Complex one, infinity, and maximum-absolute-value norms use the
+///          mathematical complex magnitude. A provider backend whose complex
+///          convention differs must decline those operation instances.
+struct matrix_norm_op
+{
+    static constexpr std::string_view name = "matrix_norm";
+    MatrixNorm kind;
+};
+
+/// \brief Destructive dense general linear-system solve operation tag.
+/// \details Backends overwrite coefficient and right-hand-side work matrices
+///          while solving `coefficients * solution = right_hand_sides`.
+struct linear_solve_op
+{
+    static constexpr std::string_view name = "linear_solve";
+};
+
 /// \brief Sum reduction over one or more fixed-rank input axes.
 /// \details The diagnostic name remains the user-facing operation name while
 ///          the C++ type makes its reduction role explicit.
