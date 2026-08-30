@@ -49,6 +49,7 @@ struct Options
 struct ReferenceEnergy
 {
     std::string_view value;
+    std::string_view float32_tolerance;
     std::string_view tolerance;
     std::string_view float128_tolerance;
     std::string_view source;
@@ -117,11 +118,13 @@ struct ReferenceEnergy
 {
   if (sites == 4)
     return ReferenceEnergy{.value = "-1.6160254037844386467637231707529361834714026269051903140279034897259665084544",
+                           .float32_tolerance = "1e-6",
                            .tolerance = "1e-12",
                            .float128_tolerance = "1e-24",
                            .source = "exact analytic value"};
   if (sites == 20)
     return ReferenceEnergy{.value = "-8.682473334398985",
+                           .float32_tolerance = "1e-5",
                            .tolerance = "1e-10",
                            .float128_tolerance = "1e-10",
                            .source = "Matrix Product Toolkit mp-dmrg-2site, m=128"};
@@ -236,6 +239,7 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
       if (!reference) throw std::runtime_error("no reference energy is registered for the requested chain length");
       real_type const reference_value = uni20::parse_real<real_type>(reference->value);
       std::string_view tolerance = reference->tolerance;
+      if constexpr (std::same_as<real_type, uni20::float32>) tolerance = reference->float32_tolerance;
 #if UNI20_HAS_FLOAT128
       if constexpr (std::same_as<real_type, uni20::float128>) tolerance = reference->float128_tolerance;
 #endif

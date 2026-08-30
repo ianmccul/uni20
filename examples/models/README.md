@@ -35,6 +35,8 @@ energy convergence remain the controlling DMRG criteria.
 storage and arithmetic. This is useful for controlled comparisons with
 implementations that do not provide a real-scalar path.
 `--precision=fp32|fp64` selects `Real` independently; the default is `fp64`.
+Reference checks use precision-specific tolerances; the four-site fp32 real and
+complex paths are registered CTests with a `1e-6` analytic-energy tolerance.
 
 In an MPLAPACK-enabled build, `--precision=fp128` runs the same U(1)
 BlockTensor DMRG path with `uni20::float128` or
