@@ -82,6 +82,7 @@ template <KernelBackendSelector BackendSelector, uni20::RankedTensorView<2> Matr
            requires(MatrixTensor const& matrix) { uni20::norm(matrix); }
 [[nodiscard]] auto matrix_norm(BackendSelector&& selector, MatrixTensor const& matrix, MatrixNorm kind)
 {
+  // Reuse Tensor norm's established storage-preserving result type without evaluating it.
   using result_type = decltype(uni20::norm(matrix));
   result_type result;
   matrix_norm(std::forward<BackendSelector>(selector), result, matrix, kind);

@@ -59,7 +59,7 @@ template <class Output> using host_output_t = typename HostOutputType<Output>::t
 template <class Output, class Scalar> void write_host_output(Output& output, Scalar value)
 {
   if constexpr (uni20::MutableRankedMdspanLike<std::remove_cvref_t<Output>, 0>)
-    output.operator[]() = value;
+    output[] = value;
   else
     output = value;
 }

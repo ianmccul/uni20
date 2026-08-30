@@ -46,7 +46,8 @@ template <class MatrixMdspan> consteval bool matrix_norm_input_is_supported()
 {
   using matrix_type = std::remove_cvref_t<MatrixMdspan>;
   using scalar_type = typename matrix_type::value_type;
-  if constexpr (!uni20::RealOrComplex<scalar_type> || !detail::reduction_value_is_readable<MatrixMdspan>())
+  if constexpr (!uni20::RealOrComplex<scalar_type> ||
+                !uni20::linalg::detail::reduction_value_is_readable<MatrixMdspan>())
   {
     return false;
   }
@@ -72,7 +73,7 @@ template <class MatrixMdspan> auto matrix_norm(matrix_norm_op const& op, MatrixM
   if (op.kind == MatrixNorm::Frobenius)
   {
     result_type result{};
-    detail::reference_norm(result, matrix);
+    uni20::linalg::detail::reference_norm(result, matrix);
     return result;
   }
 
