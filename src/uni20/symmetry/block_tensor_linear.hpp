@@ -11,6 +11,7 @@
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/async/transform.hpp>
 #include <uni20/linalg/elementwise_functions.hpp>
+#include <uni20/mdspan/mdspec.hpp>
 #include <uni20/symmetry/block_tensor.hpp>
 #include <uni20/symmetry/block_tensor_concepts.hpp>
 #include <uni20/tensor/copy_into.hpp>
@@ -18,6 +19,7 @@
 #include <uni20/tensor/transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -184,6 +186,42 @@ template <class Block, class Scalar> void scale_block(Block&& block, Scalar cons
     uni20::transform_inplace(std::forward<Block>(block), linalg::scale{factor});
 }
 
+template <MutableStridedMdspecLike Span> [[nodiscard]] auto dense_diagonal_components(Span const& span)
+{
+  using span_type = std::remove_cvref_t<Span>;
+  using element_type = typename span_type::element_type;
+  using index_type = typename span_type::index_type;
+  using extents_type = stdex::dextents<index_type, 1>;
+  using layout_type = stdex::layout_stride;
+  using mapping_type = typename layout_type::template mapping<extents_type>;
+  using accessor_type = typename span_type::accessor_type;
+
+  index_type extent = index_type{1};
+  index_type stride = index_type{1};
+  if constexpr (span_type::rank() > 0)
+  {
+    extent = span.extent(0);
+    stride = span.stride(0);
+    for (std::size_t axis = 1; axis < span_type::rank(); ++axis)
+    {
+      extent = std::min(extent, span.extent(axis));
+      stride += span.stride(axis);
+    }
+  }
+  auto mapping = mapping_type{extents_type{extent}, std::array<index_type, 1>{stride}};
+  if constexpr (MdspanLike<span_type>)
+  {
+    using result_type = stdex::mdspan<element_type, extents_type, layout_type, accessor_type>;
+    return result_type{span.data_handle(), std::move(mapping), span.accessor()};
+  }
+  else
+  {
+    using result_type =
+        mdspec<element_type, extents_type, layout_type, accessor_type, typename span_type::data_descriptor_type>;
+    return result_type{span.data_descriptor(), std::move(mapping), span.accessor()};
+  }
+}
+
 template <class OutputBlock, class InputBlock, class Scalar>
 void assign_scale_block(OutputBlock&& output, Scalar const& factor, InputBlock&& input)
 {
@@ -192,8 +230,29 @@ void assign_scale_block(OutputBlock&& output, Scalar const& factor, InputBlock&&
   if constexpr (MutableDiagonalMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)>)
     uni20::assign_transform(output.backend_selector(), diagonal_components(output_span), linalg::scale{factor},
                             diagonal_components(input_span));
+  else if constexpr (MutableStridedMdspecLike<decltype(output_span)> && DiagonalMdspecLike<decltype(input_span)> &&
+                     requires { uni20::isfinite(factor); })
+  {
+    if (!uni20::isfinite(factor))
+    {
+      set_zero_block(output);
+      uni20::assign_transform(output.backend_selector(), dense_diagonal_components(output_span), linalg::scale{factor},
+                              diagonal_components(input_span));
+      return;
+    }
+    uni20::assign_transform(std::forward<OutputBlock>(output), linalg::scale{factor}, std::forward<InputBlock>(input));
+  }
   else
     uni20::assign_transform(std::forward<OutputBlock>(output), linalg::scale{factor}, std::forward<InputBlock>(input));
+}
+
+template <class Block> [[nodiscard]] auto norm_block_host(Block&& block)
+{
+  auto span = mdspec_of(block);
+  if constexpr (DiagonalMdspecLike<decltype(span)>)
+    return uni20::norm_host(block.backend_selector(), diagonal_components(span));
+  else
+    return uni20::norm_host(std::forward<Block>(block));
 }
 
 template <class OutputBlock, class LhsBlock, class RhsBlock>
@@ -669,7 +728,7 @@ template <BlockTensorView Tensor>
     detail::execute_linear_block_batch(detail::block_execution_policy_t<Tensor>{}, tensor.stored_block_count(),
                                        [&](std::size_t ordinal) {
                                          auto block = tensor.block_by_ordinal(ordinal);
-                                         partials[ordinal] = uni20::norm_host(block);
+                                         partials[ordinal] = detail::norm_block_host(block);
                                        });
   }
   else
@@ -677,7 +736,7 @@ template <BlockTensorView Tensor>
     for (std::size_t ordinal = 0; ordinal < tensor.stored_block_count(); ++ordinal)
     {
       auto read = tensor.async_block_by_ordinal(ordinal).read();
-      partials[ordinal] = uni20::norm_host(read.get_wait());
+      partials[ordinal] = detail::norm_block_host(read.get_wait());
     }
   }
 
