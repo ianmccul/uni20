@@ -19,7 +19,7 @@ The canonical real aliases are:
 
 `uni20::float128` is a configuration-dependent type. In the current MPLAPACK
 configuration it aliases `mplapack_binary128_t`, whose concrete spelling is
-selected by the installed MPLAPACK package. Code that is not gated by
+selected by the resolved MPLAPACK package. Code that is not gated by
 `UNI20_HAS_FLOAT128` must not name `uni20::float128`.
 
 Runtime-facing code should use `uni20::ScalarPrecision` and
@@ -32,11 +32,11 @@ runtime precision to `uni20::float32`, `uni20::float64`, or the conditional
 `uni20::configured_scalar_precision_choices()` expose the available set for
 help text, diagnostics, examples, and future language bindings.
 
-To enable this path, build MPLAPACK separately with its binary128 backend and
-then point Uni20 at the resulting CMake package. Uni20 deliberately does not
-download or build MPLAPACK as part of its own configure step. See
-[MPLAPACK Binary128 Setup](../linalg/mplapack_binary128.md) for the exact package
-build, install, Uni20 configure, and validation commands.
+To enable this path, configure with `UNI20_ENABLE_MPLAPACK=ON`. CMake prefers a
+compatible installed MPLAPACK 3.0.0 or newer package and otherwise fetches the
+pinned 3.0.0 release with only its binary128 backend enabled. See [MPLAPACK
+Binary128 Setup](../linalg/mplapack_binary128.md) for dependency selection,
+optional system-package, and validation commands.
 
 `uni20::complex<T>` is intentionally a type alias to `std::complex<T>`, not a
 replacement class. This keeps standard-library ABI, layout expectations, and

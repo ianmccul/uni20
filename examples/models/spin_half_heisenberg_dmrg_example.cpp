@@ -1,5 +1,7 @@
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
+#include <uni20/core/scalar_io.hpp>
+#include <uni20/core/scalar_precision.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/models/spin_half_heisenberg.hpp>
 #include <uni20/symmetry/block_tensor_storage.hpp>
@@ -9,9 +11,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <optional>
@@ -37,18 +37,20 @@ struct Options
     std::size_t sites = 4;
     std::size_t maximum_states = 16;
     std::size_t maximum_sweeps = 8;
-    double energy_tolerance = 1.0e-12;
+    std::string energy_tolerance = "1e-12";
     std::size_t local_matvecs = 4;
     std::size_t block_threads = 1;
     MeasurementMode measurements = MeasurementMode::off;
+    uni20::ScalarPrecision precision = uni20::ScalarPrecision::fp64;
     bool complex_scalar = false;
     bool check = false;
 };
 
 struct ReferenceEnergy
 {
-    double value;
-    double tolerance;
+    std::string_view value;
+    std::string_view tolerance;
+    std::string_view float128_tolerance;
     std::string_view source;
 };
 
@@ -67,15 +69,6 @@ struct ReferenceEnergy
   return result;
 }
 
-[[nodiscard]] auto parse_nonnegative_real(std::string_view value, std::string_view option) -> double
-{
-  double result = 0;
-  auto const [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
-  if (error != std::errc{} || end != value.data() + value.size() || !std::isfinite(result) || result < 0.0)
-    throw std::invalid_argument("invalid nonnegative value for " + std::string(option));
-  return result;
-}
-
 [[nodiscard]] auto parse_options(int argc, char** argv) -> Options
 {
   Options options;
@@ -89,7 +82,7 @@ struct ReferenceEnergy
     else if (auto const value = option_value(argument, "--max-sweeps="); !value.empty())
       options.maximum_sweeps = parse_size(value, "--max-sweeps");
     else if (auto const value = option_value(argument, "--energy-tol="); !value.empty())
-      options.energy_tolerance = parse_nonnegative_real(value, "--energy-tol");
+      options.energy_tolerance = value;
     else if (auto const value = option_value(argument, "--local-matvecs="); !value.empty())
       options.local_matvecs = parse_size(value, "--local-matvecs");
     else if (auto const value = option_value(argument, "--block-threads="); !value.empty())
@@ -100,6 +93,12 @@ struct ReferenceEnergy
       options.measurements = MeasurementMode::coarse;
     else if (auto const value = option_value(argument, "--measurements="); value == "detailed")
       options.measurements = MeasurementMode::detailed;
+    else if (auto const value = option_value(argument, "--precision="); !value.empty())
+    {
+      auto const precision = uni20::parse_scalar_precision(value);
+      if (!precision) throw std::invalid_argument("unknown precision: " + std::string(value));
+      options.precision = *precision;
+    }
     else if (auto const value = option_value(argument, "--scalar="); value == "real")
       options.complex_scalar = false;
     else if (auto const value = option_value(argument, "--scalar="); value == "complex")
@@ -117,11 +116,15 @@ struct ReferenceEnergy
 [[nodiscard]] auto reference_energy(std::size_t sites) -> std::optional<ReferenceEnergy>
 {
   if (sites == 4)
-    return ReferenceEnergy{
-        .value = -(3.0 + 2.0 * std::sqrt(3.0)) / 4.0, .tolerance = 1.0e-12, .source = "exact analytic value"};
+    return ReferenceEnergy{.value = "-1.6160254037844386467637231707529361834714026269051903140279034897259665084544",
+                           .tolerance = "1e-12",
+                           .float128_tolerance = "1e-24",
+                           .source = "exact analytic value"};
   if (sites == 20)
-    return ReferenceEnergy{
-        .value = -8.682473334398985, .tolerance = 1.0e-10, .source = "Matrix Product Toolkit mp-dmrg-2site, m=128"};
+    return ReferenceEnergy{.value = "-8.682473334398985",
+                           .tolerance = "1e-10",
+                           .float128_tolerance = "1e-10",
+                           .source = "Matrix Product Toolkit mp-dmrg-2site, m=128"};
   return std::nullopt;
 }
 
@@ -161,9 +164,9 @@ template <class Measurements> void print_performance_measurements(Measurements c
       maximum_finish_spread = std::max(maximum_finish_spread, batch.item_finish_spread);
       total_return_tail += batch.return_after_last_finish;
     }
-    std::cout << "SVD batch detail"
-              << "  batches=" << batches.size() << "  requested=" << requested_items << "  started=" << started_items
-              << "  completed=" << completed_items << "  peak-overlap=" << peak_concurrency
+    std::cout << "SVD batch detail" << "  batches=" << batches.size() << "  requested=" << requested_items
+              << "  started=" << started_items << "  completed=" << completed_items
+              << "  peak-overlap=" << peak_concurrency
               << "  item-total=" << std::chrono::duration<double>(total_item_duration).count()
               << "  max-item=" << std::chrono::duration<double>(maximum_item_duration).count()
               << "  max-finish-spread=" << std::chrono::duration<double>(maximum_finish_spread).count()
@@ -175,6 +178,8 @@ template <class Measurements> void print_performance_measurements(Measurements c
 
 template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
 {
+  using real_type = uni20::make_real_t<Scalar>;
+  using std::abs;
   using parallel_storage = uni20::ParallelPackedSparseBlockStorage<>;
   auto const local = uni20::models::make_spin_half_u1_site();
   auto mps = uni20::models::make_neel_product_mps<Scalar>(run.sites, local);
@@ -185,9 +190,9 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
   uni20::async::TbbScheduler scheduler{static_cast<int>(run.block_threads)};
   uni20::async::ScopedScheduler use_scheduler(&scheduler);
 
-  uni20::tensor_network::TwoSiteDmrgRunOptions<double> options;
+  uni20::tensor_network::TwoSiteDmrgRunOptions<real_type> options;
   options.maximum_sweeps = run.maximum_sweeps;
-  options.energy_tolerance = run.energy_tolerance;
+  options.energy_tolerance = uni20::parse_real<real_type>(run.energy_tolerance);
   options.bond_options.local_solver.matvec_iterations = run.local_matvecs;
   options.bond_options.truncation.maximum_retained_extent = run.maximum_states;
   auto execute = [&]<class Measurements>(Measurements& measurements) {
@@ -201,16 +206,17 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
     }();
     auto const elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
-    std::cout << std::setprecision(16);
     std::cout << "scalar=" << (uni20::Complex<Scalar> ? "complex" : "real") << '\n';
+    std::cout << "precision=" << uni20::scalar_precision_name(run.precision) << '\n';
     std::cout << "block-threads=" << run.block_threads << '\n';
     for (auto const& sweep : result.sweeps)
     {
       std::cout << "sweep " << sweep.sweep_index << "  "
                 << (sweep.direction == uni20::tensor_network::MpsSweepDirection::left_to_right ? "left-to-right"
                                                                                                : "right-to-left")
-                << "  energy=" << sweep.terminal_local_energy << "  max-m=" << sweep.maximum_bond_dimension
-                << "  max-discarded=" << sweep.maximum_discarded_weight << '\n';
+                << "  energy=" << uni20::format_real(sweep.terminal_local_energy)
+                << "  max-m=" << sweep.maximum_bond_dimension
+                << "  max-discarded=" << uni20::format_real(sweep.maximum_discarded_weight) << '\n';
     }
     std::cout << "converged=" << std::boolalpha << result.converged << "  elapsed=" << elapsed << " seconds\n";
     if constexpr (uni20::performance::measurement_level_v<Measurements> != uni20::performance::MeasurementLevel::none)
@@ -219,16 +225,22 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
     auto const reference = reference_energy(run.sites);
     if (reference)
     {
-      double const difference = result.sweeps.back().terminal_local_energy - reference->value;
-      std::cout << "reference=" << reference->value << "  difference=" << difference << "  source=" << reference->source
-                << '\n';
+      real_type const reference_value = uni20::parse_real<real_type>(reference->value);
+      real_type const difference = result.sweeps.back().terminal_local_energy - reference_value;
+      std::cout << "reference=" << uni20::format_real(reference_value)
+                << "  difference=" << uni20::format_real(difference) << "  source=" << reference->source << '\n';
     }
 
     if (run.check)
     {
       if (!reference) throw std::runtime_error("no reference energy is registered for the requested chain length");
+      real_type const reference_value = uni20::parse_real<real_type>(reference->value);
+      std::string_view tolerance = reference->tolerance;
+#if UNI20_HAS_FLOAT128
+      if constexpr (std::same_as<real_type, uni20::float128>) tolerance = reference->float128_tolerance;
+#endif
       if (!result.converged || !result.sweeps.back().terminal_energy_is_global ||
-          std::abs(result.sweeps.back().terminal_local_energy - reference->value) > reference->tolerance)
+          abs(result.sweeps.back().terminal_local_energy - reference_value) > uni20::parse_real<real_type>(tolerance))
         throw std::runtime_error("Heisenberg DMRG did not reach the registered reference energy");
     }
     return 0;
@@ -258,6 +270,8 @@ template <uni20::RealOrComplex Scalar> int run_example(Options const& run)
 int main(int argc, char** argv)
 {
   Options const options = parse_options(argc, argv);
-  if (options.complex_scalar) return run_example<uni20::complex<double>>(options);
-  return run_example<double>(options);
+  return uni20::visit_scalar_precision(options.precision, [&]<uni20::Real Real>() {
+    if (options.complex_scalar) return run_example<uni20::complex<Real>>(options);
+    return run_example<Real>(options);
+  });
 }

@@ -107,22 +107,18 @@ option(UNI20_BUILD_PYTHON         "Build the Python bindings" ON)
 option(UNI20_BUILD_EXAMPLES       "Build the example programs" ON)
 option(UNI20_ENABLE_CUDA          "Enable CUDA backend support" OFF)
 option(UNI20_ENABLE_MPI           "Enable MPI support" OFF)
-option(UNI20_ENABLE_MPLAPACK      "Enable optional MPLAPACK binary128 integration probes" OFF)
+option(UNI20_ENABLE_MPLAPACK      "Enable the optional MPLAPACK binary128 backend" OFF)
+if(UNI20_ENABLE_MPLAPACK)
+  uni20_dependency_option(UNI20_USE_SYSTEM_MPLAPACK "MPLAPACK library" AUTO)
+endif()
 set(UNI20_HAS_FLOAT128 OFF)
 set(UNI20_FLOAT128_PROVIDER_MPLAPACK OFF)
-foreach(_uni20_removed_mplapack_cache_var IN ITEMS
-    UNI20_USE_SYSTEM_MPLAPACK
-    UNI20_MPLAPACK_GIT_REPOSITORY
-    UNI20_MPLAPACK_GIT_TAG
-    UNI20_MPLAPACK_SOURCE_DIR
-    UNI20_MPLAPACK_VERSION)
-  unset(${_uni20_removed_mplapack_cache_var} CACHE)
-endforeach()
 if(NOT UNI20_ENABLE_MPLAPACK)
   foreach(_uni20_disabled_mplapack_cache_var IN ITEMS
       UNI20_MPLAPACK_DIR
       UNI20_MPLAPACK_SOURCE
       UNI20_MPLAPACK_TARGET
+      UNI20_MPLAPACK_VERSION
       UNI20_DETECTED_MPLAPACK
       UNI20_MPLAPACK_BINARY128_HEADERS_COMPATIBLE)
     unset(${_uni20_disabled_mplapack_cache_var} CACHE)
@@ -168,7 +164,7 @@ if(UNI20_DOCS_WEB)
   set(UNI20_BUILD_PYTHON OFF CACHE BOOL "Build the Python bindings" FORCE)
   set(UNI20_BUILD_ASM OFF CACHE BOOL "Build stand-alone assembly dumps for snippets in asm/" FORCE)
   set(UNI20_ENABLE_CUDA OFF CACHE BOOL "Enable CUDA backend support" FORCE)
-  set(UNI20_ENABLE_MPLAPACK OFF CACHE BOOL "Enable optional MPLAPACK binary128 integration probes" FORCE)
+  set(UNI20_ENABLE_MPLAPACK OFF CACHE BOOL "Enable the optional MPLAPACK binary128 backend" FORCE)
 endif()
 
 # The nanobind extension links Uni20's static libraries into a shared module.
@@ -435,42 +431,54 @@ if(NOT UNI20_DOCS_WEB)
   include(FetchContent)
 
   if(UNI20_ENABLE_MPLAPACK)
-    find_package(mplapack QUIET CONFIG)
-    if(NOT mplapack_FOUND OR NOT TARGET mplapack::mpblas_binary128 OR NOT TARGET mplapack::mplapack_binary128)
+    uni20_add_dependency(
+      NAME mplapack
+      VERSION 3.0.0
+      TARGET mplapack::mplapack_binary128
+      REPO https://github.com/nakatamaho/mplapack.git
+      TAG v3.0.0
+      COMPONENTS binary128
+      SETTINGS
+        "MPLAPACK_CXX_STANDARD=23"
+        "MPLAPACK_CXX_EXTENSIONS=ON"
+        "MPLAPACK_ENABLE_DOUBLE=OFF"
+        "MPLAPACK_ENABLE_MPFR=OFF"
+        "MPLAPACK_ENABLE_GMP=OFF"
+        "MPLAPACK_ENABLE_QD=OFF"
+        "MPLAPACK_ENABLE_DD=OFF"
+        "MPLAPACK_ENABLE_BINARY80=OFF"
+        "MPLAPACK_ENABLE_BINARY128=ON"
+        "MPLAPACK_ENABLE_OPT=OFF"
+        "MPLAPACK_ENABLE_CUDA=OFF"
+        "MPLAPACK_ENABLE_OPENCL=OFF"
+        "MPLAPACK_BUILD_EXAMPLES=OFF"
+        "MPLAPACK_BUILD_TESTS=OFF"
+        "MPLAPACK_BUILD_BENCHMARKS=OFF"
+    )
+    if(NOT TARGET mplapack::mplapack_binary128)
       message(FATAL_ERROR
-        "UNI20_ENABLE_MPLAPACK=ON requires an externally configured MPLAPACK binary128 package.\n"
-        "The package must provide targets mplapack::mpblas_binary128 and mplapack::mplapack_binary128.\n"
-        "See docs/linalg/mplapack_binary128.md for the full setup and validation workflow.\n"
-        "\n"
-        "Build MPLAPACK separately, for example:\n"
-        "  cmake -S /path/to/mplapack -B /path/to/mplapack-build-binary128 \\\n"
-        "    -DCMAKE_BUILD_TYPE=Release \\\n"
-        "    -DMPLAPACK_CXX_STANDARD=23 \\\n"
-        "    -DMPLAPACK_CXX_EXTENSIONS=ON \\\n"
-        "    -DMPLAPACK_ENABLE_DOUBLE=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_MPFR=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_GMP=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_QD=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_DD=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_BINARY80=OFF \\\n"
-        "    -DMPLAPACK_ENABLE_BINARY128=ON \\\n"
-        "    -DMPLAPACK_BUILD_EXAMPLES=OFF \\\n"
-        "    -DMPLAPACK_BUILD_TESTS=OFF \\\n"
-        "    -DMPLAPACK_BUILD_BENCHMARKS=OFF\n"
-        "  cmake --build /path/to/mplapack-build-binary128 --parallel\n"
-        "  cmake --install /path/to/mplapack-build-binary128 --prefix /path/to/mplapack-install\n"
-        "\n"
-        "Then configure Uni20 with either:\n"
-        "  cmake -S . -B /path/to/uni20-build -DUNI20_ENABLE_MPLAPACK=ON -Dmplapack_DIR=/path/to/mplapack-build-binary128\n"
-        "or, after installing MPLAPACK:\n"
-        "  cmake -S . -B /path/to/uni20-build -DUNI20_ENABLE_MPLAPACK=ON -DCMAKE_PREFIX_PATH=/path/to/mplapack-install")
+        "UNI20_ENABLE_MPLAPACK=ON requires MPLAPACK >= 3.0.0 with its binary128 component.\n"
+        "The package must provide target mplapack::mplapack_binary128.\n"
+        "See docs/linalg/mplapack_binary128.md for setup and validation details.")
     endif()
 
     include(CheckCXXSourceCompiles)
     set(_uni20_saved_try_compile_target_type "${CMAKE_TRY_COMPILE_TARGET_TYPE}")
+    set(_uni20_saved_required_definitions "${CMAKE_REQUIRED_DEFINITIONS}")
+    set(_uni20_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
     set(_uni20_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
     set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-    set(CMAKE_REQUIRED_LIBRARIES mplapack::mpblas_binary128 mplapack::mplapack_binary128)
+    if(UNI20_MPLAPACK_SOURCE STREQUAL "fetched")
+      get_target_property(_uni20_mplapack_binary128_target mplapack::mplapack_binary128 ALIASED_TARGET)
+      get_target_property(_uni20_mplapack_source_dir ${_uni20_mplapack_binary128_target} SOURCE_DIR)
+      get_target_property(_uni20_mplapack_binary_dir ${_uni20_mplapack_binary128_target} BINARY_DIR)
+      set(CMAKE_REQUIRED_DEFINITIONS -DMPLAPACK_BUILD_WITH_BINARY128)
+      set(CMAKE_REQUIRED_INCLUDES
+          "${_uni20_mplapack_binary_dir}/include"
+          "${_uni20_mplapack_source_dir}/include")
+    else()
+      set(CMAKE_REQUIRED_LIBRARIES mplapack::mplapack_binary128)
+    endif()
     unset(UNI20_MPLAPACK_BINARY128_HEADERS_COMPATIBLE CACHE)
     check_cxx_source_compiles(
       [[
@@ -502,28 +510,26 @@ if(NOT UNI20_DOCS_WEB)
         }
       ]]
       UNI20_MPLAPACK_BINARY128_HEADERS_COMPATIBLE)
+    set(CMAKE_REQUIRED_DEFINITIONS "${_uni20_saved_required_definitions}")
+    set(CMAKE_REQUIRED_INCLUDES "${_uni20_saved_required_includes}")
     set(CMAKE_REQUIRED_LIBRARIES "${_uni20_saved_required_libraries}")
     set(CMAKE_TRY_COMPILE_TARGET_TYPE "${_uni20_saved_try_compile_target_type}")
+    unset(_uni20_saved_required_definitions)
+    unset(_uni20_saved_required_includes)
     unset(_uni20_saved_required_libraries)
     unset(_uni20_saved_try_compile_target_type)
+    unset(_uni20_mplapack_binary128_target)
+    unset(_uni20_mplapack_binary_dir)
+    unset(_uni20_mplapack_source_dir)
     if(NOT UNI20_MPLAPACK_BINARY128_HEADERS_COMPATIBLE)
       message(FATAL_ERROR
-        "The found MPLAPACK package is not compatible with Uni20's C++23 binary128 build.\n"
-        "Build MPLAPACK separately with GNU++23, apply the local CMake detector patch if needed,\n"
-        "and point Uni20 at that build or install prefix. See docs/linalg/mplapack_binary128.md.")
+        "The resolved MPLAPACK package is not compatible with Uni20's C++23 binary128 build.\n"
+        "See docs/linalg/mplapack_binary128.md for supported configuration details.")
     endif()
 
-    set(UNI20_MPLAPACK_SOURCE "package" CACHE STRING "Source type for mplapack" FORCE)
-    set(UNI20_MPLAPACK_TARGET "mplapack::mplapack_binary128" CACHE STRING "CMake target name for mplapack" FORCE)
-    if(DEFINED mplapack_DIR)
-      set(UNI20_MPLAPACK_DIR "${mplapack_DIR}" CACHE PATH "Install or build directory for mplapack" FORCE)
-      set(UNI20_DETECTED_MPLAPACK "Found via ${mplapack_DIR}" CACHE STRING "Found MPLAPACK package" FORCE)
-    else()
-      set(UNI20_DETECTED_MPLAPACK "Found package" CACHE STRING "Found MPLAPACK package" FORCE)
-    endif()
     set(UNI20_HAS_FLOAT128 ON)
     set(UNI20_FLOAT128_PROVIDER_MPLAPACK ON)
-    message(STATUS "MPLAPACK binary128 backend enabled: ${UNI20_DETECTED_MPLAPACK}")
+    message(STATUS "MPLAPACK binary128 backend enabled (${UNI20_MPLAPACK_SOURCE})")
   endif()
 
   uni20_add_dependency(
@@ -684,7 +690,7 @@ if(NOT UNI20_DOCS_WEB)
   add_library(uni20_deps INTERFACE)
   target_link_libraries(uni20_deps INTERFACE fmt::fmt)
   if(UNI20_ENABLE_MPLAPACK)
-    target_link_libraries(uni20_deps INTERFACE mplapack::mpblas_binary128 mplapack::mplapack_binary128)
+    target_link_libraries(uni20_deps INTERFACE mplapack::mplapack_binary128)
   endif()
 
   # Add subdirectories
