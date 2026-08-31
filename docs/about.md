@@ -1,6 +1,6 @@
 # About Uni20
 
-**Status:** current capabilities overview, updated 2026-08.
+**Status:** current capabilities overview, updated 2026-09.
 
 Uni20 is a C++23 tensor-network research library built around three ideas:
 
@@ -10,11 +10,11 @@ Uni20 is a C++23 tensor-network research library built around three ideas:
    survive every lowering step.
 
 The project is still in active design and does not promise a stable public API.
-It now has several complete vertical slices, however, rather than only isolated
-prototypes. Dense tensor operations can run through ordered CPU, BLAS, and
-LAPACK backends; the same operations can be scheduled over `Async<Tensor>`
-values; and runnable examples exercise those paths with oneTBB and Uni20's
-presentation and diagnostic layers.
+It now has several connected vertical slices, however, rather than only
+isolated prototypes. Dense tensor operations run through ordered CPU, BLAS,
+LAPACK, CUDA, cuBLAS, and cuSOLVER backends; the same operation surface can be
+scheduled over `Async<Tensor>` values; and the first finite U(1) two-site DMRG
+calculation runs on CPU or with its working state resident on one CUDA device.
 
 ## Current Capabilities
 
@@ -26,18 +26,18 @@ guides define the exact contracts.
 |---|---|
 | Dense tensors | Implemented owning `Tensor` types with compile-time rank, runtime extents, column-major, row-major, and strided layouts, generated tensors, lazy conjugation, explicit materialization, reshape, and variadic elementwise overwrite/update operations. |
 | Dense backend dispatch | Implemented operation-value dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, callable-carrying elementwise operations, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
-| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, exact and truncating SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
+| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, reductions and matrix norms, contraction, GEMM, GEMV, matrix initialization and exponential, dense solve, QR/LQ, exact and truncating SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
 | Async runtime | Implemented `Async<T>`, epoch-ordered read/write buffers, exception and cancellation propagation, host `DebugScheduler`/`TbbScheduler`/`TbbNumaScheduler`, unified host/multi-device `DebugCudaScheduler` and `TbbCudaScheduler`, scheduler-aware waits, task-registry diagnostics, stacktraces where available, and Graphviz DAG snapshots. |
 | Async tensor operations | Implemented lifetime-safe aliases; preserving and consuming reshape/materialization; copy, transform, contraction, reduction, matrix product, matrix initialization, matrix exponential, matrix norm, and dense solve wrappers; and preserving or storage-consuming QR, LQ, self-adjoint `eigh`, exact SVD, and truncating SVD with independent async outputs. |
 | Krylov algorithms | Implemented matrix-free symmetric/Hermitian Lanczos, nonsymmetric Arnoldi, generalized problems, Krylov exponential action, and an independent Taylor exponential-action reference. Projected dense work lowers through Uni20 linalg dispatch. |
 | Scalar support | `float32`, `float64`, real and complex paths are first-class. Configured MPLAPACK builds add binary128 probes and selected dense/Krylov paths. |
 | Presentation and diagnostics | Implemented semantic reports, terminal/plain/ASCII rendering, width-aware tables, mdspan previews, structured kernel errors, source locations, and optional stacktrace formatting. |
 | Reverse-mode AD | Async value-level `Var<T>` and `ReverseValue<T>` foundations are implemented and tested. Tensor linalg differentiation is not yet wired through the operation layer. |
-| Symmetry and block sparsity | Implemented bosonic U(1) `BlockTensor` host slice with typed domain/codomain spaces, sparse and packed block storage, mapped permutation/repartition views, structure-preserving linear operations, adjacent contraction, diagonal-block storage, staged block SVD, and matrix-free Krylov adaptation. CUDA, MPI, complete storage, and broader symmetry categories remain future work. |
+| Symmetry and block sparsity | Implemented bosonic Abelian U(1) `BlockTensor` with typed domain/codomain spaces, sparse and complete block patterns, separate and packed host storage, packed CUDA storage, mapped permutation/repartition views, structure-preserving linear operations, generalized adjacent contraction, diagonal-block storage, staged per-charge block SVD and truncation, and matrix-free Krylov adaptation. MPI placement and broader symmetry categories remain future work. |
 | Python | Nanobind smoke bindings and build metadata are implemented. Tensor operations, async values, packaging, and notebook display are future work. |
-| CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, stream and provider-resource awaiters, unified debug/oneTBB host/multi-device task schedulers, `CudaTensor` storage, and blocking or coroutine-aware cuBLAS matrix-product lowering are implemented. General CUDA Tensor kernel coverage, cuSOLVER operations, and distributed tensor execution remain future work. |
+| CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, completion ledgers, stream and provider-handle pools, unified debug/oneTBB host/multi-device task schedulers, `CudaTensor`, reference elementwise kernels, cuBLAS lowering, and cuSOLVER SVD are implemented. A single-device resident U(1) DMRG path exercises the stack. Multi-GPU placement, MPI communication, and broader CUDA kernel coverage remain future work. |
 
-## The Working Vertical Slice
+## Working Vertical Slices
 
 A synchronous dense tensor operation follows this path:
 
@@ -93,6 +93,24 @@ Backend operation entry points see normalized mdspecs, and their leaf kernels
 see mdspans resolved under the appropriate execution-domain leases rather than
 Tensor or Async objects.
 
+The finite DMRG path composes those lower layers without flattening its U(1)
+structure:
+
+```text
+finite MPS, MPO, and directional environment cache
+  -> legal BlockTensor contraction worklists
+  -> matrix-free effective-Hamiltonian applications
+  -> fixed-work local Lanczos solve
+  -> staged per-charge SVD and global state selection
+  -> directional two-site replacement and environment refresh
+```
+
+The host path uses block-level oneTBB scheduling around single-threaded dense
+providers. The CUDA path retains MPS sites, environments, centers, Krylov
+vectors, and SVD factors in packed device storage while lowering dense block
+work through CUDA, cuBLAS, and cuSOLVER. Compact MPO coefficients and singular
+value selection metadata remain on the host.
+
 ## Examples That Exercise Real Paths
 
 These programs are built from `examples/CMakeLists.txt` and are also used as
@@ -119,6 +137,15 @@ testable integration slices:
 - `cuda_hello_world_example`: CUDA build/runtime discovery, visible-device
   capabilities, scoped process-wide initialization, and per-device resource
   smoke checks.
+- `block_tensor_example`, `block_tensor_product_state_example`, and
+  `block_tensor_aklt_example`: construction and contraction of symmetry-aware
+  tensors without dense projection.
+- `block_tensor_svd_truncation_example` and
+  `block_tensor_svd_nullspace_example`: staged sector-preserving decomposition,
+  selection, and independent materialization of kept or null-space factors.
+- `spin_half_heisenberg_dmrg_example`: finite U(1) two-site DMRG on CPU or a
+  single resident CUDA device, including exact small-chain checks and larger
+  reproducible benchmark controls.
 
 ## Design Boundaries
 
@@ -137,10 +164,10 @@ a complete tensor-network application suite. In particular:
 - There is no implicit host fallback for future device tensors and no implicit
   dense fallback for symmetry-aware tensors.
 - Python validates only the extension and build-information boundary today.
-- The first pure-Uni20 U(1) length-two local-Hamiltonian/Lanczos/block-SVD path
-  is implemented. The `tensorcontraction-integration` branch remains the
-  functional MPI+CUDA+U(1) finite-DMRG reference; environments, sweeps,
-  resident CUDA, and distributed execution are not yet rebuilt on `main`.
+- The pure-Uni20 U(1) finite two-site DMRG path is implemented for host and
+  single-device resident-CUDA execution. Multi-GPU placement, MPI-distributed
+  block ownership, broader symmetry categories, general initial-state
+  canonicalization, and later DMRG algorithm families remain research work.
 
 ## Where to Continue
 

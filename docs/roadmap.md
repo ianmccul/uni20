@@ -1,6 +1,6 @@
 # Uni20 Roadmap
 
-**Status:** current planning baseline, updated 2026-08.
+**Status:** current planning baseline, updated 2026-09.
 
 This document describes what remains after the dense Tensor, kernel-dispatch,
 Krylov, and first async Tensor vertical slices came together. For a description
@@ -197,8 +197,9 @@ hierarchy.
   layout/striding semantics.
 - Extend the owner-retaining async alias model to slices and future structural
   views without allowing descriptors to retarget accidentally.
-- Add async copy/materialization and reshape operations where their overwrite or
-  value semantics are unambiguous.
+- Extend the implemented async copy/materialization and reshape operations to
+  future structural views as their overwrite, alias, and consumption semantics
+  become explicit.
 - Keep semantic accessor views such as conjugation read-only; treat writable
   component views such as future `real`/`imag` as true structural slices.
 - Introduce subrange dependency tracking only if whole-owner epoch ordering
@@ -225,44 +226,44 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
 
 ### 4. Extend the symmetry-aware block tensor
 
-The first bosonic U(1) immediate-host BlockTensor path is implemented, including
-sparse storage, mapped views, linear operations, adjacent contraction, staged
-block SVD, and matrix-free Krylov vector algebra. Remaining work is to extend
-that path without weakening its symmetry metadata contract.
+The bosonic Abelian U(1) BlockTensor path now includes sparse and complete block
+patterns, separate and packed host storage, packed CUDA storage, mapped views,
+linear operations, generalized adjacent contraction, staged block SVD, and
+matrix-free Krylov vector algebra. Remaining work must extend that path without
+weakening its symmetry metadata contract.
 
-- Add complete storage, the remaining planned space kinds, and broader
-  operation coverage.
-- Extend block worklists and placement records to CUDA and MPI storage.
+- Broaden operation coverage and introduce specialized packed/coalesced storage
+  only where it improves a measured block workload.
+- Extend the implemented host and single-device CUDA worklists and placement
+  records to multi-device and MPI storage.
 - Preserve quantum numbers, local spaces, orientations, and logical block keys
   through every new backend lowering.
 - Keep any dense projection explicitly diagnostic and prevent it from feeding
   back into the symmetry-aware calculation.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
   reference path.
-- Extend the implemented immediate-host staged block SVD while preserving its
-  one-matrix-per-charge factorization, stable metadata-bearing singular-state
-  selections, exact selected bond spaces, and independent kept, discarded, and
-  null-space materializations.
-- The implemented block SVD parallelizes independent charge sectors with
-  descending estimated-cost scheduling. Immediate storage uses single-threaded
-  LAPACK inside each task. The first packed CUDA bridge transfers blocks to a
-  host mirror and runs supported tall real sectors through independent blocking
-  cuSOLVER calls. Next, keep sector assembly and selected-factor population in
-  device storage after the output structure and packed allocation have been
-  established.
+- Extend the staged block SVD while preserving its one-matrix-per-charge
+  factorization, stable metadata-bearing singular-state selections, exact
+  selected bond spaces, and independent kept, discarded, and null-space
+  materializations.
+- The implemented block SVD schedules independent host charge sectors by
+  descending estimated cost and keeps supported real CUDA sector matrices,
+  factors, and selected outputs resident around cuSOLVER. Next, broaden CUDA
+  scalar/shape coverage and make provider completion asynchronous without
+  changing the selection contract.
 
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
 and [Block Coalescing](symmetry/block_coalescing.md).
 
-### 5. Rebuild the complete DMRG vertical slice in pure Uni20
+### 5. Extend the pure-Uni20 DMRG vertical slice
 
-The `tensorcontraction-integration` branch is a functional reference, not
-discarded prototype work. It demonstrates dense and U(1) two-site DMRG,
-matrix-free Lanczos, block-sparse environments and centers, truncating SVD,
-resident CUDA execution, and MPI-aware block placement. The goal is behavioral
-and performance parity through Uni20's current architecture without retaining
-the external TensorContraction implementation.
+Pure Uni20 now implements finite bosonic U(1) two-site DMRG, matrix-free
+fixed-work Lanczos, block-sparse environments and centers, truncating block
+SVD, and host or single-device resident-CUDA sweeps. The historical
+`tensorcontraction-integration` branch remains a functional MPI and performance
+reference. The goal is to extend capability and scale through Uni20's current
+architecture without retaining the external TensorContraction implementation.
 
 - Extend the implemented dispatched sparse R/A/B/C plan and host/CUDA
   right-first `(B,C)` reuse with backend-aware left-first/hybrid selection and
@@ -282,10 +283,10 @@ the external TensorContraction implementation.
   Fermi-Hubbard numerical checks and sweep diagnostics.
 - Extend the kernel-dispatched effective-Hamiltonian R/A/B/C operation through
   placement, device-completion, and communication abstractions.
-- Extend the implemented resident CUDA local eigensolver through center and
-  environment construction, block SVD, and MPS installation; recover MPI
-  execution incrementally using captured R/A/B/C fixtures and branch benchmark
-  results as regression evidence.
+- Extend the resident CUDA center, environment, local eigensolver, block-SVD,
+  and MPS-installation path to multi-device placement; recover MPI execution
+  incrementally using captured R/A/B/C fixtures and branch benchmark results as
+  regression evidence.
 - Treat successful parity as migration of capability, not a source-level port:
   reuse algorithms and validated conventions while replacing the bridge's
   scheduler, ownership, storage, and backend boundaries.
@@ -311,8 +312,9 @@ motivate these constraints.
   runtime location such as CUDA device ordinal or MPI rank.
 - Keep CUDA events and buffer completion ledgers as backend completion evidence;
   `EpochQueue` remains the causal ordering model for `Async<T>`.
-- Add explicit host/device and cross-device transfer operations without hiding
-  synchronization or movement inside ordinary backend fallback.
+- Extend the explicit host/device transfer operations to peer-device and
+  distributed movement without hiding synchronization inside ordinary backend
+  fallback.
 - Add storage-driven initial scheduler admission after its ownership and
   process-wide scheduler-lifetime contract is defined.
 - Keep backend selector state immutable unless a concrete stream,

@@ -1,11 +1,11 @@
 # Tensor-Network Documentation
 
-This directory combines current tensor-network design constraints, the first
-pure-Uni20 BlockTensor DMRG-shaped path, and the functional reference
-implementation on the historical `tensorcontraction-integration` branch. The
-reference branch still defines later finite-sweep, CUDA, MPI, and performance
-targets; new implementation work uses the current Tensor, symmetry, dispatch,
-Async, CUDA, and distributed-execution architecture.
+This directory combines current tensor-network design constraints, the
+pure-Uni20 finite BlockTensor DMRG path, and retained findings from the
+historical `tensorcontraction-integration` branch. Host and single-device
+resident-CUDA U(1) sweeps now use the current Tensor, symmetry, dispatch,
+Async, and CUDA architecture. The reference branch remains useful for MPI and
+later distributed-execution targets rather than defining current capability.
 
 ## Current Main-Branch Foundations
 
@@ -29,8 +29,9 @@ Async, CUDA, and distributed-execution architecture.
   ground-state solving, mutation boundaries, traversal order, and incremental
   environment refresh.
 - [DMRG Performance Baselines](dmrg_performance_baselines.md) records the first
-  CPU scaling measurements, external orientation points, benchmarking rules,
-  implemented per-sector SVD parallelism, and the next materialization checkpoint.
+  CPU and resident-CUDA scaling measurements, external orientation points,
+  benchmarking rules, block scheduling, provider-resource conclusions, and
+  implemented per-sector SVD parallelism.
 - [Spin-Half Model Builders](models.md) specifies the implemented U(1) local
   space, normalized Néel product MPS, and reduced-boundary open Heisenberg MPO.
 
@@ -49,19 +50,17 @@ Async, CUDA, and distributed-execution architecture.
 - [R/A/B/C Lanczos Fixtures](rabc_lanczos_fixtures.md) records the capture and
   replay workflow used to preserve numerical and performance evidence.
 
-The resident CUDA/MPI R/A/B/C fixture executors remain runnable only on the
-integration branch. Pure Uni20 now implements immediate-host directional
-environment updates, validated finite MPS/MPO owners, directional environment
-caches, a fixed-center sparse R/A/B/C compiler and dispatched host executor, a
-matrix-free Krylov solve, selected block-SVD pair replacement, directional
-two-site traversal, and an alternating terminal-energy convergence driver. The
-remaining goal includes
-post-truncation measurement, general initial-state canonicalization, resident
-CUDA execution, MPI placement, and full benchmark integration without
-retaining the external TensorContraction code lineage. The integration branch's
-measured behavior feeds the
-[architecture](../architecture/) and [symmetry](../symmetry/) designs and
-supplies regression targets for that work.
+The MPI R/A/B/C fixture executors remain runnable only on the integration
+branch. Pure Uni20 now implements validated finite MPS/MPO owners, directional
+environment caches, a sparse R/A/B/C compiler and dispatched host/CUDA
+executor, matrix-free local Krylov solves, selected block-SVD pair replacement,
+directional two-site traversal, alternating terminal-energy convergence, and
+resident single-device CUDA storage throughout the working state. The
+remaining program includes post-truncation measurements, general initial-state
+canonicalization, broader models and symmetries, multi-GPU placement, MPI
+distribution, and continued performance work without retaining the external
+TensorContraction code lineage. The integration branch's measured behavior
+continues to supply design constraints and regression targets.
 
 Relevant current source foundations are the
 [dense Tensor layer](../../src/uni20/tensor/),

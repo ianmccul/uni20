@@ -43,8 +43,8 @@ rather than silently choosing one source.
 | Linear algebra | [Linear algebra docs](linalg/) | Mdspan lowering, BLAS/LAPACK adapters, dense operation dispatch, and MPLAPACK |
 | Async and AD | [Async docs](async/) | `Async<T>`, epochs, buffers, schedulers, exceptions, DAG diagnostics, Tensor kernels, and value-level reverse AD |
 | Krylov | [Krylov docs](krylov/) | Solvers, defaults, convergence, exponential estimators, precision validation, and fixtures |
-| Symmetry | [Symmetry docs](symmetry/) | Quantum numbers and future symmetry-aware block-sparse Tensor design |
-| Tensor networks | [Tensor-network docs](tensor_network/) | Sparse operators, models, finite MPS foundations, and TensorContraction integration findings |
+| Symmetry | [Symmetry docs](symmetry/) | Quantum numbers, spaces, BlockTensor storage and views, block operations, and staged SVD |
+| Tensor networks | [Tensor-network docs](tensor_network/) | Sparse operators, finite MPS/MPO, CPU/CUDA DMRG, performance baselines, and integration findings |
 | Backends | [Backend docs](backends/) | CUDA and MPI architecture, platform constraints, runtime design, and background surveys |
 | Diagnostics | [Diagnostics docs](diagnostics/) | Presentation, display, trace diagnostics, logging plans, and Graphviz |
 | Python | [Python docs](python/) | Current smoke bindings, binding constraints, and future dtype/presentation policy |
@@ -68,6 +68,9 @@ rather than silently choosing one source.
 - [CUDA Runtime Foundation](backends/cuda/runtime.md),
   [CUDA Buffers](backends/cuda/buffers.md), and the
   [CUDA hello-world example](../examples/cuda/)
+- [BlockTensor Design](symmetry/block_tensor.md),
+  [Two-Site DMRG](tensor_network/two_site_dmrg_vertical_slice.md), and
+  [DMRG Performance Baselines](tensor_network/dmrg_performance_baselines.md)
 
 ## Generated API Documentation
 

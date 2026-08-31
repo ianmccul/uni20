@@ -22,6 +22,7 @@ graph TD
         Krylov[Matrix-free Krylov algorithms]
         Symmetry[QNum, U1, and BlockSpace foundations]
         BlockTensor[Symmetry-aware BlockTensor]
+        Dmrg[Finite two-site DMRG]
     end
 
     subgraph Execution[Execution and diagnostics]
@@ -54,6 +55,8 @@ graph TD
     TensorOps -.-> Distributed
     Krylov --> TensorOps
     Krylov --> Dispatch
+    Dmrg --> BlockTensor
+    Dmrg --> Krylov
 
     AsyncOps --> Async
     AsyncOps --> TensorOps
@@ -68,18 +71,16 @@ graph TD
     Mdspan --> Cpu
     Mdspan --> Blas
     Mdspan --> Lapack
-    Mdspan -.-> Cuda
+    Mdspan --> Cuda
     Distributed -.-> Dispatch
 
-    Symmetry -.-> BlockTensor
-    BlockTensor -.-> TensorOps
-    BlockTensor -.-> AsyncOps
+    Symmetry --> BlockTensor
+    BlockTensor --> TensorOps
+    BlockTensor --> Async
     BlockTensor -.-> Distributed
 
     style PyTensor stroke-dasharray: 5 5
     style TensorAD stroke-dasharray: 5 5
-    style BlockTensor stroke-dasharray: 5 5
-    style Cuda stroke-dasharray: 5 5
     style Distributed stroke-dasharray: 5 5
 ```
 
@@ -132,15 +133,19 @@ than a private dense backend.
   CUDA execution; `TbbCudaScheduler` provides parallel unified host and
   multi-device routing through a host arena and per-device CUDA arenas.
   Tensor-storage-driven scheduler selection remains future work.
-- Async matrix products, Async self-adjoint `eigh`, owner-retaining conjugation,
-  and owner-retaining reshape aliases are implemented.
-- CPU reference, BLAS, and initial LAPACK dispatch paths are active.
+- The dense operation surface has Async wrappers for fixed-output, allocating,
+  consuming, and multi-output operations where those ownership contracts are
+  defined.
+- CPU reference, BLAS, LAPACK, compiled CUDA, cuBLAS, and cuSOLVER dispatch
+  paths are active, with operation-specific coverage.
 - `Var<T>` and `ReverseValue<T>` provide async value-level reverse-mode
   foundations; Tensor linalg rules remain future work.
 - Python currently exposes smoke functionality and build information rather
   than Tensor operations.
-- CUDA/cuSOLVER, distributed execution, and the symmetry-aware `BlockTensor`
-  remain incomplete.
+- Bosonic Abelian U(1) `BlockTensor`, finite two-site DMRG, and single-device
+  resident-CUDA execution are implemented as connected research vertical
+  slices. Broader symmetries, multi-GPU placement, MPI communication, and
+  production-scale algorithm coverage remain incomplete.
 
 See [About Uni20](../about.md) for the capability overview,
 [Roadmap](../roadmap.md) for the implementation priorities, and
