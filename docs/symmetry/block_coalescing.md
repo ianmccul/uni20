@@ -4,8 +4,8 @@
 
 This is a draft design note. It records the intended design for coalescing
 block-sparse sub-blocks into larger kernel operations, to reduce kernel/launch
-count without introducing structural zeros and without dropping symmetry
-metadata. It is design direction, not current implemented behavior.
+count while retaining sector identity and avoiding structural zeros. It is
+design direction, not current implemented behavior.
 
 Related notes:
 
@@ -23,9 +23,9 @@ roughly **half the kernel launches carry near-zero flops** (the small-block,
 high-connectivity "tail"), and that fraction does not shrink as bond dimension `m`
 grows. Tiny GEMMs are **launch-bound**, so the most fundamental remedy is to issue
 fewer, larger kernels. Coalescing along a **single axis** does this with **no
-structural zeros** and full preservation of symmetry: it is a kernel-execution
-lowering expressed as wider `mdspan` views over the same buffer storage, with the
-individual blocks still tracked so results scatter back to the correct sectors.
+structural zeros**: it is a kernel-execution lowering expressed as wider
+`mdspan` views over the same buffer storage, with each individual block retaining
+its sector identity so results map back to the correct sectors.
 The decision *whether* to coalesce a group is the same flop/launch crossover the
 R/A/B/C cost model quantifies, applied to the data structure instead of to
 placement.
@@ -53,12 +53,10 @@ along `k` → one wider-`K` GEMM). You may take one or the other, not both at on
 
 A logical block is an `mdspan<T, extents, layout_stride>` with its `(offset,
 strides)` into a shared buffer; a coalesced operand is a wider view over the same
-buffer with the group's leading dimension. The same bytes are simultaneously "N
-individual blocks" (carrying sector identity, so symmetry is preserved) and "one
-matrix" (handed to a single GEMM). Coalescing therefore never produces a dense
-blob the tensor type can see — it satisfies the no-drop-symmetry rule in
-`block_sparse_tensor.md` by construction. After the GEMM, results scatter back to
-the correct sectors through the same per-block views.
+buffer with the group's leading dimension. The same bytes are simultaneously
+individual block views carrying sector identity and one wider matrix view handed
+to GEMM. After the GEMM, the per-block views associate each result region with
+the correct sector.
 
 ## Interleaved vs contiguous — the real tradeoff is a copy
 

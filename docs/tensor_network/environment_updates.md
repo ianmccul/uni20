@@ -17,8 +17,8 @@ key = (bra bond, MPO auxiliary, ket bond)
 
 Its stored dense block is a matrix whose axes are `(bra bond multiplicity,
 ket bond multiplicity)`. A legal but unstored block is zero. Environment
-updates never construct a symmetry-erasing dense representation of the whole
-MPS, MPO, or environment.
+updates join stored MPS, MPO, and environment keys and allocate only the
+reachable result blocks.
 
 ## Identity Boundaries
 

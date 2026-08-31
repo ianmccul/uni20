@@ -25,6 +25,9 @@ Current entry points:
 - `two_site_effective_hamiltonian.hpp`: output-first local and MPO/environment
   two-site apply objects; the planned MPO path accepts descriptor-backed center
   and environment blocks.
+- [`backends/`](backends/): operation-specific tensor-network executors that
+  bind logical plans to contraction order, intermediate storage, and nested
+  dense-kernel dispatch.
 
 Concrete physical-model constructors live one layer above this module in
 `models/`; they return these ordinary finite-chain owners rather than defining

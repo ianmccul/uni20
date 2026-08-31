@@ -8,10 +8,10 @@ symmetry-aware block-sparse Tensor path.
 - [Quantum Numbers and Symmetry](qnum.md) describes `Symmetry`, `QNum`,
   `QNumList`, and `BlockSpace`.
 - [Bosonic Abelian BlockTensor Prototype](block_tensor_prototype.md) describes
-  the implemented order-zero through order-four sparse slice, its independent
-  key-coordinate and dense-axis model, zero-copy permutation and bending, the
-  first adjacent pairwise contraction, its structure-preserving linear
-  operations, and the remaining host-only prototype contract.
+  the implemented key-coordinate and dense-axis model, sparse and complete
+  block patterns, host and packed CUDA storage, mapped permutation and
+  repartition views, linear operations, generalized adjacent contraction,
+  diagonal storage, and staged per-charge SVD and truncation.
 
 ## Active Design
 
@@ -27,12 +27,10 @@ symmetry-aware block-sparse Tensor path.
 - [Raw Primitives and Symmetric Lowering](raw_primitives_and_lowering.md)
   identifies the primitive operations needed below symmetry-aware algorithms.
 
-The current `BlockTensor` implementation is only the initial sparse host slice;
-complete storage, the full numerical operation surface, asynchronous or device
-block SVD, and the DMRG path remain to be implemented. The immediate host path
-includes staged per-charge block SVD with independent selection and
-materialization. Loss of symmetry metadata remains a correctness error, not an
-acceptable fallback.
+The implemented bosonic Abelian path now supports host and single-device CUDA
+execution, including matrix-free Krylov operations and finite U(1) two-site
+DMRG. Broader symmetry categories, multi-device and MPI-distributed block
+placement, and wider specialized operation coverage remain active work.
 
 ## Source Navigation
 

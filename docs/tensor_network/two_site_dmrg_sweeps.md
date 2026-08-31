@@ -29,8 +29,8 @@ auto steps = sweep_two_site_dmrg(
 ```
 
 Every Krylov vector, effective-Hamiltonian operand, SVD factor, and installed
-site remains a symmetry-aware `BlockTensor`. No whole-chain or whole-center
-dense projection is used.
+site remains a symmetry-aware `BlockTensor`; its boundary spaces and stored
+block keys determine the contraction and decomposition worklists.
 
 For repeated alternating sweeps:
 

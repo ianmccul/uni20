@@ -21,8 +21,8 @@ TwoSiteCenter BlockTensor
 ```
 
 Every Krylov vector and SVD factor retains its U(1) boundary spaces and stored
-block keys. The path never projects the center or Hamiltonian into a dense
-symmetry-free matrix.
+block keys. The effective Hamiltonian is applied through stored-block worklists
+and dense leaf kernels.
 
 ## Canonical Types
 

@@ -8,8 +8,8 @@ Uni20 is a C++23 tensor-network research library built around three ideas:
    epochs and coroutines managing lifetime, dependency order, and suspension;
 2. each numerical backend should either perform an operation or cleanly
    decline, leaving ordered kernel dispatch to select the next implementation;
-3. symmetry and storage metadata are part of the mathematical object and must
-   survive every lowering step.
+3. symmetry and storage metadata remain attached to tensor objects and organize
+   block selection, backend lowering, and placement.
 
 The project is still in active design and does not promise a stable public API.
 It now has several connected vertical slices, however, rather than only
@@ -95,8 +95,8 @@ Backend operation entry points see normalized mdspecs, and their leaf kernels
 see mdspans resolved under the appropriate execution-domain leases rather than
 Tensor or Async objects.
 
-The finite DMRG path composes those lower layers without flattening its U(1)
-structure:
+The finite DMRG path composes those lower layers through its explicit U(1)
+sector structure:
 
 ```text
 finite MPS, MPO, and directional environment cache
@@ -140,8 +140,8 @@ testable integration slices:
   capabilities, scoped process-wide initialization, and per-device resource
   smoke checks.
 - `block_tensor_example`, `block_tensor_product_state_example`, and
-  `block_tensor_aklt_example`: construction and contraction of symmetry-aware
-  tensors without dense projection.
+  `block_tensor_aklt_example`: construction and contraction organized by
+  conserved-charge sectors.
 - `block_tensor_svd_truncation_example` and
   `block_tensor_svd_nullspace_example`: staged sector-preserving decomposition,
   selection, and independent materialization of kept or null-space factors.
@@ -163,8 +163,8 @@ a complete tensor-network application suite. In particular:
 - Async wrappers are added operation by operation because output construction,
   mutation, consumption, and multi-output failure routing have different
   contracts.
-- There is no implicit host fallback for future device tensors and no implicit
-  dense fallback for symmetry-aware tensors.
+- Host/device movement is explicit, while symmetry-aware backend lowering
+  carries tensor spaces and block keys into its operation worklists.
 - Python validates only the extension and build-information boundary today.
 - The pure-Uni20 U(1) finite two-site DMRG path is implemented for host and
   single-device resident-CUDA execution. Multi-GPU placement, MPI-distributed

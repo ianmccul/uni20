@@ -39,9 +39,9 @@ Domain<left bond, left physical>
     -> Codomain<right bond, Dual<right physical>>
 ```
 
-and passes that view to `block_svd()`. No whole-tensor dense or
-symmetry-erasing projection is introduced. As in `block_svd`, one assembled
-dense matrix is factorized independently per conserved charge.
+and passes that view to `block_svd()`. The decomposition assembles and
+factorizes one dense matrix independently per conserved charge, then
+materializes the selected factors with their charge and boundary metadata.
 
 ## Factor Orientation
 

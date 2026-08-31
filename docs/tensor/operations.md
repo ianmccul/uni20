@@ -5,9 +5,9 @@ operation model. This page records behavior that exists in the codebase and
 separately identifies operations that do not yet have an Async wrapper.
 
 This guide covers local dense tensors, tensor-level views, and their lowering
-to dense kernels. Symmetry-aware `BlockTensor` operations have additional
-metadata and selection-rule contracts and must not use an implicit dense
-fallback.
+to dense kernels. Symmetry-aware `BlockTensor` operations resolve sector
+selection and block structure first, then lower their dense leaves through the
+same operation surface.
 
 The distinction between C++ scalar results, rank-zero Tensor results, and
 future storage migration is specified in
@@ -671,8 +671,6 @@ The following are intentionally not implied by the current API:
 - no general concrete synchronous `TensorRef` slice proxy
 - no subrange epoch tracking; async aliases conservatively share a whole parent
   queue
-- no implicit dense fallback for symmetry-aware tensors
-
 These are implementation targets, not compatibility promises. New work should
 preserve the semantic categories in this document while choosing the clearest
 API for the operation.
