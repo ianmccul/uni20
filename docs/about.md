@@ -4,8 +4,10 @@
 
 Uni20 is a C++23 tensor-network research library built around three ideas:
 
-1. tensor operations should lower through explicit, inspectable backend kernels;
-2. asynchronous execution should preserve data lifetime and dependency order;
+1. an algorithm written over `T` should lift naturally to `Async<T>`, with
+   epochs and coroutines managing lifetime, dependency order, and suspension;
+2. each numerical backend should either perform an operation or cleanly
+   decline, leaving ordered kernel dispatch to select the next implementation;
 3. symmetry and storage metadata are part of the mathematical object and must
    survive every lowering step.
 
