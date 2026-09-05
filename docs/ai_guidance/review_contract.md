@@ -108,6 +108,14 @@ unconstructible storage, model-invalid metadata, or violation of an established
 precondition are contract questions rather than correctness defects. Do not
 request hot-path guards solely for such states.
 
+When recommending a permanent runtime check, identify the boundary at which the
+relevant invariant should be established. Prefer validation at that boundary
+over downstream checks whose failure merely demonstrates that an earlier
+invariant has already been violated. Downstream assertions may still be useful
+as targeted invariant diagnostics, but should not introduce new
+normal-operation failure modes unless the invalid state is independently
+reachable there.
+
 This rule does not excuse overflow in parsers, serialized or otherwise
 untrusted metadata, provider integer lowering, allocation planning, or
 arithmetic reached by ordinary valid inputs.

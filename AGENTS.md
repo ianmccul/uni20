@@ -91,6 +91,12 @@ pre-populate the CMake FetchContent sources instead.
   or arithmetic reached by ordinary valid inputs. A credible overflow finding
   should identify the exact operation and explain why earlier validation does
   not reject its operands.
+* Place permanent runtime checks at the boundary where an invariant is
+  established or untrusted state enters. If failure of a downstream check
+  necessarily implies that an earlier established invariant has already been
+  violated, prefer fixing or validating that earlier boundary; use downstream
+  checks only when they provide justified invariant diagnostics, not as new
+  normal-operation failure modes.
 * See `docs/development/agent_assisted_development.md` and
   `docs/development/code_review.md` for the current workflow and review
   guidance.
