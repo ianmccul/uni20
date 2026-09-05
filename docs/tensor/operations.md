@@ -449,6 +449,12 @@ dispatch and the selected backend acquires the execution-domain leases.
 Whether a backend implementation exists for a particular storage domain is a
 separate kernel-acceptance question.
 
+Async `gemm`, `assign_product`, and `add_product` accept mutable owner-retaining
+aliases as outputs. They write through the bound view without resizing or
+rebinding it. The view must already have the product shape, its layout and
+accessor must be supported by the selected backend, and its epoch queue must
+be distinct from both input queues.
+
 The fixed-output `contract`, `gemm`, and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
@@ -479,8 +485,9 @@ The `assign_product_op` adapter supplies zero in the representation required by
 that backend; `gemm_op` forwards the caller's `beta`. Shape and storage
 preparation occur in the `assign_product_op` backend adapter, where the backend
 has enough information to state its storage requirements. The synchronous form
-receives a concrete Tensor output. The async form receives the output's
-potentially unconstructed `shared_storage<Tensor>`.
+receives a concrete Tensor output. The async form receives an independent
+output's potentially unconstructed `shared_storage<Tensor>`, or a local copy
+of a mutable alias's fixed bound view while its writer retains the parent epoch.
 
 The frontends select their backend lists while tensor policy is still
 available, then normalize fixed operands exactly once before dispatch.

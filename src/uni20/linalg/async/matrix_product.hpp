@@ -11,6 +11,7 @@
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/async/concepts.hpp>
+#include <uni20/linalg/async/detail/output.hpp>
 #include <uni20/linalg/async/dispatch.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
 #include <uni20/tensor/output.hpp>
@@ -38,15 +39,14 @@ void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& ou
            "async matrix product output must not share an epoch queue with an input");
 }
 
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+template <class BackendSelector, uni20::AsyncTensorOutput OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter>
 async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
                                    async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
                                    AlphaAwaiter alpha)
 {
-  auto output_storage = output.storage();
-  auto awaited = co_await async::all(output_storage, lhs, rhs, alpha);
-  auto& storage = std::get<0>(awaited);
+  auto output_awaiter = uni20::detail::mutable_async_tensor_awaiter(output);
+  auto awaited = co_await async::all(output_awaiter, lhs, rhs, alpha);
   auto const& lhs_value = std::get<1>(awaited);
   auto const& rhs_value = std::get<2>(awaited);
   auto const& alpha_value = std::get<3>(awaited);
@@ -55,38 +55,47 @@ async::AsyncTask co_assign_product(BackendSelector const selector, async::WriteB
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
   auto lhs_descriptor = uni20::mdspec_of(lhs_value);
   auto rhs_descriptor = uni20::mdspec_of(rhs_value);
-  co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_descriptor, rhs_descriptor);
+  if constexpr (async::is_async_alias_v<OutputTensor>)
+  {
+    auto output_value = uni20::detail::mutable_async_tensor_value<OutputTensor>(std::get<0>(awaited));
+    co_await co_dispatch_kernel(selector, assign_product_op{}, output_value, alpha_scalar, lhs_descriptor,
+                                rhs_descriptor);
+  }
+  else
+  {
+    auto& storage = std::get<0>(awaited);
+    co_await co_dispatch_kernel(selector, assign_product_op{}, storage, alpha_scalar, lhs_descriptor, rhs_descriptor);
+  }
   co_return;
 }
 
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+template <class BackendSelector, uni20::AsyncTensorOutput OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter, class BetaAwaiter>
 async::AsyncTask co_gemm(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
                          async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
                          BetaAwaiter beta)
 {
-  auto output_storage = output.storage();
-  auto awaited = co_await async::all(output_storage, lhs, rhs, alpha, beta);
-  auto& storage = std::get<0>(awaited);
+  auto output_awaiter = uni20::detail::mutable_async_tensor_awaiter(output);
+  auto awaited = co_await async::all(output_awaiter, lhs, rhs, alpha, beta);
+  decltype(auto) output_value = uni20::detail::mutable_async_tensor_value<OutputTensor>(std::get<0>(awaited));
   auto const& lhs_value = std::get<1>(awaited);
   auto const& rhs_value = std::get<2>(awaited);
   auto const& alpha_value = std::get<3>(awaited);
   auto const& beta_value = std::get<4>(awaited);
 
-  if (!storage.constructed()) throw async::buffer_write_uninitialized{};
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  uni20::require_output(*storage, shape);
+  uni20::require_output(output_value, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
   scalar_type const beta_scalar = static_cast<scalar_type>(beta_value);
-  auto output_span = uni20::mdspec_of(*storage);
+  auto output_span = uni20::mdspec_of(output_value);
   auto lhs_span = uni20::mdspec_of(lhs_value);
   auto rhs_span = uni20::mdspec_of(rhs_value);
   co_await co_dispatch_kernel(selector, gemm_op{}, output_span, alpha_scalar, lhs_span, rhs_span, beta_scalar);
   co_return;
 }
 
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+template <class BackendSelector, uni20::AsyncTensorOutput OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter>
 void schedule_async_assign_product(BackendSelector selector, async::Async<OutputTensor>& output,
                                    async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs,
@@ -98,7 +107,7 @@ void schedule_async_assign_product(BackendSelector selector, async::Async<Output
   async::schedule(std::move(task));
 }
 
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+template <class BackendSelector, uni20::AsyncTensorOutput OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter, class BetaAwaiter>
 void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& output,
                          async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs, AlphaAwaiter alpha,
@@ -115,11 +124,14 @@ void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& o
 /// \details Computes `output = alpha * lhs * rhs + beta * output`. Every
 ///          Tensor operand is asynchronous. `alpha` and `beta` may be immediate
 ///          values or async readers yielding compatible scalars.
+///          Mutable aliases write through their bound view; layout and accessor
+///          support is determined by the selected backend.
 /// \pre The output is constructed with the matrix-product shape and does not
 ///      share an epoch queue with either input.
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
            AsyncOperationScalar<Beta, uni20::tensor_element_t<OutputTensor>>
 void gemm(BackendSelector selector, async::Async<OutputTensor>& output, Alpha&& alpha,
@@ -132,7 +144,8 @@ void gemm(BackendSelector selector, async::Async<OutputTensor>& output, Alpha&& 
 /// \brief Schedule fixed-output GEMM using the static Tensor selector.
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
            AsyncOperationScalar<Beta, uni20::tensor_element_t<OutputTensor>>
 void gemm(async::Async<OutputTensor>& output, Alpha&& alpha, async::Async<LhsTensor> const& lhs,
@@ -148,10 +161,13 @@ void gemm(async::Async<OutputTensor>& output, Alpha&& alpha, async::Async<LhsTen
 ///          normalizes both forms into an awaiter retained by the coroutine.
 ///          An unconstructed output is initialized when its Tensor type can be
 ///          constructed from its extents.
+///          Mutable aliases keep their binding and must already have the product
+///          shape and a layout supported by the selected backend.
 /// \pre The output must not share an epoch queue with either input.
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -166,7 +182,8 @@ void assign_product(BackendSelector selector, async::Async<OutputTensor>& output
 /// \pre The output must not share an epoch queue with either input.
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -183,7 +200,8 @@ void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> 
 /// \pre The output must not share an epoch queue with either input.
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -198,7 +216,8 @@ void add_product(BackendSelector selector, async::Async<OutputTensor>& output, a
 /// \pre The output must not share an epoch queue with either input.
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
-  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+  requires uni20::AsyncTensorOutput<OutputTensor> &&
+           detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
            AsyncOperationScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})

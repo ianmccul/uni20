@@ -178,12 +178,19 @@ for `Async<Tensor>`.
   constructs or resizes the output.
 - Its backend dispatch uses `gemm_op`; a numerically zero `beta` does not change
   the fixed-output contract.
+- Mutable async aliases are valid outputs when their shape, layout, and accessor
+  satisfy the selected backend. The coroutine holds the alias writer and copies
+  its bound descriptor locally, preserving the parent allocation and binding.
 
 `assign_product` is an overwrite operation:
 
 - Its backend dispatch uses `assign_product_op`, which has no `beta` argument.
-- The async front end passes the output's `shared_storage<Tensor>` to dispatch,
-  so an unconstructed output remains representable at the backend boundary.
+- For independent values, the async front end passes the output's
+  `shared_storage<Tensor>` to dispatch, so an unconstructed output remains
+  representable at the backend boundary.
+- For mutable aliases, it passes a local copy of the bound view to the same
+  `assign_product_op` dispatch while retaining the writer. The view remains
+  fixed in shape and binding; backend layout and accessor requirements still apply.
 - The selected backend determines the required shape and any storage placement
   requirement, then retains, resizes, constructs, or replaces the output when
   its Tensor type supports that preparation.

@@ -1,8 +1,11 @@
 #include <uni20/async/debug_scheduler.hpp>
+#include <uni20/core/numeric_limits.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/async.hpp>
 #include <uni20/tensor/async.hpp>
 #include <uni20/tensor/tensor.hpp>
+
+#include "deferred_host_tensor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -57,6 +60,15 @@ static_assert(!CanAddProduct<async_matrix_type, async_matrix_type, matrix_type>)
 static_assert(!CanGemm<matrix_type, async_matrix_type, async_matrix_type, double, double>);
 static_assert(!CanGemm<async_matrix_type, matrix_type, async_matrix_type, double, double>);
 static_assert(!CanGemm<async_matrix_type, async_matrix_type, matrix_type, double, double>);
+
+using async_alias_type = decltype(uni20::async::reshape_view(std::declval<async_matrix_type&>(), 2, 2));
+using async_const_alias_type = decltype(uni20::async::reshape_view(std::declval<async_matrix_type const&>(), 2, 2));
+static_assert(CanGemm<async_alias_type, async_matrix_type, async_matrix_type, double, double>);
+static_assert(CanAssignProduct<async_alias_type, async_matrix_type, async_matrix_type>);
+static_assert(CanAddProduct<async_alias_type, async_matrix_type, async_matrix_type>);
+static_assert(!CanGemm<async_const_alias_type, async_matrix_type, async_matrix_type, double, double>);
+static_assert(!CanAssignProduct<async_const_alias_type, async_matrix_type, async_matrix_type>);
+static_assert(!CanAddProduct<async_const_alias_type, async_matrix_type, async_matrix_type>);
 
 template <class Matrix>
 Matrix make_matrix(uni20::index_type rows, uni20::index_type cols,
@@ -289,4 +301,136 @@ TEST(AsyncMatrixProductTest, GemmRequiresConstructedOutput)
   scheduler.run_all();
 
   EXPECT_THROW((void)output.get_wait(scheduler), uni20::async::buffer_write_uninitialized);
+}
+
+TEST(AsyncMatrixProductTest, AssignProductWritesThroughAliasAndRetainsPendingParent)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(2, 3, {1, 2, 3, 4, 5, 6});
+  async_matrix_type rhs = make_matrix<matrix_type>(3, 2, {7, 8, 9, 10, 11, 12});
+  double const* original_data = nullptr;
+
+  auto output = [&] {
+    double const nan = uni20::numeric_limits<double>::quiet_NaN();
+    auto value = make_matrix<matrix_type>(1, 4, {nan, nan, nan, nan});
+    original_data = value.mdspan().data_handle();
+    async_matrix_type parent;
+    uni20::async::schedule(co_produce_value(parent.write(), std::move(value)));
+    auto alias = uni20::async::reshape_view(parent, 2, 2);
+    uni20::linalg::assign_product(uni20::linalg::CpuReferenceBackend{}, alias, lhs, rhs);
+    return alias;
+  }();
+
+  auto const& result = output.get_wait(scheduler);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 64.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 139.0);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 154.0);
+  EXPECT_EQ(result.base().extent(0), 1);
+  EXPECT_EQ(result.base().extent(1), 4);
+  EXPECT_EQ(result.base().mdspan().data_handle(), original_data);
+}
+
+#if UNI20_BACKEND_BLAS
+TEST(AsyncMatrixProductTest, BlasGemmWritesThroughRowMajorComplexAlias)
+{
+  using scalar_type = uni20::complex<double>;
+  using row_matrix_type = uni20::DenseMatrix<scalar_type, uni20::RowMajor>;
+  using async_row_matrix_type = uni20::async::Async<row_matrix_type>;
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_row_matrix_type lhs = make_matrix<row_matrix_type>(2, 2, {{1, 1}, {2}, {3}, {4, -1}});
+  async_row_matrix_type rhs = make_matrix<row_matrix_type>(2, 2, {{5}, {6}, {7}, {8}});
+  async_row_matrix_type parent = make_matrix<row_matrix_type>(2, 2, {{10}, {20}, {30}, {40}});
+  auto output = uni20::async::reshape_view(parent, 2, 2);
+  uni20::async::Async<scalar_type> alpha;
+  uni20::async::Async<scalar_type> beta;
+  uni20::async::schedule(co_produce_value(alpha.write(), scalar_type{0.5}));
+  uni20::async::schedule(co_produce_value(beta.write(), scalar_type{2}));
+
+  uni20::linalg::gemm(uni20::linalg::BlasBackend{}, output, alpha, lhs, rhs, beta);
+
+  auto const& result = parent.get_wait(scheduler);
+  EXPECT_EQ((result[0, 0]), scalar_type(29.5, 2.5));
+  EXPECT_EQ((result[0, 1]), scalar_type(51.0, 3.0));
+  EXPECT_EQ((result[1, 0]), scalar_type(81.5, -3.5));
+  EXPECT_EQ((result[1, 1]), scalar_type(105.0, -4.0));
+}
+#endif
+
+TEST(AsyncMatrixProductTest, AddProductWritesThroughNestedAliasAndOrdersParentReaders)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(2, 2, {1, 2, 3, 4});
+  async_matrix_type rhs = make_matrix<matrix_type>(2, 2, {5, 6, 7, 8});
+  async_matrix_type parent = make_matrix<matrix_type>(2, 2, {10, 20, 30, 40});
+  auto before = uni20::sum_host(parent);
+  {
+    auto flat = uni20::async::reshape_view(parent, 4);
+    auto output = uni20::async::reshape_view(flat, 2, 2);
+    uni20::linalg::add_product(output, lhs, rhs, 0.5);
+  }
+  auto after = uni20::sum_host(parent);
+
+  EXPECT_DOUBLE_EQ(before.get_wait(scheduler), 100.0);
+  EXPECT_DOUBLE_EQ(after.get_wait(scheduler), 167.0);
+  auto const& result = parent.get_wait(scheduler);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 19.5);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 31.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 51.5);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 65.0);
+}
+
+TEST(AsyncMatrixProductTest, MatrixProductsAcceptDeferredMutableAliasOutput)
+{
+  using deferred_matrix_type = uni20::test::DeferredHostTensor<double, 2>;
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(2, 3, {1, 2, 3, 4, 5, 6});
+  async_matrix_type rhs = make_matrix<matrix_type>(3, 2, {7, 8, 9, 10, 11, 12});
+  uni20::async::Async<deferred_matrix_type> parent = deferred_matrix_type(2, 2);
+  auto output = uni20::async::reshape_view(parent, 2, 2);
+
+  uni20::linalg::assign_product(output, lhs, rhs, 0.5);
+  uni20::linalg::gemm(output, 0.5, lhs, rhs, 1.0);
+
+  auto lease = uni20::test::acquire_host_read_access_sync(parent.get_wait(scheduler));
+  auto result = lease.mdspan();
+  EXPECT_DOUBLE_EQ((result[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 64.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 139.0);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 154.0);
+}
+
+TEST(AsyncMatrixProductTest, AliasOutputShapeFailureReachesParentEpoch)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(2, 2, {1, 2, 3, 4});
+  async_matrix_type rhs = make_matrix<matrix_type>(2, 2, {5, 6, 7, 8});
+  async_matrix_type parent = make_matrix<matrix_type>(2, 2, {10, 20, 30, 40});
+  auto output = uni20::async::reshape_view(parent, 4, 1);
+  ErrorModeGuard const error_mode;
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+
+  EXPECT_THROW((void)output.get_wait(scheduler), std::runtime_error);
+  EXPECT_THROW((void)parent.get_wait(scheduler), std::runtime_error);
+}
+
+TEST(AsyncMatrixProductTest, RejectsMutableOutputAliasOfInputBeforeEnrollment)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type parent = make_matrix<matrix_type>(2, 2, {1, 2, 3, 4});
+  async_matrix_type rhs = make_matrix<matrix_type>(2, 2, {5, 6, 7, 8});
+  auto output = uni20::async::reshape_view(parent, 2, 2);
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(uni20::linalg::assign_product(output, parent, rhs), std::runtime_error);
+  EXPECT_THROW(uni20::linalg::gemm(output, 1.0, parent, rhs, 0.0), std::runtime_error);
+  EXPECT_THROW(uni20::linalg::add_product(output, parent, rhs), std::runtime_error);
+  EXPECT_DOUBLE_EQ((parent.get_wait(scheduler)[0, 0]), 1.0);
 }
